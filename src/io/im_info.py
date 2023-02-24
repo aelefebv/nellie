@@ -1,3 +1,5 @@
+import os
+
 import tifffile
 from src.utils.base_logger import logger
 
@@ -31,7 +33,9 @@ class ImInfo:
         self.im_path = im_path
         self.ch = ch
         self.dim_sizes = dim_sizes
-
+        self.extension = self.im_path.split('.')[-1]
+        self.filename = self.im_path.split(os.sep)[-1].split('.'+self.extension)[0]
+        self.dirname = self.im_path.split(os.sep)[-2]
         try:
             with tifffile.TiffFile(self.im_path) as tif:
                 self.metadata = tif.imagej_metadata
@@ -47,7 +51,9 @@ class ImInfo:
             try:
                 self.dim_sizes = {}
                 if 'physicalsizex' in self.metadata:
-                    self.dim_sizes['xy'] = self.metadata['physicalsizex']
+                    self.dim_sizes['x'] = self.metadata['physicalsizex']
+                if 'physicalsizey' in self.metadata:
+                    self.dim_sizes['y'] = self.metadata['physicalsizey']
                 if 'spacing' in self.metadata:
                     self.dim_sizes['z'] = self.metadata['spacing']
                 if 'finterval' in self.metadata:
@@ -58,3 +64,8 @@ class ImInfo:
                 self.axes = None
                 self.shape = None
                 self.dim_sizes = {}
+
+
+if __name__ == "__main__":
+    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
+    test = ImInfo(filepath)
