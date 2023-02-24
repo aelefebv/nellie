@@ -18,6 +18,8 @@ class TestImInfo(unittest.TestCase):
 
             # Create an ImInfo object for the temporary TIFF file
             im_info = ImInfo(tmp_file.name)
+            print(tmp_file.name)
+            print(im_info.output_dirpath)
 
             # Check that the object attributes were set correctly
             self.assertEqual(im_info.im_path, tmp_file.name)
@@ -31,16 +33,14 @@ class TestImInfo(unittest.TestCase):
             self.assertEqual(im_info.filename, os.path.splitext(os.path.basename(tmp_file.name))[0])
             self.assertEqual(im_info.dirname, os.path.basename(os.path.dirname(tmp_file.name)))
 
-            # Call create_output_dirs with a temporary output directory
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                output_dir = os.path.join(tmp_dir, "output")
-                im_info.create_output_dirs(tmp_dir)
-
-                # Check that the output directories were created correctly
-                self.assertTrue(os.path.exists(output_dir))
-                self.assertTrue(os.path.exists(os.path.join(output_dir, "images")))
-                self.assertTrue(os.path.exists(os.path.join(output_dir, "pickles")))
-                self.assertTrue(os.path.exists(os.path.join(output_dir, "csv")))
+            # Call create_output_dirs
+            output_dir = os.path.join(im_info.input_dirpath, "output")
+            print(output_dir)
+            # Check that the output directories were created correctly
+            self.assertTrue(os.path.exists(output_dir))
+            self.assertTrue(os.path.exists(os.path.join(output_dir, "images")))
+            self.assertTrue(os.path.exists(os.path.join(output_dir, "pickles")))
+            self.assertTrue(os.path.exists(os.path.join(output_dir, "csv")))
 
         # Delete the temporary file
         os.remove(tmp_file.name)

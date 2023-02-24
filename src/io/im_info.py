@@ -10,6 +10,7 @@ class ImInfo:
 
     Attributes:
         im_path (str): Path to the input TIFF file.
+        output_dirpath (str, optional): Path to the output top directory. im_path if none given.
         ch (int, optional): Channel index for multi-channel TIFF files.
         dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
 
@@ -18,12 +19,13 @@ class ImInfo:
         >>> im_info = ImInfo(im_path)
 
     """
-    def __init__(self, im_path: str, ch: int = None, dim_sizes: dict = None):
+    def __init__(self, im_path: str, output_dirpath: str = None, ch: int = None, dim_sizes: dict = None):
         """
         Initialize an ImInfo object for a TIFF file.
 
         Args:
             im_path (str): Path to the input TIFF file.
+            output_dirpath (str, optional): Path to the output top directory. im_path if none given.
             ch (int, optional): Channel index for multi-channel TIFF files.
             dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
 
@@ -72,8 +74,9 @@ class ImInfo:
                 self.axes = None
                 self.shape = None
                 self.dim_sizes = {}
+        self._create_output_dirs(output_dirpath)
 
-    def create_output_dirs(self, output_dirpath=None):
+    def _create_output_dirs(self, output_dirpath=None):
         """Create output directories for a given file path if they don't exist.
         Specifically, creates output subdirectories for output images, pickle files, and csv files.
 
@@ -98,4 +101,3 @@ class ImInfo:
 if __name__ == "__main__":
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
     test = ImInfo(filepath)
-    test.create_output_dirs()
