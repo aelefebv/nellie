@@ -30,12 +30,20 @@ class ImInfo:
         Returns:
             None.
         """
+        self.output_csv_path = None
+        self.output_pickles_dirpath = None
+        self.output_images_dirpath = None
+        self.output_dirpath = None
         self.im_path = im_path
         self.ch = ch
         self.dim_sizes = dim_sizes
         self.extension = self.im_path.split('.')[-1]
         self.filename = self.im_path.split(os.sep)[-1].split('.'+self.extension)[0]
-        self.dirname = self.im_path.split(os.sep)[-2]
+        try:
+            self.dirname = self.im_path.split(os.sep)[-2]
+        except IndexError:
+            self.dirname = ''
+        self.input_dirpath = self.im_path.split(os.sep+self.filename)[0]
         try:
             with tifffile.TiffFile(self.im_path) as tif:
                 self.metadata = tif.imagej_metadata
@@ -65,7 +73,29 @@ class ImInfo:
                 self.shape = None
                 self.dim_sizes = {}
 
+    def create_output_dirs(self, output_dirpath=None):
+        """Create output directories for a given file path if they don't exist.
+        Specifically, creates output subdirectories for output images, pickle files, and csv files.
+
+        Args:
+            output_dirpath (str): The path to the directory where "output_dirpath/output" directory will be added to.
+            The "output_dirpath/output" directory will be created if it doesn't exist.
+
+        Returns:
+            None
+        """
+        if output_dirpath is None:
+            output_dirpath = self.input_dirpath
+        self.output_dirpath = os.path.join(output_dirpath, 'output')
+        self.output_images_dirpath = os.path.join(self.output_dirpath, 'images')
+        self.output_pickles_dirpath = os.path.join(self.output_dirpath, 'pickles')
+        self.output_csv_path = os.path.join(self.output_dirpath, 'csv')
+        dirs_to_make = [self.output_images_dirpath, self.output_pickles_dirpath, self.output_csv_path]
+        for dir_to_make in dirs_to_make:
+            os.makedirs(dir_to_make, exist_ok=True)
+
 
 if __name__ == "__main__":
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
     test = ImInfo(filepath)
+    test.create_output_dirs()

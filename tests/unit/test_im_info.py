@@ -5,6 +5,7 @@ import unittest
 import tifffile
 from src.io.im_info import ImInfo
 
+
 class TestImInfo(unittest.TestCase):
 
     def test_im_info(self):
@@ -30,8 +31,20 @@ class TestImInfo(unittest.TestCase):
             self.assertEqual(im_info.filename, os.path.splitext(os.path.basename(tmp_file.name))[0])
             self.assertEqual(im_info.dirname, os.path.basename(os.path.dirname(tmp_file.name)))
 
+            # Call create_output_dirs with a temporary output directory
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                output_dir = os.path.join(tmp_dir, "output")
+                im_info.create_output_dirs(tmp_dir)
+
+                # Check that the output directories were created correctly
+                self.assertTrue(os.path.exists(output_dir))
+                self.assertTrue(os.path.exists(os.path.join(output_dir, "images")))
+                self.assertTrue(os.path.exists(os.path.join(output_dir, "pickles")))
+                self.assertTrue(os.path.exists(os.path.join(output_dir, "csv")))
+
         # Delete the temporary file
         os.remove(tmp_file.name)
+
 
 if __name__ == '__main__':
     unittest.main()
