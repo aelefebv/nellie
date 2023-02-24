@@ -12,7 +12,7 @@ class ImInfo:
         dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
 
     Examples:
-        >>> im_path = "/path/to/your/file.tif"
+        >>> im_path = "../../data/test_5d.tif"
         >>> im_info = ImInfo(im_path)
 
     """
@@ -41,8 +41,10 @@ class ImInfo:
             logger.error(f"Error loading file {self.im_path}: {str(e)}")
             exit(1)
 
-        try:
-            if self.dim_sizes is None:
+        if self.dim_sizes is not None:
+            self.dim_sizes = dim_sizes
+        else:
+            try:
                 self.dim_sizes = {}
                 if 'physicalsizex' in self.metadata:
                     self.dim_sizes['xy'] = self.metadata['physicalsizex']
@@ -50,11 +52,9 @@ class ImInfo:
                     self.dim_sizes['z'] = self.metadata['spacing']
                 if 'finterval' in self.metadata:
                     self.dim_sizes['t'] = self.metadata['finterval']
-            else:
-                self.dim_sizes = dim_sizes
-        except Exception as e:
-            logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
-            self.metadata = {}
-            self.axes = None
-            self.shape = None
-            self.dim_sizes = {}
+            except Exception as e:
+                logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
+                self.metadata = {}
+                self.axes = None
+                self.shape = None
+                self.dim_sizes = {}

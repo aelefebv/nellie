@@ -11,9 +11,9 @@ class TestImInfo(unittest.TestCase):
     def test_im_info(self):
         # Create a temporary file and write example TIFF data with metadata to it
         with tempfile.NamedTemporaryFile(suffix='.tif', delete=False) as tmp_file:
-            data = np.zeros((3, 10, 10), dtype=np.uint16)
+            data = np.zeros((3, 3, 3, 3, 3), dtype=np.uint8)
             tifffile.imwrite(tmp_file.name, data, imagej=True,
-                             metadata={'axes': 'TYX', 'physicalsizex': 0.1, 'physicalsizey': 0.1,
+                             metadata={'axes': 'TZCYX', 'physicalsizex': 0.1, 'physicalsizey': 0.1,
                                        'spacing': 0.5, 'finterval': 0.1})
 
             # Create an ImInfo object for the temporary TIFF file
