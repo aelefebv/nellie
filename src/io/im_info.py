@@ -2,6 +2,7 @@ import os
 
 import tifffile
 from src.utils.base_logger import logger
+import numpy as np
 
 
 class ImInfo:
@@ -13,13 +14,8 @@ class ImInfo:
         output_dirpath (str, optional): Path to the output top directory. im_path if none given.
         ch (int, optional): Channel index for multi-channel TIFF files.
         dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
-
-    Examples:
-        >>> im_path = "../../data/test_5d.tif"
-        >>> im_info = ImInfo(im_path)
-
     """
-    def __init__(self, im_path: str, output_dirpath: str = None, ch: int = None, dim_sizes: dict = None):
+    def __init__(self, im_path: str, output_dirpath: str = None, ch: int = 0, dim_sizes: dict = None):
         """
         Initialize an ImInfo object for a TIFF file.
 
@@ -36,12 +32,13 @@ class ImInfo:
         self.ch = ch
         self.dim_sizes = dim_sizes
         self.extension = self.im_path.split('.')[-1]
-        self.filename = self.im_path.split(os.sep)[-1].split('.'+self.extension)[0]
+        self.sep = os.sep if os.sep in self.im_path else '/'
+        self.filename = self.im_path.split(self.sep)[-1].split('.'+self.extension)[0]
         try:
-            self.dirname = self.im_path.split(os.sep)[-2]
+            self.dirname = self.im_path.split(self.sep)[-2]
         except IndexError:
             self.dirname = ''
-        self.input_dirpath = self.im_path.split(os.sep+self.filename)[0]
+        self.input_dirpath = self.im_path.split(self.sep+self.filename)[0]
         self._get_metadata()
         if self.dim_sizes is not None:
             self.dim_sizes = dim_sizes
@@ -139,7 +136,29 @@ class ImInfo:
         self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'seg-{self.filename}.pkl')
         self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'track-{self.filename}.pkl')
 
+    def get_im_memmap(self, path_im: str):
+        """
+        Loads an image from a TIFF file located at `path_im` using the `tifffile.memmap` function,
+        and returns a memory-mapped array of the image data.
+
+        If the `C` axis is present in the image and the image shape matches the number of dimensions specified in
+        `self.axes`, only the channel specified in `self.ch` will be returned, otherwise the entire image will be
+        returned.
+
+        Args:
+            path_im (str): The path to the TIFF file containing the image to load.
+
+        Returns:
+            np.ndarray: A memory-mapped array of the image data, with shape and data type determined by the file.
+        """
+        im_memmap = tifffile.memmap(path_im)
+        if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
+            return np.take(im_memmap, self.ch, axis=self.axes.index('C'))
+        else:
+            return im_memmap
+
 
 if __name__ == "__main__":
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
     test = ImInfo(filepath)
+    memmap = test.get_im_memmap(test.im_path)

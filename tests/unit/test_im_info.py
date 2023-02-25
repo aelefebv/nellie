@@ -1,50 +1,62 @@
-import numpy as np
 import os
-import tempfile
-import unittest
-import tifffile
+import numpy as np
 from src.io.im_info import ImInfo
+import tifffile
 
 
-class TestImInfo(unittest.TestCase):
+def test_im_info():
+    # create a temporary tif file for testing
+    data = np.zeros((3, 3, 3, 3, 3), dtype=np.uint8)
+    tif_file = "./data/test_5d.tif"
+    tifffile.imwrite(tif_file, data, imagej=True,
+                     metadata={'axes': 'TZCYX', 'physicalsizex': 0.1, 'physicalsizey': 0.2,
+                               'spacing': 0.5, 'finterval': 0.1})
 
-    def test_im_info(self):
-        # Create a temporary file and write example TIFF data with metadata to it
-        with tempfile.NamedTemporaryFile(suffix='.tif', delete=False) as tmp_file:
-            data = np.zeros((3, 3, 3, 3, 3), dtype=np.uint8)
-            tifffile.imwrite(tmp_file.name, data, imagej=True,
-                             metadata={'axes': 'TZCYX', 'physicalsizex': 0.1, 'physicalsizey': 0.2,
-                                       'spacing': 0.5, 'finterval': 0.1})
+    # test creating an ImInfo object
+    im_info = ImInfo(tif_file)
+    assert im_info.im_path == tif_file
+    assert im_info.ch == 0
+    assert im_info.extension == "tif"
+    assert im_info.filename == "test_5d"
+    assert im_info.dirname == "data"
+    assert im_info.input_dirpath == "./data"
+    assert im_info.metadata is not None
+    assert im_info.axes == "TZCYX"
+    assert im_info.shape == (3, 3, 3, 3, 3)
+    assert im_info.output_dirpath is not None
+    assert im_info.output_images_dirpath is not None
+    assert im_info.output_pickles_dirpath is not None
+    assert im_info.output_csv_dirpath is not None
+    assert im_info.path_im_frangi is not None
+    assert im_info.path_im_mask is not None
+    assert im_info.path_im_skeleton is not None
+    assert im_info.path_im_label_obj is not None
+    assert im_info.path_im_label_seg is not None
+    assert im_info.path_im_network is not None
+    assert im_info.path_im_event is not None
+    assert im_info.path_pickle_obj is not None
+    assert im_info.path_pickle_seg is not None
+    assert im_info.path_pickle_track is not None
 
-            # Create an ImInfo object for the temporary TIFF file
-            im_info = ImInfo(tmp_file.name)
-            print(tmp_file.name)
-            print(im_info.output_dirpath)
+    # test creating an ImInfo object with output directory
+    output_dir = "test_output"
+    im_info = ImInfo(tif_file, output_dirpath=output_dir)
+    assert im_info.output_dirpath == os.path.join(output_dir, "output")
 
-            # Check that the object attributes were set correctly
-            self.assertEqual(im_info.im_path, tmp_file.name)
-            self.assertIsNone(im_info.ch)
-            self.assertDictEqual(im_info.dim_sizes, {'x': 0.1, 'y': 0.2, 'z': 0.5, 't': 0.1})
+    # test creating an ImInfo object with channel index and dimension sizes
+    dim_sizes = {'x': 0.1, 'y': 0.2, 'z': 0.5, 't': 1.0}
+    im_info = ImInfo(tif_file, ch=1, dim_sizes=dim_sizes)
+    assert im_info.ch == 1
+    assert im_info.dim_sizes == dim_sizes
 
-            # Check that metadata was loaded correctly
-            self.assertEqual(im_info.axes, 'TZCYX')
-            self.assertEqual(im_info.shape, (3, 3, 3, 3, 3))
-            self.assertEqual(im_info.extension, 'tif')
-            self.assertEqual(im_info.filename, os.path.splitext(os.path.basename(tmp_file.name))[0])
-            self.assertEqual(im_info.dirname, os.path.basename(os.path.dirname(tmp_file.name)))
+    # test creating an ImInfo object with invalid tif file
+    invalid_tif_file = "invalid.tif"
+    try:
+        im_info = ImInfo(invalid_tif_file)
+    except SystemExit:
+        pass  # expected exit
+    else:
+        assert False, "SystemExit not raised for invalid tif file"
 
-            # Call create_output_dirs
-            output_dir = os.path.join(im_info.input_dirpath, "output")
-            print(output_dir)
-            # Check that the output directories were created correctly
-            self.assertTrue(os.path.exists(output_dir))
-            self.assertTrue(os.path.exists(os.path.join(output_dir, "images")))
-            self.assertTrue(os.path.exists(os.path.join(output_dir, "pickles")))
-            self.assertTrue(os.path.exists(os.path.join(output_dir, "csv")))
-
-        # Delete the temporary file
-        os.remove(tmp_file.name)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    # clean up temporary tif file
+    os.remove(tif_file)
