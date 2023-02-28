@@ -1,6 +1,7 @@
 import os
 
 import tifffile
+import ome_types
 from src.utils.base_logger import logger
 import numpy as np
 
@@ -12,7 +13,7 @@ class ImInfo:
     Attributes:
         im_path (str): Path to the input TIFF file.
         output_dirpath (str, optional): Path to the output top directory. im_path if none given.
-        ch (int, optional): Channel index for multi-channel TIFF files.
+        ch (int, optional): Channel index for multichannel TIFF files.
         dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
     """
     def __init__(self, im_path: str, output_dirpath: str = None, ch: int = 0, dim_sizes: dict = None):
@@ -22,7 +23,7 @@ class ImInfo:
         Args:
             im_path (str): Path to the input TIFF file.
             output_dirpath (str, optional): Path to the output top directory. im_path if none given.
-            ch (int, optional): Channel index for multi-channel TIFF files.
+            ch (int, optional): Channel index for multichannel TIFF files.
             dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
 
         Returns:
@@ -39,12 +40,12 @@ class ImInfo:
         except IndexError:
             self.dirname = ''
         self.input_dirpath = self.im_path.split(self.sep+self.filename)[0]
+        self.axes = None
+        self.shape = None
+        self.metadata = None
         self._get_metadata()
-        if self.dim_sizes is not None:
-            self.dim_sizes = dim_sizes
-        else:
+        if self.dim_sizes is None:
             self._get_dim_sizes()
-
         self.output_dirpath = None
         self.output_images_dirpath = None
         self.output_pickles_dirpath = None
@@ -72,30 +73,45 @@ class ImInfo:
         """
         try:
             with tifffile.TiffFile(self.im_path) as tif:
-                self.metadata = tif.imagej_metadata
+                if tif.is_imagej:
+                    self.metadata = tif.imagej_metadata
+                    self.metadata_type = 'imagej'
+                elif tif.is_ome:
+                    ome_xml = tifffile.tiffcomment(self.im_path)
+                    ome = ome_types.from_xml(ome_xml, parser="lxml")
+                    self.metadata = ome
+                    self.metadata_type = 'ome'
                 self.axes = tif.series[0].axes
                 self.shape = tif.series[0].shape
         except Exception as e:
             logger.error(f"Error loading file {self.im_path}: {str(e)}")
             exit(1)
+        if self.axes not in ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX']:
+            logger.error(f"File dimensions must be in one of these orders: 'TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX'")
+            exit(1)
 
     def _get_dim_sizes(self):
         """Extract physical dimensions of image from its metadata and populate the dim_sizes attribute."""
         try:
-            self.dim_sizes = {}
-            if 'physicalsizex' in self.metadata:
-                self.dim_sizes['x'] = self.metadata['physicalsizex']
-            if 'physicalsizey' in self.metadata:
-                self.dim_sizes['y'] = self.metadata['physicalsizey']
-            if 'spacing' in self.metadata:
-                self.dim_sizes['z'] = self.metadata['spacing']
-            if 'finterval' in self.metadata:
-                self.dim_sizes['t'] = self.metadata['finterval']
+            self.dim_sizes = {'X': None, 'Y': None, 'Z': None, 'T': None}
+            if self.metadata_type == 'imagej':
+                if 'physicalsizex' in self.metadata:
+                    self.dim_sizes['X'] = self.metadata['physicalsizex']
+                if 'physicalsizey' in self.metadata:
+                    self.dim_sizes['Y'] = self.metadata['physicalsizey']
+                if 'spacing' in self.metadata:
+                    self.dim_sizes['Z'] = self.metadata['spacing']
+                if 'finterval' in self.metadata:
+                    self.dim_sizes['T'] = self.metadata['finterval']
+            elif self.metadata_type == 'ome':
+                self.dim_sizes['X'] = self.metadata.images[0].pixels.physical_size_x
+                self.dim_sizes['Y'] = self.metadata.images[0].pixels.physical_size_y
+                self.dim_sizes['Z'] = self.metadata.images[0].pixels.physical_size_z
+                self.dim_sizes['T'] = self.metadata.images[0].pixels.time_increment
+            self.dim_sizes['C'] = 1
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}
-            self.axes = None
-            self.shape = None
             self.dim_sizes = {}
 
     def _create_output_dirs(self, output_dirpath=None):
@@ -151,11 +167,12 @@ class ImInfo:
         Returns:
             np.ndarray: A memory-mapped array of the image data, with shape and data type determined by the file.
         """
-        im_memmap = tifffile.memmap(path_im)
+        im_memmap = tifffile.memmap(path_im, mode='r')
+
+        # Only get wanted channel
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
-            return np.take(im_memmap, self.ch, axis=self.axes.index('C'))
-        else:
-            return im_memmap
+            im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
+        return im_memmap
 
 
 if __name__ == "__main__":
