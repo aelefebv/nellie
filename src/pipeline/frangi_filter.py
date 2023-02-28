@@ -38,7 +38,7 @@ class FrangiFilter:
         self.sigma_min = self.im_info.dim_sizes['X'] * 10
         self.sigma_max = self.im_info.dim_sizes['X'] * 15
 
-    def _filter_with_sigma(self, sigma, t_num):
+    def _gaussian_filter(self, sigma, t_num):
         if len(self.frangi_sigma.shape) == 3:
             z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
             sigma_vec = (sigma / z_ratio, sigma, sigma)
@@ -51,6 +51,8 @@ class FrangiFilter:
         self.frangi_sigma = xp.asarray(self.im_memmap[t_num, ...])
         self.frangi_sigma = ndi.gaussian_filter(self.frangi_sigma, sigma=sigma_vec,
                                                 mode='reflect', cval=0.0, truncate=3).astype('double')
+
+    def _find_gamma(self):
         if self.gamma is None:
             gamma_tri = filters.threshold_triangle(self.frangi_sigma[self.frangi_sigma > 0])
             gamma_otsu = filters.threshold_otsu(self.frangi_sigma[self.frangi_sigma > 0])
@@ -61,6 +63,10 @@ class FrangiFilter:
         else:
             gamma = self.gamma
         logger.debug(f'{gamma=}')
+
+    def _filter_with_sigma(self, sigma, t_num):
+        self._gaussian_filter(sigma, t_num)
+        self._find_gamma()
 
     def run_filter(self):
         logger.info('Allocating memory for frangi filtered image.')
