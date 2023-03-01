@@ -159,16 +159,17 @@ class ImInfo:
         directory.
         """
         logger.debug('Setting output filepaths.')
-        self.path_im_frangi = os.path.join(self.output_images_dirpath, f'frangi-{self.filename}.tif')
-        self.path_im_mask = os.path.join(self.output_images_dirpath, f'mask-{self.filename}.tif')
-        self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'skeleton-{self.filename}.tif')
-        self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'label_obj-{self.filename}.tif')
-        self.path_im_label_seg = os.path.join(self.output_images_dirpath, f'label_seg-{self.filename}.tif')
-        self.path_im_network = os.path.join(self.output_images_dirpath, f'network-{self.filename}.tif')
-        self.path_im_event = os.path.join(self.output_images_dirpath, f'event-{self.filename}.tif')
-        self.path_pickle_obj = os.path.join(self.output_pickles_dirpath, f'obj-{self.filename}.pkl')
-        self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'seg-{self.filename}.pkl')
-        self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'track-{self.filename}.pkl')
+
+        self.path_im_frangi = os.path.join(self.output_images_dirpath, f'ch{self.ch}-frangi-{self.filename}.tif')
+        self.path_im_mask = os.path.join(self.output_images_dirpath, f'ch{self.ch}-mask-{self.filename}.tif')
+        self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'ch{self.ch}-skeleton-{self.filename}.tif')
+        self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_obj-{self.filename}.tif')
+        self.path_im_label_seg = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_seg-{self.filename}.tif')
+        self.path_im_network = os.path.join(self.output_images_dirpath, f'ch{self.ch}-network-{self.filename}.tif')
+        self.path_im_event = os.path.join(self.output_images_dirpath, f'ch{self.ch}-event-{self.filename}.tif')
+        self.path_pickle_obj = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-obj-{self.filename}.pkl')
+        self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-seg-{self.filename}.pkl')
+        self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-track-{self.filename}.pkl')
 
     def allocate_memory(
             self,
