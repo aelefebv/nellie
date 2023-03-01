@@ -7,12 +7,12 @@ import numpy as np
 from typing import Union, Type
 
 
-
 # todo make this work with no "t" dimension. Just have it segment, no tracking.
 # todo also make this work in 2d
 class ImInfo:
     """
     A class that extracts metadata and image size information from a TIFF file.
+    This will accept a path to an image, store useful info, and produce output directories for downstream functions.
 
     Attributes:
         im_path (str): Path to the input TIFF file.

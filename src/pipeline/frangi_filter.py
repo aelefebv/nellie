@@ -3,11 +3,13 @@ import tifffile
 from src.io.im_info import ImInfo
 from src import xp, is_gpu, ndi, filters, xp_bk
 from src.utils.base_logger import logger
+from src.utils import general
 
 
 class FrangiFilter:
     """
     Class for applying Frangi filter on images.
+    Takes in an ImInfo object and saves a frangi-filtered image.
 
     Args:
         im_info (ImInfo): An ImInfo object containing information about the image.
@@ -60,7 +62,7 @@ class FrangiFilter:
         self.im_info = im_info
         self.im_memmap = im_info.get_im_memmap(self.im_info.im_path)
         self.im_frangi = None
-        self.chunk_size = 20
+        self.chunk_size = 128
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
@@ -256,12 +258,13 @@ class FrangiFilter:
                 self.chunk_size = max(self.chunk_size//2, 1)
         return filtered_volume
 
-    def run_filter(self, num_t: int = None):
+    def run_filter(self, num_t: int = None, remove_edges: bool = True):
         """
         Runs the Frangi filter on the input image stack and saves the filtered stack as a memory-mapped file.
 
         Parameters:
             num_t (int): Number of timepoints to filter. If not specified, all timepoints are filtered.
+            remove_edges (bool): If true, removes 10 pixel radius from the image's bounding box's rows.
         """
         logger.info('Allocating memory for frangi filtered image.')
         im_path = self.im_info.path_im_frangi
@@ -282,6 +285,16 @@ class FrangiFilter:
                     self.im_frangi[t_num, ...] = xp.amax(xp.stack((frangi_in_mem, filtered_volume)), axis=0).get()
                 else:
                     self.im_frangi[t_num, ...] = xp.amax(xp.stack((frangi_in_mem, filtered_volume)), axis=0)
+
+        # Edges can come out weird with frangi filter, especially on Snouty data.
+        if remove_edges:
+            for t_num in range(num_t):
+                for z_idx, z_slice in enumerate(self.im_memmap[t_num, ...]):
+                    rmin, rmax, cmin, cmax = general.bbox(z_slice)
+                    self.im_frangi[t_num, z_idx, rmin:rmin+10, ...] = 0
+                    self.im_frangi[t_num, z_idx, rmax-10:rmax+1, ...] = 0
+                    self.im_frangi[t_num, z_idx, :, cmin:cmin+10] = 0
+                    self.im_frangi[t_num, z_idx, :, cmax-10:cmax+1] = 0
 
 
 if __name__ == "__main__":
