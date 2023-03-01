@@ -44,8 +44,8 @@ class ImInfo:
         except IndexError:
             self.dirname = ''
         self.input_dirpath = self.im_path.split(self.sep+self.filename)[0]
-        self.axes = None
-        self.shape = None
+        self.axes = ''
+        self.shape = ()
         self.metadata = None
         self._get_metadata()
         if self.dim_sizes is None:
@@ -53,6 +53,12 @@ class ImInfo:
         if self.dim_sizes['X'] != self.dim_sizes['Y']:
             logger.warning('X and Y dimensions do not match. Rectangular pixels not yet supported, '
                            'so unexpected results and wrong measurements will occur.')
+        if 'Z' not in self.axes:
+            self.is_3d = False
+        elif self.shape[self.axes.index('Z')] > 1:
+            self.is_3d = True
+        else:
+            self.is_2d = False
 
         self.output_dirpath = None
         self.output_images_dirpath = None
