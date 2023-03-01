@@ -7,6 +7,7 @@ import numpy as np
 from typing import Union, Type
 
 
+
 # todo make this work with no "t" dimension. Just have it segment, no tracking.
 # todo also make this work in 2d
 class ImInfo:
@@ -180,7 +181,6 @@ class ImInfo:
             tifffile.imwrite(
                 path_im, data, bigtiff=True, metadata={"axes": axes}
             )
-        print(dtype)
         ome_xml = tifffile.tiffcomment(path_im)
         ome = ome_types.from_xml(ome_xml, parser="lxml")
         ome.images[0].pixels.physical_size_x = self.dim_sizes['X']
