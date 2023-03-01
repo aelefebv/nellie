@@ -12,6 +12,7 @@ from typing import Union, Type
 class ImInfo:
     """
     A class that extracts metadata and image size information from a TIFF file.
+    This will accept a path to an image, store useful info, and produce output directories for downstream functions.
 
     Attributes:
         im_path (str): Path to the input TIFF file.
@@ -180,7 +181,6 @@ class ImInfo:
             tifffile.imwrite(
                 path_im, data, bigtiff=True, metadata={"axes": axes}
             )
-        print(dtype)
         ome_xml = tifffile.tiffcomment(path_im)
         ome = ome_types.from_xml(ome_xml, parser="lxml")
         ome.images[0].pixels.physical_size_x = self.dim_sizes['X']
