@@ -17,9 +17,7 @@ class Segment:
         instance_mask_memmap (numpy.memmap or None): A memory-mapped uint32 tif file for the instance segmentation mask, or None if not yet created.
         shape (tuple): The shape of the image in (t, z, y, x) format.
     """
-    # takes in a path to a frangi filtered image, and saves a semantic segmentation to a boolean tif file.
     # todo, min_radius should probably default to something based off of a specific organelle. LUT for size?
-    # todo docs
     # todo tests
     def __init__(self, im_info: ImInfo,
                  threshold: float = 1E-04,
