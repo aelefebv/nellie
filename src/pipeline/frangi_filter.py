@@ -1,8 +1,7 @@
 import tifffile
 
 from src.io.im_info import ImInfo
-from src import xp, is_gpu, ndi, filters, xp_bk
-from src.utils.base_logger import logger
+from src import xp, is_gpu, ndi, filters, xp_bk, logger
 from src.utils import general
 
 
@@ -299,7 +298,7 @@ class FrangiFilter:
 
 if __name__ == "__main__":
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    test = ImInfo(filepath, ch=1)
+    test = ImInfo(filepath, ch=0)
     frangi = FrangiFilter(test)
     frangi.run_filter(2)
     print('hi')

@@ -2,7 +2,7 @@ import os
 
 import tifffile
 import ome_types
-from src.utils.base_logger import logger
+from src import logger
 import numpy as np
 from typing import Union, Type
 
@@ -44,8 +44,8 @@ class ImInfo:
         except IndexError:
             self.dirname = ''
         self.input_dirpath = self.im_path.split(self.sep+self.filename)[0]
-        self.axes = None
-        self.shape = None
+        self.axes = ''
+        self.shape = ()
         self.metadata = None
         self._get_metadata()
         if self.dim_sizes is None:
@@ -53,6 +53,12 @@ class ImInfo:
         if self.dim_sizes['X'] != self.dim_sizes['Y']:
             logger.warning('X and Y dimensions do not match. Rectangular pixels not yet supported, '
                            'so unexpected results and wrong measurements will occur.')
+        if 'Z' not in self.axes:
+            self.is_3d = False
+        elif self.shape[self.axes.index('Z')] > 1:
+            self.is_3d = True
+        else:
+            self.is_3d = False
 
         self.output_dirpath = None
         self.output_images_dirpath = None
@@ -153,16 +159,16 @@ class ImInfo:
         directory.
         """
         logger.debug('Setting output filepaths.')
-        self.path_im_frangi = os.path.join(self.output_images_dirpath, f'frangi-{self.filename}.tif')
-        self.path_im_mask = os.path.join(self.output_images_dirpath, f'mask-{self.filename}.tif')
-        self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'skeleton-{self.filename}.tif')
-        self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'label_obj-{self.filename}.tif')
-        self.path_im_label_seg = os.path.join(self.output_images_dirpath, f'label_seg-{self.filename}.tif')
-        self.path_im_network = os.path.join(self.output_images_dirpath, f'network-{self.filename}.tif')
-        self.path_im_event = os.path.join(self.output_images_dirpath, f'event-{self.filename}.tif')
-        self.path_pickle_obj = os.path.join(self.output_pickles_dirpath, f'obj-{self.filename}.pkl')
-        self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'seg-{self.filename}.pkl')
-        self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'track-{self.filename}.pkl')
+        self.path_im_frangi = os.path.join(self.output_images_dirpath, f'ch{self.ch}-frangi-{self.filename}.tif')
+        self.path_im_mask = os.path.join(self.output_images_dirpath, f'ch{self.ch}-mask-{self.filename}.tif')
+        self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'ch{self.ch}-skeleton-{self.filename}.tif')
+        self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_obj-{self.filename}.tif')
+        self.path_im_label_seg = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_seg-{self.filename}.tif')
+        self.path_im_network = os.path.join(self.output_images_dirpath, f'ch{self.ch}-network-{self.filename}.tif')
+        self.path_im_event = os.path.join(self.output_images_dirpath, f'ch{self.ch}-event-{self.filename}.tif')
+        self.path_pickle_obj = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-obj-{self.filename}.pkl')
+        self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-seg-{self.filename}.pkl')
+        self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-track-{self.filename}.pkl')
 
     def allocate_memory(
             self,
@@ -188,14 +194,7 @@ class ImInfo:
         ome.images[0].pixels.physical_size_z = self.dim_sizes['Z']
         ome.images[0].pixels.time_increment = self.dim_sizes['T']
         ome.images[0].description = description
-        ome.images[0].pixels.type = dtype
-        # try:
-        #     ome.images[0].pixels.type = dtype
-        # except:
-        #     logger.debug('dtype not accepted, using bit instead.')
-        #     dtype = 'bit'
-        #     ome.images[0].pixels.significant_bits = 1
-        #     ome.images[0].pixels.type = dtype
+        ome.images[0].pixels.type = dtype  # note: numpy uses 8 bits as smallest, so 'bit' type does nothing for bool.
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(path_im, ome_xml)
 
