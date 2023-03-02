@@ -8,11 +8,6 @@ class Segment:
     """
     Performs semantic and instance segmentation on a Frangi filtered image.
 
-    Args:
-        im_info (ImInfo): An ImInfo object containing information about the image.
-        threshold (float, optional): The threshold value for the binary mask. Defaults to 1E-04.
-        min_radius_um (float, optional): The minimum radius (in micrometers) of objects to keep in the binary mask. Defaults to 0.25.
-
     Attributes:
         im_info (ImInfo): An ImInfo object containing information about the image.
         threshold (float): The threshold value for the binary mask.
@@ -21,18 +16,6 @@ class Segment:
         semantic_mask_memmap (numpy.memmap or None): A memory-mapped boolean tif file for the semantic segmentation mask, or None if not yet created.
         instance_mask_memmap (numpy.memmap or None): A memory-mapped uint32 tif file for the instance segmentation mask, or None if not yet created.
         shape (tuple): The shape of the image in (t, z, y, x) format.
-
-    Methods:
-        semantic(num_t=None):
-            Performs semantic segmentation on the Frangi filtered image, creating a binary mask for each frame and saving it to a boolean tif file.
-            Args:
-                num_t (int, optional): The number of frames to process. Defaults to None (process all frames).
-
-        instance(num_t=None, dtype='uint32'):
-            Performs instance segmentation on the binary mask created by the "semantic" method, labeling each connected component as a separate object and saving the labels to a uint32 tif file.
-            Args:
-                num_t (int, optional): The number of frames to process. Defaults to None (process all frames).
-                dtype (str, optional): The data type for the instance mask. Defaults to 'uint32'.
     """
     # takes in a path to a frangi filtered image, and saves a semantic segmentation to a boolean tif file.
     # todo, min_radius should probably default to something based off of a specific organelle. LUT for size?
