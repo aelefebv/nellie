@@ -7,6 +7,8 @@ from src import xp, morphology, ndi, is_gpu, logger
 class Segment:
     # takes in a path to a frangi filtered image, and saves a semantic segmentation to a boolean tif file.
     # todo, min_radius should probably default to something based off of a specific organelle. LUT for size?
+    # todo docs
+    # todo tests
     def __init__(self, im_info: ImInfo,
                  threshold: float = 1E-04,
                  min_radius_um: float = 0.25):
