@@ -2,7 +2,7 @@ import os
 
 import tifffile
 import ome_types
-from src.utils.base_logger import logger
+from src import logger
 import numpy as np
 from typing import Union, Type
 
@@ -58,7 +58,7 @@ class ImInfo:
         elif self.shape[self.axes.index('Z')] > 1:
             self.is_3d = True
         else:
-            self.is_2d = False
+            self.is_3d = False
 
         self.output_dirpath = None
         self.output_images_dirpath = None
@@ -159,7 +159,6 @@ class ImInfo:
         directory.
         """
         logger.debug('Setting output filepaths.')
-
         self.path_im_frangi = os.path.join(self.output_images_dirpath, f'ch{self.ch}-frangi-{self.filename}.tif')
         self.path_im_mask = os.path.join(self.output_images_dirpath, f'ch{self.ch}-mask-{self.filename}.tif')
         self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'ch{self.ch}-skeleton-{self.filename}.tif')
@@ -195,14 +194,7 @@ class ImInfo:
         ome.images[0].pixels.physical_size_z = self.dim_sizes['Z']
         ome.images[0].pixels.time_increment = self.dim_sizes['T']
         ome.images[0].description = description
-        ome.images[0].pixels.type = dtype
-        # try:
-        #     ome.images[0].pixels.type = dtype
-        # except:
-        #     logger.debug('dtype not accepted, using bit instead.')
-        #     dtype = 'bit'
-        #     ome.images[0].pixels.significant_bits = 1
-        #     ome.images[0].pixels.type = dtype
+        ome.images[0].pixels.type = dtype  # note: numpy uses 8 bits as smallest, so 'bit' type does nothing for bool.
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(path_im, ome_xml)
 
