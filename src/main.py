@@ -1,5 +1,5 @@
 from src.io.im_info import ImInfo
-from src.pipeline.frangi_filter import FrangiFilter
+from src.pipeline.frangi_filtration import FrangiFilter
 from src.pipeline.segmentation import Segment
 
 

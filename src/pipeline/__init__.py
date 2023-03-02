@@ -1,1 +1,1 @@
-from src.pipeline import frangi_filter
+from src.pipeline import frangi_filtration
