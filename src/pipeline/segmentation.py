@@ -5,11 +5,33 @@ from src import xp, morphology, ndi, is_gpu, logger
 
 
 class Segment:
-    # takes in a path to a frangi filtered image, and saves a semantic segmentation to a boolean tif file.
+    """
+    Performs semantic and instance segmentation on a Frangi filtered image.
+
+    Attributes:
+        im_info (ImInfo): An ImInfo object containing information about the image.
+        threshold (float): The threshold value for the binary mask.
+        min_radius_um (float): The minimum radius (in micrometers) of objects to keep in the binary mask.
+        min_size_threshold_px (float): The minimum size (in pixels) of objects to keep in the binary mask.
+        semantic_mask_memmap (numpy.memmap or None): A memory-mapped boolean tif file for the semantic segmentation mask, or None if not yet created.
+        instance_mask_memmap (numpy.memmap or None): A memory-mapped uint32 tif file for the instance segmentation mask, or None if not yet created.
+        shape (tuple): The shape of the image in (t, z, y, x) format.
+    """
     # todo, min_radius should probably default to something based off of a specific organelle. LUT for size?
+    # todo tests
     def __init__(self, im_info: ImInfo,
                  threshold: float = 1E-04,
                  min_radius_um: float = 0.25):
+        """
+        Initializes a Segment object with the given ImInfo object, threshold, and minimum radius.
+
+        Converts the minimum radius to a minimum size threshold in pixels based on the image dimensions.
+
+        Args:
+            im_info (ImInfo): An ImInfo object containing information about the image.
+            threshold (float, optional): The threshold value for the binary mask. Defaults to 1E-04.
+            min_radius_um (float, optional): The minimum radius (in micrometers) of objects to keep in the binary mask. Defaults to 0.25.
+        """
         self.im_info = im_info
         self.threshold = threshold
         self.min_radius_um = min_radius_um
@@ -28,6 +50,12 @@ class Segment:
         self.shape = ()
 
     def semantic(self, num_t: int = None):
+        """
+        Run semantic segmentation on the frangi filtered image.
+
+        Args:
+            num_t (int, optional): Number of timepoints to process. Defaults to None, which processes all timepoints.
+        """
         frangi_memmap = tifffile.memmap(self.im_info.path_im_frangi, mode='r')
         if num_t is not None:
             num_t = min(num_t, frangi_memmap.shape[0])
@@ -48,6 +76,13 @@ class Segment:
                 self.semantic_mask_memmap[frame_num] = frame_in_mem
 
     def instance(self, num_t: int = None, dtype: str = 'uint32'):
+        """
+        Run instance segmentation on the semantic segmentation.
+
+        Args:
+            num_t (int, optional): Number of timepoints to process. Defaults to None, which processes all timepoints.
+            dtype (str, optional): Data type of the output instance mask. Defaults to 'uint32'.
+        """
         self.semantic_mask_memmap = tifffile.memmap(self.im_info.path_im_mask, mode='r')
         if num_t is not None:
             num_t = min(num_t, self.semantic_mask_memmap.shape[0])
