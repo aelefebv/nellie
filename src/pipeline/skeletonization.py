@@ -2,7 +2,7 @@ import tifffile
 
 from src import logger
 from src.io.im_info import ImInfo
-from skimage import morphology
+from skimage import morphology  # currently no skeletonization cupy implementation
 
 
 class Skeleton:
@@ -20,9 +20,9 @@ class Skeleton:
         self.skel_memmap = None
         self.shape = ()
 
-    def skeletonize(self, num_t: int = None):
+    def skeletonize(self, num_t: int = None, dtype: str ='uint32'):
         """
-        Method that skeletonizes a 3D binary image volume.
+        Method that skeletonizes a 3D binary image volume and assigns instance labels to the skeleton.
 
         Args:
             num_t: the number of frames to process. If None, all the frames are processed.
@@ -30,25 +30,27 @@ class Skeleton:
         Returns:
             None.
         """
-        # Load the binary image volume as a memory-mapped file
+        # Load the binary image file and instance label file as memory-mapped files
         semantic_mask = tifffile.memmap(self.im_info.path_im_mask, mode='r')
+        label_im = tifffile.memmap(self.im_info.path_im_label_obj, mode='r')
 
-        # Process only a subset of frames if num_t is not None
+        # Load only a subset of frames if num_t is not None
         if num_t is not None:
             num_t = min(num_t, semantic_mask.shape[0])
             semantic_mask = semantic_mask[:num_t, ...]
+            label_im = label_im[:num_t, ...]
         self.shape = semantic_mask.shape
 
         # Allocate memory for the skeleton volume and load it as a memory-mapped file
         self.im_info.allocate_memory(
-            self.im_info.path_im_skeleton, shape=self.shape, dtype='uint8', description='Skeleton image'
+            self.im_info.path_im_skeleton, shape=self.shape, dtype=dtype, description='Skeleton image'
         )
         self.skel_memmap = tifffile.memmap(self.im_info.path_im_skeleton, mode='r+')
 
-        # Skeletonize each frame in the binary image volume
+        # Skeletonize each frame in the binary image volume and multiply it by its instance label
         for frame_num, frame in enumerate(semantic_mask):
             logger.info(f'Running skeletonization, volume {frame_num}/{len(semantic_mask)}')
-            self.skel_memmap[frame_num] = morphology.skeletonize(frame)
+            self.skel_memmap[frame_num] = morphology.skeletonize(frame) * label_im[frame_num]
 
 
 if __name__ == '__main__':
