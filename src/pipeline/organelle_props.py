@@ -58,3 +58,13 @@ class OrganellePropertiesConstructor:
                 organelles_frame.append(OrganelleProperties(label_region, skel_region))
 
             self.organelles.append(organelles_frame)
+
+
+if __name__ == "__main__":
+    from src.io.pickle_jar import pickle_object
+    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
+    test = ImInfo(filepath, ch=0)
+    organelle_props = OrganellePropertiesConstructor(test)
+    organelle_props.measure_organelles(2)
+    pickle_object(test.path_pickle_obj, organelle_props)
+    print('hi')
