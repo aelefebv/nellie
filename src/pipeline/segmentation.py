@@ -89,9 +89,9 @@ class Segment:
             self.semantic_mask_memmap = self.semantic_mask_memmap[:num_t, ...]
         self.shape = self.semantic_mask_memmap.shape
         self.im_info.allocate_memory(
-            self.im_info.path_im_label_seg, shape=self.shape, dtype=dtype, description='Instance mask image.',
+            self.im_info.path_im_label_obj, shape=self.shape, dtype=dtype, description='Instance mask image.',
         )
-        self.instance_mask_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
+        self.instance_mask_memmap = tifffile.memmap(self.im_info.path_im_label_obj, mode='r+')
         if self.im_info.is_3d:
             structure = xp.ones((3, 3, 3))
         else:
