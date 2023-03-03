@@ -4,7 +4,18 @@ import tifffile
 
 
 class OrganelleProperties:
+    """
+    A container for storing properties of an organelle, including its instance label, centroid, coordinates, and
+    skeleton coordinates.
+    """
     def __init__(self, organelle, skel_coords):
+        """
+        Initializes the OrganelleProperties instance.
+
+        Args:
+            organelle: An object returned by `skimage.measure.regionprops` that contains properties of an organelle.
+            skel_coords: The coordinates of the organelle's skeleton in the original image.
+        """
         self.instance_label = organelle.label
         self.centroid = organelle.centroid
         self.coords = organelle.coords
@@ -12,7 +23,16 @@ class OrganelleProperties:
 
 
 class OrganellePropertiesConstructor:
+    """
+    A class for constructing OrganelleProperties instances from labeled images and skeleton images.
+    """
     def __init__(self, im_info: ImInfo):
+        """
+        Initializes the OrganellePropertiesConstructor instance.
+
+        Args:
+            im_info: An ImInfo instance that provides information about the images to be processed and their paths.
+        """
         self.im_info = im_info
         if self.im_info.is_3d:
             self.spacing = self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
@@ -21,6 +41,13 @@ class OrganellePropertiesConstructor:
         self.organelles = []
 
     def measure_organelles(self, num_t: int = None):
+        """
+        Measures organelle properties for all frames of the labeled image and stores the results in the
+        `organelles` attribute.
+
+        Args:
+            num_t: The number of frames to process. If not provided, all frames will be processed.
+        """
         # could potentially include intensity-weighted centroid, but not sure that it's necessary
         label_im = tifffile.memmap(self.im_info.path_im_label_obj, mode='r')
         skel_im = tifffile.memmap(self.im_info.path_im_skeleton, mode='r+')
@@ -46,7 +73,7 @@ class OrganellePropertiesConstructor:
 
                 # For some reason, skeletonization misses some small ones. This assigns centroid as skeleton.
                 if label_num not in skel_dict.keys():
-                    # current gpu implementation does not give unscaled centroid, so I rederive them here
+                    # current gpu implementation does not give unscaled centroid, so I re-derive them here
                     unscaled_centroid = [round(label_prop.centroid[i] / self.spacing[i])
                                          for i in range(len(self.spacing))]
                     unscaled_centroid.insert(0, frame_num)
