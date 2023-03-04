@@ -37,8 +37,8 @@ class Neighbors:
             neighbors = ndi.convolve(xp.asarray(frame) > 0, neighborhood, mode='constant')
             neighbors[neighbors > 3] = 3  # set max neighbors (i.e. connection type) to 3.
 
-            branch_point_mask = neighborhood == 3
-            branch_point_idx = xp.argwhere(branch_point_mask)
+            # Get a list of pixels that are branch points
+            branch_point_idx = xp.argwhere(neighborhood == 3)
             for branch_point in branch_point_idx:
                 z, y, x = branch_point
 
