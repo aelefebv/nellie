@@ -32,14 +32,16 @@ class Neighbors:
             # Create a 3x3x3 neighborhood template
             neighborhood = xp.ones((3, 3, 3), dtype=xp.uint8)
             neighborhood[1, 1, 1] = 0
-
+            frame_mem = (xp.asarray(frame) > 0).astype('uint8')
             # Convolve the skeleton image with the neighborhood template to count neighboring skeleton pixels
-            neighbors = ndi.convolve(xp.asarray(frame) > 0, neighborhood, mode='constant')
+            neighbors = ndi.convolve(frame_mem, neighborhood, mode='constant').astype('uint8')
+            neighbors *= frame_mem
             neighbors[neighbors > 3] = 3  # set max neighbors (i.e. connection type) to 3.
 
             # Get a list of pixels that are branch points
-            branch_point_idx = xp.argwhere(neighborhood == 3)
-            for branch_point in branch_point_idx:
+            branch_point_idx = xp.argwhere(neighbors == 3)
+            for branch_idx, branch_point in enumerate(branch_point_idx):
+                logger.debug(f'Investigating branch point {branch_idx}/{len(branch_point_idx)}')
                 z, y, x = branch_point
 
                 # get the coords of the neighboring pixels
@@ -50,7 +52,7 @@ class Neighbors:
                 # Check if any of the neighboring pixels have a value of 3
                 for coord in coords:
                     if neighbors[coord] == 3:
-                        neighbors[branch_point] = 2
+                        neighbors[z, y, x] = 2
                         break
 
             # Save the neighbor image to its corresponding memory
@@ -58,3 +60,11 @@ class Neighbors:
                 self.neighborhood_memmap[frame_num] = neighbors.get()
             else:
                 self.neighborhood_memmap[frame_num] = neighbors
+
+
+if __name__ == "__main__":
+    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
+    test = ImInfo(filepath, ch=0)
+    neighbors = Neighbors(test)
+    neighbors.find_neighbors(2)
+    print('hi')
