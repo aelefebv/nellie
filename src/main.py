@@ -22,8 +22,8 @@ def run(input_path: str, num_t: int = 0):
     # organelle_props = OrganellePropertiesConstructor(im_info)
     # organelle_props.measure_organelles(num_t)
     # pickle_object(im_info.path_pickle_obj, organelle_props)
-    # network = Neighbors(im_info)
-    # network.find_neighbors(num_t)
+    network = Neighbors(im_info)
+    network.find_neighbors(num_t)
     branches = BranchSegments(im_info)
     branches.segment_branches(num_t)
 

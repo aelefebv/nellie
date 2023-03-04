@@ -24,7 +24,6 @@ class Neighbors:
             self.im_info.path_im_neighbors, shape=self.shape, dtype='uint8', description='Neighbor image'
         )
         self.neighborhood_memmap = tifffile.memmap(self.im_info.path_im_neighbors, mode='r+')
-        # todo something is up here and neighbor im is coming out funky af
         # Get the neighborhood for each frame in the skeleton image and save it to its memory mapped location
         for frame_num, frame in enumerate(skeleton_im):
             logger.info(f'Running neighborhood analysis, volume {frame_num}/{len(skeleton_im)}')
@@ -65,6 +64,6 @@ class Neighbors:
 if __name__ == "__main__":
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
     test = ImInfo(filepath, ch=0)
-    neighbors = Neighbors(test)
-    neighbors.find_neighbors(2)
+    neighbors_test = Neighbors(test)
+    neighbors_test.find_neighbors(2)
     print('hi')

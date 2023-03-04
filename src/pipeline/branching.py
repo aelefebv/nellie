@@ -50,7 +50,7 @@ class BranchSegments:
             branch_idx = xp.argwhere(frame_mem == 3)
             edge_idx = xp.argwhere(frame_mem == 2)
             for branch_num, bp_idx in enumerate(branch_idx):
-                logger.debug(f'Reconnection branch {branch_num}/{len(branch_idx)}')
+                logger.debug(f'Reconnecting branch {branch_num}/{len(branch_idx)}')
 
                 # initialize variables to keep track of the smallest angle and corresponding branch labels
                 min_angle = xp.inf
@@ -78,6 +78,7 @@ class BranchSegments:
                             min_angle = angle
                             connect_label_1 = branch_labels[neigh_idx[i]]
                             connect_label_2 = branch_labels[neigh_idx[j]]
+                            print(f"smaller_angle, ")  # todo debut here
 
                 # relabel label 2 to label 1
                 self.segment_memmap[frame_num][self.segment_memmap[frame_num] == connect_label_2] = connect_label_1
