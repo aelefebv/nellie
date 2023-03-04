@@ -74,11 +74,20 @@ class BranchSegments:
 
                         # if the angle between the two branches is smaller than the current smallest angle,
                         # update the smallest angle and the branch indices
+                        print(f"{neigh_idx[i], neigh_idx[j]}")  # todo debut here
                         if angle < min_angle:
+                            print('Smaller angle')
                             min_angle = angle
                             connect_label_1 = branch_labels[neigh_idx[i]]
                             connect_label_2 = branch_labels[neigh_idx[j]]
-                            print(f"smaller_angle, ")  # todo debut here
 
                 # relabel label 2 to label 1
                 self.segment_memmap[frame_num][self.segment_memmap[frame_num] == connect_label_2] = connect_label_1
+
+
+if __name__ == "__main__":
+    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
+    test = ImInfo(filepath, ch=0)
+    branch = BranchSegments(test)
+    branch.segment_branches(2)
+    print('hi')
