@@ -25,17 +25,33 @@ class Neighbors:
         )
         self.neighborhood_memmap = tifffile.memmap(self.im_info.path_im_neighbors, mode='r+')
 
+        # Get the neighborhood for each frame in the skeleton image and save it to its memory mapped location
         for frame_num, frame in enumerate(skeleton_im):
             logger.info(f'Running neighborhood analysis, volume {frame_num}/{len(skeleton_im)}')
-
-            skeleton_mem = xp.asarray(frame)
 
             # Create a 3x3x3 neighborhood template
             neighborhood = xp.ones((3, 3, 3), dtype=xp.uint8)
             neighborhood[1, 1, 1] = 0
 
             # Convolve the skeleton image with the neighborhood template to count neighboring skeleton pixels
-            neighbors = ndi.convolve(skeleton_mem > 0, neighborhood, mode='constant')
+            neighbors = ndi.convolve(xp.asarray(frame) > 0, neighborhood, mode='constant')
+            neighbors[neighbors > 3] = 3  # set max neighbors (i.e. connection type) to 3.
+
+            branch_point_mask = neighborhood == 3
+            branch_point_idx = xp.argwhere(branch_point_mask)
+            for branch_point in branch_point_idx:
+                z, y, x = branch_point
+
+                # get the coords of the neighboring pixels
+                coords = [(z+i, y+j, x+k)
+                          for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
+                          if i != 0 or j != 0 or k != 0]
+
+                # Check if any of the neighboring pixels have a value of 3
+                for coord in coords:
+                    if neighbors[coord] == 3:
+                        neighbors[branch_point] = 2
+                        break
 
             # Save the neighbor image to its corresponding memory
             if is_gpu:
