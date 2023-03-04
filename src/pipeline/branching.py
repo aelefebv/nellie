@@ -5,11 +5,24 @@ import tifffile
 
 class BranchSegments:
     def __init__(self, im_info: ImInfo):
+        """
+        Initialize a BranchSegments object with an ImInfo object.
+
+        Args:
+            im_info: An ImInfo object containing metadata for the input image.
+        """
         self.im_info = im_info
         self.segment_memmap = None
         self.shape = ()
 
     def segment_branches(self, num_t, dtype='uint32'):
+        """
+        Segment individual branches in the image.
+
+        Args:
+            num_t: The number of frames to process. If None, all frames will be processed.
+            dtype: The data type to use for the branch segments image. Defaults to 'uint32'.
+        """
         # Load the neighbor image file as memory-mapped files
         neighbor_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r')
 
