@@ -41,13 +41,14 @@ class BranchSegments:
         # Label any individual branch and save it to the memmap.
         for frame_num, frame in enumerate(neighbor_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(neighbor_im)}')
+            frame_mem = xp.asarray(frame)
             # segment individual branches
-            edge_points = frame == 2
+            edge_points = frame_mem == 2
             branch_labels, _ = ndi.label(edge_points)
 
             # loop over each branch point
-            branch_idx = xp.argwhere(frame == 3)
-            edge_idx = xp.argwhere(frame == 2)
+            branch_idx = xp.argwhere(frame_mem == 3)
+            edge_idx = xp.argwhere(frame_mem == 2)
             for branch_num, bp_idx in enumerate(branch_idx):
                 logger.debug(f'Reconnection branch {branch_num}/{len(branch_idx)}')
 
@@ -79,4 +80,4 @@ class BranchSegments:
                             connect_label_2 = branch_labels[neigh_idx[j]]
 
                 # relabel label 2 to label 1
-                self.segment_memmap[frame][self.segment_memmap[frame] == connect_label_2] = connect_label_1
+                self.segment_memmap[frame_num][self.segment_memmap[frame_num] == connect_label_2] = connect_label_1
