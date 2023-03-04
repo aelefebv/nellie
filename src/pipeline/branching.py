@@ -1,4 +1,4 @@
-from src import xp, ndi, logger
+from src import xp, ndi, logger, is_gpu
 from src.io.im_info import ImInfo
 import tifffile
 
@@ -41,14 +41,14 @@ class BranchSegments:
         # Label any individual branch and save it to the memmap.
         for frame_num, frame in enumerate(neighbor_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(neighbor_im)}')
-            frame_mem = xp.asarray(frame)
+            frame_neighbor = xp.asarray(frame)
+
             # segment individual branches
-            edge_points = frame_mem == 2
-            branch_labels, _ = ndi.label(edge_points)
+            edge_points = frame_neighbor == 2
+            branch_labels, _ = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
 
             # loop over each branch point
-            branch_idx = xp.argwhere(frame_mem == 3)
-            edge_idx = xp.argwhere(frame_mem == 2)
+            branch_idx = xp.argwhere(frame_neighbor == 3)
             for branch_num, bp_idx in enumerate(branch_idx):
                 logger.debug(f'Reconnecting branch {branch_num}/{len(branch_idx)}')
 
@@ -57,8 +57,15 @@ class BranchSegments:
                 connect_label_1 = None
                 connect_label_2 = None
 
+                z, y, x = bp_idx
+
+                # Get the coords of the neighboring pixels
+                coords = [(z+i, y+j, x+k)
+                          for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
+                          if (i != 0 or j != 0 or k != 0)]
+
                 # find the neighboring branch points connected to the current branch point
-                neigh_idx = xp.array([idx for idx in edge_idx if xp.abs(idx - bp_idx).sum() == 1])
+                neigh_idx = xp.asarray([idx for idx in coords if frame_neighbor[idx] != 0])
 
                 # loop over each pair of neighboring branch points
                 for i in range(len(neigh_idx) - 1):
@@ -74,16 +81,19 @@ class BranchSegments:
 
                         # if the angle between the two branches is smaller than the current smallest angle,
                         # update the smallest angle and the branch indices
-                        print(f"{neigh_idx[i], neigh_idx[j]}")  # todo debut here
                         if angle < min_angle:
-                            print('Smaller angle')
                             min_angle = angle
-                            connect_label_1 = branch_labels[neigh_idx[i]]
-                            connect_label_2 = branch_labels[neigh_idx[j]]
+                            connect_label_1 = branch_labels[tuple(neigh_idx[i])]
+                            connect_label_2 = branch_labels[tuple(neigh_idx[j])]
 
                 # relabel label 2 to label 1
-                self.segment_memmap[frame_num][self.segment_memmap[frame_num] == connect_label_2] = connect_label_1
+                if connect_label_1 != 0 and connect_label_2 != 0:
+                    branch_labels[branch_labels == connect_label_2] = connect_label_1
 
+            if is_gpu:
+                self.segment_memmap[frame_num] = branch_labels.get()
+            else:
+                self.segment_memmap[frame_num] = branch_labels
 
 if __name__ == "__main__":
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
