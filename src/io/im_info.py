@@ -69,10 +69,12 @@ class ImInfo:
         self.path_im_frangi = None
         self.path_im_mask = None
         self.path_im_skeleton = None
+        self.path_im_neighbors = None
         self.path_im_label_obj = None
         self.path_im_label_obj = None
         self.path_im_network = None
         self.path_im_event = None
+
         self.path_pickle_obj = None
         self.path_pickle_seg = None
         self.path_pickle_track = None
@@ -162,10 +164,12 @@ class ImInfo:
         self.path_im_frangi = os.path.join(self.output_images_dirpath, f'ch{self.ch}-frangi-{self.filename}.tif')
         self.path_im_mask = os.path.join(self.output_images_dirpath, f'ch{self.ch}-mask-{self.filename}.tif')
         self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'ch{self.ch}-skeleton-{self.filename}.tif')
+        self.path_im_neighbors = os.path.join(self.output_images_dirpath, f'ch{self.ch}-neighbors-{self.filename}.tif')
         self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_obj-{self.filename}.tif')
         self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_seg-{self.filename}.tif')
         self.path_im_network = os.path.join(self.output_images_dirpath, f'ch{self.ch}-network-{self.filename}.tif')
         self.path_im_event = os.path.join(self.output_images_dirpath, f'ch{self.ch}-event-{self.filename}.tif')
+
         self.path_pickle_obj = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-obj-{self.filename}.pkl')
         self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-seg-{self.filename}.pkl')
         self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-track-{self.filename}.pkl')

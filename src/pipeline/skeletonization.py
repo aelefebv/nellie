@@ -20,12 +20,13 @@ class Skeleton:
         self.skel_memmap = None
         self.shape = ()
 
-    def skeletonize(self, num_t: int = None, dtype: str ='uint32'):
+    def skeletonize(self, num_t: int = None, dtype: str = 'uint32'):
         """
         Method that skeletonizes a 3D binary image volume and assigns instance labels to the skeleton.
 
         Args:
             num_t: the number of frames to process. If None, all the frames are processed.
+            dtype: the data type of the saved skeletonized label image.
 
         Returns:
             None.

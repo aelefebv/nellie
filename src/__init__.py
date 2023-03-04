@@ -10,6 +10,6 @@ except ModuleNotFoundError:
     import numpy as xp
     xp_bk = None
     import scipy.ndimage as ndi
-    from skimage import filters, morphology
+    from skimage import filters, morphology, measure
     is_gpu = False
     logger.warning('GPU packages not detected, running via CPU.')
