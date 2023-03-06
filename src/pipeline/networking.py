@@ -22,7 +22,7 @@ class Neighbors:
         self.neighborhood_memmap = None
         self.shape = ()
 
-    def find_neighbors(self, num_t):
+    def find_neighbors(self, num_t):  # todo this is faster on cpu.
         """
         Computes the neighborhood analysis of the skeleton image volume and saves the results in a memory-mapped image.
 
@@ -62,24 +62,27 @@ class Neighbors:
             neighbors *= frame_mem
             neighbors[neighbors > 3] = 3  # set max neighbors (i.e. connection type) to 3.
 
-            # Get a list of pixels that are branch points
-            branch_point_idx = xp.argwhere(neighbors == 3)
-
-            # Investigate each branch point to determine the connection type
-            for branch_idx, branch_point in enumerate(branch_point_idx):
-                logger.debug(f'Investigating branch point {branch_idx}/{len(branch_point_idx)}')
-                z, y, x = branch_point
-
-                # Get the coords of the neighboring pixels
-                coords = [(z+i, y+j, x+k)
-                          for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
-                          if i != 0 or j != 0 or k != 0]
-
-                # Check if any of the neighboring pixels have a value of 3
-                for coord in coords:
-                    if neighbors[coord] == 3:
-                        neighbors[z, y, x] = 2
-                        break
+            expanded_neighbors = ndi.binary_dilation(neighbors == 3, structure=xp.ones((3, 3, 3)))
+            neighbors = xp.max(xp.stack([neighbors, expanded_neighbors], axis=0), axis=0) * frame_mem
+        # todo label all bp neighbor pixels as tips. Then relabel tips based on connected pixel
+            # # Get a list of pixels that are branch points
+            # branch_point_idx = xp.argwhere(neighbors == 3)
+            #
+            # # Investigate each branch point to determine the connection type
+            # for branch_idx, branch_point in enumerate(branch_point_idx):
+            #     logger.debug(f'Investigating branch point {branch_idx}/{len(branch_point_idx)}')
+            #     z, y, x = branch_point
+            #
+            #     # Get the coords of the neighboring pixels
+            #     coords = [(z+i, y+j, x+k)
+            #               for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
+            #               if i != 0 or j != 0 or k != 0]
+            #
+            #     # Check if any of the neighboring pixels have a value of 3
+            #     for coord in coords:
+            #         if neighbors[coord] == 3:
+            #             neighbors[z, y, x] = 2
+            #             break
 
             # Save the neighbor image to its corresponding memory
             if is_gpu:
@@ -89,8 +92,15 @@ class Neighbors:
 
 
 if __name__ == "__main__":
+    import os
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    test = ImInfo(filepath, ch=0)
+    if not os.path.isfile(filepath):
+        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    try:
+        test = ImInfo(filepath, ch=0)
+    except:
+        logger.error("File not found.")
+        exit(1)
     neighbors_test = Neighbors(test)
     neighbors_test.find_neighbors(2)
     print('hi')

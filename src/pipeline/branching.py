@@ -15,13 +15,14 @@ class BranchSegments:
         self.segment_memmap = None
         self.shape = ()
 
-    def segment_branches(self, num_t, dtype='uint32'):
+    def segment_branches(self, num_t, dtype='uint32', angle_threshold=xp.inf):
         """
         Segment individual branches in the image.
 
         Args:
             num_t: The number of frames to process. If None, all frames will be processed.
             dtype: The data type to use for the branch segments image. Defaults to 'uint32'.
+            angle_threshold: The max angle that a branch can curve to allow for reconnection.
         """
         # Load the neighbor image file as memory-mapped files
         neighbor_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r')
@@ -45,6 +46,7 @@ class BranchSegments:
 
             # segment individual branches
             edge_points = frame_neighbor == 2
+            edge_points += frame_neighbor == 1
             branch_labels, _ = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
 
             # loop over each branch point
@@ -53,9 +55,10 @@ class BranchSegments:
                 logger.debug(f'Reconnecting branch {branch_num}/{len(branch_idx)}')
 
                 # initialize variables to keep track of the smallest angle and corresponding branch labels
-                min_angle = xp.inf
+                min_angle = angle_threshold
                 connect_label_1 = None
                 connect_label_2 = None
+                relabel = False
 
                 z, y, x = bp_idx
 
@@ -76,28 +79,42 @@ class BranchSegments:
 
                         # angle calculation using dot product formula for the angle between 2 vectors
                         angle = xp.abs(xp.arccos(
-                            xp.dot(segment_1, segment_2) / (xp.linalg.norm(segment_1) * xp.linalg.norm(segment_2))))
-                        # * 180 / xp.pi  # don't need this multiplier since doing comparisons
+                            xp.dot(segment_1, segment_2) / (xp.linalg.norm(segment_1) * xp.linalg.norm(segment_2))
+                        ) - xp.pi) * 180 / xp.pi
+
 
                         # if the angle between the two branches is smaller than the current smallest angle,
                         # update the smallest angle and the branch indices
                         if angle < min_angle:
+                            relabel = True
                             min_angle = angle
                             connect_label_1 = branch_labels[tuple(neigh_idx[i])]
                             connect_label_2 = branch_labels[tuple(neigh_idx[j])]
 
                 # relabel label 2 to label 1
-                if connect_label_1 != 0 and connect_label_2 != 0:
+                if relabel and connect_label_1 != 0 and connect_label_2 != 0:
                     branch_labels[branch_labels == connect_label_2] = connect_label_1
+                    branch_labels[z, y, x] = connect_label_1
+                else:
+                    branch_labels[z, y, x] = branch_labels[tuple(neigh_idx[0])]
+
 
             if is_gpu:
                 self.segment_memmap[frame_num] = branch_labels.get()
             else:
                 self.segment_memmap[frame_num] = branch_labels
 
+
 if __name__ == "__main__":
+    import os
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    test = ImInfo(filepath, ch=0)
+    if not os.path.isfile(filepath):
+        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    try:
+        test = ImInfo(filepath, ch=0)
+    except:
+        logger.error("File not found.")
+        exit(1)
     branch = BranchSegments(test)
     branch.segment_branches(2)
     print('hi')
