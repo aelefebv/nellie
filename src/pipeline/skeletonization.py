@@ -20,12 +20,13 @@ class Skeleton:
         self.skel_memmap = None
         self.shape = ()
 
-    def skeletonize(self, num_t: int = None, dtype: str ='uint32'):
+    def skeletonize(self, num_t: int = None, dtype: str = 'uint32'):
         """
         Method that skeletonizes a 3D binary image volume and assigns instance labels to the skeleton.
 
         Args:
             num_t: the number of frames to process. If None, all the frames are processed.
+            dtype: the data type of the saved skeletonized label image.
 
         Returns:
             None.
@@ -54,8 +55,16 @@ class Skeleton:
 
 
 if __name__ == '__main__':
+    import os
+
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    test = ImInfo(filepath, ch=0)
+    if not os.path.isfile(filepath):
+        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    try:
+        test = ImInfo(filepath, ch=0)
+    except:
+        logger.error("File not found.")
+        exit(1)
     skel_im_out = Skeleton(test)
     skel_im_out.skeletonize(2)
     print('hi')
