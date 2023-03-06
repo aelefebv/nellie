@@ -107,8 +107,15 @@ class Segment:
 
 
 if __name__ == '__main__':
+    import os
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    test = ImInfo(filepath, ch=0)
+    if not os.path.isfile(filepath):
+        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    try:
+        test = ImInfo(filepath, ch=0)
+    except:
+        logger.error("File not found.")
+        exit(1)
     segmentation = Segment(test)
     segmentation.semantic(2)
     segmentation.instance(2)
