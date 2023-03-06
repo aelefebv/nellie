@@ -5,7 +5,7 @@ from src.pipeline.segmentation import Segment
 from src.pipeline.skeletonization import Skeleton
 from src.pipeline.organelle_props import OrganellePropertiesConstructor
 from src.pipeline.networking import Neighbors
-from src.pipeline.branching import BranchSegments
+from src.pipeline.branch_labeling import BranchSegments
 
 
 def run(input_path: str, num_t: int = 0):

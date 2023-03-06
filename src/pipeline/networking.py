@@ -50,7 +50,7 @@ class Neighbors:
 
         # Get the neighborhood for each frame in the skeleton image and save it to its memory mapped location
         for frame_num, frame in enumerate(skeleton_im):
-            logger.info(f'Running neighborhood analysis, volume {frame_num}/{len(skeleton_im)}')
+            logger.info(f'Running neighborhood analysis, volume {frame_num}/{len(skeleton_im)-1}')
 
             # Create a 3x3x3 neighborhood template
             neighborhood = xp.ones((3, 3, 3), dtype=xp.uint8)
@@ -62,8 +62,10 @@ class Neighbors:
             neighbors *= frame_mem
             neighbors[neighbors > 3] = 3  # set max neighbors (i.e. connection type) to 3.
 
-            expanded_neighbors = ndi.binary_dilation(neighbors == 3, structure=xp.ones((3, 3, 3)))
+            expanded_neighbors = ndi.binary_dilation(neighbors == 3, structure=xp.ones((3, 3, 3))) * 3
             neighbors = xp.max(xp.stack([neighbors, expanded_neighbors], axis=0), axis=0) * frame_mem
+
+
         # todo label all bp neighbor pixels as tips. Then relabel tips based on connected pixel
             # # Get a list of pixels that are branch points
             # branch_point_idx = xp.argwhere(neighbors == 3)
