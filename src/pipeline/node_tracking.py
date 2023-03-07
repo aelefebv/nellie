@@ -28,8 +28,8 @@ class NodeTrackConstructor:
                  time_thresh_sec: float = xp.inf):
         self.im_info = im_info
         self.node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
-        self.nodes: [[Node]] = self.node_constructor.nodes
-        self.tracks: [NodeTrack] = []
+        self.nodes: list[list[Node]] = self.node_constructor.nodes
+        self.tracks: list[NodeTrack] = []
         self.num_frames = len(self.nodes)
         self.distance_thresh_um_per_sec = distance_thresh_um_per_sec
         self.time_thresh_sec = time_thresh_sec
@@ -66,14 +66,62 @@ class NodeTrackConstructor:
 
         return distance_matrix
 
+    def assign_confident_tracks(self, assignment_matrix, frame_num):
+        # rows are tracks, columns are frame nodes
+        # Find indices of non-nan values
+        indices = xp.argwhere(~xp.isnan(assignment_matrix))
+        # Count the number of non-nan values in each row and column
+        row_counts = xp.bincount(indices[:, 0])
+        col_counts = xp.bincount(indices[:, 1])
+
+        # Find the rows and columns with exactly one non-nan value
+        unique_rows = xp.where(row_counts == 1)[0]
+        unique_cols = xp.where(col_counts == 1)[0]
+
+        # Any 1 single node (not multiple) can come from a tip, so if only 1 node matched to a tip track, assign it.
+        unique_tips = [tip for tip in unique_rows if self.tracks[tip].node_types[-1] == 'tip']
+
+        # Assign the tip single matches to the tip tracks
+        num_assigned = 0
+        for tip in unique_tips:
+            tip_idx = xp.argwhere(indices[:, 0] == tip)
+            node_match_num = indices[tip_idx[0], 1][0]
+
+            # Find all matches that this node could be assigned to
+            other_possible_matches = xp.argwhere(indices[:, 1] == node_match_num)
+
+            # T2 junctions but not T2 tips can be assigned to multiple T1 tips
+            # If there is only 1 T2 tip matched to 1 T1 tip, assign them
+            if (self.tracks[tip].node_types[-1] == 'junction') or (len(other_possible_matches) == 1):
+                num_assigned += 1
+                self.tracks[tip].add_node(self.nodes[frame_num][node_match_num])
+
+        # Find the common elements between unique_rows and unique_cols
+        common_elements = xp.intersect1d(unique_rows, unique_cols)
+
+        # Get the pairs as a list of tuple
+        confident_pairs = [(row, col) for row, col in zip(unique_rows, unique_cols)
+                           if row in common_elements and col in common_elements]
+
+        # Assign the nodes to the tracks, and sets row and column of assignment matrix to nan:
+        for track_num, node_num in confident_pairs:
+            if track_num in unique_tips:
+                continue
+            self.tracks[track_num].add_node(self.nodes[frame_num][node_num])
+            assignment_matrix[track_num, :] = xp.nan
+            assignment_matrix[:, node_num] = xp.nan
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
             self.num_frames = num_t
         for frame_num in range(self.num_frames):
+            if frame_num == 0:
+                self.initialize_tracks()
+                continue
             assignment_matrix = self.get_assignment_matrix(frame_num)
-
-        return assignment_matrix
+            self.assign_confident_tracks(assignment_matrix, frame_num)
+        self.assignment_matrix = assignment_matrix
 
 
 if __name__ == "__main__":
@@ -87,5 +135,4 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
-    nodes_test.initialize_tracks()
-    dist_matrix = nodes_test.populate_tracks()
+    nodes_test.populate_tracks()
