@@ -78,10 +78,10 @@ class NodeTrackConstructor:
         unique_rows = xp.where(row_counts == 1)[0]
         unique_cols = xp.where(col_counts == 1)[0]
 
-        # Any 1 single node (not multiple) can come from a tip, so if only 1 node matched to a tip track, assign it.
+        # Any t1 tip can go to 1 single t2 node (not multiple)
         unique_tips = [tip for tip in unique_rows if self.tracks[tip].node_types[-1] == 'tip']
 
-        # Assign the tip single matches to the tip tracks
+        # Assign unique t1 tip matches to t2 nodes
         num_assigned = 0
         for tip in unique_tips:
             tip_idx = xp.argwhere(indices[:, 0] == tip)
