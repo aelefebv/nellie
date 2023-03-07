@@ -10,6 +10,7 @@ class NodeTrack:
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
         self.nodes = unpickle_object(self.im_info.path_pickle_node)
+        self.tracks = []
 
 
 if __name__ == "__main__":
