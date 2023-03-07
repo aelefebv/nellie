@@ -30,7 +30,7 @@ def run(input_path: str, num_t: int = 0):
     # branches.segment_branches(num_t)
     nodes = NodeConstructor(im_info)
     nodes.get_node_properties(num_t)
-    pickle_object(im_info.path_pickle_node, nodes.nodes)
+    pickle_object(im_info.path_pickle_node, nodes)
 
 
 if __name__ == "__main__":
