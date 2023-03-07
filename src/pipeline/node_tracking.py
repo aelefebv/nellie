@@ -5,7 +5,32 @@ from src import logger, xp, ndi, measure
 
 
 class Node:
+    """
+    A class representing a node in a network.
+
+    Attributes
+    ----------
+    node_type : str
+        The type of the node, which should be either 'tip' or 'junction'.
+    instance_label : int
+        The instance label of the node, which is used to identify it in the network.
+    centroid : tuple of float
+        The centroid coordinates of the node.
+    coords : tuple of tuple of int
+        The coordinates of all points in the node.
+    """
+
     def __init__(self, node_type: str, node_region):
+        """
+        Constructs a Node object.
+
+        Parameters
+        ----------
+        node_type : str
+            The type of the node, which should be either 'tip' or 'junction'.
+        node_region : RegionProperties
+            The region properties of the node as computed by `measure.regionprops()`.
+        """
         self.node_type = node_type  # should be 'tip' or 'junction'
         self.instance_label = node_region.label
         self.centroid = node_region.centroid
@@ -13,7 +38,27 @@ class Node:
 
 
 class NodeConstructor:
+    """
+    A class for constructing nodes in a network.
+
+    Attributes
+    ----------
+    im_info : ImInfo
+        An object containing information about the input image.
+    spacing : tuple of float
+        The voxel spacing of the image.
+    nodes : list of Node objects
+        The list of nodes in the network.
+    """
     def __init__(self, im_info: ImInfo):
+        """
+        Constructs a NodeConstructor object.
+
+        Parameters
+        ----------
+        im_info : ImInfo
+            An object containing information about the input image.
+        """
         self.im_info = im_info
         if self.im_info.is_3d:
             self.spacing = self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
@@ -22,6 +67,14 @@ class NodeConstructor:
         self.nodes = []
 
     def get_node_properties(self, num_t: int = None):
+        """
+        Computes the properties of nodes in the network and stores them in `self.nodes`.
+
+        Parameters
+        ----------
+        num_t : int or None, optional
+            The number of timepoints to process. If None, all timepoints are processed.
+        """
         network_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r')
 
         if num_t is not None:
