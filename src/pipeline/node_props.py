@@ -20,7 +20,7 @@ class Node:
         The coordinates of all points in the node.
     """
 
-    def __init__(self, node_type: str, node_region):
+    def __init__(self, node_type: str, node_region, time_point: float):
         """
         Constructs a Node object.
 
@@ -33,8 +33,9 @@ class Node:
         """
         self.node_type = node_type  # should be 'tip' or 'junction'
         self.instance_label = node_region.label
-        self.centroid = node_region.centroid
+        self.centroid_um = node_region.centroid
         self.coords = node_region.coords
+        self.time_point_sec = time_point
 
 
 class NodeConstructor:
@@ -64,6 +65,7 @@ class NodeConstructor:
             self.spacing = self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
         else:
             self.spacing = self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
+        self.time_spacing = self.im_info.dim_sizes['T']
         self.nodes = []
 
     def get_node_properties(self, num_t: int = None):
@@ -83,6 +85,7 @@ class NodeConstructor:
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Getting node properties, volume {frame_num}/{len(network_im)-1}')
+            time_point_sec = frame_num * self.time_spacing
             frame_mem = xp.asarray(frame)
 
             tips, _ = ndi.label(frame_mem == 1, structure=xp.ones((3, 3, 3)))
@@ -90,10 +93,13 @@ class NodeConstructor:
             junctions, _ = ndi.label(frame_mem == 3, structure=xp.ones((3, 3, 3)))
             junction_regions = measure.regionprops(junctions, spacing=self.spacing)
 
+            nodes_frame = []
             for tip in tip_regions:
-                self.nodes.append(Node('tip', tip))
+                nodes_frame.append(Node('tip', tip, time_point_sec))
             for junction in junction_regions:
-                self.nodes.append(Node('junction', junction))
+                nodes_frame.append(Node('junction', junction, time_point_sec))
+
+            self.nodes.append(nodes_frame)
 
 
 if __name__ == "__main__":
@@ -109,6 +115,6 @@ if __name__ == "__main__":
         exit(1)
     node_props = NodeConstructor(test)
     node_props.get_node_properties(2)
-    pickle_object(test.path_pickle_obj, node_props)
+    pickle_object(test.path_pickle_node, node_props)
     node_props_unpickled = unpickle_object(test.path_pickle_obj)
     print('hi')
