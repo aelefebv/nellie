@@ -44,7 +44,7 @@ class NodeConstructor:
 
 
 if __name__ == "__main__":
-    from src.io.pickle_jar import pickle_object
+    from src.io.pickle_jar import pickle_object, unpickle_object
     import os
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
     if not os.path.isfile(filepath):
@@ -57,4 +57,5 @@ if __name__ == "__main__":
     node_props = NodeConstructor(test)
     node_props.get_node_properties(2)
     pickle_object(test.path_pickle_obj, node_props)
+    node_props_unpickled = unpickle_object(test.path_pickle_obj)
     print('hi')
