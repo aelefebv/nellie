@@ -1,12 +1,15 @@
 import tifffile
 
 from src.io.im_info import ImInfo
-from src import logger
+from src import logger, xp, ndi, measure
 
 
 class Node:
     def __init__(self, node_type: str, node_region):
         self.node_type = node_type  # should be 'tip' or 'junction'
+        self.instance_label = node_region.label
+        self.centroid = node_region.centroid
+        self.coords = node_region.coords
 
 
 class NodeConstructor:
@@ -19,7 +22,7 @@ class NodeConstructor:
         self.nodes = []
 
     def get_node_properties(self, num_t: int = None):
-        network_im = tifffile.memmap(self.im_info.path_im_network, mode='r')
+        network_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r')
 
         if num_t is not None:
             num_t = min(num_t, network_im.shape[0])
@@ -27,6 +30,17 @@ class NodeConstructor:
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Getting node properties, volume {frame_num}/{len(network_im)-1}')
+            frame_mem = xp.asarray(frame)
+
+            tips, _ = ndi.label(frame_mem == 1, structure=xp.ones((3, 3, 3)))
+            tip_regions = measure.regionprops(tips, spacing=self.spacing)
+            junctions, _ = ndi.label(frame_mem == 3, structure=xp.ones((3, 3, 3)))
+            junction_regions = measure.regionprops(junctions, spacing=self.spacing)
+
+            for tip in tip_regions:
+                self.nodes.append(Node('tip', tip))
+            for junction in junction_regions:
+                self.nodes.append(Node('junction', junction))
 
 
 if __name__ == "__main__":
@@ -41,4 +55,6 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     node_props = NodeConstructor(test)
-
+    node_props.get_node_properties(2)
+    pickle_object(test.path_pickle_obj, node_props)
+    print('hi')

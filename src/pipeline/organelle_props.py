@@ -40,7 +40,7 @@ class OrganellePropertiesConstructor:
             self.spacing = self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
         self.organelles = []
 
-    def measure_organelles(self, num_t: int = None):
+    def get_organelle_properties(self, num_t: int = None):
         """
         Measures organelle properties for all frames of the labeled image and stores the results in the
         `organelles` attribute.
@@ -99,6 +99,6 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     organelle_props = OrganellePropertiesConstructor(test)
-    organelle_props.measure_organelles(2)
+    organelle_props.get_organelle_properties(2)
     pickle_object(test.path_pickle_obj, organelle_props)
     print('hi')
