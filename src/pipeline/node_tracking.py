@@ -1,37 +1,49 @@
-import numpy as np
-
 from src.pipeline.node_props import Node, NodeConstructor
 from src.io.im_info import ImInfo
-from src import logger, xp
+from src import logger
 from src.io.pickle_jar import unpickle_object
 from scipy.optimize import linear_sum_assignment
+import numpy as xp
 
-
-# notes:
-# t1 -> t2 means block off assignment both t1 and t2
-# t1 -> j2 means block off assignment t1 only
-# j1 -> t2 means block off assignment t2 only
-# j1 -> j2 is open assignment on both
 
 class NodeTrack:
-    def __init__(self, node):
+    def __init__(self, node, frame_num):
         self.nodes = [node]
         self.time_points = [node.time_point_sec]
+        self.frame_nums = [frame_num]
         self.centroids_um = [node.centroid_um]
         self.instance_labels = [node.instance_label]
         self.node_types = [node.node_type]
+        self.assignment_cost = [0]
 
-    def add_node(self, node):
+        self.possible_merges_to = {}
+        self.possible_emerges_from = {}
+
+    def add_node(self, node, frame_num, assignment_cost):
         self.nodes.append(node)
         self.time_points.append(node.time_point_sec)
+        self.frame_nums.append(frame_num)
         self.centroids_um.append(node.centroid_um)
         self.instance_labels.append(node.instance_label)
         self.node_types.append(node.node_type)
+        self.assignment_cost.append(assignment_cost)
+
+    def possibly_merged_to(self, node, frame_num, assignment_cost):
+        if frame_num not in self.possible_merges_to.keys():
+            self.possible_merges_to[frame_num] = [(node, assignment_cost)]
+        else:
+            self.possible_merges_to[frame_num].append((node, assignment_cost))
+
+    def possibly_emerged_from(self, track, frame_num, assignment_cost):
+        if frame_num not in self.possible_merges_to.keys():
+            self.possible_merges_to[frame_num] = [(track, assignment_cost)]
+        else:
+            self.possible_merges_to[frame_num].append((track, assignment_cost))
 
 
 class NodeTrackConstructor:
     def __init__(self, im_info: ImInfo,
-                 distance_thresh_um_per_sec: float = xp.inf,
+                 distance_thresh_um_per_sec: float = 0.5,
                  time_thresh_sec: float = xp.inf):
         self.im_info = im_info
         self.node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
@@ -40,6 +52,9 @@ class NodeTrackConstructor:
         self.num_frames = len(self.nodes)
         self.distance_thresh_um_per_sec = distance_thresh_um_per_sec
         self.time_thresh_sec = time_thresh_sec
+        self.average_assignment_cost = {}
+        self.num_nodes = 0
+        self.num_tracks = 0
 
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
@@ -47,28 +62,35 @@ class NodeTrackConstructor:
             self.num_frames = num_t
         for frame_num in range(self.num_frames):
             if frame_num == 0:
-                self._initialize_tracks()
+                self._initialize_tracks(frame_num)
                 continue
-            assignment_matrix = self._get_assignment_matrix(frame_num)
-            self.assignment_matrix = assignment_matrix
-            assignments = linear_sum_assignment(assignment_matrix)
-        return assignments
+            cost_matrix = self._get_assignment_matrix(frame_num)
+            # self.assignment_matrix = assignment_matrix
+            track_nums, node_nums = linear_sum_assignment(cost_matrix)
+            self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum()/len(track_nums)
+            self._assign_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._check_unassigned_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
+            #   and assign it as the fission point
+            # if the fusion or fission point has too many nodes fusing / fissioning from it, keep the N lowest cost
+            #   the rest should be rightfully unassigned.
+        # return assignments
 
-    def _initialize_tracks(self):
+    def _initialize_tracks(self, frame_num):
         for node in self.nodes[0]:
-            self.tracks.append(NodeTrack(node))
+            self.tracks.append(NodeTrack(node, frame_num))
 
     def _get_assignment_matrix(self, frame_num):
         frame_nodes = self.nodes[frame_num]
-        num_nodes = len(frame_nodes)
-        num_tracks = len(self.tracks)
+        self.num_nodes = len(frame_nodes)
+        self.num_tracks = len(self.tracks)
         num_dimensions = len(frame_nodes[0].centroid_um)
         frame_time_s = frame_nodes[0].time_point_sec
 
-        node_centroids = xp.empty((num_dimensions, 1, num_nodes))
-        track_centroids = xp.empty((num_dimensions, num_tracks, 1))
+        node_centroids = xp.empty((num_dimensions, 1, self.num_nodes))
+        track_centroids = xp.empty((num_dimensions, self.num_tracks, 1))
 
-        time_matrix = xp.empty((num_tracks, num_nodes))
+        time_matrix = xp.empty((self.num_tracks, self.num_nodes))
 
         for node_num, node in enumerate(frame_nodes):
             node_centroids[:, 0, node_num] = node.centroid_um
@@ -84,100 +106,39 @@ class NodeTrackConstructor:
         distance_matrix /= time_matrix  # this is now a distance/sec matrix
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
-        cost_matrix = xp.ones((num_tracks+num_nodes, num_tracks+num_nodes))*self.distance_thresh_um_per_sec
-        cost_matrix[:num_tracks, :num_nodes] = distance_matrix
+        cost_matrix = xp.ones(
+            (self.num_tracks+self.num_nodes, self.num_tracks+self.num_nodes)
+        ) * self.distance_thresh_um_per_sec
+        cost_matrix[:self.num_tracks, :self.num_nodes] = distance_matrix
 
         return cost_matrix
 
-    def _assign_confident_tracks(self, assignment_matrix, frame_num):
-        # rows are tracks (t1 nodes), columns are frame nodes (t2 nodes)
-        # Find indices of non-nan values
-        indices = xp.argwhere(~xp.isnan(assignment_matrix))
+    def _assign_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+        # Get all pairs of existing tracks and nodes that are assigned to each other
+        valid_idx = xp.where(node_nums[:self.num_tracks] < self.num_nodes)
+        valid_nodes = node_nums[valid_idx]
+        valid_tracks = track_nums[valid_idx]
 
-        # Count the number of non-nan values in each row and column
-        t1_counts = xp.bincount(indices[:, 0])
-        t2_counts = xp.bincount(indices[:, 1])
+        # Assign each node to its corresponding track
+        for node_idx, track in enumerate(valid_tracks):
+            assignment_cost = cost_matrix[track, valid_nodes[node_idx]]
+            node_to_assign = self.nodes[frame_num][valid_nodes[node_idx]]
+            self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost)
 
-        # Find the rows and columns with exactly one non-nan value
-        unique_t1 = xp.where(t1_counts == 1)[0]
-        unique_t2 = xp.where(t2_counts == 1)[0]
+    def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+        # Get a list of all the unassigned tracks
+        unassigned_tracks_all = track_nums[xp.where(node_nums > self.num_nodes)]
+        unassigned_tracks_all = unassigned_tracks_all[xp.where(unassigned_tracks_all < self.num_tracks)]
 
-        # Any t1 nodes that have only one match to a t2 node that has only one match are assigned
-        self._assign_unique_matches(unique_t1, unique_t2, assignment_matrix, frame_num)
+        # Get the cost matrix only of unassigned tracks and all nodes
+        unassigned_track_cost_matrix = cost_matrix[unassigned_tracks_all, :]
 
-        # get a node_type-node_type connection look up table
-        t1_type_lut = xp.array([[0 if track.node_types[-1] == 'tip' else 2 for track in self.tracks]])
-        t2_type_lut = xp.array([[0 if node.node_type == 'tip' else 1 for node in self.nodes[frame_num]]])
-        combo_lut = t1_type_lut.T + t2_type_lut  # 0 is t-t, 1 is j-t, 2 is t-j, 3 is j-j
-        combo_lut[xp.isnan(assignment_matrix)] = -1  # -1 if no assignment possible
-
-        # key_value_junction_matches (i.e. t2_t1 == {node: [tracks]})
-        self._assign_junction_matches(assignment_matrix, combo_lut, frame_num)
-
-    def _assign_unique_matches(self, unique_rows, unique_cols, assignment_matrix, frame_num):
-        # Find the common elements between unique_rows and unique_cols
-        common_elements = xp.intersect1d(unique_rows, unique_cols)
-
-        # Get the pairs as a list of tuple
-        confident_pairs = [(row, col) for row, col in zip(unique_rows, unique_cols)
-                           if row in common_elements and col in common_elements]
-
-        # Assign the nodes to the tracks, and sets row and column of assignment matrix to nan:
-        for track_num, node_num in confident_pairs:
-            self.tracks[track_num].add_node(self.nodes[frame_num][node_num])
-        #     assignment_matrix[track_num, :] = xp.nan
-        #     assignment_matrix[:, node_num] = xp.nan
-        #
-        # return assignment_matrix
-
-    def _assign_junction_matches(self, assignment_matrix, combo_lut, frame_num):
-        min_t1 = xp.argmin(
-            xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
-            axis=1).reshape(-1, 1)
-        min_t2 = xp.argmin(
-            xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
-            axis=0).reshape(-1, 1)
-        t1_match_types = combo_lut[xp.arange(min_t1.shape[0]).reshape(-1, 1), min_t1[:]]
-        t2_match_types = combo_lut[min_t2[:], xp.arange(min_t2.shape[0]).reshape(-1, 1)]
-
-        def _get_junction_matches(junction_idxs, node_matches):
-            junction_matches = {}
-            for i, node in enumerate(node_matches):
-                if node[0] not in junction_matches.keys():
-                    junction_matches[node[0]] = [junction_idxs[i]]
-                else:
-                    junction_matches[node[0]].append(junction_idxs[i])
-            return junction_matches
-
-        # a t1 junction can be assigned to any number of t2 junctions and tips:
-        t1_junction_idxs = xp.argwhere((t1_match_types == 1) ^ (t1_match_types == 3))[:, 0]
-        t2_node_matches = min_t1[t1_junction_idxs]
-        # keys are t2 nodes, values are t1 tracks
-        t2_t1_junction_matches = _get_junction_matches(t1_junction_idxs, t2_node_matches)
-
-        # a t2 junction can have come from any number of t1 junctions and tips:
-        t2_junction_idxs = xp.argwhere((t2_match_types == 2) ^ (t2_match_types == 3))[:, 0]
-        t1_node_matches = min_t2[t2_junction_idxs]
-        # keys are t1 tracks, values are t2 nodes
-        t1_t2_junction_matches = _get_junction_matches(t2_junction_idxs, t1_node_matches)
-
-        def _add_junction_tracks(a_b_junction_matches, b_a_junction_matches):
-            # 'a' are keys, 'b' are lists of values
-            for a, b in a_b_junction_matches.items():
-                if len(a_b_junction_matches[a]) != 1:
-                    continue
-                if b[0] not in b_a_junction_matches.keys():
-                    continue
-                if len(b_a_junction_matches[b[0]]) != 1:
-                    continue
-                if b_a_junction_matches[b[0]][0] == a:
-                    self.tracks[a].add_node(self.nodes[frame_num][b[0]])
-                    b_a_junction_matches.pop(b[0])
-
-        _add_junction_tracks(t1_t2_junction_matches, t2_t1_junction_matches)
-        _add_junction_tracks(t2_t1_junction_matches, t1_t2_junction_matches)
-
-        return t2_t1_junction_matches, t1_t2_junction_matches
+        # Get coordinates of all possible nodes where the track could have merged to and save those
+        unassigned_track_idx, nearby_nodes = xp.where(unassigned_track_cost_matrix < 0.5)
+        for idx in range(len(unassigned_track_idx)):
+            unassigned_track_num = unassigned_tracks_all[unassigned_track_idx[idx]]
+            assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
+            self.tracks[unassigned_track_num].possibly_merged_to(nearby_nodes[idx], frame_num, assignment_cost)
 
 
 if __name__ == "__main__":
@@ -192,5 +153,6 @@ if __name__ == "__main__":
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
     assignments = nodes_test.populate_tracks()
+    print('hi')
     # todo visualize whats going on and make sure it's correct
 
