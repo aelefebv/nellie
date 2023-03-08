@@ -97,7 +97,6 @@ class NodeTrackConstructor:
         combo_lut = t1_type_lut.T + t2_type_lut  # 0 is t-t, 1 is j-t, 2 is t-j, 3 is j-j
         combo_lut[xp.isnan(assignment_matrix)] = -1  # -1 if no assignment possible
 
-        # todo I should clean this up somehow, or at least visualize whats going on and make sure it's correct
         # key_value_junction_matches (i.e. t2_t1 == {node: [tracks]})
         self._assign_junction_matches(assignment_matrix, combo_lut, frame_num)
 
@@ -179,3 +178,5 @@ if __name__ == "__main__":
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
     nodes_test.populate_tracks()
+    # todo visualize whats going on and make sure it's correct
+
