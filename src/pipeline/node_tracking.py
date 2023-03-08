@@ -1,8 +1,6 @@
-import tifffile
-import os
 from src.pipeline.node_props import Node, NodeConstructor
 from src.io.im_info import ImInfo
-from src import logger, xp, ndi, measure
+from src import logger, xp
 from src.io.pickle_jar import unpickle_object
 
 
@@ -34,11 +32,22 @@ class NodeTrackConstructor:
         self.distance_thresh_um_per_sec = distance_thresh_um_per_sec
         self.time_thresh_sec = time_thresh_sec
 
-    def initialize_tracks(self):
+    def populate_tracks(self, num_t: int = None):
+        if num_t is not None:
+            num_t = min(num_t, self.num_frames)
+            self.num_frames = num_t
+        for frame_num in range(self.num_frames):
+            if frame_num == 0:
+                self._initialize_tracks()
+                continue
+            assignment_matrix = self._get_assignment_matrix(frame_num)
+            self._assign_confident_tracks(assignment_matrix, frame_num)
+
+    def _initialize_tracks(self):
         for node in self.nodes[0]:
             self.tracks.append(NodeTrack(node))
 
-    def get_assignment_matrix(self, frame_num):
+    def _get_assignment_matrix(self, frame_num):
         frame_nodes = self.nodes[frame_num]
         num_nodes = len(frame_nodes)
         num_tracks = len(self.tracks)
@@ -66,7 +75,7 @@ class NodeTrackConstructor:
 
         return distance_matrix
 
-    def assign_confident_tracks(self, assignment_matrix, frame_num):
+    def _assign_confident_tracks(self, assignment_matrix, frame_num):
         # rows are tracks (t1 nodes), columns are frame nodes (t2 nodes)
         # Find indices of non-nan values
         indices = xp.argwhere(~xp.isnan(assignment_matrix))
@@ -80,7 +89,7 @@ class NodeTrackConstructor:
         unique_t2 = xp.where(t2_counts == 1)[0]
 
         # Any t1 nodes that have only one match to a t2 node that has only one match are assigned
-        assignment_matrix = self.assign_t1_t2_unique_matches(unique_t1, unique_t2, assignment_matrix, frame_num)
+        assignment_matrix = self._assign_unique_matches(unique_t1, unique_t2, assignment_matrix, frame_num)
 
         # get a node_type-node_type connection look up table
         t1_type_lut = xp.array([[0 if track.node_types[-1] == 'tip' else 2 for track in self.tracks]])
@@ -88,41 +97,11 @@ class NodeTrackConstructor:
         combo_lut = t1_type_lut.T + t2_type_lut  # 0 is t-t, 1 is j-t, 2 is t-j, 3 is j-j
         combo_lut[xp.isnan(assignment_matrix)] = -1  # -1 if no assignment possible
 
-        min_t1 = xp.argmin(
-            xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
-            axis=1).reshape(-1, 1)
-        min_t2 = xp.argmin(
-            xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
-            axis=0).reshape(-1, 1)
-        t1_match_types = combo_lut[xp.arange(min_t1.shape[0]).reshape(-1, 1), min_t1[:]]
-        t2_match_types = combo_lut[min_t2[:], xp.arange(min_t2.shape[0]).reshape(-1, 1)]
+        # todo I should clean this up somehow, or at least visualize whats going on and make sure it's correct
+        # key_value_junction_matches (i.e. t2_t1 == {node: [tracks]})
+        self._assign_junction_matches(assignment_matrix, combo_lut, frame_num)
 
-        # a t1 junction can be assigned to any number of t2 junctions and tips:
-        t1_junction_idxs = xp.argwhere((t1_match_types == 1) ^ (t1_match_types == 3))[:, 0]
-        t2_node_matches = min_t1[t1_junction_idxs]
-        # keys are t2 nodes, values are t1 tracks
-        t2_t1_junction_matches = self.get_junction_matches(t1_junction_idxs, t2_node_matches)
-
-        # a t2 junction can have come from any number of t1 junctions and tips:
-        t2_junction_idxs = xp.argwhere((t2_match_types == 2) ^ (t2_match_types == 3))[:, 0]
-        t1_node_matches = min_t2[t2_junction_idxs]
-        # keys are t1 tracks, values are t2 nodes
-        t1_t2_junction_matches = self.get_junction_matches(t2_junction_idxs, t1_node_matches)
-
-
-    def populate_tracks(self, num_t: int = None):
-        if num_t is not None:
-            num_t = min(num_t, self.num_frames)
-            self.num_frames = num_t
-        for frame_num in range(self.num_frames):
-            if frame_num == 0:
-                self.initialize_tracks()
-                continue
-            assignment_matrix = self.get_assignment_matrix(frame_num)
-            self.assign_confident_tracks(assignment_matrix, frame_num)
-        self.assignment_matrix = assignment_matrix
-
-    def assign_t1_t2_unique_matches(self, unique_rows, unique_cols, assignment_matrix, frame_num):
+    def _assign_unique_matches(self, unique_rows, unique_cols, assignment_matrix, frame_num):
         # Find the common elements between unique_rows and unique_cols
         common_elements = xp.intersect1d(unique_rows, unique_cols)
 
@@ -138,14 +117,54 @@ class NodeTrackConstructor:
 
         return assignment_matrix
 
-    def get_junction_matches(self, junction_idxs, node_matches):
-        junction_matches = {}
-        for i, node in enumerate(node_matches):
-            if node[0] not in junction_matches.keys():
-                junction_matches[node[0]] = [junction_idxs[i]]
-            else:
-                junction_matches[node[0]].append(junction_idxs[i])
-        return junction_matches
+    def _assign_junction_matches(self, assignment_matrix, combo_lut, frame_num):
+        min_t1 = xp.argmin(
+            xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
+            axis=1).reshape(-1, 1)
+        min_t2 = xp.argmin(
+            xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
+            axis=0).reshape(-1, 1)
+        t1_match_types = combo_lut[xp.arange(min_t1.shape[0]).reshape(-1, 1), min_t1[:]]
+        t2_match_types = combo_lut[min_t2[:], xp.arange(min_t2.shape[0]).reshape(-1, 1)]
+
+        def _get_junction_matches(junction_idxs, node_matches):
+            junction_matches = {}
+            for i, node in enumerate(node_matches):
+                if node[0] not in junction_matches.keys():
+                    junction_matches[node[0]] = [junction_idxs[i]]
+                else:
+                    junction_matches[node[0]].append(junction_idxs[i])
+            return junction_matches
+
+        # a t1 junction can be assigned to any number of t2 junctions and tips:
+        t1_junction_idxs = xp.argwhere((t1_match_types == 1) ^ (t1_match_types == 3))[:, 0]
+        t2_node_matches = min_t1[t1_junction_idxs]
+        # keys are t2 nodes, values are t1 tracks
+        t2_t1_junction_matches = _get_junction_matches(t1_junction_idxs, t2_node_matches)
+
+        # a t2 junction can have come from any number of t1 junctions and tips:
+        t2_junction_idxs = xp.argwhere((t2_match_types == 2) ^ (t2_match_types == 3))[:, 0]
+        t1_node_matches = min_t2[t2_junction_idxs]
+        # keys are t1 tracks, values are t2 nodes
+        t1_t2_junction_matches = _get_junction_matches(t2_junction_idxs, t1_node_matches)
+
+        def _add_junction_tracks(a_b_junction_matches, b_a_junction_matches):
+            # 'a' are keys, 'b' are lists of values
+            for a, b in a_b_junction_matches.items():
+                if len(a_b_junction_matches[a]) != 1:
+                    continue
+                if b[0] not in b_a_junction_matches.keys():
+                    continue
+                if len(b_a_junction_matches[b[0]]) != 1:
+                    continue
+                if b_a_junction_matches[b[0]][0] == a:
+                    self.tracks[a].add_node(self.nodes[frame_num][b[0]])
+                    b_a_junction_matches.pop(b[0])
+
+        _add_junction_tracks(t1_t2_junction_matches, t2_t1_junction_matches)
+        _add_junction_tracks(t2_t1_junction_matches, t1_t2_junction_matches)
+
+        return t2_t1_junction_matches, t1_t2_junction_matches
 
 
 if __name__ == "__main__":
