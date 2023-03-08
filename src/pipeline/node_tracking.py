@@ -151,14 +151,20 @@ class NodeTrackConstructor:
 
         # Get coordinates of all possible existing tracks where the new track could have emerged from and save those
         nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < 0.5)
+        new_track_nodes = new_tracks_all[new_track_node_idx]
 
-        for idx in range(len(new_tracks_all)):
+        for new_track_node in enumerate(new_tracks_all):
             new_track_node_num = new_tracks_all[idx]
-            possible_tracks = xp.where(new_track_node_idx==idx)
-            print(possible_tracks)
-            # assignment_cost = cost_matrix[nearby_tracks[idx], new_track_node_num]
-            #
+            node_locs = xp.where(new_track_node_idx == new_track_node_num)
+            possible_tracks = nearby_tracks[node_locs]
+            # print(possible_tracks)
+
             # new_track = NodeTrack(new_track_node_num, frame_num)
+            for loc_idx, possible_track in enumerate(possible_tracks):
+                # print(possible_track, node_locs[loc_idx])
+                assignment_cost = cost_matrix[possible_track, node_locs[loc_idx]]
+                # print(assignment_cost)
+            #
             # new_track.possibly_emerged_from(nearby_tracks[idx], frame_num, assignment_cost)
             # self.tracks.append(NodeTrack(node, frame_num))
 
