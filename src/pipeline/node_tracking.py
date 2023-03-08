@@ -1,8 +1,17 @@
+import numpy as np
+
 from src.pipeline.node_props import Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src import logger, xp
 from src.io.pickle_jar import unpickle_object
+from scipy.optimize import linear_sum_assignment
 
+
+# notes:
+# t1 -> t2 means block off assignment both t1 and t2
+# t1 -> j2 means block off assignment t1 only
+# j1 -> t2 means block off assignment t2 only
+# j1 -> j2 is open assignment on both
 
 class NodeTrack:
     def __init__(self, node):
@@ -41,7 +50,9 @@ class NodeTrackConstructor:
                 self._initialize_tracks()
                 continue
             assignment_matrix = self._get_assignment_matrix(frame_num)
-            self._assign_confident_tracks(assignment_matrix, frame_num)
+            self.assignment_matrix = assignment_matrix
+            assignments = linear_sum_assignment(assignment_matrix)
+        return assignments
 
     def _initialize_tracks(self):
         for node in self.nodes[0]:
@@ -64,16 +75,19 @@ class NodeTrackConstructor:
         for track_num, track in enumerate(self.tracks):
             time_check = frame_time_s - track.time_points[-1]
             if time_check > self.time_thresh_sec:
-                track_centroids[:, track_num, 0] = xp.nan
+                track_centroids[:, track_num, 0] = xp.inf
                 continue
             track_centroids[:, track_num, 0] = track.centroids_um[-1]
             time_matrix[track_num, :] = time_check
 
         distance_matrix = xp.sqrt(xp.sum((node_centroids - track_centroids) ** 2, axis=0))
         distance_matrix /= time_matrix  # this is now a distance/sec matrix
-        distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.nan
+        distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
-        return distance_matrix
+        cost_matrix = xp.ones((num_tracks+num_nodes, num_tracks+num_nodes))*self.distance_thresh_um_per_sec
+        cost_matrix[:num_tracks, :num_nodes] = distance_matrix
+
+        return cost_matrix
 
     def _assign_confident_tracks(self, assignment_matrix, frame_num):
         # rows are tracks (t1 nodes), columns are frame nodes (t2 nodes)
@@ -89,7 +103,7 @@ class NodeTrackConstructor:
         unique_t2 = xp.where(t2_counts == 1)[0]
 
         # Any t1 nodes that have only one match to a t2 node that has only one match are assigned
-        assignment_matrix = self._assign_unique_matches(unique_t1, unique_t2, assignment_matrix, frame_num)
+        self._assign_unique_matches(unique_t1, unique_t2, assignment_matrix, frame_num)
 
         # get a node_type-node_type connection look up table
         t1_type_lut = xp.array([[0 if track.node_types[-1] == 'tip' else 2 for track in self.tracks]])
@@ -111,10 +125,10 @@ class NodeTrackConstructor:
         # Assign the nodes to the tracks, and sets row and column of assignment matrix to nan:
         for track_num, node_num in confident_pairs:
             self.tracks[track_num].add_node(self.nodes[frame_num][node_num])
-            assignment_matrix[track_num, :] = xp.nan
-            assignment_matrix[:, node_num] = xp.nan
-
-        return assignment_matrix
+        #     assignment_matrix[track_num, :] = xp.nan
+        #     assignment_matrix[:, node_num] = xp.nan
+        #
+        # return assignment_matrix
 
     def _assign_junction_matches(self, assignment_matrix, combo_lut, frame_num):
         min_t1 = xp.argmin(
@@ -177,6 +191,6 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
-    nodes_test.populate_tracks()
+    assignments = nodes_test.populate_tracks()
     # todo visualize whats going on and make sure it's correct
 
