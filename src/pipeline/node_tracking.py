@@ -153,17 +153,20 @@ class NodeTrackConstructor:
         nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < 0.5)
         new_track_nodes = new_tracks_all[new_track_node_idx]
 
-        for new_track_node in enumerate(new_tracks_all):
-            new_track_node_num = new_tracks_all[idx]
-            node_locs = xp.where(new_track_node_idx == new_track_node_num)
-            possible_tracks = nearby_tracks[node_locs]
-            # print(possible_tracks)
+        for idx, new_track_node in enumerate(new_tracks_all):
+            possibly_emerged_from = nearby_tracks[xp.where(new_track_nodes == new_track_node)]
+            print(possibly_emerged_from)
+            new_track = NodeTrack(self.nodes[frame_num][new_track_node], frame_num)
 
-            # new_track = NodeTrack(new_track_node_num, frame_num)
-            for loc_idx, possible_track in enumerate(possible_tracks):
-                # print(possible_track, node_locs[loc_idx])
-                assignment_cost = cost_matrix[possible_track, node_locs[loc_idx]]
-                # print(assignment_cost)
+            # new_track_node_num = new_tracks_all[idx]
+            # node_locs = xp.where(new_track_node_idx == new_track_node_num)
+            # possible_tracks = nearby_tracks[node_locs]
+            # # print(possible_tracks)
+            #
+            # for loc_idx, possible_track in enumerate(possible_tracks):
+            #     # print(possible_track, node_locs[loc_idx])
+            #     assignment_cost = cost_matrix[possible_track, node_locs[loc_idx]]
+            #     # print(assignment_cost)
             #
             # new_track.possibly_emerged_from(nearby_tracks[idx], frame_num, assignment_cost)
             # self.tracks.append(NodeTrack(node, frame_num))
