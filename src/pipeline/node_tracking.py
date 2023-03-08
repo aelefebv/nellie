@@ -70,6 +70,7 @@ class NodeTrackConstructor:
             self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum()/len(track_nums)
             self._assign_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_unassigned_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._check_new_tracks(track_nums, node_nums, cost_matrix, frame_num)
             # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
             #   and assign it as the fission point
             # if the fusion or fission point has too many nodes fusing / fissioning from it, keep the N lowest cost
@@ -139,6 +140,22 @@ class NodeTrackConstructor:
             unassigned_track_num = unassigned_tracks_all[unassigned_track_idx[idx]]
             assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
             self.tracks[unassigned_track_num].possibly_merged_to(nearby_nodes[idx], frame_num, assignment_cost)
+
+    def _check_new_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+        # Get a list of all the new tracks
+        new_tracks_all = node_nums[xp.where(track_nums > self.num_tracks)]
+        new_tracks_all = new_tracks_all[xp.where(new_tracks_all < self.num_nodes)]
+        print(new_tracks_all)
+
+        # # Get the cost matrix only of unassigned tracks and all nodes
+        # unassigned_track_cost_matrix = cost_matrix[new_tracks_all, :]
+        #
+        # # Get coordinates of all possible nodes where the track could have merged to and save those
+        # unassigned_track_idx, nearby_nodes = xp.where(unassigned_track_cost_matrix < 0.5)
+        # for idx in range(len(unassigned_track_idx)):
+        #     unassigned_track_num = new_tracks_all[unassigned_track_idx[idx]]
+        #     assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
+        #     self.tracks[unassigned_track_num].possibly_merged_to(nearby_nodes[idx], frame_num, assignment_cost)
 
 
 if __name__ == "__main__":
