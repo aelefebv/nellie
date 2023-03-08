@@ -147,11 +147,12 @@ class NodeTrackConstructor:
         new_tracks_all = new_tracks_all[xp.where(new_tracks_all < self.num_nodes)]
         print(new_tracks_all)
 
-        # # Get the cost matrix only of unassigned tracks and all nodes
-        # unassigned_track_cost_matrix = cost_matrix[new_tracks_all, :]
+        # Get the cost matrix only of all existing tracks and nodes that will form new tracks
+        new_track_cost_matrix = cost_matrix[:, new_tracks_all]
+
+        # Get coordinates of all possible existing tracks where the new track could have emerged from and save those
+        nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < 0.5)
         #
-        # # Get coordinates of all possible nodes where the track could have merged to and save those
-        # unassigned_track_idx, nearby_nodes = xp.where(unassigned_track_cost_matrix < 0.5)
         # for idx in range(len(unassigned_track_idx)):
         #     unassigned_track_num = new_tracks_all[unassigned_track_idx[idx]]
         #     assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
