@@ -30,15 +30,15 @@ class NodeTrack:
 
     def possibly_merged_to(self, node, frame_num, assignment_cost):
         if frame_num not in self.possible_merges_to.keys():
-            self.possible_merges_to[frame_num] = [(node, assignment_cost)]
+            self.possible_emerges_from[frame_num] = [(node, assignment_cost)]
         else:
             self.possible_merges_to[frame_num].append((node, assignment_cost))
 
     def possibly_emerged_from(self, track, frame_num, assignment_cost):
-        if frame_num not in self.possible_merges_to.keys():
-            self.possible_merges_to[frame_num] = [(track, assignment_cost)]
+        if frame_num not in self.possible_emerges_from.keys():
+            self.possible_emerges_from[frame_num] = [(track, assignment_cost)]
         else:
-            self.possible_merges_to[frame_num].append((track, assignment_cost))
+            self.possible_emerges_from[frame_num].append((track, assignment_cost))
 
 
 class NodeTrackConstructor:
@@ -162,6 +162,7 @@ class NodeTrackConstructor:
             for possible_track in possibly_emerged_from_tracks:
                 assignment_cost = cost_matrix[possible_track, new_track_node]
                 new_track.possibly_emerged_from(self.tracks[possible_track], frame_num, assignment_cost)
+                print(new_track.)
 
             # Append new track to existing track list
             self.tracks.append(new_track)
