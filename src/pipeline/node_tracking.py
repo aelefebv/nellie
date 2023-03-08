@@ -145,18 +145,22 @@ class NodeTrackConstructor:
         # Get a list of all the new tracks
         new_tracks_all = node_nums[xp.where(track_nums > self.num_tracks)]
         new_tracks_all = new_tracks_all[xp.where(new_tracks_all < self.num_nodes)]
-        print(new_tracks_all)
 
         # Get the cost matrix only of all existing tracks and nodes that will form new tracks
         new_track_cost_matrix = cost_matrix[:, new_tracks_all]
 
         # Get coordinates of all possible existing tracks where the new track could have emerged from and save those
         nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < 0.5)
-        #
-        # for idx in range(len(unassigned_track_idx)):
-        #     unassigned_track_num = new_tracks_all[unassigned_track_idx[idx]]
-        #     assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
-        #     self.tracks[unassigned_track_num].possibly_merged_to(nearby_nodes[idx], frame_num, assignment_cost)
+
+        for idx in range(len(new_tracks_all)):
+            new_track_node_num = new_tracks_all[idx]
+            possible_tracks = xp.where(new_track_node_idx==idx)
+            print(possible_tracks)
+            # assignment_cost = cost_matrix[nearby_tracks[idx], new_track_node_num]
+            #
+            # new_track = NodeTrack(new_track_node_num, frame_num)
+            # new_track.possibly_emerged_from(nearby_tracks[idx], frame_num, assignment_cost)
+            # self.tracks.append(NodeTrack(node, frame_num))
 
 
 if __name__ == "__main__":
