@@ -83,11 +83,10 @@ class NodeTrackConstructor:
         assignment_matrix = self.assign_t1_t2_unique_matches(unique_t1, unique_t2, assignment_matrix, frame_num)
 
         # get a node_type-node_type connection look up table
-        t1_type_lut = xp.array([[0 if node.node_type == 'tip' else 1 for node in self.nodes[frame_num]]])
-        t2_type_lut = xp.array([[0 if track.node_types[-1] == 'tip' else 2 for track in self.tracks]])
-        combo_lut = t1_type_lut + t2_type_lut.T  # 0 is t-t, 1 is j-t, 2 is t-j, 3 is j-j
+        t1_type_lut = xp.array([[0 if track.node_types[-1] == 'tip' else 2 for track in self.tracks]])
+        t2_type_lut = xp.array([[0 if node.node_type == 'tip' else 1 for node in self.nodes[frame_num]]])
+        combo_lut = t1_type_lut.T + t2_type_lut  # 0 is t-t, 1 is j-t, 2 is t-j, 3 is j-j
         combo_lut[xp.isnan(assignment_matrix)] = -1  # -1 if no assignment possible
-        # self.combo_lut = combo_lut
 
         min_t1 = xp.argmin(
             xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
@@ -96,68 +95,19 @@ class NodeTrackConstructor:
             xp.nan_to_num(assignment_matrix, nan=xp.inf, posinf=xp.inf, neginf=xp.inf),
             axis=0).reshape(-1, 1)
         t1_match_types = combo_lut[xp.arange(min_t1.shape[0]).reshape(-1, 1), min_t1[:]]
-        t2_match_types = combo_lut[xp.arange(min_t1.shape[0]).reshape(-1, 1), min_t1[:]]
+        t2_match_types = combo_lut[min_t2[:], xp.arange(min_t2.shape[0]).reshape(-1, 1)]
 
         # a t1 junction can be assigned to any number of t2 junctions and tips:
         t1_junction_idxs = xp.argwhere((t1_match_types == 1) ^ (t1_match_types == 3))[:, 0]
         t2_node_matches = min_t1[t1_junction_idxs]
-        t2_t1_junction_matches = {}
-        for i, t2_node in enumerate(t2_node_matches):
-            if t2_node[0] not in t2_t1_junction_matches.keys():
-                t2_t1_junction_matches[t2_node[0]] = [t1_junction_idxs[i]]
-            else:
-                t2_t1_junction_matches[t2_node[0]].append(t1_junction_idxs[i])
+        # keys are t2 nodes, values are t1 tracks
+        t2_t1_junction_matches = self.get_junction_matches(t1_junction_idxs, t2_node_matches)
 
         # a t2 junction can have come from any number of t1 junctions and tips:
-        t2_junction_idxs = xp.argwhere((t1_match_types == 2) ^ (t1_match_types == 3))[:, 0]
+        t2_junction_idxs = xp.argwhere((t2_match_types == 2) ^ (t2_match_types == 3))[:, 0]
         t1_node_matches = min_t2[t2_junction_idxs]
-        t1_t2_junction_matches = {}
-        for i, t1_node in enumerate(t1_node_matches):
-            if t1_node[0] not in t1_t2_junction_matches.keys():
-                t1_t2_junction_matches[t1_node[0]] = [t2_junction_idxs[i]]
-            else:
-                t1_t2_junction_matches[t1_node[0]].append(t2_junction_idxs[i])
-        print(t1_t2_junction_matches)
-
-        # # Any t1 tip can go to 1 single t2 node (not multiple)
-        # unique_t1_tips = [tip for tip in unique_t1 if self.tracks[tip].node_types[-1] == 'tip']
-        # unique_t2_tips = [tip for tip in unique_t2 if self.nodes[frame_num][tip].node_type == 'tip']
-        # self.unique_t1_tips = unique_t1_tips
-        # self.unique_t2_tips = unique_t2_tips
-        # self.unique_rows = unique_t1
-        #
-        # # Assign unique t1 tip matches to t2 nodes
-        # num_assigned = 0
-        # for tip in unique_t1_tips:
-        #     tip_idx = xp.argwhere(indices[:, 0] == tip)
-        #     node_match_num = indices[tip_idx[0], 1][0]
-        #
-        #     # Find all matches that this node could be assigned to
-        #     other_possible_matches = xp.argwhere(indices[:, 1] == node_match_num)
-        #
-        #     # T2 junctions but not t2 tips can be assigned to multiple t1 tips
-        #     # this is essentially a T shaped fission event
-        #     if self.nodes[frame_num][node_match_num].node_type == 'junction':
-        #         num_assigned += 1
-        #         self.tracks[tip].add_node(self.nodes[frame_num][node_match_num])
-        #         assignment_matrix[tip, :] = xp.nan  # remove this t1 tip from other possible matches
-        #         # do not remove t2 junction from other possible matches
-        #
-        #     # If there is only 1 t2 tip matched to 1 t1 tip, assign them, and remove it from possible other matches
-        #     # this is essentially a simple translation of a tip.
-        #     elif len(other_possible_matches) == 1:
-        #         num_assigned += 1
-        #         self.tracks[tip].add_node(self.nodes[frame_num][node_match_num])
-        #         assignment_matrix[tip, :] = xp.nan  # remove this t1 tip from other possible matches
-        #         assignment_matrix[:, node_match_num] = xp.nan  # remove this t2 tip node from other possible matches
-        #
-        #     # At this point, all the t1 tips with 1 possible match have been assigned to
-        #     #   t2 tips with a 1 possible assignment or t2 junctions with 1+ possible assignments
-        #     # Any t1 tips with 1 possible match that remain either disappeared in t2
-        #     #   or can possibly be assigned to t2 tips with 2+ possible assignments
-        #     else:  # construct a cost matrix of assignments for the rest of the tips?
-        #         pass
-        # print(len(unique_t1_tips), num_assigned)
+        # keys are t1 tracks, values are t2 nodes
+        t1_t2_junction_matches = self.get_junction_matches(t2_junction_idxs, t1_node_matches)
 
 
     def populate_tracks(self, num_t: int = None):
@@ -187,6 +137,16 @@ class NodeTrackConstructor:
             assignment_matrix[:, node_num] = xp.nan
 
         return assignment_matrix
+
+    def get_junction_matches(self, junction_idxs, node_matches):
+        junction_matches = {}
+        for i, node in enumerate(node_matches):
+            if node[0] not in junction_matches.keys():
+                junction_matches[node[0]] = [junction_idxs[i]]
+            else:
+                junction_matches[node[0]].append(junction_idxs[i])
+        return junction_matches
+
 
 if __name__ == "__main__":
     import os
