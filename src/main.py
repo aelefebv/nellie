@@ -39,7 +39,7 @@ if __name__ == "__main__":
     if not os.path.isfile(filepath):
         filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
     try:
-        run(filepath, 2)
+        run(filepath)
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
