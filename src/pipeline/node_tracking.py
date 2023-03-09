@@ -84,9 +84,9 @@ class NodeTrackConstructor:
             track_nums, node_nums = linear_sum_assignment(cost_matrix)
             self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum() / len(track_nums)
             self._assign_confident_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._assign_semi_confident_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_unassigned_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_new_tracks(track_nums, node_nums, cost_matrix, frame_num)
-            self._assign_semi_confident_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
             # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
             #   and assign it as the fission point
             # if the fusion or fission point has too many nodes fusing / fissioning from it, keep the N lowest cost
@@ -144,19 +144,34 @@ class NodeTrackConstructor:
             check_match_idx = xp.where(track_nums == check_track_num)
             check_node_num = node_nums[check_match_idx][0]
             # print(check_node_num)
-            possible_assignments = cost_matrix[check_track_num, cost_matrix[check_track_num, :]<0.5]
+            possible_assignments = xp.array(cost_matrix[check_track_num, cost_matrix[check_track_num, :]<0.5])
+
             # If it's assigned to be lost, don't check it
-            if check_node_num not in self.nodes_to_assign or check_node_num > self.num_nodes:
+            if len(possible_assignments) < 2 or \
+                    check_node_num not in self.nodes_to_assign or check_node_num > self.num_nodes:
                 continue
+
             # If it has only one other possible match, and it's assigned to it, assign it.
+            assignment_cost = cost_matrix[check_track_num, check_node_num]
+            node_to_assign = self.nodes[frame_num][check_node_num]
             if len(possible_assignments) == 2:
-                print(check_track_num)
-                assignment_cost = cost_matrix[check_track_num, check_node_num]
-                node_to_assign = self.nodes[frame_num][check_node_num]
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=2)
-                # todo have confidence tiers rather than binary
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
+
+            # If it has multiple matches, but its assignment has a significantly lower cost than others,
+            # or is very close to its confident match, assign it.
+            sorted_possible = xp.sort(possible_assignments)
+            assignment_idx = xp.where(sorted_possible == assignment_cost)[0][0]
+            if assignment_idx + 1 == len(sorted_possible):  # if assignment index is the highest possible cost, skip
+                continue
+            extra_cost = assignment_cost - sorted_possible[0]
+            saved_cost = sorted_possible[assignment_idx+1] - assignment_cost
+            if saved_cost > extra_cost:
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
+                self.tracks_to_assign.remove(check_track_num)
+                self.nodes_to_assign.remove(check_node_num)
+
 
     def _assign_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num, only_confident: bool = True):
         # Get all pairs of existing tracks and nodes that are assigned to each other
@@ -263,7 +278,7 @@ if __name__ == "__main__":
     nodes_test.populate_tracks()
     print('hi')
 
-    visualize = True
+    visualize = False
 
     if visualize:
         from src.utils.visualize import track_list_to_napari_track
