@@ -7,6 +7,8 @@ from src.io.pickle_jar import unpickle_object
 from scipy.optimize import linear_sum_assignment
 import numpy as xp
 
+# todo keep track of those mito that are well separated from others (some kind of # nearest neighbors)
+# todo reassign unconfident tracks that are pretty sure to be valid, maybe based on # nearest neighbors?
 
 class NodeTrack:
     def __init__(self, node, frame_num):
@@ -127,9 +129,7 @@ class NodeTrackConstructor:
         valid_nodes = node_nums[valid_idx]
         valid_tracks = track_nums[valid_idx]
 
-        min_cost = None
-        if only_confident:
-            min_cost = xp.min(cost_matrix, axis=1)
+        min_cost = xp.min(cost_matrix, axis=1)
 
         # Assign each node to its corresponding track
         num_assigned = 0
@@ -157,6 +157,8 @@ class NodeTrackConstructor:
         self.average_std_assignment_cost_unconfident[frame_num] = average_std_assignment_cost_unconfident
         self.unconfident_assignments[frame_num] = len(valid_tracks) - num_assigned
 
+        if only_confident:
+            return
         for node_idx, track, assignment_cost in node_tracks_assignment_cost_unassigned:
             # skip if assignment cost is > than 1 st. dev. above the average of a confident cost assignment
             if (assignment_cost > (
@@ -167,7 +169,7 @@ class NodeTrackConstructor:
                 continue
             node_to_assign = self.nodes[frame_num][valid_nodes[node_idx]]
             self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=False)
-        return cost_matrix
+        return
 
     def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         # Get a list of all the unassigned tracks
@@ -233,8 +235,9 @@ if __name__ == "__main__":
 
         napari_tracks, properties = track_list_to_napari_track(nodes_test.tracks)
         viewer = napari.Viewer(ndisplay=3)
-        viewer.add_image(tifffile.memmap(test.path_im_frangi),
-                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])
+        viewer.add_image(tifffile.memmap(test.path_im_mask),
+                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
+                         rendering='iso')
         viewer.add_tracks(napari_tracks, properties=properties)
         neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_neighbors),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
