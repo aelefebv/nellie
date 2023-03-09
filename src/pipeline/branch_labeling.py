@@ -190,7 +190,7 @@ if __name__ == "__main__":
         filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
     try:
         test = ImInfo(filepath, ch=0)
-    except:
+    except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     branch = BranchSegments(test)

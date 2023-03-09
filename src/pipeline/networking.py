@@ -22,7 +22,7 @@ class Neighbors:
         self.neighborhood_memmap = None
         self.shape = ()
 
-    def find_neighbors(self, num_t):  # todo this is faster on cpu.
+    def find_neighbors(self, num_t):  # todo this is faster on cpu?
         """
         Computes the neighborhood analysis of the skeleton image volume and saves the results in a memory-mapped image.
 
@@ -55,15 +55,17 @@ class Neighbors:
             # Create a 3x3x3 neighborhood template
             neighborhood = xp.ones((3, 3, 3), dtype=xp.uint8)
             neighborhood[1, 1, 1] = 0
-            frame_mem = (xp.asarray(frame) > 0).astype('uint8')
+            frame_mem = xp.asarray(frame)
+            frame_mask = (frame_mem > 0).astype('uint8')
 
             # Convolve the skeleton image with the neighborhood template to count neighboring skeleton pixels
-            neighbors = ndi.convolve(frame_mem, neighborhood, mode='constant').astype('uint8')
-            neighbors *= frame_mem
+            neighbors = ndi.convolve(frame_mask, neighborhood, mode='constant').astype('uint8')
+            neighbors *= frame_mask
+            neighbors = xp.max(xp.stack([neighbors, frame_mask], axis=0), axis=0)
             neighbors[neighbors > 3] = 3  # set max neighbors (i.e. connection type) to 3.
 
             expanded_neighbors = ndi.binary_dilation(neighbors == 3, structure=xp.ones((3, 3, 3))) * 3
-            neighbors = xp.max(xp.stack([neighbors, expanded_neighbors], axis=0), axis=0) * frame_mem
+            neighbors = xp.max(xp.stack([neighbors, expanded_neighbors], axis=0), axis=0) * frame_mask
 
 
         # todo label all bp neighbor pixels as tips. Then relabel tips based on connected pixel
@@ -100,7 +102,7 @@ if __name__ == "__main__":
         filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
     try:
         test = ImInfo(filepath, ch=0)
-    except:
+    except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     neighbors_test = Neighbors(test)

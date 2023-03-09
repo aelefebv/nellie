@@ -77,6 +77,7 @@ class ImInfo:
 
         self.path_pickle_obj = None
         self.path_pickle_seg = None
+        self.path_pickle_node = None
         self.path_pickle_track = None
         self._set_output_filepaths()
 
@@ -171,6 +172,7 @@ class ImInfo:
         self.path_im_event = os.path.join(self.output_images_dirpath, f'ch{self.ch}-event-{self.filename}.tif')
 
         self.path_pickle_obj = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-obj-{self.filename}.pkl')
+        self.path_pickle_node = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-node-{self.filename}.pkl')
         self.path_pickle_seg = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-seg-{self.filename}.pkl')
         self.path_pickle_track = os.path.join(self.output_pickles_dirpath, f'ch{self.ch}-track-{self.filename}.pkl')
 
@@ -227,6 +229,13 @@ class ImInfo:
 
 
 if __name__ == "__main__":
+    import os
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    test = ImInfo(filepath)
+    if not os.path.isfile(filepath):
+        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    try:
+        test = ImInfo(filepath, ch=0)
+    except FileNotFoundError:
+        logger.error("File not found.")
+        exit(1)
     memmap = test.get_im_memmap(test.im_path)
