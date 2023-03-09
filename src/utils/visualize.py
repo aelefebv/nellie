@@ -30,7 +30,7 @@ def track_list_to_napari_track(track_list: list[NodeTrack]) -> (list[list[int, i
         for idx, track_centroid in enumerate(track.centroids_um):
             z, y, x = track_centroid
             frame_num = track.frame_nums[idx]
-            properties['confidence'].append(track.confidence[idx]+1)
+            properties['confidence'].append(track.confidence[idx])
             # todo could also construct other arrays of properties like tip v junction
             # todo could also construct a graph of the node consumptions and productions
 

@@ -1,5 +1,3 @@
-import numpy as np
-
 from src.pipeline.node_props import Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src import logger
@@ -19,7 +17,7 @@ class NodeTrack:
         self.instance_labels = [node.instance_label]
         self.node_types = [node.node_type]
         self.assignment_cost = [0]
-        self.confidence = [True]
+        self.confidence = [0]
 
         self.possible_merges_to = {}
         self.possible_emerges_from = {}
@@ -51,19 +49,27 @@ class NodeTrackConstructor:
     def __init__(self, im_info: ImInfo,
                  distance_thresh_um_per_sec: float = 0.5,
                  time_thresh_sec: float = xp.inf):
+
         self.im_info = im_info
         self.node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
         self.nodes: list[list[Node]] = self.node_constructor.nodes
         self.tracks: list[NodeTrack] = []
-        self.num_frames = len(self.nodes)
+
         self.distance_thresh_um_per_sec = distance_thresh_um_per_sec
         self.time_thresh_sec = time_thresh_sec
+
         self.average_assignment_cost = {}
         self.average_std_assignment_cost_unconfident = {}
         self.average_std_assignment_cost_confident = {}
+
+        self.num_frames = len(self.nodes)
         self.num_nodes = 0
         self.num_tracks = 0
+
         self.unconfident_assignments = {}
+
+        self.tracks_to_assign = []
+        self.nodes_to_assign = []
 
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
@@ -77,9 +83,10 @@ class NodeTrackConstructor:
             # self.assignment_matrix = assignment_matrix
             track_nums, node_nums = linear_sum_assignment(cost_matrix)
             self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum() / len(track_nums)
-            cost_matrix = self._assign_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._assign_confident_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_unassigned_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_new_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._assign_semi_confident_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
             # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
             #   and assign it as the fission point
             # if the fusion or fission point has too many nodes fusing / fissioning from it, keep the N lowest cost
@@ -94,6 +101,9 @@ class NodeTrackConstructor:
         frame_nodes = self.nodes[frame_num]
         self.num_nodes = len(frame_nodes)
         self.num_tracks = len(self.tracks)
+        self.tracks_to_assign = list(range(self.num_tracks))
+        self.nodes_to_assign = list(range(self.num_nodes))
+
         num_dimensions = len(frame_nodes[0].centroid_um)
         frame_time_s = frame_nodes[0].time_point_sec
 
@@ -120,10 +130,35 @@ class NodeTrackConstructor:
             (self.num_tracks+self.num_nodes, self.num_tracks+self.num_nodes)
         ) * self.distance_thresh_um_per_sec
         cost_matrix[:self.num_tracks, :self.num_nodes] = distance_matrix
-
+        self.cost_matrix = cost_matrix
         return cost_matrix
 
-    def _assign_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num, only_confident: bool = True):
+
+    # assign confident-1 tracks:
+    # if there are only 2 possibilities and first one is no go, assign to second if assignment - min assignment < mean+1std
+    def _assign_semi_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+        for check_track_num in self.tracks_to_assign:
+            # print(check_track_num, len(self.tracks[check_track_num].possible_emerges_from))
+            # if len(self.tracks[check_track_num].possible_merges_to) == 2:
+
+            check_match_idx = xp.where(track_nums == check_track_num)
+            check_node_num = node_nums[check_match_idx][0]
+            # print(check_node_num)
+            possible_assignments = cost_matrix[check_track_num, cost_matrix[check_track_num, :]<0.5]
+            # If it's assigned to be lost, don't check it
+            if check_node_num not in self.nodes_to_assign or check_node_num > self.num_nodes:
+                continue
+            # If it has only one other possible match, and it's assigned to it, assign it.
+            if len(possible_assignments) == 2:
+                print(check_track_num)
+                assignment_cost = cost_matrix[check_track_num, check_node_num]
+                node_to_assign = self.nodes[frame_num][check_node_num]
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=2)
+                # todo have confidence tiers rather than binary
+                self.tracks_to_assign.remove(check_track_num)
+                self.nodes_to_assign.remove(check_node_num)
+
+    def _assign_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num, only_confident: bool = True):
         # Get all pairs of existing tracks and nodes that are assigned to each other
         valid_idx = xp.where(node_nums[:self.num_tracks] < self.num_nodes)
         valid_nodes = node_nums[valid_idx]
@@ -145,7 +180,9 @@ class NodeTrackConstructor:
             num_assigned += 1
             confident_assignment_cost.append(assignment_cost)
             node_to_assign = self.nodes[frame_num][valid_nodes[node_idx]]
-            self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=True)
+            self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=1)
+            self.tracks_to_assign.remove(track)
+            self.nodes_to_assign.remove(valid_nodes[node_idx])
             # cost_matrix[:, valid_nodes[node_idx]] = np.inf
             # cost_matrix[track, :] = np.inf
 
@@ -168,7 +205,7 @@ class NodeTrackConstructor:
             ):
                 continue
             node_to_assign = self.nodes[frame_num][valid_nodes[node_idx]]
-            self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=False)
+            self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=-1)
         return
 
     def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
