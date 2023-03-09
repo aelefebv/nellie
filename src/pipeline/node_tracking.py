@@ -47,7 +47,7 @@ class NodeTrack:
 
 class NodeTrackConstructor:
     def __init__(self, im_info: ImInfo,
-                 distance_thresh_um_per_sec: float = 0.5,
+                 distance_thresh_um_per_sec: float = 2,
                  time_thresh_sec: float = xp.inf):
 
         self.im_info = im_info
@@ -137,7 +137,9 @@ class NodeTrackConstructor:
         for check_track_num in self.tracks_to_assign:
             check_match_idx = xp.where(track_nums == check_track_num)
             check_node_num = node_nums[check_match_idx][0]
-            possible_assignments = xp.array(cost_matrix[check_track_num, cost_matrix[check_track_num, :]<0.5])
+            possible_assignments = xp.array(
+                cost_matrix[check_track_num, cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
+            )
 
             # If it's assigned to be lost, don't check it
             if len(possible_assignments) < 2 or \
@@ -155,6 +157,7 @@ class NodeTrackConstructor:
             # If it has multiple matches, but its assignment has a significantly lower cost than others,
             # or is very close to its confident match, assign it.
             sorted_possible = xp.sort(possible_assignments)
+            print(sorted_possible, assignment_cost)
             assignment_idx = xp.where(sorted_possible == assignment_cost)[0][0]
             if assignment_idx + 1 == len(sorted_possible):  # if assignment index is the highest possible cost, skip
                 continue
@@ -165,6 +168,41 @@ class NodeTrackConstructor:
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
+
+        for check_node_num in self.nodes_to_assign:
+            check_match_idx = xp.where(node_nums == check_node_num)
+            check_track_num = track_nums[check_match_idx][0]
+            possible_assignments = xp.array(
+                cost_matrix[cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec, check_node_num]
+            )
+
+            # If it's assigned to be lost, don't check it
+            if len(possible_assignments) < 2 or \
+                    check_track_num not in self.tracks_to_assign or check_track_num > self.num_tracks:
+                continue
+
+            # If it has only one other possible match, and it's assigned to it, assign it.
+            assignment_cost = cost_matrix[check_track_num, check_node_num]
+            node_to_assign = self.nodes[frame_num][check_node_num]
+            if len(possible_assignments) == 2:
+                print(possible_assignments)
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=10)
+                self.tracks_to_assign.remove(check_track_num)
+                self.nodes_to_assign.remove(check_node_num)
+            #
+            # # If it has multiple matches, but its assignment has a significantly lower cost than others,
+            # # or is very close to its confident match, assign it.
+            # sorted_possible = xp.sort(possible_assignments)
+            # assignment_idx = xp.where(sorted_possible == assignment_cost)[0][0]
+            # if assignment_idx + 1 == len(sorted_possible):  # if assignment index is the highest possible cost, skip
+            #     continue
+            # saved_cost = sorted_possible[assignment_idx + 1] - assignment_cost
+            #
+            # # If you save more cost than what it takes to assign to the next best, you're gucci.
+            # if saved_cost > assignment_cost:
+            #     self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
+            #     self.tracks_to_assign.remove(check_track_num)
+            #     self.nodes_to_assign.remove(check_node_num)
 
     def _assign_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         # Get all pairs of existing tracks and nodes that are assigned to each other
@@ -210,7 +248,7 @@ class NodeTrackConstructor:
         unassigned_track_cost_matrix = cost_matrix[unassigned_tracks_all, :]
 
         # Get coordinates of all possible nodes where the track could have merged to and save those
-        unassigned_track_idx, nearby_nodes = xp.where(unassigned_track_cost_matrix < 0.5)
+        unassigned_track_idx, nearby_nodes = xp.where(unassigned_track_cost_matrix < self.distance_thresh_um_per_sec)
         for idx in range(len(unassigned_track_idx)):
             unassigned_track_num = unassigned_tracks_all[unassigned_track_idx[idx]]
             assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
@@ -225,7 +263,7 @@ class NodeTrackConstructor:
         new_track_cost_matrix = cost_matrix[:, new_tracks_all]
 
         # Get coordinates of all possible existing tracks where the new track could have emerged
-        nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < 0.5)
+        nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < self.distance_thresh_um_per_sec)
         new_track_nodes = new_tracks_all[new_track_node_idx]
 
         for idx, new_track_node in enumerate(new_tracks_all):
@@ -252,7 +290,7 @@ if __name__ == "__main__":
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
+    nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=2)
     nodes_test.populate_tracks()
     print('hi')
 
@@ -267,9 +305,9 @@ if __name__ == "__main__":
         viewer = napari.Viewer(ndisplay=3)
         viewer.add_image(tifffile.memmap(test.path_im_mask),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
-                         rendering='iso')
-        viewer.add_tracks(napari_tracks, properties=properties)
+                         rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
+        viewer.add_tracks(napari_tracks, properties=properties, color_by='confidence')
         neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_neighbors),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
-                         contrast_limits=[0, 3], colormap='turbo', interpolation='nearest')
+                         contrast_limits=[0, 3], colormap='turbo', interpolation='nearest', opacity=0.2)
         neighbor_layer.interpolation = 'nearest'
