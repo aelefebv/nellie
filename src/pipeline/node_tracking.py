@@ -165,9 +165,8 @@ class NodeTrackConstructor:
             assignment_idx = xp.where(sorted_possible == assignment_cost)[0][0]
             if assignment_idx + 1 == len(sorted_possible):  # if assignment index is the highest possible cost, skip
                 continue
-            extra_cost = assignment_cost - sorted_possible[0]
             saved_cost = sorted_possible[assignment_idx+1] - assignment_cost
-            if saved_cost > extra_cost:
+            if saved_cost > assignment_cost:  # If you save more cost than what it takes to assign, you're gucci.
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
