@@ -162,7 +162,6 @@ class NodeTrackConstructor:
             for possible_track in possibly_emerged_from_tracks:
                 assignment_cost = cost_matrix[possible_track, new_track_node]
                 new_track.possibly_emerged_from(self.tracks[possible_track], frame_num, assignment_cost)
-                print(new_track.)
 
             # Append new track to existing track list
             self.tracks.append(new_track)
