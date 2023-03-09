@@ -1,3 +1,5 @@
+import numpy as np
+
 from src.pipeline.node_props import Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src import logger
@@ -68,7 +70,7 @@ class NodeTrackConstructor:
             # self.assignment_matrix = assignment_matrix
             track_nums, node_nums = linear_sum_assignment(cost_matrix)
             self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum()/len(track_nums)
-            self._assign_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            cost_matrix = self._assign_nodes_to_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_unassigned_tracks(track_nums, node_nums, cost_matrix, frame_num)
             self._check_new_tracks(track_nums, node_nums, cost_matrix, frame_num)
             # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
@@ -114,17 +116,27 @@ class NodeTrackConstructor:
 
         return cost_matrix
 
-    def _assign_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+    def _assign_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num, only_confident: bool = True):
         # Get all pairs of existing tracks and nodes that are assigned to each other
         valid_idx = xp.where(node_nums[:self.num_tracks] < self.num_nodes)
         valid_nodes = node_nums[valid_idx]
         valid_tracks = track_nums[valid_idx]
 
+        min_cost = None
+        if only_confident:
+            min_cost = xp.min(cost_matrix, axis=1)
+
         # Assign each node to its corresponding track
         for node_idx, track in enumerate(valid_tracks):
             assignment_cost = cost_matrix[track, valid_nodes[node_idx]]
+            if (min_cost is not None) and (assignment_cost != min_cost[track]):
+                continue
             node_to_assign = self.nodes[frame_num][valid_nodes[node_idx]]
             self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost)
+            cost_matrix[:, valid_nodes[node_idx]] = np.inf
+            cost_matrix[track, :] = np.inf
+
+        return cost_matrix
 
     def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         # Get a list of all the unassigned tracks
@@ -178,7 +190,22 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
-    assignments = nodes_test.populate_tracks()
+    nodes_test.populate_tracks()
     print('hi')
-    # todo visualize whats going on and make sure it's correct
 
+    visualize = False
+
+    if visualize:
+        from src.utils.visualize import track_list_to_napari_track
+        import napari
+        import tifffile
+
+        napari_tracks = track_list_to_napari_track(nodes_test.tracks)
+        viewer = napari.Viewer(ndisplay=3)
+        viewer.add_image(tifffile.memmap(test.path_im_frangi),
+                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])
+        viewer.add_tracks(napari_tracks)
+        neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_neighbors),
+                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
+                         contrast_limits=[0, 3], colormap='turbo', interpolation='nearest')
+        neighbor_layer.interpolation = 'nearest'
