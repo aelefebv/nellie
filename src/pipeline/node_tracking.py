@@ -133,17 +133,10 @@ class NodeTrackConstructor:
         self.cost_matrix = cost_matrix
         return cost_matrix
 
-
-    # assign confident-1 tracks:
-    # if there are only 2 possibilities and first one is no go, assign to second if assignment - min assignment < mean+1std
     def _assign_semi_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         for check_track_num in self.tracks_to_assign:
-            # print(check_track_num, len(self.tracks[check_track_num].possible_emerges_from))
-            # if len(self.tracks[check_track_num].possible_merges_to) == 2:
-
             check_match_idx = xp.where(track_nums == check_track_num)
             check_node_num = node_nums[check_match_idx][0]
-            # print(check_node_num)
             possible_assignments = xp.array(cost_matrix[check_track_num, cost_matrix[check_track_num, :]<0.5])
 
             # If it's assigned to be lost, don't check it
@@ -166,13 +159,14 @@ class NodeTrackConstructor:
             if assignment_idx + 1 == len(sorted_possible):  # if assignment index is the highest possible cost, skip
                 continue
             saved_cost = sorted_possible[assignment_idx+1] - assignment_cost
-            if saved_cost > assignment_cost:  # If you save more cost than what it takes to assign, you're gucci.
+
+            # If you save more cost than what it takes to assign to the next best, you're gucci.
+            if saved_cost > assignment_cost:
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
-
-    def _assign_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num, only_confident: bool = True):
+    def _assign_confident_nodes_to_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         # Get all pairs of existing tracks and nodes that are assigned to each other
         valid_idx = xp.where(node_nums[:self.num_tracks] < self.num_nodes)
         valid_nodes = node_nums[valid_idx]
@@ -197,8 +191,6 @@ class NodeTrackConstructor:
             self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=1)
             self.tracks_to_assign.remove(track)
             self.nodes_to_assign.remove(valid_nodes[node_idx])
-            # cost_matrix[:, valid_nodes[node_idx]] = np.inf
-            # cost_matrix[track, :] = np.inf
 
         average_std_assignment_cost_confident = (xp.mean(confident_assignment_cost),
                                                  xp.std(confident_assignment_cost))
@@ -207,19 +199,6 @@ class NodeTrackConstructor:
         self.average_std_assignment_cost_confident[frame_num] = average_std_assignment_cost_confident
         self.average_std_assignment_cost_unconfident[frame_num] = average_std_assignment_cost_unconfident
         self.unconfident_assignments[frame_num] = len(valid_tracks) - num_assigned
-
-        if only_confident:
-            return
-        for node_idx, track, assignment_cost in node_tracks_assignment_cost_unassigned:
-            # skip if assignment cost is > than 1 st. dev. above the average of a confident cost assignment
-            if (assignment_cost > (
-                    average_std_assignment_cost_confident[0] + 2 * average_std_assignment_cost_confident[1])
-            ) or (assignment_cost > (
-                    average_std_assignment_cost_unconfident[0] - average_std_assignment_cost_confident[1])
-            ):
-                continue
-            node_to_assign = self.nodes[frame_num][valid_nodes[node_idx]]
-            self.tracks[track].add_node(node_to_assign, frame_num, assignment_cost, confident=-1)
         return
 
     def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
