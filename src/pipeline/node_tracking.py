@@ -35,7 +35,6 @@ class NodeTrack:
         self.confidence.append(confident)
 
     def possibly_merged_to(self, node, frame_num, assignment_cost):
-        print(node.__dict__)
         if frame_num not in self.possible_merges_to.keys():
             self.possible_merges_to[frame_num] = [(node.assigned_track, assignment_cost)]
         else:
@@ -91,9 +90,9 @@ class NodeTrackConstructor:
             self._assign_confidence_1_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_2_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_3_matches(track_nums, node_nums, cost_matrix, frame_num)
-            self._check_new_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._check_new_tracks(cost_matrix, frame_num)
             self._back_assign_track_to_nodes(frame_num)
-            self._check_unassigned_tracks(track_nums, node_nums, cost_matrix, frame_num)
+            self._check_unassigned_tracks(cost_matrix, frame_num)
             # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
             #   and assign it as the fission point
             # if the fusion or fission point has too many nodes fusing / fissioning from it, keep the N lowest cost
@@ -170,6 +169,7 @@ class NodeTrackConstructor:
                     continue
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
                                                       confident=1, node_num=check_node_num)
+                node_to_assign.assigned_track = check_track_num
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -199,6 +199,7 @@ class NodeTrackConstructor:
                     continue
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
                                                       confident=1, node_num=check_node_num)
+                node_to_assign.assigned_track = check_track_num
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -226,6 +227,7 @@ class NodeTrackConstructor:
             if len(possible_assignments) == 2:
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
                                                       confident=2, node_num=check_node_num)
+                node_to_assign.assigned_track = check_track_num
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -251,6 +253,7 @@ class NodeTrackConstructor:
             if len(possible_assignments) == 2:
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
                                                       confident=2, node_num=check_node_num)
+                node_to_assign.assigned_track = check_track_num
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -284,6 +287,7 @@ class NodeTrackConstructor:
                 node_to_assign = self.nodes[frame_num][node_to_check]
                 self.tracks[track_to_check].add_node(node_to_assign, frame_num, valid_cost,
                                                      confident=3, node_num=node_to_check)
+                node_to_assign.assigned_track = track_to_check
                 self.tracks_to_assign.remove(track_to_check)
                 self.nodes_to_assign.remove(node_to_check)
         return
@@ -294,22 +298,22 @@ class NodeTrackConstructor:
                 continue
             track.nodes[track.frame_nums==frame_num].assigned_track = track_num
 
-    def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+    def _check_unassigned_tracks(self, cost_matrix, frame_num):
         valid_cost_matrix = cost_matrix[self.tracks_to_assign, :]
         unassigned_track_nums, possible_merge_nodes = xp.where(valid_cost_matrix < self.distance_thresh_um_per_sec)
-
-        for idx, track_num in enumerate(unassigned_track_nums):
+        for idx, track_idx in enumerate(unassigned_track_nums):
             node_num = possible_merge_nodes[idx]
+            node_object = self.nodes[frame_num][node_num]
+            if node_object.node_type == 'tip':
+                continue
+            track_num = self.tracks_to_assign[track_idx]
             assignment_cost = cost_matrix[track_num, node_num]
-            self.tracks[track_num].possibly_merged_to(self.nodes[frame_num][node_num], frame_num, assignment_cost)
+            self.tracks[track_num].possibly_merged_to(node_object, frame_num, assignment_cost)
 
-        # for idx in range(len(unassigned_track_idx)):
-        #     unassigned_track_num = unassigned_tracks_all[unassigned_track_idx[idx]]
-        #     assignment_cost = cost_matrix[unassigned_track_num, nearby_nodes[idx]]
-        #     self.tracks[unassigned_track_num].possibly_merged_to(nearby_nodes[idx], frame_num, assignment_cost)
-
-    def _check_new_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
+    def _check_new_tracks(self, cost_matrix, frame_num):
+        # also need to check nearby new nodes to see if it those two should be linked as fission event
         valid_cost_matrix = cost_matrix[:, self.nodes_to_assign].T
+        nodes_to_remove = []
         for idx in range(valid_cost_matrix.shape[0]):
             node_num = self.nodes_to_assign[idx]
             new_track = NodeTrack(self.nodes[frame_num][node_num], frame_num)
@@ -317,47 +321,10 @@ class NodeTrackConstructor:
             possible_costs = valid_cost_matrix[idx][possible_tracks]
             for track_idx, track in enumerate(possible_tracks):
                 new_track.possibly_emerged_from(track, frame_num, possible_costs[track_idx])
-                self.tracks.append(new_track)
+            self.tracks.append(new_track)
             nodes_to_remove.append(node_num)
-            self.nodes_to_assign.remove(node_num)
-            print(possible_tracks, possible_costs)
-
-
-        # for idx, node_num in enumerate(unassigned_nodes):
-        #     if node_num in self.nodes_to_assign:
-        #         new_track = NodeTrack(self.nodes[frame_num][node_num], frame_num)
-        #         self.nodes_to_assign.remove(node_num)
-        #     track_num = possible_track_emerges[idx]
-        #     assignment_cost = cost_matrix[track_num, node_num]
-        #
-        #     new_track.possibly_emerged_from(track_num, frame_num, assignment_cost)
-        #     self.tracks.append(new_track)
-
-
-        # # Get a list of all the new tracks
-        # new_tracks_all = node_nums[xp.where(track_nums > self.num_tracks)]
-        # new_tracks_all = new_tracks_all[xp.where(new_tracks_all < self.num_nodes)]
-        #
-        # # Get the cost matrix only of all existing tracks and nodes that will form new tracks
-        # new_track_cost_matrix = cost_matrix[:, new_tracks_all]
-        #
-        # # Get coordinates of all possible existing tracks where the new track could have emerged
-        # nearby_tracks, new_track_node_idx = xp.where(new_track_cost_matrix < self.distance_thresh_um_per_sec)
-        # new_track_nodes = new_tracks_all[new_track_node_idx]
-        #
-        # for idx, new_track_node in enumerate(new_tracks_all):
-        #
-        #     # Create a new track
-        #     new_track = NodeTrack(self.nodes[frame_num][new_track_node], frame_num)
-        #     possibly_emerged_from_tracks = nearby_tracks[xp.where(new_track_nodes == new_track_node)]
-        #
-        #     # Save what tracks the new track may have emerged from
-        #     for possible_track in possibly_emerged_from_tracks:
-        #         assignment_cost = cost_matrix[possible_track, new_track_node]
-        #         new_track.possibly_emerged_from(self.tracks[possible_track], frame_num, assignment_cost)
-        #
-        #     # Append new track to existing track list
-        #     self.tracks.append(new_track)
+        for node in nodes_to_remove:
+            self.nodes_to_assign.remove(node)
 
 
 if __name__ == "__main__":
