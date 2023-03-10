@@ -257,6 +257,24 @@ class NodeTrackConstructor:
         valid_costs.sort()
         hold_tracks_to_assign = self.tracks_to_assign.copy()
         hold_nodes_to_assign = self.nodes_to_assign.copy()
+
+        min_each_col = xp.min(valid_cost_matrix, axis=0)
+        min_col = xp.argmin(min_each_col)
+        min_each_row = xp.min(valid_cost_matrix, axis=1)
+        min_row = xp.argmin(min_each_row)
+        min_all = xp.argmin([min_each_col[min_col], min_each_row[min_row]])
+        if min_all == 0:
+            col = min_col
+            row = xp.argmin(valid_cost_matrix[col, :])
+        elif min_all == 1:
+            row = min_row
+            col = xp.argmin(valid_cost_matrix[:, row])
+            # col = xp.argmin(valid_cost_matrix[min_col_of_min_row, :])
+            print(col)
+            # row, col = min_row, min_row_of_min_col
+        # min_col = xp.min(valid_cost_matrix, axis=1)
+        print(min_row, min_col)
+        return
         #do a loop, remove track/node from list, check if in list next iteration
         for valid_cost in valid_costs:
             rows, cols = xp.where(valid_cost_matrix == valid_cost)
