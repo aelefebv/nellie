@@ -9,12 +9,12 @@ import numpy as xp
 # todo reassign unconfident tracks that are pretty sure to be valid, maybe based on # nearest neighbors?
 
 class NodeTrack:
-    def __init__(self, node, frame_num):
+    def __init__(self, node, frame_num, node_num):
         self.nodes = [node]
         self.time_points = [node.time_point_sec]
         self.frame_nums = [frame_num]
         self.centroids_um = [node.centroid_um]
-        self.instance_labels = [node.instance_label]
+        self.instance_labels = [node_num]
         self.node_num = [node.instance_label - 1]
         self.node_types = [node.node_type]
         self.assignment_cost = [0]
@@ -102,7 +102,7 @@ class NodeTrackConstructor:
     def _initialize_tracks(self, frame_num):
         for node_num, node in enumerate(self.nodes[0]):
             node.assigned_track = node_num
-            self.tracks.append(NodeTrack(node, frame_num))
+            self.tracks.append(NodeTrack(node, frame_num, node_num))
 
     def _get_assignment_matrix(self, frame_num):
         frame_nodes = self.nodes[frame_num]
@@ -128,8 +128,9 @@ class NodeTrackConstructor:
                 continue
             track_centroids[:, track_num, 0] = track.centroids_um[-1]
             time_matrix[track_num, :] = time_check
-
+        print(node_centroids[:, :, 6], track_centroids[:, 22, :])
         distance_matrix = xp.sqrt(xp.sum((node_centroids - track_centroids) ** 2, axis=0))
+        print(distance_matrix[22, 6])
         distance_matrix /= time_matrix  # this is now a distance/sec matrix
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
@@ -321,7 +322,7 @@ class NodeTrackConstructor:
         nodes_to_remove = []
         for idx in range(valid_cost_matrix.shape[0]):
             node_num = self.nodes_to_assign[idx]
-            new_track = NodeTrack(self.nodes[frame_num][node_num], frame_num)
+            new_track = NodeTrack(self.nodes[frame_num][node_num], frame_num, node_num)
             possible_tracks = xp.where(valid_cost_matrix[idx] < self.distance_thresh_um_per_sec)[0]
             possible_costs = valid_cost_matrix[idx][possible_tracks]
             for track_idx, track in enumerate(possible_tracks):
