@@ -36,6 +36,7 @@ class Node:
         self.centroid_um = node_region.centroid
         self.coords = node_region.coords
         self.time_point_sec = time_point
+        self.assigned_track = None
 
 
 class NodeConstructor:
