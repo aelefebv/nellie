@@ -82,6 +82,8 @@ class NodeTrackConstructor:
             cost_matrix = self._get_assignment_matrix(frame_num)
             # self.assignment_matrix = assignment_matrix
             track_nums, node_nums = linear_sum_assignment(cost_matrix)
+            self.track_nums = track_nums
+            self.node_nums = node_nums
             self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum() / len(track_nums)
             self._assign_confidence_1_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_2_matches(track_nums, node_nums, cost_matrix, frame_num)
@@ -135,6 +137,7 @@ class NodeTrackConstructor:
         return cost_matrix
 
     def _assign_confidence_1_matches(self, track_nums, node_nums, cost_matrix, frame_num):
+
         # First for nodes
         for check_node_num in self.nodes_to_assign:
             check_match_idx = xp.where(node_nums == check_node_num)[0][0]
@@ -150,8 +153,16 @@ class NodeTrackConstructor:
             )
             sorted_possible = xp.sort(possible_assignments)
 
+
             # Assign nodes to their matched tracks if that match is the lowest possible match cost
             if assignment_cost == sorted_possible[0]:
+                # check the track's costs. If cost of assignment is higher than its min match cost, skip.
+                track_possible_assignments = xp.array(
+                    cost_matrix[check_track_num, cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
+                )
+                min_track_cost = xp.min(track_possible_assignments)
+                if assignment_cost-min_track_cost > 0:
+                    continue
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=1)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
@@ -173,6 +184,13 @@ class NodeTrackConstructor:
 
             # Assign tracks to their matched nodes if that match is the lowest possible match cost
             if assignment_cost == sorted_possible[0]:
+                # check the node's costs. If cost of assignment is higher than its min match cost, skip.
+                node_possible_assignments = xp.array(
+                    cost_matrix[cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec, check_node_num]
+                )
+                min_node_cost = xp.min(node_possible_assignments)
+                if assignment_cost - min_node_cost > 0:
+                    continue
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=1)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
@@ -327,7 +345,7 @@ if __name__ == "__main__":
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=0.5)
+    nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks()
     print('hi')
 
