@@ -299,6 +299,8 @@ class NodeTrackConstructor:
             track.nodes[track.frame_nums==frame_num].assigned_track = track_num
 
     def _check_unassigned_tracks(self, cost_matrix, frame_num):
+        # also need to check nearby lost tracks to see if those two should be linked as fusion event
+        # if cost of assigning two nearby lost is lowest out of possible merges, assign
         valid_cost_matrix = cost_matrix[self.tracks_to_assign, :]
         unassigned_track_nums, possible_merge_nodes = xp.where(valid_cost_matrix < self.distance_thresh_um_per_sec)
         for idx, track_idx in enumerate(unassigned_track_nums):
@@ -306,12 +308,15 @@ class NodeTrackConstructor:
             node_object = self.nodes[frame_num][node_num]
             if node_object.node_type == 'tip':
                 continue
+            if node_object.node_type == 'junction':
+                pass  # todo make sure sum of junction connections before and after makes sense. May have to do this after all assignments.
             track_num = self.tracks_to_assign[track_idx]
             assignment_cost = cost_matrix[track_num, node_num]
             self.tracks[track_num].possibly_merged_to(node_object, frame_num, assignment_cost)
 
     def _check_new_tracks(self, cost_matrix, frame_num):
         # also need to check nearby new nodes to see if it those two should be linked as fission event
+        # if cost of assigning two nearby new nodes is lowest out of possible emergences, assign
         valid_cost_matrix = cost_matrix[:, self.nodes_to_assign].T
         nodes_to_remove = []
         for idx in range(valid_cost_matrix.shape[0]):
@@ -320,6 +325,10 @@ class NodeTrackConstructor:
             possible_tracks = xp.where(valid_cost_matrix[idx] < self.distance_thresh_um_per_sec)[0]
             possible_costs = valid_cost_matrix[idx][possible_tracks]
             for track_idx, track in enumerate(possible_tracks):
+                if self.tracks[track].nodes[-1].node_type == 'tip':
+                    continue
+                if self.tracks[track].nodes[-1].node_type == 'junction':
+                    pass  # todo make sure sum of junction connections before and after makes sense. May have to do this after all assignments.
                 new_track.possibly_emerged_from(track, frame_num, possible_costs[track_idx])
             self.tracks.append(new_track)
             nodes_to_remove.append(node_num)
