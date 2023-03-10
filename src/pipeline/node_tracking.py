@@ -258,39 +258,33 @@ class NodeTrackConstructor:
         hold_tracks_to_assign = self.tracks_to_assign.copy()
         hold_nodes_to_assign = self.nodes_to_assign.copy()
 
-        min_each_col = xp.min(valid_cost_matrix, axis=0)
-        min_col = xp.argmin(min_each_col)
-        min_each_row = xp.min(valid_cost_matrix, axis=1)
-        min_row = xp.argmin(min_each_row)
-        min_all = xp.argmin([min_each_col[min_col], min_each_row[min_row]])
-        if min_all == 0:
-            col = min_col
-            row = xp.argmin(valid_cost_matrix[col, :])
-        elif min_all == 1:
-            row = min_row
-            col = xp.argmin(valid_cost_matrix[:, row])
-            # col = xp.argmin(valid_cost_matrix[min_col_of_min_row, :])
-            print(col)
-            # row, col = min_row, min_row_of_min_col
-        # min_col = xp.min(valid_cost_matrix, axis=1)
-        print(min_row, min_col)
-        return
-        #do a loop, remove track/node from list, check if in list next iteration
         for valid_cost in valid_costs:
-            rows, cols = xp.where(valid_cost_matrix == valid_cost)
-            for idx in range(len(rows)):
-                track_to_check = hold_tracks_to_assign[rows[idx]]
-                node_to_check = hold_nodes_to_assign[cols[idx]]
-                if (track_to_check not in self.tracks_to_assign) or (node_to_check not in self.nodes_to_assign):
-                    continue
-                lowest_costs = cost_matrix[track_to_check, :]
-                lowest_costs = xp.concatenate([lowest_costs, cost_matrix[:, node_to_check]])
-                if xp.min(lowest_costs) == valid_cost:
-                    node_to_assign = self.nodes[frame_num][node_to_check]
-                    self.tracks[track_to_check].add_node(node_to_assign, frame_num, valid_cost,
-                                                         confident=3, node_num=node_to_check)
-                    self.tracks_to_assign.remove(track_to_check)
-                    self.nodes_to_assign.remove(node_to_check)
+            min_each_col = xp.min(valid_cost_matrix, axis=0)
+            min_col = xp.argmin(min_each_col)
+            min_each_row = xp.min(valid_cost_matrix, axis=1)
+            min_row = xp.argmin(min_each_row)
+            min_all = xp.argmin([min_each_col[min_col], min_each_row[min_row]])
+            if min_all == 0:
+                col = min_col
+                row = xp.argmin(valid_cost_matrix[:, col])
+            else:
+                row = min_row
+                col = xp.argmin(valid_cost_matrix[row, :])
+            valid_cost_matrix[row, col] = xp.inf
+            track_to_check = hold_tracks_to_assign[row]
+            node_to_check = hold_nodes_to_assign[col]
+            if (track_to_check not in self.tracks_to_assign) or (node_to_check not in self.nodes_to_assign):
+                continue
+            lowest_costs = cost_matrix[track_to_check, :]
+            lowest_costs = xp.concatenate([lowest_costs, cost_matrix[:, node_to_check]])
+            if xp.min(lowest_costs) == valid_cost:
+                node_to_assign = self.nodes[frame_num][node_to_check]
+                self.tracks[track_to_check].add_node(node_to_assign, frame_num, valid_cost,
+                                                     confident=3, node_num=node_to_check)
+                self.tracks_to_assign.remove(track_to_check)
+                self.nodes_to_assign.remove(node_to_check)
+        return
+
 
     def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         # Get a list of all the unassigned tracks
