@@ -210,7 +210,11 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 cost_matrix[cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec, check_node_num]
             )
-
+            xp.concatenate([possible_assignments,
+                            xp.array(cost_matrix[
+                                check_track_num,
+                                cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
+                            )])
             # If it has only one other possible match, and it's assigned to it, assign it.
             if len(possible_assignments) == 2:
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=2)
@@ -230,7 +234,11 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 cost_matrix[check_track_num, cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
             )
-
+            xp.concatenate([possible_assignments,
+                            xp.array(cost_matrix[
+                                cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec,
+                                check_node_num]
+                            )])
             # If it has only one other possible match, and it's assigned to it, assign it.
             if len(possible_assignments) == 2:
                 self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=2)
@@ -251,6 +259,11 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 cost_matrix[cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec, check_node_num]
             )
+            xp.concatenate([possible_assignments,
+                            xp.array(cost_matrix[
+                                         check_track_num,
+                                         cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
+                                     )])
             sorted_possible = xp.sort(possible_assignments)
 
             # If it has multiple matches, but its assignment has a significantly lower cost than others, assign it.
@@ -279,6 +292,11 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 cost_matrix[check_track_num, cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
             )
+            xp.concatenate([possible_assignments,
+                            xp.array(cost_matrix[
+                                cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec,
+                                check_node_num]
+                            )])
             sorted_possible = xp.sort(possible_assignments)
 
             # If it has multiple matches, but its assignment has a significantly lower cost than others, assign it.
