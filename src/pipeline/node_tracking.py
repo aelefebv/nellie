@@ -306,7 +306,7 @@ class NodeTrackConstructor:
         for idx, track_idx in enumerate(unassigned_track_nums):
             node_num = possible_merge_nodes[idx]
             node_object = self.nodes[frame_num][node_num]
-            if node_object.node_type == 'tip':
+            if node_object.node_type == 'tip':  # unless tip hasn't been assigned yet? or is this right.
                 continue
             if node_object.node_type == 'junction':
                 pass  # todo make sure sum of junction connections before and after makes sense. May have to do this after all assignments.
