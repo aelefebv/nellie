@@ -116,5 +116,5 @@ if __name__ == "__main__":
     node_props = NodeConstructor(test)
     node_props.get_node_properties(2)
     pickle_object(test.path_pickle_node, node_props)
-    node_props_unpickled = unpickle_object(test.path_pickle_obj)
+    node_props_unpickled = unpickle_object(test.path_pickle_node)
     print('hi')
