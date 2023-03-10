@@ -15,6 +15,7 @@ class NodeTrack:
         self.frame_nums = [frame_num]
         self.centroids_um = [node.centroid_um]
         self.instance_labels = [node.instance_label]
+        self.node_num = [node.instance_label - 1]
         self.node_types = [node.node_type]
         self.assignment_cost = [0]
         self.confidence = [0]
@@ -22,12 +23,13 @@ class NodeTrack:
         self.possible_merges_to = {}
         self.possible_emerges_from = {}
 
-    def add_node(self, node, frame_num, assignment_cost, confident):
+    def add_node(self, node, frame_num, assignment_cost, confident, node_num):
         self.nodes.append(node)
         self.time_points.append(node.time_point_sec)
         self.frame_nums.append(frame_num)
         self.centroids_um.append(node.centroid_um)
         self.instance_labels.append(node.instance_label)
+        self.node_num.append(node_num)
         self.node_types.append(node.node_type)
         self.assignment_cost.append(assignment_cost)
         self.confidence.append(confident)
@@ -163,7 +165,8 @@ class NodeTrackConstructor:
                 min_track_cost = xp.min(track_possible_assignments)
                 if assignment_cost-min_track_cost > 0:
                     continue
-                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=1)
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
+                                                      confident=1, node_num=check_node_num)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -191,7 +194,8 @@ class NodeTrackConstructor:
                 min_node_cost = xp.min(node_possible_assignments)
                 if assignment_cost - min_node_cost > 0:
                     continue
-                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=1)
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
+                                                      confident=1, node_num=check_node_num)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -210,14 +214,15 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 cost_matrix[cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec, check_node_num]
             )
-            xp.concatenate([possible_assignments,
-                            xp.array(cost_matrix[
-                                check_track_num,
-                                cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
-                            )])
+            possible_assignments = xp.concatenate([possible_assignments,
+                                    xp.array(cost_matrix[
+                                        check_track_num,
+                                        cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
+                                    )])
             # If it has only one other possible match, and it's assigned to it, assign it.
             if len(possible_assignments) == 2:
-                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=2)
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
+                                                      confident=2, node_num=check_node_num)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
@@ -234,83 +239,40 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 cost_matrix[check_track_num, cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
             )
-            xp.concatenate([possible_assignments,
-                            xp.array(cost_matrix[
-                                cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec,
-                                check_node_num]
-                            )])
+            possible_assignments = xp.concatenate([possible_assignments,
+                                    xp.array(cost_matrix[
+                                        cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec,
+                                        check_node_num]
+                                    )])
             # If it has only one other possible match, and it's assigned to it, assign it.
             if len(possible_assignments) == 2:
-                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=2)
+                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost,
+                                                      confident=2, node_num=check_node_num)
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
     def _assign_confidence_3_matches(self, track_nums, node_nums, cost_matrix, frame_num):
-        # First for nodes
-        for check_node_num in self.nodes_to_assign:
-            check_match_idx = xp.where(node_nums == check_node_num)[0][0]
-            check_track_num = track_nums[check_match_idx]
-            # Skip if this node was assigned to start a new track
-            if check_track_num >= self.num_tracks:
-                continue
-            node_to_assign = self.nodes[frame_num][check_node_num]
-            assignment_cost = cost_matrix[check_track_num, check_node_num]
-
-            possible_assignments = xp.array(
-                cost_matrix[cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec, check_node_num]
-            )
-            xp.concatenate([possible_assignments,
-                            xp.array(cost_matrix[
-                                         check_track_num,
-                                         cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
-                                     )])
-            sorted_possible = xp.sort(possible_assignments)
-
-            # If it has multiple matches, but its assignment has a significantly lower cost than others, assign it.
-            assignment_idx = xp.where(sorted_possible == assignment_cost)[0][0]
-            next_lowest_cost_idx = assignment_idx + 1
-            if next_lowest_cost_idx == len(sorted_possible):  # if assignment index is the highest possible cost, skip
-                continue
-            saved_cost = sorted_possible[next_lowest_cost_idx] - assignment_cost
-
-            # If you save more cost than what it takes to assign to the next best, you're gucci.
-            if saved_cost > assignment_cost:
-                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
-                self.tracks_to_assign.remove(check_track_num)
-                self.nodes_to_assign.remove(check_node_num)
-
-        # Then for tracks
-        for check_track_num in self.tracks_to_assign:
-            check_match_idx = xp.where(track_nums == check_track_num)[0][0]
-            check_node_num = node_nums[check_match_idx]
-            # Skip if this track was assigned to be lost
-            if check_node_num >= self.num_nodes:
-                continue
-            node_to_assign = self.nodes[frame_num][check_node_num]
-            assignment_cost = cost_matrix[check_track_num, check_node_num]
-
-            possible_assignments = xp.array(
-                cost_matrix[check_track_num, cost_matrix[check_track_num, :] < self.distance_thresh_um_per_sec]
-            )
-            xp.concatenate([possible_assignments,
-                            xp.array(cost_matrix[
-                                cost_matrix[:, check_node_num] < self.distance_thresh_um_per_sec,
-                                check_node_num]
-                            )])
-            sorted_possible = xp.sort(possible_assignments)
-
-            # If it has multiple matches, but its assignment has a significantly lower cost than others, assign it.
-            assignment_idx = xp.where(sorted_possible == assignment_cost)[0][0]
-            next_lowest_cost_idx = assignment_idx + 1
-            if next_lowest_cost_idx == len(sorted_possible):  # if assignment index is the highest possible cost, skip
-                continue
-            saved_cost = sorted_possible[next_lowest_cost_idx] - assignment_cost
-
-            # If you save more cost than what it takes to assign to the next best, you're gucci.
-            if saved_cost > assignment_cost:
-                self.tracks[check_track_num].add_node(node_to_assign, frame_num, assignment_cost, confident=3)
-                self.tracks_to_assign.remove(check_track_num)
-                self.nodes_to_assign.remove(check_node_num)
+        valid_cost_matrix = cost_matrix[self.tracks_to_assign, :][:, self.nodes_to_assign]
+        valid_costs = valid_cost_matrix[valid_cost_matrix<self.distance_thresh_um_per_sec]
+        valid_costs.sort()
+        hold_tracks_to_assign = self.tracks_to_assign.copy()
+        hold_nodes_to_assign = self.nodes_to_assign.copy()
+        #do a loop, remove track/node from list, check if in list next iteration
+        for valid_cost in valid_costs:
+            rows, cols = xp.where(valid_cost_matrix == valid_cost)
+            for idx in range(len(rows)):
+                track_to_check = hold_tracks_to_assign[rows[idx]]
+                node_to_check = hold_nodes_to_assign[cols[idx]]
+                if (track_to_check not in self.tracks_to_assign) or (node_to_check not in self.nodes_to_assign):
+                    continue
+                lowest_costs = cost_matrix[track_to_check, :]
+                lowest_costs = xp.concatenate([lowest_costs, cost_matrix[:, node_to_check]])
+                if xp.min(lowest_costs) == valid_cost:
+                    node_to_assign = self.nodes[frame_num][node_to_check]
+                    self.tracks[track_to_check].add_node(node_to_assign, frame_num, valid_cost,
+                                                         confident=3, node_num=node_to_check)
+                    self.tracks_to_assign.remove(track_to_check)
+                    self.nodes_to_assign.remove(node_to_check)
 
     def _check_unassigned_tracks(self, track_nums, node_nums, cost_matrix, frame_num):
         # Get a list of all the unassigned tracks
