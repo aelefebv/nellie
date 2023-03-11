@@ -1,9 +1,10 @@
 from src import xp, ndi, logger, is_gpu, measure
+from src.pipeline.node_props import NodeConstructor, Node
 from src.io.im_info import ImInfo
 import tifffile
 
 
-def clean_labels(frame):
+def clean_labels(frame, frame_num):
     """
     Cleans up and labels branches in a 3D image stack. Assumes branch points are labeled as 3,
     edges are labeled as 2, and tips are labeled as 1.
@@ -18,6 +19,8 @@ def clean_labels(frame):
     np.ndarray
         A labeled image where each branch is labeled with a unique integer.
     """
+    time_point_sec = frame_num * self.time_spacing
+
     # Find edge points in image
     edge_points = frame == 2
     # Find edge points in image
@@ -124,7 +127,7 @@ class BranchSegments:
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(neighbor_im)-1}')
             frame_neighbor = xp.asarray(frame)
 
-            edge_labels = clean_labels(frame_neighbor)
+            edge_labels = clean_labels(frame_neighbor, frame_num)
 
             if is_gpu:
                 self.segment_memmap[frame_num] = edge_labels.get()
