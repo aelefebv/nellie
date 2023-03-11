@@ -19,7 +19,7 @@ class Neighbors:
     """
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
-        self.neighborhood_memmap = None
+        self.network_memmap = None
         self.shape = ()
 
     def find_neighbors(self, num_t):  # todo this is faster on cpu?
@@ -44,9 +44,9 @@ class Neighbors:
 
         # Allocate memory for the neighbor volume and load it as a memory-mapped file
         self.im_info.allocate_memory(
-            self.im_info.path_im_neighbors, shape=self.shape, dtype='uint8', description='Neighbor image'
+            self.im_info.path_im_network, shape=self.shape, dtype='uint8', description='Neighbor image'
         )
-        self.neighborhood_memmap = tifffile.memmap(self.im_info.path_im_neighbors, mode='r+')
+        self.network_memmap = tifffile.memmap(self.im_info.path_im_network, mode='r+')
 
         # Get the neighborhood for each frame in the skeleton image and save it to its memory mapped location
         for frame_num, frame in enumerate(skeleton_im):
@@ -67,32 +67,11 @@ class Neighbors:
             expanded_neighbors = ndi.binary_dilation(neighbors == 3, structure=xp.ones((3, 3, 3))) * 3
             neighbors = xp.max(xp.stack([neighbors, expanded_neighbors], axis=0), axis=0) * frame_mask
 
-
-        # todo label all bp neighbor pixels as tips. Then relabel tips based on connected pixel
-            # # Get a list of pixels that are branch points
-            # branch_point_idx = xp.argwhere(neighbors == 3)
-            #
-            # # Investigate each branch point to determine the connection type
-            # for branch_idx, branch_point in enumerate(branch_point_idx):
-            #     logger.debug(f'Investigating branch point {branch_idx}/{len(branch_point_idx)}')
-            #     z, y, x = branch_point
-            #
-            #     # Get the coords of the neighboring pixels
-            #     coords = [(z+i, y+j, x+k)
-            #               for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
-            #               if i != 0 or j != 0 or k != 0]
-            #
-            #     # Check if any of the neighboring pixels have a value of 3
-            #     for coord in coords:
-            #         if neighbors[coord] == 3:
-            #             neighbors[z, y, x] = 2
-            #             break
-
             # Save the neighbor image to its corresponding memory
             if is_gpu:
-                self.neighborhood_memmap[frame_num] = neighbors.get()
+                self.network_memmap[frame_num] = neighbors.get()
             else:
-                self.neighborhood_memmap[frame_num] = neighbors
+                self.network_memmap[frame_num] = neighbors
 
 
 if __name__ == "__main__":

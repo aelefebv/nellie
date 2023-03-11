@@ -367,7 +367,7 @@ if __name__ == "__main__":
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
                          rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
         viewer.add_tracks(napari_tracks, properties=properties, color_by='confidence')
-        neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_neighbors),
+        neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_network),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
                          contrast_limits=[0, 3], colormap='turbo', interpolation='nearest', opacity=0.2)
         neighbor_layer.interpolation = 'nearest'

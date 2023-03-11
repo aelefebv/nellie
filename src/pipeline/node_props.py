@@ -36,7 +36,7 @@ class Node:
         self.time_point_sec = time_point
         self.assigned_track = None
         if node_region is not None:
-            self.centroid_um = node_region.centroid
+            self.centroid_um = tuple(x * y for x, y in zip(node_region.centroid, spacing))
             self.instance_label = node_region.label
             self.coords = node_region.coords
         else:
@@ -105,7 +105,6 @@ class NodeConstructor:
         edge_labels, num_edge_labels = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
         edge_label_set = list(range(1, num_edge_labels+1))
         edge_regions = measure.regionprops(edge_labels)
-        print(edge_label_set)
         # Label individual branch points
         junction_labels, _ = ndi.label(frame == 3, structure=xp.ones((3, 3, 3)))
         junction_regions = measure.regionprops(junction_labels)
@@ -215,7 +214,7 @@ class NodeConstructor:
         num_t : int or None, optional
             The number of timepoints to process. If None, all timepoints are processed.
         """
-        network_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r')
+        network_im = tifffile.memmap(self.im_info.path_im_network, mode='r')
 
 
         if num_t is not None:
