@@ -20,7 +20,7 @@ class Node:
         The coordinates of all points in the node.
     """
 
-    def __init__(self, node_type: str, node_region, time_point: float, spacing: tuple):
+    def __init__(self, node_type: str, node_region, time_point: float, spacing: tuple, dummy_region: dict = None):
         """
         Constructs a Node object.
 
@@ -33,11 +33,16 @@ class Node:
         """
         self.node_type = node_type  # should be 'tip' or 'junction'
         self.connected_branches = []
-        self.instance_label = node_region.label
-        self.centroid_um = tuple(x * y for x, y in zip(node_region.centroid, spacing))
-        self.coords = node_region.coords
         self.time_point_sec = time_point
         self.assigned_track = None
+        if node_region is not None:
+            self.centroid_um = node_region.centroid
+            self.instance_label = node_region.label
+            self.coords = node_region.coords
+        else:
+            self.centroid_um = tuple(x * y for x, y in zip(dummy_region['centroid'], spacing))
+            self.instance_label = dummy_region['instance_label']
+            self.coords = dummy_region['coords']
 
 
 class NodeConstructor:
@@ -95,7 +100,7 @@ class NodeConstructor:
         edge_points = frame == 2
         # Find edge points in image
         edge_labels, num_edge_labels = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
-        edge_label_set = list(range(1, num_edge_labels))
+        edge_label_set = list(range(1, num_edge_labels+1))
         edge_regions = measure.regionprops(edge_labels)
         print(edge_label_set)
         # Label individual branch points
@@ -149,7 +154,7 @@ class NodeConstructor:
 
         # todo here, if edge has no attached tip or junction, set centroid as a lone tip.
         # Label individual tips
-        tip_labels, _ = ndi.label((frame == 1) | (frame == 11), structure=xp.ones((3, 3, 3)))
+        tip_labels, num_tip_labels = ndi.label((frame == 1) | (frame == 11), structure=xp.ones((3, 3, 3)))
         tip_regions = measure.regionprops(tip_labels)
         # if no neighbors, tip becomes lone tip type
         # Loop over each branch point region
@@ -182,12 +187,18 @@ class NodeConstructor:
             else:
                 logger.warning("Tip has more than 1 neighbor... This should not be the case. Definitely Austin's fault")
 
-        # if edge has not been assigned, it has no tip or junction. Set it's centroid as a lone tip
+        # if edge has not been assigned, it has no tip or junction. Set its centroid as a lone tip
         for edge_label in edge_label_set:
             edge_label_idx = edge_label-1
-            assert edge_label == edge_regions[edge_label_idx].label
-            frame[edge_regions[edge_label_idx].centroid] = 11
-            new_node = Node('lone tip', tip_region, time_point_sec, self.spacing)
+            edge_region = edge_regions[edge_label_idx]
+            rounded_centroid = tuple(round(x) for x in edge_region.centroid)
+            frame[rounded_centroid] = 11
+            node_coords = xp.zeros_like(edge_region.coords, shape=(1, edge_region.coords.shape[-1]))
+            node_coords[..., :] = rounded_centroid
+            num_tip_labels += 1
+            dummy_region = {'instance_label': num_tip_labels, 'coords': node_coords, 'centroid': edge_region.centroid}
+            new_node = Node('lone tip', None, time_point_sec, self.spacing, dummy_region=dummy_region)
+            new_node.connected_branches.append(edge_label)  # could be useful for later?
             self.nodes[frame_num].append(new_node)
 
         return edge_labels
