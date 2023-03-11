@@ -152,12 +152,10 @@ class NodeConstructor:
                         edge_label_set.remove(edge_label)
                 self.nodes[frame_num].append(new_node)
 
-        # todo here, if edge has no attached tip or junction, set centroid as a lone tip.
         # Label individual tips
         tip_labels, num_tip_labels = ndi.label((frame == 1) | (frame == 11), structure=xp.ones((3, 3, 3)))
         tip_regions = measure.regionprops(tip_labels)
         # if no neighbors, tip becomes lone tip type
-        # Loop over each branch point region
         for tip_num, tip_region in enumerate(tip_regions):
             logger.debug(f'Checking for lone tips {tip_num}/{len(tip_regions) - 1}')
 
@@ -200,7 +198,6 @@ class NodeConstructor:
             new_node = Node('lone tip', None, time_point_sec, self.spacing, dummy_region=dummy_region)
             new_node.connected_branches.append(edge_label)  # could be useful for later?
             self.nodes[frame_num].append(new_node)
-
         return edge_labels
 
     def get_node_properties(self, num_t: int = None, dtype='uint32'):
@@ -235,27 +232,6 @@ class NodeConstructor:
                 self.segment_memmap[frame_num] = edge_labels.get()
             else:
                 self.segment_memmap[frame_num] = edge_labels
-
-            # logger.info(f'Getting node properties, volume {frame_num}/{len(network_im)-1}')
-            # time_point_sec = frame_num * self.time_spacing
-            # frame_mem = xp.asarray(frame)
-            #
-            # tips, _ = ndi.label(frame_mem == 1, structure=xp.ones((3, 3, 3)))
-            # tip_regions = measure.regionprops(tips, spacing=self.spacing)
-            # lone_tips, _ = ndi.label(frame_mem == 11, structure=xp.ones((3, 3, 3)))
-            # lone_tip_regions = measure.regionprops(lone_tips, spacing = self.spacing)
-            # junctions, _ = ndi.label(frame_mem == 3, structure=xp.ones((3, 3, 3)))
-            # junction_regions = measure.regionprops(junctions, spacing=self.spacing)
-            #
-            # nodes_frame = []
-            # for tip in tip_regions:
-            #     nodes_frame.append(Node('tip', tip, time_point_sec))
-            # for lone_tip in lone_tip_regions:
-            #     nodes_frame.append(Node('lone tip', lone_tip, time_point_sec))
-            # for junction in junction_regions:
-            #     nodes_frame.append(Node('junction', junction, time_point_sec))
-            #
-            # self.nodes.append(nodes_frame)
 
 
 if __name__ == "__main__":
