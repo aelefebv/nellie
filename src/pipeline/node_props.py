@@ -69,8 +69,9 @@ class NodeConstructor:
         """
         self.im_info = im_info
         self.node_type_memmap = None
-        self.node_memmap = None
-        self.segment_memmap = None
+        self.tip_label_memmap = None
+        self.junction_label_memmap = None
+        self.edge_label_memmap = None
         if self.im_info.is_3d:
             self.spacing = self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
         else:
@@ -106,8 +107,8 @@ class NodeConstructor:
         edge_regions = measure.regionprops(edge_labels)
         print(edge_label_set)
         # Label individual branch points
-        junction_label, _ = ndi.label(frame == 3, structure=xp.ones((3, 3, 3)))
-        junction_regions = measure.regionprops(junction_label)
+        junction_labels, _ = ndi.label(frame == 3, structure=xp.ones((3, 3, 3)))
+        junction_regions = measure.regionprops(junction_labels)
 
         # Loop over each branch point region
         for junction_num, junction_region in enumerate(junction_regions):
@@ -133,14 +134,16 @@ class NodeConstructor:
             edge_neighbors = xp.asarray([idx for idx in coords if frame[idx] == 2])
             # if only 1 neighbor, junction becomes a tip
             if len(edge_neighbors) == 1:
-                frame[junction_label == junction_region.label] = 1
+                frame[junction_labels == junction_region.label] = 1
+                junction_labels[junction_labels == junction_region.label] = 0
             # if 2 neighbors only, label junction becomes label 1, label 2 becomes label 1
             elif len(edge_neighbors) == 2:
-                frame[junction_label == junction_region.label] = 2
+                frame[junction_labels == junction_region.label] = 2
                 edge_1_label = edge_labels[tuple(edge_neighbors[0])]
                 edge_2_label = edge_labels[tuple(edge_neighbors[-1])]
                 edge_labels[edge_labels == edge_2_label] = edge_1_label
-                edge_labels[junction_label == junction_region.label] = edge_1_label
+                edge_labels[junction_labels == junction_region.label] = edge_1_label
+                junction_labels[junction_labels == junction_region.label] = 0
                 if edge_1_label in edge_label_set:
                     edge_label_set.remove(edge_1_label)
                 if edge_2_label in edge_label_set:
@@ -200,7 +203,8 @@ class NodeConstructor:
             new_node = Node('lone tip', None, time_point_sec, self.spacing, dummy_region=dummy_region)
             new_node.connected_branches.append(edge_label)  # could be useful for later?
             self.nodes[frame_num].append(new_node)
-        return edge_labels
+            tip_labels[rounded_centroid] = num_tip_labels
+        return tip_labels, junction_labels, edge_labels
 
     def get_node_properties(self, num_t: int = None, dtype='uint32'):
         """
@@ -221,28 +225,36 @@ class NodeConstructor:
 
         # Allocate memory for the node type and label, and node segment volumes and load it as a memory-mapped file
         self.im_info.allocate_memory(
-            self.im_info.path_im_node_types, shape=self.shape, dtype=dtype, description='Node type image'
+            self.im_info.path_im_node_types, shape=self.shape, dtype='uint8', description='Node type image'
         )
         self.im_info.allocate_memory(
-            self.im_info.path_im_label_nodes, shape=self.shape, dtype=dtype, description='Node label image'
+            self.im_info.path_im_label_tips, shape=self.shape, dtype=dtype, description='Tip label image'
+        )
+        self.im_info.allocate_memory(
+            self.im_info.path_im_label_junctions, shape=self.shape, dtype=dtype, description='Junction label image'
         )
         self.im_info.allocate_memory(
             self.im_info.path_im_label_seg, shape=self.shape, dtype=dtype, description='Branch segments image'
         )
         self.node_type_memmap = tifffile.memmap(self.im_info.path_im_node_types, mode='r+')
-        self.node_memmap = tifffile.memmap(self.im_info.path_im_label_nodes, mode='r+')
-        self.segment_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
+        self.tip_label_memmap = tifffile.memmap(self.im_info.path_im_label_tips, mode='r+')
+        self.junction_label_memmap = tifffile.memmap(self.im_info.path_im_label_junctions, mode='r+')
+        self.edge_label_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(network_im) - 1}')
-            frame_neighbor = xp.asarray(frame)
+            self.node_type_memmap[frame_num] = xp.asarray(frame)
 
-            edge_labels = self.clean_labels(frame_neighbor, frame_num)
+            tip_labels, junction_labels, edge_labels = self.clean_labels(self.node_type_memmap[frame_num], frame_num)
 
             if is_gpu:
-                self.segment_memmap[frame_num] = edge_labels.get()
+                self.tip_label_memmap[frame_num] = tip_labels.get()
+                self.junction_label_memmap[frame_num] = junction_labels.get()
+                self.edge_label_memmap[frame_num] = edge_labels.get()
             else:
-                self.segment_memmap[frame_num] = edge_labels
+                self.tip_label_memmap[frame_num] = tip_labels
+                self.junction_label_memmap[frame_num] = junction_labels
+                self.edge_label_memmap[frame_num] = edge_labels
 
 
 if __name__ == "__main__":
