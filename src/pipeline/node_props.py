@@ -68,6 +68,8 @@ class NodeConstructor:
             An object containing information about the input image.
         """
         self.im_info = im_info
+        self.node_type_memmap = None
+        self.node_memmap = None
         self.segment_memmap = None
         if self.im_info.is_3d:
             self.spacing = self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
@@ -209,17 +211,26 @@ class NodeConstructor:
         num_t : int or None, optional
             The number of timepoints to process. If None, all timepoints are processed.
         """
-        network_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r+')
+        network_im = tifffile.memmap(self.im_info.path_im_neighbors, mode='r')
+
 
         if num_t is not None:
             num_t = min(num_t, network_im.shape[0])
             network_im = network_im[:num_t, ...]
         self.shape = network_im.shape
 
-        # Allocate memory for the branch segment volume and load it as a memory-mapped file
+        # Allocate memory for the node type and label, and node segment volumes and load it as a memory-mapped file
+        self.im_info.allocate_memory(
+            self.im_info.path_im_node_types, shape=self.shape, dtype=dtype, description='Node type image'
+        )
+        self.im_info.allocate_memory(
+            self.im_info.path_im_label_nodes, shape=self.shape, dtype=dtype, description='Node label image'
+        )
         self.im_info.allocate_memory(
             self.im_info.path_im_label_seg, shape=self.shape, dtype=dtype, description='Branch segments image'
         )
+        self.node_type_memmap = tifffile.memmap(self.im_info.path_im_node_types, mode='r+')
+        self.node_memmap = tifffile.memmap(self.im_info.path_im_label_nodes, mode='r+')
         self.segment_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
 
         for frame_num, frame in enumerate(network_im):

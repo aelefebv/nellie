@@ -72,6 +72,8 @@ class ImInfo:
         self.path_im_neighbors = None
         self.path_im_label_obj = None
         self.path_im_label_seg = None
+        self.path_im_label_nodes = None
+        self.path_im_node_types = None
         self.path_im_network = None
         self.path_im_event = None
 
@@ -168,6 +170,8 @@ class ImInfo:
         self.path_im_neighbors = os.path.join(self.output_images_dirpath, f'ch{self.ch}-neighbors-{self.filename}.tif')
         self.path_im_label_obj = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_obj-{self.filename}.tif')
         self.path_im_label_seg = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_seg-{self.filename}.tif')
+        self.path_im_label_nodes = os.path.join(self.output_images_dirpath, f'ch{self.ch}-label_nodes-{self.filename}.tif')
+        self.path_im_node_types = os.path.join(self.output_images_dirpath, f'ch{self.ch}-node_types-{self.filename}.tif')
         self.path_im_network = os.path.join(self.output_images_dirpath, f'ch{self.ch}-network-{self.filename}.tif')
         self.path_im_event = os.path.join(self.output_images_dirpath, f'ch{self.ch}-event-{self.filename}.tif')
 
