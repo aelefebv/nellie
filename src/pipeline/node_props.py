@@ -20,7 +20,7 @@ class Node:
         The coordinates of all points in the node.
     """
 
-    def __init__(self, node_type: str, node_region, time_point: float):
+    def __init__(self, node_type: str, node_region, time_point: float, spacing: tuple):
         """
         Constructs a Node object.
 
@@ -34,7 +34,7 @@ class Node:
         self.node_type = node_type  # should be 'tip' or 'junction'
         self.connected_branches = []
         self.instance_label = node_region.label
-        self.centroid_um = node_region.centroid
+        self.centroid_um = tuple(x * y for x, y in zip(node_region.centroid, spacing))
         self.coords = node_region.coords
         self.time_point_sec = time_point
         self.assigned_track = None
@@ -69,7 +69,7 @@ class NodeConstructor:
         else:
             self.spacing = self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
         self.time_spacing = self.im_info.dim_sizes['T']
-        self.nodes = []
+        self.nodes = {}
         self.shape = ()
 
     def clean_labels(self, frame, frame_num):
@@ -94,7 +94,9 @@ class NodeConstructor:
         # Find edge points in image
         edge_points = frame == 2
         # Find edge points in image
-        edge_labels, _ = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
+        edge_labels, num_edge_labels = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
+        edge_label_set = list(range(1, num_edge_labels))
+        print(edge_label_set)
         # Label individual branch points
         junction_label, _ = ndi.label(frame == 3, structure=xp.ones((3, 3, 3)))
         junction_regions = measure.regionprops(junction_label)
@@ -127,17 +129,26 @@ class NodeConstructor:
             # if 2 neighbors only, label junction becomes label 1, label 2 becomes label 1
             elif len(edge_neighbors) == 2:
                 frame[junction_label == junction_region.label] = 2
-                edge_labels[edge_labels == edge_labels[tuple(edge_neighbors[-1])]] = edge_labels[tuple(edge_neighbors[0])]
-                edge_labels[junction_label == junction_region.label] = edge_labels[tuple(edge_neighbors[0])]
+                edge_1_label = edge_labels[tuple(edge_neighbors[0])]
+                edge_2_label = edge_labels[tuple(edge_neighbors[-1])]
+                edge_labels[edge_labels == edge_2_label] = edge_1_label
+                edge_labels[junction_label == junction_region.label] = edge_1_label
+                if edge_1_label in edge_label_set:
+                    edge_label_set.remove(edge_1_label)
+                if edge_2_label in edge_label_set:
+                    edge_label_set.remove(edge_2_label)
             else:  # node is a valid junction
-                new_node = Node('junction', junction_region, time_point_sec)
+                new_node = Node('junction', junction_region, time_point_sec, self.spacing)
                 for edge_neighbor in edge_neighbors:
-                    new_node.connected_branches.append(edge_labels[tuple(edge_neighbor)])
+                    edge_label = edge_labels[tuple(edge_neighbor)]
+                    new_node.connected_branches.append(edge_label)
+                    if edge_label in edge_label_set:
+                        edge_label_set.remove(edge_label)
                 self.nodes[frame_num].append(new_node)
 
         # todo here, if edge has no attached tip or junction, set centroid as a lone tip.
         # Label individual tips
-        tip_labels, _ = ndi.label(frame == 1, structure=xp.ones((3, 3, 3)))
+        tip_labels, _ = ndi.label((frame == 1) | (frame == 11), structure=xp.ones((3, 3, 3)))
         tip_regions = measure.regionprops(tip_labels)
         # if no neighbors, tip becomes lone tip type
         # Loop over each branch point region
@@ -158,10 +169,10 @@ class NodeConstructor:
             if not has_neighbors:
                 # set that tip to a "lone tip"
                 frame[tip_labels == tip_region.label] = 11
-                new_node = Node('lone tip', tip_region, time_point_sec)
+                new_node = Node('lone tip', tip_region, time_point_sec, self.spacing)
                 self.nodes[frame_num].append(new_node)
             elif has_neighbors == 1:  # node is a valid tip
-                new_node = Node('tip', tip_region, time_point_sec)
+                new_node = Node('tip', tip_region, time_point_sec, self.spacing)
                 new_node.connected_branches.append(edge_labels[tuple(tip_neighbors[0])])
                 self.nodes[frame_num].append(new_node)
             else:
