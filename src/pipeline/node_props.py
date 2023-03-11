@@ -153,13 +153,19 @@ class NodeConstructor:
                                if (i != 0 or j != 0 or k != 0)])
 
             # Get non-tip or background neighbors
-            has_neighbors = len([idx for idx in coords if frame[idx] > 1])
+            tip_neighbors = xp.asarray([idx for idx in coords if frame[idx] > 1])
+            has_neighbors = len(tip_neighbors)
             if not has_neighbors:
                 # set that tip to a "lone tip"
                 frame[tip_labels == tip_region.label] = 11
-                self.nodes[frame_num].append(Node('lone tip', tip_region, time_point_sec))
-            else:  # node is a valid tip
-                self.nodes[frame_num].append(Node('tip', tip_region, time_point_sec))
+                new_node = Node('lone tip', tip_region, time_point_sec)
+                self.nodes[frame_num].append(new_node)
+            elif has_neighbors == 1:  # node is a valid tip
+                new_node = Node('tip', tip_region, time_point_sec)
+                new_node.connected_branches.append(edge_labels[tuple(tip_neighbors[0])])
+                self.nodes[frame_num].append(new_node)
+            else:
+                logger.warning("Tip has more than 1 neighbor... This should not be the case. Definitely Austin's fault")
 
 
         return edge_labels
@@ -197,26 +203,26 @@ class NodeConstructor:
             else:
                 self.segment_memmap[frame_num] = edge_labels
 
-            logger.info(f'Getting node properties, volume {frame_num}/{len(network_im)-1}')
-            time_point_sec = frame_num * self.time_spacing
-            frame_mem = xp.asarray(frame)
-
-            tips, _ = ndi.label(frame_mem == 1, structure=xp.ones((3, 3, 3)))
-            tip_regions = measure.regionprops(tips, spacing=self.spacing)
-            lone_tips, _ = ndi.label(frame_mem == 11, structure=xp.ones((3, 3, 3)))
-            lone_tip_regions = measure.regionprops(lone_tips, spacing = self.spacing)
-            junctions, _ = ndi.label(frame_mem == 3, structure=xp.ones((3, 3, 3)))
-            junction_regions = measure.regionprops(junctions, spacing=self.spacing)
-
-            nodes_frame = []
-            for tip in tip_regions:
-                nodes_frame.append(Node('tip', tip, time_point_sec))
-            for lone_tip in lone_tip_regions:
-                nodes_frame.append(Node('lone tip', lone_tip, time_point_sec))
-            for junction in junction_regions:
-                nodes_frame.append(Node('junction', junction, time_point_sec))
-
-            self.nodes.append(nodes_frame)
+            # logger.info(f'Getting node properties, volume {frame_num}/{len(network_im)-1}')
+            # time_point_sec = frame_num * self.time_spacing
+            # frame_mem = xp.asarray(frame)
+            #
+            # tips, _ = ndi.label(frame_mem == 1, structure=xp.ones((3, 3, 3)))
+            # tip_regions = measure.regionprops(tips, spacing=self.spacing)
+            # lone_tips, _ = ndi.label(frame_mem == 11, structure=xp.ones((3, 3, 3)))
+            # lone_tip_regions = measure.regionprops(lone_tips, spacing = self.spacing)
+            # junctions, _ = ndi.label(frame_mem == 3, structure=xp.ones((3, 3, 3)))
+            # junction_regions = measure.regionprops(junctions, spacing=self.spacing)
+            #
+            # nodes_frame = []
+            # for tip in tip_regions:
+            #     nodes_frame.append(Node('tip', tip, time_point_sec))
+            # for lone_tip in lone_tip_regions:
+            #     nodes_frame.append(Node('lone tip', lone_tip, time_point_sec))
+            # for junction in junction_regions:
+            #     nodes_frame.append(Node('junction', junction, time_point_sec))
+            #
+            # self.nodes.append(nodes_frame)
 
 
 if __name__ == "__main__":

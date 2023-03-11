@@ -19,7 +19,6 @@ def clean_labels(frame, frame_num):
     np.ndarray
         A labeled image where each branch is labeled with a unique integer.
     """
-    time_point_sec = frame_num * self.time_spacing
 
     # Find edge points in image
     edge_points = frame == 2
