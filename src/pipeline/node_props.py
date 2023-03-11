@@ -91,12 +91,16 @@ class NodeConstructor:
 
             tips, _ = ndi.label(frame_mem == 1, structure=xp.ones((3, 3, 3)))
             tip_regions = measure.regionprops(tips, spacing=self.spacing)
+            lone_tips, _ = ndi.label(frame_mem == 11, structure=xp.ones((3, 3, 3)))
+            lone_tip_regions = measure.regionprops(lone_tips, spacing = self.spacing)
             junctions, _ = ndi.label(frame_mem == 3, structure=xp.ones((3, 3, 3)))
             junction_regions = measure.regionprops(junctions, spacing=self.spacing)
 
             nodes_frame = []
             for tip in tip_regions:
                 nodes_frame.append(Node('tip', tip, time_point_sec))
+            for lone_tip in lone_tip_regions:
+                nodes_frame.append(Node('lone tip', lone_tip, time_point_sec))
             for junction in junction_regions:
                 nodes_frame.append(Node('junction', junction, time_point_sec))
 

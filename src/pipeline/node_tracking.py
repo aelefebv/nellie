@@ -14,8 +14,8 @@ class NodeTrack:
         self.time_points = [node.time_point_sec]
         self.frame_nums = [frame_num]
         self.centroids_um = [node.centroid_um]
-        self.instance_labels = [node_num]
-        self.node_num = [node.instance_label - 1]
+        self.instance_labels = [node.instance_label]
+        self.node_num = [node_num]
         self.node_types = [node.node_type]
         self.assignment_cost = [0]
         self.confidence = [0]
@@ -89,7 +89,7 @@ class NodeTrackConstructor:
             self.average_assignment_cost[frame_num] = cost_matrix[track_nums, node_nums].sum() / len(track_nums)
             self._assign_confidence_1_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_2_matches(track_nums, node_nums, cost_matrix, frame_num)
-            self._assign_confidence_3_matches(track_nums, node_nums, cost_matrix, frame_num)
+            self._assign_confidence_3_matches(cost_matrix, frame_num)
             self._check_new_tracks(cost_matrix, frame_num)
             self._back_assign_track_to_nodes(frame_num)
             self._check_unassigned_tracks(cost_matrix, frame_num)
@@ -128,9 +128,7 @@ class NodeTrackConstructor:
                 continue
             track_centroids[:, track_num, 0] = track.centroids_um[-1]
             time_matrix[track_num, :] = time_check
-        print(node_centroids[:, :, 6], track_centroids[:, 22, :])
         distance_matrix = xp.sqrt(xp.sum((node_centroids - track_centroids) ** 2, axis=0))
-        print(distance_matrix[22, 6])
         distance_matrix /= time_matrix  # this is now a distance/sec matrix
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
@@ -258,7 +256,7 @@ class NodeTrackConstructor:
                 self.tracks_to_assign.remove(check_track_num)
                 self.nodes_to_assign.remove(check_node_num)
 
-    def _assign_confidence_3_matches(self, track_nums, node_nums, cost_matrix, frame_num):
+    def _assign_confidence_3_matches(self, cost_matrix, frame_num):
         valid_cost_matrix = cost_matrix[self.tracks_to_assign, :][:, self.nodes_to_assign]
         valid_costs = valid_cost_matrix[valid_cost_matrix<self.distance_thresh_um_per_sec]
         valid_costs.sort()
@@ -304,16 +302,20 @@ class NodeTrackConstructor:
         # if cost of assigning two nearby lost is lowest out of possible merges, assign
         valid_cost_matrix = cost_matrix[self.tracks_to_assign, :]
         unassigned_track_nums, possible_merge_nodes = xp.where(valid_cost_matrix < self.distance_thresh_um_per_sec)
+        tracks_to_remove = []
         for idx, track_idx in enumerate(unassigned_track_nums):
             node_num = possible_merge_nodes[idx]
             node_object = self.nodes[frame_num][node_num]
-            if node_object.node_type == 'tip':  # unless tip hasn't been assigned yet? or is this right.
-                continue
-            if node_object.node_type == 'junction':
-                pass  # todo make sure sum of junction connections before and after makes sense. May have to do this after all assignments.
+            # if node_object.node_type == 'tip':  # unless tip hasn't been assigned yet? or is this right.
+            #     continue
+            # if node_object.node_type == 'junction':
+            #     pass  # todo make sure sum of junction connections before and after makes sense. May have to do this after all assignments.
             track_num = self.tracks_to_assign[track_idx]
             assignment_cost = cost_matrix[track_num, node_num]
             self.tracks[track_num].possibly_merged_to(node_object, frame_num, assignment_cost)
+            tracks_to_remove.append(track_num)
+        for track in set(tracks_to_remove):
+            self.tracks_to_assign.remove(track)
 
     def _check_new_tracks(self, cost_matrix, frame_num):
         # also need to check nearby new nodes to see if it those two should be linked as fission event

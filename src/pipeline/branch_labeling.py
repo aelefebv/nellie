@@ -57,6 +57,29 @@ def clean_labels(frame):
             edge_labels[edge_labels == edge_labels[tuple(edge_neigh[-1])]] = edge_labels[tuple(edge_neigh[0])]
             edge_labels[bp_labels == bp_region.label] = edge_labels[tuple(edge_neigh[0])]
 
+    # todo here, if edge has no attached tip or junction, set centroid as a tip.
+    # Label individual tips
+    tip_labels, _ = ndi.label(frame == 1, structure=xp.ones((3, 3, 3)))
+    tip_regions = measure.regionprops(tip_labels)
+    # if no neighbors, tip becomes lone tip type
+    # Loop over each branch point region
+    for tip_num, tip_region in enumerate(tip_regions):
+        logger.debug(f'Checking for lone tips {tip_num}/{len(tip_regions) - 1}')
+
+        # Get the coords of the neighboring pixels
+        coords = []
+        for coord in tip_region.coords:
+            z, y, x = coord
+            coords.extend([(z + i, y + j, x + k)
+                           for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
+                           if (i != 0 or j != 0 or k != 0)])
+
+        # Get non-tip or background neighbors
+        has_neighbors = len([idx for idx in coords if frame[idx] > 1])
+        if not has_neighbors:
+            # set that tip to a "lone tip"
+            frame[tip_labels == tip_region.label] = 11
+
     return edge_labels
 
 
@@ -73,6 +96,7 @@ class BranchSegments:
         self.shape = ()
 
     def segment_branches(self, num_t, dtype='uint32'):
+        # todo, if branch has no tip or junction, centroid becomes a tip.
         """
         Segment individual branches in the image.
 
