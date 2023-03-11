@@ -96,6 +96,7 @@ class NodeConstructor:
         # Find edge points in image
         edge_labels, num_edge_labels = ndi.label(edge_points, structure=xp.ones((3, 3, 3)))
         edge_label_set = list(range(1, num_edge_labels))
+        edge_regions = measure.regionprops(edge_labels)
         print(edge_label_set)
         # Label individual branch points
         junction_label, _ = ndi.label(frame == 3, structure=xp.ones((3, 3, 3)))
@@ -173,11 +174,21 @@ class NodeConstructor:
                 self.nodes[frame_num].append(new_node)
             elif has_neighbors == 1:  # node is a valid tip
                 new_node = Node('tip', tip_region, time_point_sec, self.spacing)
-                new_node.connected_branches.append(edge_labels[tuple(tip_neighbors[0])])
+                edge_label = edge_labels[tuple(tip_neighbors[0])]
+                new_node.connected_branches.append(edge_label)
                 self.nodes[frame_num].append(new_node)
+                if edge_label in edge_label_set:
+                    edge_label_set.remove(edge_label)
             else:
                 logger.warning("Tip has more than 1 neighbor... This should not be the case. Definitely Austin's fault")
 
+        # if edge has not been assigned, it has no tip or junction. Set it's centroid as a lone tip
+        for edge_label in edge_label_set:
+            edge_label_idx = edge_label-1
+            assert edge_label == edge_regions[edge_label_idx].label
+            frame[edge_regions[edge_label_idx].centroid] = 11
+            new_node = Node('lone tip', tip_region, time_point_sec, self.spacing)
+            self.nodes[frame_num].append(new_node)
 
         return edge_labels
 
