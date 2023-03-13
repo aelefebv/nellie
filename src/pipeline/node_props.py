@@ -1,7 +1,11 @@
 import tifffile
 
 from src.io.im_info import ImInfo
-from src import logger, xp, ndi, measure, is_gpu
+from src import logger #xp, ndi, measure, is_gpu  faster on cpu
+is_gpu = False
+import numpy as xp
+import scipy.ndimage as ndi
+import skimage.measure as measure
 
 
 class Node:
@@ -242,9 +246,11 @@ class NodeConstructor:
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(network_im) - 1}')
-            self.node_type_memmap[frame_num] = xp.asarray(frame)
+            # self.node_type_memmap[frame_num] = xp.asarray(frame)
+            self.node_type_memmap[frame_num] = frame
 
-            tip_labels, junction_labels, edge_labels = self.clean_labels(self.node_type_memmap[frame_num], frame_num)
+            tip_labels, junction_labels, edge_labels = self.clean_labels(
+                xp.array(self.node_type_memmap[frame_num]), frame_num)
 
             if is_gpu:
                 self.tip_label_memmap[frame_num] = tip_labels.get()
@@ -268,7 +274,7 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     node_props = NodeConstructor(test)
-    node_props.get_node_properties(2)
+    node_props.get_node_properties(5)
     pickle_object(test.path_pickle_node, node_props)
     node_props_unpickled = unpickle_object(test.path_pickle_node)
     print('hi')

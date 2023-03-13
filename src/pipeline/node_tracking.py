@@ -112,6 +112,7 @@ class NodeTrackConstructor:
             self._assign_confidence_1_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_2_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_3_matches(cost_matrix, frame_num)
+            self._assign_confidence_4_matches(cost_matrix, frame_num)
             self._check_new_tracks(cost_matrix, frame_num)
             self._back_assign_track_to_nodes(frame_num)
             self._check_unassigned_tracks(cost_matrix, frame_num)
@@ -125,6 +126,14 @@ class NodeTrackConstructor:
         for node_num, node in enumerate(self.nodes[0]):
             node.assigned_track = node_num
             self.tracks.append(NodeTrack(node, frame_num, node_num))
+
+    def _append_unassignment_costs(self, pre_cost_matrix):
+        rows, cols = pre_cost_matrix.shape
+        cost_matrix = xp.ones(
+            (rows+cols, rows+cols)
+        ) * self.distance_thresh_um_per_sec
+        cost_matrix[:rows, :cols] = pre_cost_matrix
+        return cost_matrix
 
     def _get_assignment_matrix(self, frame_num):
         frame_nodes = self.nodes[frame_num]
@@ -154,10 +163,7 @@ class NodeTrackConstructor:
         distance_matrix /= time_matrix  # this is now a distance/sec matrix
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
-        cost_matrix = xp.ones(
-            (self.num_tracks+self.num_nodes, self.num_tracks+self.num_nodes)
-        ) * self.distance_thresh_um_per_sec
-        cost_matrix[:self.num_tracks, :self.num_nodes] = distance_matrix
+        cost_matrix = self._append_unassignment_costs(distance_matrix)
         self.cost_matrix = cost_matrix
         return cost_matrix
 
@@ -284,7 +290,6 @@ class NodeTrackConstructor:
         valid_costs.sort()
         hold_tracks_to_assign = self.tracks_to_assign.copy()
         hold_nodes_to_assign = self.nodes_to_assign.copy()
-
         for valid_cost in valid_costs:
             min_each_col = xp.min(valid_cost_matrix, axis=0)
             min_col = xp.argmin(min_each_col)
@@ -312,6 +317,23 @@ class NodeTrackConstructor:
                 self.tracks_to_assign.remove(track_to_check)
                 self.nodes_to_assign.remove(node_to_check)
         return
+
+    def _assign_confidence_4_matches(self, full_cost_matrix, frame_num):
+        # do a cost minimization on whatever tracks and nodes are left.
+        valid_pre_cost_matrix = full_cost_matrix[self.tracks_to_assign, :][:, self.nodes_to_assign]
+        valid_cost_matrix = self._append_unassignment_costs(valid_pre_cost_matrix)
+        track_nums, node_nums = linear_sum_assignment(valid_cost_matrix)
+        tracks_to_remove = []
+        nodes_to_remove = []
+        for idx in range(len(track_nums)):
+            if track_nums[idx] > len(self.tracks_to_assign) or node_nums[idx] > len(self.nodes_to_assign):
+                continue
+            track_num = self.tracks_to_assign[track_nums[idx]]
+            node_num = self.nodes_to_assign[node_nums[idx]]
+            assignment_cost = valid_pre_cost_matrix[track_nums[idx], node_nums[idx]]
+            self.tracks[track_num].add_node(node_num, frame_num, as
+
+
 
     def _check_new_tracks(self, cost_matrix, frame_num):
         # also need to check nearby new nodes to see if it those two should be linked as fission event
@@ -345,7 +367,6 @@ class NodeTrackConstructor:
                     new_track_num, track_num, track, frame_num, possible_costs[track_idx])
 
             nodes_to_remove.append(node_num)
-        print(self.nodes_to_assign)
         for node in nodes_to_remove:
             self.nodes_to_assign.remove(node)
 

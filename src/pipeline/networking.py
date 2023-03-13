@@ -85,5 +85,5 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     neighbors_test = Neighbors(test)
-    neighbors_test.find_neighbors(2)
+    neighbors_test.find_neighbors(5)
     print('hi')
