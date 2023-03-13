@@ -97,14 +97,18 @@ class NodeTrackConstructor:
         self.tracks_to_assign = []
         self.nodes_to_assign = []
 
+        self.new_tracks = None
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
             self.num_frames = num_t
         for frame_num in range(self.num_frames):
+            logger.debug(f'Tracking frame {frame_num}/{self.num_frames - 1}')
             if frame_num == 0:
                 self._initialize_tracks(frame_num)
                 continue
+            self.new_tracks = []
             cost_matrix = self._get_assignment_matrix(frame_num)
             # self.assignment_matrix = assignment_matrix
             track_nums, node_nums = linear_sum_assignment(cost_matrix)
@@ -167,7 +171,7 @@ class NodeTrackConstructor:
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
         cost_matrix = self._append_unassignment_costs(distance_matrix)
-        for track in range(cost_matrix.shape[0]):
+        for track in range(distance_matrix.shape[0]):
             if self.tracks[track].blocked:
                 cost_matrix[track, :] = xp.inf
                 self.tracks_to_assign.remove(track)
@@ -349,15 +353,28 @@ class NodeTrackConstructor:
         for node in nodes_to_remove:
             self.nodes_to_assign.remove(node)
 
+    def _make_new_tracks(self, frame_num):
+        current_track_idx = len(self.tracks)
+        for node_num in self.nodes_to_assign:
+            node = self.nodes[frame_num][node_num]
+            self.tracks.append(NodeTrack(node, frame_num, node_num))
+            self.new_tracks.append(current_track_idx)
+            node.assigned_track = current_track_idx
+            current_track_idx += 1
 
     def _check_new_tracks(self, cost_matrix, frame_num):
+        self._make_new_tracks(frame_num)
         # also need to check nearby new nodes to see if it those two should be linked as fission event
         # if cost of assigning two nearby new nodes is lowest out of possible emergences, assign
         valid_cost_matrix = cost_matrix[:, self.nodes_to_assign].T
+        nearby_cost_matrix = self._check_nearby_new_tracks(frame_num)
         nodes_to_remove = []
-        for idx in range(valid_cost_matrix.shape[0]):
+        for idx in range(nearby_cost_matrix.shape[0]):
             node_num = self.nodes_to_assign[idx]
             new_track = NodeTrack(self.nodes[frame_num][node_num], frame_num, node_num)
+            possible_new_nodes = xp.where(nearby_cost_matrix[idx] < self.distance_thresh_um_per_sec)[0]
+            # for node_idx, possible_new_node in enumerate(possible_new_nodes):
+            #     node =
             possible_tracks = xp.where(valid_cost_matrix[idx] < self.distance_thresh_um_per_sec)[0]
             possible_costs = valid_cost_matrix[idx][possible_tracks]
             self.tracks.append(new_track)
@@ -372,8 +389,8 @@ class NodeTrackConstructor:
                 if len(self.tracks[track_num].frame_nums) < 2:
                     logger.debug("!!! This should never appear.")
                 track_previous_node = self.tracks[track_num].nodes[-2].node_type
-                # if track was a tip last frame and already assigned, not possible
-                if track_previous_node == 'tip':
+                # if track was a tip last frame and already assigned, not possible, unless not yet assigned
+                if track_previous_node == 'tip' and track_num not in self.tracks_to_assign:
                     continue
                 # if it was a lone tip, it could've elongated into two tips or tip and junction
                 # if it was a junction, it could've grown a new tip, or 6x junction to 3x + 3x junction
@@ -384,6 +401,21 @@ class NodeTrackConstructor:
             nodes_to_remove.append(node_num)
         for node in nodes_to_remove:
             self.nodes_to_assign.remove(node)
+
+    def _check_nearby_new_tracks(self, frame_num):
+        frame_nodes = self.nodes[frame_num]
+        num_new_tracks = len(self.nodes_to_assign)
+        num_dimensions = len(frame_nodes[0].centroid_um)
+
+        node_centroids = xp.empty((num_dimensions, 1, num_new_tracks))
+
+        for new_track_idx, new_track_node_num in enumerate(self.nodes_to_assign):
+            node_centroids[:, 0, new_track_idx] = frame_nodes[new_track_node_num].centroid_um
+
+        distance_matrix = xp.sqrt(xp.sum((node_centroids - xp.swapaxes(node_centroids, -1, -2)) ** 2, axis=0))
+        distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
+
+        return distance_matrix
 
     def _back_assign_track_to_nodes(self, frame_num):
         for track_num, track in enumerate(self.tracks):
@@ -401,11 +433,9 @@ class NodeTrackConstructor:
             lost_track_num = self.tracks_to_assign[unassigned_track_idx]
             node_num = possible_consuming_nodes[idx]
             node_object = self.nodes[frame_num][node_num]
-            # if node_object.node_type == 'tip':  # unless tip hasn't been assigned yet? or is this right.
-            #     continue
-            # if node_object.node_type == 'junction':
-            #     pass  # todo make sure sum of junction connections before and after makes sense. May have to do this after all assignments.
-            # lost_track_num = self.tracks_to_assign[lost_track_num]
+            # Nothing can be consumed by tip unless it hasn't been assigned yet:
+            if node_object.node_type == 'tip' and node_num not in self.nodes_to_assign:
+                continue
             assignment_cost = cost_matrix[lost_track_num, node_num]
             track_num = node_object.assigned_track
             track = self.tracks[track_num]
