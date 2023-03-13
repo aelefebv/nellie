@@ -25,6 +25,8 @@ class NodeTrack:
         self.possible_consumables = {}
         self.possible_products = {}
 
+        self.blocked = False
+
     def add_node(self, node, frame_num, assignment_cost, confident, node_num):
         self.nodes.append(node)
         self.time_points.append(node.time_point_sec)
@@ -112,7 +114,8 @@ class NodeTrackConstructor:
             self._assign_confidence_1_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_2_matches(track_nums, node_nums, cost_matrix, frame_num)
             self._assign_confidence_3_matches(cost_matrix, frame_num)
-            self._assign_confidence_4_matches(cost_matrix, frame_num)
+            # this should be very last measure...
+            # self._assign_confidence_4_matches(cost_matrix, frame_num)
             self._check_new_tracks(cost_matrix, frame_num)
             self._back_assign_track_to_nodes(frame_num)
             self._check_unassigned_tracks(cost_matrix, frame_num)
@@ -164,6 +167,10 @@ class NodeTrackConstructor:
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
         cost_matrix = self._append_unassignment_costs(distance_matrix)
+        for track in range(cost_matrix.shape[0]):
+            if self.tracks[track].blocked:
+                cost_matrix[track, :] = xp.inf
+                self.tracks_to_assign.remove(track)
         self.cost_matrix = cost_matrix
         return cost_matrix
 
@@ -326,13 +333,21 @@ class NodeTrackConstructor:
         tracks_to_remove = []
         nodes_to_remove = []
         for idx in range(len(track_nums)):
-            if track_nums[idx] > len(self.tracks_to_assign) or node_nums[idx] > len(self.nodes_to_assign):
+            if track_nums[idx] > len(self.tracks_to_assign)-1 or node_nums[idx] > len(self.nodes_to_assign)-1:
                 continue
             track_num = self.tracks_to_assign[track_nums[idx]]
             node_num = self.nodes_to_assign[node_nums[idx]]
+            node_to_assign = self.nodes[frame_num][node_num]
             assignment_cost = valid_pre_cost_matrix[track_nums[idx], node_nums[idx]]
-            self.tracks[track_num].add_node(node_num, frame_num, as
-
+            self.tracks[track_num].add_node(node_to_assign, frame_num, assignment_cost,
+                                            confident=4, node_num=node_num)
+            node_to_assign.assigned_track = track_num
+            tracks_to_remove.append(track_num)
+            nodes_to_remove.append(node_num)
+        for track in tracks_to_remove:
+            self.tracks_to_assign.remove(track)
+        for node in nodes_to_remove:
+            self.nodes_to_assign.remove(node)
 
 
     def _check_new_tracks(self, cost_matrix, frame_num):
