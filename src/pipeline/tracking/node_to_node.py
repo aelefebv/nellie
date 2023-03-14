@@ -9,6 +9,7 @@ class NodeTrack:
         # stores information about how nodes link to one another
         # the confidence of those linkages
         #
+        self.node = node
         pass
 
 class NodeTrackConstructor:
@@ -18,9 +19,9 @@ class NodeTrackConstructor:
         # Also in charge of connecting nodes between frames
         # assigning merge and unmerge events
         self.im_info = im_info
-        self.node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
 
-        self.nodes: list[list[Node]] = self.node_constructor.nodes
+        node_constructor = unpickle_object(self.im_info.path_pickle_node)
+        self.nodes: list[list[Node]] = node_constructor.nodes
         self.tracks: dict[list[NodeTrack]] = {}
 
         self.num_frames = len(self.nodes)
@@ -32,18 +33,52 @@ class NodeTrackConstructor:
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
             self.num_frames = num_t
+        self._initialize_tracks()
         for frame_num in range(self.num_frames):
             logger.debug(f'Tracking frame {frame_num}/{self.num_frames - 1}')
             self.current_frame_num = frame_num
-            self._initialize_tracks()
             if frame_num == 0:
                 continue
+            self._get_assignment_matrix()
 
     def _initialize_tracks(self):
-        node_list = []
-        for node_num, node in enumerate(self.nodes[self.current_frame_num]):
-            node_list.append(NodeTrack(node))
-        self.tracks[self.current_frame_num] = node_list
+        for frame_num in range(self.num_frames):
+            node_list = []
+            for node_num, node in enumerate(self.nodes[frame_num]):
+                node_list.append(NodeTrack(node))
+            self.tracks[frame_num] = node_list
+
+    def _get_assignment_matrix(self):
+        tracks_t1 = self.tracks[self.current_frame_num-1]
+        tracks_t2 = self.tracks[self.current_frame_num]
+        num_tracks_t1 = len(tracks_t1)
+        num_tracks_t2 = len(tracks_t2)
+        num_dimensions = len(tracks_t1[0].node.centroid_um)
+
+        t1_centroids = xp.empty((num_dimensions, num_tracks_t1, 1))
+        t2_centroids = xp.empty((num_dimensions, 1, num_tracks_t2))
+
+        time_difference = tracks_t2[0].node.time_point_sec - tracks_t1[0].node.time_point_sec
+
+        for track_num, track in enumerate(tracks_t1):
+            t1_centroids[:, track_num, 0] = track.node.centroid_um
+        for track_num, track in enumerate(tracks_t2):
+            t2_centroids[:, 0, track_num] = track.node.centroid_um
+
+        distance_matrix = xp.sqrt(xp.sum((t2_centroids - t1_centroids) ** 2, axis=0))
+        distance_matrix /= time_difference
+        distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
+
+        cost_matrix = self._append_unassignment_costs(distance_matrix)
+        return cost_matrix
+
+    def _append_unassignment_costs(self, pre_cost_matrix):
+        rows, cols = pre_cost_matrix.shape
+        cost_matrix = xp.ones(
+            (rows+cols, rows+cols)
+        ) * self.distance_thresh_um_per_sec
+        cost_matrix[:rows, :cols] = pre_cost_matrix
+        return cost_matrix
 
 
 if __name__ == "__main__":
