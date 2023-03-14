@@ -1,7 +1,7 @@
 from src.pipeline.tracking.node_to_track import NodeTrack
 
 
-def track_list_to_napari_track(track_list: list[NodeTrack]) -> (list[list[int, int, float, float, float]], dict):
+def node_to_track_to_napari(track_list: list[NodeTrack]) -> (list[list[int, int, float, float, float]], dict):
     """
     Convert a list of NodeTrack objects to a format compatible with napari tracks.
 
@@ -38,3 +38,8 @@ def track_list_to_napari_track(track_list: list[NodeTrack]) -> (list[list[int, i
             napari_track.append([track_id, frame_num, z, y, x])
 
     return napari_track, properties
+
+
+def node_to_node_to_napari(track_dict: dict[list[NodeTrack]]) -> (list[list[int, int, float, float, float]], dict):
+    # how would i do this...
+    pass

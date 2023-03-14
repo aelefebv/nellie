@@ -508,12 +508,12 @@ if __name__ == "__main__":
     visualize = False
 
     if visualize:
-        from src.utils.visualize import track_list_to_napari_track
+        from src.utils.visualize import node_to_track_to_napari
         import napari
         import tifffile
 
         # graph eg: graph = { 782: [1280] }  track 782 merges into track 1280
-        napari_tracks, properties = track_list_to_napari_track(nodes_test.tracks)
+        napari_tracks, properties = node_to_track_to_napari(nodes_test.tracks)
         viewer = napari.Viewer(ndisplay=3)
         viewer.add_image(tifffile.memmap(test.path_im_mask),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
