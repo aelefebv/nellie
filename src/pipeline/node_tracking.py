@@ -20,10 +20,10 @@ class NodeTrack:
         self.assignment_cost = [0]
         self.confidence = [0]
 
-        self.possible_consumed_by = {}
-        self.possible_produced_by = {}
-        self.possible_consumables = {}
-        self.possible_products = {}
+        self.possibly_consumed_by = {}
+        self.possibly_produced_by = {}
+        self.possibly_consumed = {}
+        self.possibly_produced = {}
 
         self.blocked = False
 
@@ -37,38 +37,6 @@ class NodeTrack:
         self.node_types.append(node.node_type)
         self.assignment_cost.append(assignment_cost)
         self.confidence.append(confident)
-
-    def possibly_consumed_by(self, lost_track_num, track_num, track, frame_num, assignment_cost):
-        # this (self) lost track is possibly consumed by a track at this frame num with some cost
-        if frame_num not in self.possible_consumed_by.keys():
-            self.possible_consumed_by[frame_num] = [
-                (track_num, frame_num, assignment_cost)]
-        else:
-            self.possible_consumed_by[frame_num].append(
-                (track_num, frame_num, assignment_cost))
-        # a track possibly consumes this (self) lost track at this frame with some cost
-        if frame_num not in track.possible_consumables.keys():
-            track.possible_consumables[frame_num] = [
-                (lost_track_num, frame_num, assignment_cost)]
-        else:
-            track.possible_consumables[frame_num].append(
-                (lost_track_num, frame_num, assignment_cost))
-
-    def possibly_produced_by(self, new_track_num, track_num, track, frame_num, assignment_cost):
-        # this new track is possibly produced by a track at this frame num with some cost
-        if frame_num not in self.possible_produced_by.keys():
-            self.possible_produced_by[frame_num] = [
-                (track_num, frame_num, assignment_cost)]
-        else:
-            self.possible_produced_by[frame_num].append(
-                (track_num, frame_num, assignment_cost))
-        # a track possibly produces this new track at this frame num with some cost
-        if frame_num not in track.possible_products.keys():
-            track.possible_products[frame_num] = [
-                (new_track_num, frame_num, assignment_cost)]
-        else:
-            track.possible_products[frame_num].append(
-                (new_track_num, frame_num, assignment_cost))
 
 
 class NodeTrackConstructor:
@@ -98,6 +66,42 @@ class NodeTrackConstructor:
         self.nodes_to_assign = []
 
         self.new_tracks = None
+
+    def _possibly_produced(self, producing_track, produced_track, production_cost):
+        producing_track_num, production_frame = producing_track
+        produced_track_num, produced_frame = produced_track
+        # producing track num possibly produced produced track num in produced frame with a production cost
+        if produced_frame not in self.tracks[producing_track_num].possibly_produced.keys():
+            self.tracks[producing_track_num].possibly_produced[produced_frame] = [(
+                produced_track_num, production_cost)]
+        else:
+            self.tracks[producing_track_num].possibly_produced[produced_frame].append(
+                (produced_track_num, production_cost))
+        # produced track num possible produced by producing track in production frame with a production cost
+        if production_frame not in self.tracks[produced_track_num].possibly_produced_by.keys():
+            self.tracks[produced_track_num].possibly_produced_by[production_frame] = [(
+                producing_track_num, production_cost)]
+        else:
+            self.tracks[produced_track_num].possibly_produced_by[production_frame].append(
+                (producing_track_num, production_cost))
+
+    def _possibly_consumed(self, consuming_track, consumed_track, consumption_cost):
+        consuming_track_num, consumption_frame = consuming_track
+        consumed_track_num, consumed_frame = consumed_track
+        # consuming track num possibly consumed consumed track num in consumed frame with a consumption cost
+        if consumed_frame not in self.tracks[consuming_track_num].possibly_consumed.keys():
+            self.tracks[consuming_track_num].possibly_consumed[consumed_frame] = [(
+                consumed_track_num, consumption_cost)]
+        else:
+            self.tracks[consuming_track_num].possibly_consumed[consumed_frame].append(
+                (consumed_track_num, consumption_cost))
+        # consumed track num possible consumed by consuming track in consumption frame with a consumption cost
+        if consumption_frame not in self.tracks[consumed_track_num].possibly_consumed_by.keys():
+            self.tracks[consumed_track_num].possibly_consumed_by[consumption_frame] = [(
+                consuming_track_num, consumption_cost)]
+        else:
+            self.tracks[consumed_track_num].possibly_consumed_by[consumption_frame].append(
+                (consuming_track_num, consumption_cost))
 
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
@@ -363,57 +367,63 @@ class NodeTrackConstructor:
             current_track_idx += 1
 
     def _check_new_tracks(self, cost_matrix, frame_num):
+        # check if any two new tracks are associated
         self._make_new_tracks(frame_num)
-        # also need to check nearby new nodes to see if it those two should be linked as fission event
-        # if cost of assigning two nearby new nodes is lowest out of possible emergences, assign
+        nearby_cost_matrix = self._check_nearby_new_tracks()
+        self.dist_mat = nearby_cost_matrix
+        for i in range(nearby_cost_matrix.shape[0]):
+            track_1_num = self.new_tracks[i]
+            possible_track_combos = xp.where(nearby_cost_matrix[i] < self.distance_thresh_um_per_sec)[0]
+            possible_costs = nearby_cost_matrix[i][possible_track_combos]
+            for j in range(len(possible_track_combos)):
+                # if possible_track_combos[j] == i:
+                #     break
+                track_2_num = self.new_tracks[possible_track_combos[j]]
+                assignment_cost = possible_costs[j]
+                self._possibly_produced((track_1_num, frame_num), (track_2_num, frame_num), assignment_cost)
+
         valid_cost_matrix = cost_matrix[:, self.nodes_to_assign].T
-        nearby_cost_matrix = self._check_nearby_new_tracks(frame_num)
-        nodes_to_remove = []
         for idx in range(nearby_cost_matrix.shape[0]):
-            node_num = self.nodes_to_assign[idx]
-            new_track = NodeTrack(self.nodes[frame_num][node_num], frame_num, node_num)
-            possible_new_nodes = xp.where(nearby_cost_matrix[idx] < self.distance_thresh_um_per_sec)[0]
-            # for node_idx, possible_new_node in enumerate(possible_new_nodes):
-            #     node =
+            new_track_num = self.new_tracks[idx]
             possible_tracks = xp.where(valid_cost_matrix[idx] < self.distance_thresh_um_per_sec)[0]
             possible_costs = valid_cost_matrix[idx][possible_tracks]
-            self.tracks.append(new_track)
-            new_track_num = len(self.tracks)-1
-            for track_idx, track_num in enumerate(possible_tracks):
-                track = self.tracks[track_num]
+            for producing_track_idx, producing_track_num in enumerate(possible_tracks):
+                producing_track = self.tracks[producing_track_num]
                 # if track has not been assigned this frame, allow it
-                if track_num in self.tracks_to_assign:
-                    new_track.possibly_produced_by(
-                        new_track_num, track_num, track, frame_num, possible_costs[track_idx])
+                if producing_track_num in self.tracks_to_assign:
+                    self._possibly_produced(
+                        (producing_track_num, producing_track.frame_nums[-1]),
+                        (new_track_num, frame_num),
+                        possible_costs[producing_track_idx])
                     continue
-                if len(self.tracks[track_num].frame_nums) < 2:
+                if len(producing_track.frame_nums) < 2:
                     logger.debug("!!! This should never appear.")
-                track_previous_node = self.tracks[track_num].nodes[-2].node_type
+                track_previous_node = producing_track.nodes[-2].node_type
                 # if track was a tip last frame and already assigned, not possible, unless not yet assigned
-                if track_previous_node == 'tip' and track_num not in self.tracks_to_assign:
+                if (producing_track.nodes[-2].node_type == 'tip' and
+                        producing_track.nodes[-1].node_type == 'tip' and
+                        producing_track_num not in self.tracks_to_assign):
                     continue
                 # if it was a lone tip, it could've elongated into two tips or tip and junction
                 # if it was a junction, it could've grown a new tip, or 6x junction to 3x + 3x junction
                 # if another tip appeared near it in the same frame, it could have been a midpoint fission.
-                new_track.possibly_produced_by(
-                    new_track_num, track_num, track, frame_num, possible_costs[track_idx])
+                self._possibly_produced(
+                    (producing_track_num, producing_track.frame_nums[-2]),
+                    (new_track_num, frame_num),
+                    possible_costs[producing_track_idx])
 
-            nodes_to_remove.append(node_num)
-        for node in nodes_to_remove:
-            self.nodes_to_assign.remove(node)
-
-    def _check_nearby_new_tracks(self, frame_num):
-        frame_nodes = self.nodes[frame_num]
-        num_new_tracks = len(self.nodes_to_assign)
-        num_dimensions = len(frame_nodes[0].centroid_um)
+    def _check_nearby_new_tracks(self):
+        num_new_tracks = len(self.new_tracks)
+        num_dimensions = len(self.tracks[self.new_tracks[0]].centroids_um[-1])
 
         node_centroids = xp.empty((num_dimensions, 1, num_new_tracks))
 
-        for new_track_idx, new_track_node_num in enumerate(self.nodes_to_assign):
-            node_centroids[:, 0, new_track_idx] = frame_nodes[new_track_node_num].centroid_um
+        for new_track_idx, new_track_num in enumerate(self.new_tracks):
+            node_centroids[:, 0, new_track_idx] = self.tracks[new_track_num].centroids_um[-1]
 
         distance_matrix = xp.sqrt(xp.sum((node_centroids - xp.swapaxes(node_centroids, -1, -2)) ** 2, axis=0))
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
+        xp.fill_diagonal(distance_matrix, xp.inf)
 
         return distance_matrix
 
@@ -424,28 +434,64 @@ class NodeTrackConstructor:
             track.nodes[track.frame_nums==frame_num].assigned_track = track_num
 
     def _check_unassigned_tracks(self, cost_matrix, frame_num):
-        # also need to check nearby lost tracks to see if those two should be linked as fusion event
-        # if cost of assigning two nearby lost is lowest out of possible merges, assign
+        nearby_cost_matrix = self._check_nearby_lost_tracks()
+        self.dist_mat = nearby_cost_matrix
+        for i in range(nearby_cost_matrix.shape[0]):
+            track_1_num = self.tracks_to_assign[i]
+            possible_track_combos = xp.where(nearby_cost_matrix[i] < self.distance_thresh_um_per_sec)[0]
+            possible_costs = nearby_cost_matrix[i][possible_track_combos]
+            for j in range(len(possible_track_combos)):
+                # if possible_track_combos[j] == i:
+                #     break
+                track_2_num = self.tracks_to_assign[possible_track_combos[j]]
+                if self.tracks[track_1_num].frame_nums[-1] != self.tracks[track_2_num].frame_nums[-1]:
+                    continue
+                assignment_cost = possible_costs[j]
+                self._possibly_consumed((track_1_num, self.tracks[track_1_num].frame_nums[-1]),
+                                        (track_2_num, self.tracks[track_2_num].frame_nums[-1]),
+                                        assignment_cost)
+
         valid_cost_matrix = cost_matrix[self.tracks_to_assign, :]
         unassigned_track_nums, possible_consuming_nodes = xp.where(valid_cost_matrix < self.distance_thresh_um_per_sec)
-        tracks_to_remove = []
         for idx, unassigned_track_idx in enumerate(unassigned_track_nums):
             lost_track_num = self.tracks_to_assign[unassigned_track_idx]
             node_num = possible_consuming_nodes[idx]
             node_object = self.nodes[frame_num][node_num]
-            # Nothing can be consumed by tip unless it hasn't been assigned yet:
-            if node_object.node_type == 'tip' and node_num not in self.nodes_to_assign:
-                continue
+            consuming_track_num = node_object.assigned_track
+            consuming_track = self.tracks[consuming_track_num]
             assignment_cost = cost_matrix[lost_track_num, node_num]
-            track_num = node_object.assigned_track
-            track = self.tracks[track_num]
-            self.tracks[lost_track_num].possibly_consumed_by(
-                lost_track_num, track_num, track, frame_num, assignment_cost)
-            if lost_track_num in tracks_to_remove:
+            if consuming_track.frame_nums[-1] < frame_num:
                 continue
-            tracks_to_remove.append(lost_track_num)
-        for track in tracks_to_remove:
-            self.tracks_to_assign.remove(track)
+            # if node has not been assigned this frame, allow it
+            if node_num in self.nodes_to_assign:
+                self._possibly_consumed(
+                    (consuming_track_num, consuming_track.frame_nums[-1]),
+                    (lost_track_num, self.tracks[lost_track_num].frame_nums[-1]),
+                    assignment_cost)
+                continue
+            # Nothing can be consumed by tip unless it hasn't been assigned yet:
+            if (node_object.node_type == 'tip'
+                    and self.tracks[lost_track_num].node_types[-1] == 'tip'
+                    and node_num not in self.nodes_to_assign):
+                continue
+            self._possibly_consumed((consuming_track_num, consuming_track.frame_nums[-1]),
+                                    (lost_track_num, self.tracks[lost_track_num].frame_nums[-1]),
+                                    assignment_cost)
+
+    def _check_nearby_lost_tracks(self):
+        num_lost_tracks = len(self.tracks_to_assign)
+        num_dimensions = len(self.tracks[self.tracks_to_assign[0]].centroids_um[-1])
+
+        node_centroids = xp.empty((num_dimensions, 1, num_lost_tracks))
+
+        for lost_track_idx, lost_track_num in enumerate(self.tracks_to_assign):
+            node_centroids[:, 0, lost_track_idx] = self.tracks[lost_track_num].centroids_um[-1]
+
+        distance_matrix = xp.sqrt(xp.sum((node_centroids - xp.swapaxes(node_centroids, -1, -2)) ** 2, axis=0))
+        distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
+        xp.fill_diagonal(distance_matrix, xp.inf)
+
+        return distance_matrix
 
 
 if __name__ == "__main__":
@@ -459,7 +505,7 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
-    nodes_test.populate_tracks()
+    nodes_test.populate_tracks(3)
     print('hi')
 
     visualize = False
