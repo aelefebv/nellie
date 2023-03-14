@@ -502,7 +502,7 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
-    nodes_test.populate_tracks(3)
+    nodes_test.populate_tracks(5)
     print('hi')
 
     visualize = False

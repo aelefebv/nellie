@@ -1,4 +1,4 @@
-from src.pipeline.node_tracking import NodeTrack
+from src.pipeline.tracking.node_to_track import NodeTrack
 
 
 def track_list_to_napari_track(track_list: list[NodeTrack]) -> (list[list[int, int, float, float, float]], dict):
