@@ -114,7 +114,6 @@ class NodeTrackConstructor:
                 continue
             self.new_tracks = []
             cost_matrix = self._get_assignment_matrix(frame_num)
-            # self.assignment_matrix = assignment_matrix
             track_nums, node_nums = linear_sum_assignment(cost_matrix)
             self.track_nums = track_nums
             self.node_nums = node_nums
@@ -127,11 +126,9 @@ class NodeTrackConstructor:
             self._check_new_tracks(cost_matrix, frame_num)
             self._back_assign_track_to_nodes(frame_num)
             self._check_unassigned_tracks(cost_matrix, frame_num)
-            # go through nodes. if unassigned, find lowest assignment (if not the unassigned one)
-            #   and assign it as the fission point
-            # if the fusion or fission point has too many nodes fusing / fissioning from it, keep the N lowest cost
-            #   the rest should be rightfully unassigned.
-        # return assignments
+        # todo now for each track
+        #  if it got lost, find out what it got consumed by,
+        #  if it is new, find out what it came from,
 
     def _initialize_tracks(self, frame_num):
         for node_num, node in enumerate(self.nodes[0]):
