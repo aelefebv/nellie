@@ -115,10 +115,25 @@ class NodeTrackConstructor:
                 continue
 
             # otherwise, match them
-            track_t1 = self.tracks[self.current_frame_num-1][t1_match]
-            track_t2 = self.tracks[self.current_frame_num][t2_match]
-            track_t1.children.append({'frame':self.current_frame_num, 'track':t1_match, 'cost':assignment_cost})
-            track_t2.parents.append({'frame':self.current_frame_num-1, 'track':t2_match, 'cost':assignment_cost})
+            self._match_tracks(t1_match, t2_match, assignment_cost, 1)
+
+    def _match_tracks(self,
+                      track_t1_num: int,
+                      track_t2_num: int,
+                      assignment_cost: float,
+                      confidence: int):
+        track_t1 = self.tracks[self.current_frame_num - 1][track_t1_num]
+        track_t2 = self.tracks[self.current_frame_num][track_t2_num]
+        t1_assignment = {'frame': self.current_frame_num,
+                         'track': track_t1_num,
+                         'cost': assignment_cost,
+                         'confidence': confidence}
+        t2_assignment = {'frame': self.current_frame_num - 1,
+                         'track': track_t2_num,
+                         'cost': assignment_cost,
+                         'confidence': confidence}
+        track_t1.children.append(t1_assignment)
+        track_t2.parents.append(t2_assignment)
 
 
 if __name__ == "__main__":
