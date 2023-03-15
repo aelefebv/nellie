@@ -123,6 +123,10 @@ class NodeTrackConstructor:
             self._match_tracks(t1_match, t2_match, assignment_cost, 1)
 
     def _confidence_2_assignment(self):
+        pass
+
+    def _confidence_3_assignment(self):
+        pass
 
     def _match_tracks(self,
                       track_t1_num: int,
