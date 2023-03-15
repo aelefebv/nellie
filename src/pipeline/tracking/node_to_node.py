@@ -57,6 +57,7 @@ class NodeTrackConstructor:
             self._get_assignment_matrix()
             self.t1_t2_assignment = linear_sum_assignment(self.cost_matrix)
             self._confidence_1_assignment()
+            # self._confidence_2_assignment()
 
     def _initialize_tracks(self):
         for frame_num in range(self.num_frames):
@@ -121,9 +122,63 @@ class NodeTrackConstructor:
 
             # otherwise, match them
             self._match_tracks(t1_match, t2_match, assignment_cost, 1)
+            self.t1_remaining.remove(t1_match)
+            self.t2_remaining.remove(t2_match)
 
     def _confidence_2_assignment(self):
-        pass
+        # if a t1 track only has 2 possible assignments,
+        # and it's assigned to a t2 track's lowest cost possibility, assign it
+        t1_removals = []
+        t2_removals = []
+        for t1_track in self.t1_remaining:
+            possible_assignments = xp.array(
+                self.cost_matrix[t1_track, self.cost_matrix[t1_track, :] < self.distance_thresh_um_per_sec]
+            )
+            if len(possible_assignments) > 2:
+                continue
+
+            assigned_t1_idx = self.t1_t2_assignment[0] == t1_track
+            assigned_t2_track = self.t1_t2_assignment[1][assigned_t1_idx][0]
+            min_t2_cost = xp.min(self.cost_matrix[:, assigned_t2_track])
+            assignment_cost = self.cost_matrix[t1_track, assigned_t2_track]
+            if (min_t2_cost != assignment_cost) or (assignment_cost >= self.distance_thresh_um_per_sec):
+                continue
+
+            # otherwise, match them
+            self._match_tracks(t1_track, assigned_t2_track, assignment_cost, 2)
+            t1_removals.append(t1_track)
+            t2_removals.append(assigned_t2_track)
+        for t1_removal in t1_removals:
+            self.t1_remaining.remove(t1_removal)
+        for t2_removal in t2_removals:
+            self.t2_remaining.remove(t2_removal)
+
+        # if a t2 track only has 2 possible assignments,
+        # and it's assigned to a t1 track's lowest cost possibility, assign it
+        t1_removals = []
+        t2_removals = []
+        for t2_track in self.t2_remaining:
+            possible_assignments = xp.array(
+                self.cost_matrix[self.cost_matrix[:, t2_track] < self.distance_thresh_um_per_sec, t2_track]
+            )
+            if len(possible_assignments) > 2:
+                continue
+
+            assigned_t2_idx = self.t1_t2_assignment[1] == t2_track
+            assigned_t1_track = self.t1_t2_assignment[0][assigned_t2_idx][0]
+            min_t2_cost = xp.min(self.cost_matrix[assigned_t1_track, :])
+            assignment_cost = self.cost_matrix[assigned_t1_track, t2_track]
+            if (min_t2_cost != assignment_cost) or (assignment_cost >= self.distance_thresh_um_per_sec):
+                continue
+
+            # otherwise, match them
+            self._match_tracks(assigned_t1_track, t2_track, assignment_cost, 2)
+            t1_removals.append(assigned_t1_track)
+            t2_removals.append(t2_track)
+        for t1_removal in t1_removals:
+            self.t1_remaining.remove(t1_removal)
+        for t2_removal in t2_removals:
+            self.t2_remaining.remove(t2_removal)
 
     def _confidence_3_assignment(self):
         pass
@@ -162,7 +217,7 @@ if __name__ == "__main__":
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
 
-    visualize = False
+    visualize = True
 
     if visualize:
         from src.utils.visualize import node_to_node_to_napari
