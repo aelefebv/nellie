@@ -6,13 +6,15 @@ import numpy as xp
 from scipy.optimize import linear_sum_assignment
 
 class NodeTrack:
-    def __init__(self, node):
+    def __init__(self, node, frame_num, track_id):
         # stores information about how nodes link to one another
         # the confidence of those linkages
         #
         self.node = node
         self.parents = []
         self.children = []
+        self.frame_num = frame_num
+        self.track_id = track_id
         pass
 
 class NodeTrackConstructor:
@@ -40,6 +42,8 @@ class NodeTrackConstructor:
         self.cost_matrix = None
         self.t1_t2_assignment = None
 
+        self.track_id = 0
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
@@ -58,7 +62,8 @@ class NodeTrackConstructor:
         for frame_num in range(self.num_frames):
             node_list = []
             for node_num, node in enumerate(self.nodes[frame_num]):
-                node_list.append(NodeTrack(node))
+                node_list.append(NodeTrack(node, frame_num, self.track_id))
+                self.track_id += 1
             self.tracks[frame_num] = node_list
 
     def _get_assignment_matrix(self):
@@ -117,6 +122,8 @@ class NodeTrackConstructor:
             # otherwise, match them
             self._match_tracks(t1_match, t2_match, assignment_cost, 1)
 
+    def _confidence_2_assignment(self):
+
     def _match_tracks(self,
                       track_t1_num: int,
                       track_t2_num: int,
@@ -127,11 +134,13 @@ class NodeTrackConstructor:
         t1_assignment = {'frame': self.current_frame_num,
                          'track': track_t1_num,
                          'cost': assignment_cost,
-                         'confidence': confidence}
+                         'confidence': confidence,
+                         'track_id': track_t2.track_id}
         t2_assignment = {'frame': self.current_frame_num - 1,
                          'track': track_t2_num,
                          'cost': assignment_cost,
-                         'confidence': confidence}
+                         'confidence': confidence,
+                         'track_id': track_t1.track_id}
         track_t1.children.append(t1_assignment)
         track_t2.parents.append(t2_assignment)
 
@@ -148,4 +157,24 @@ if __name__ == "__main__":
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
+
+    visualize = False
+
+    if visualize:
+        from src.utils.visualize import node_to_node_to_napari
+        import napari
+        import tifffile
+
+        napari_tracks, napari_props, napari_graph = node_to_node_to_napari(nodes_test.tracks)
+        viewer = napari.Viewer(ndisplay=3)
+        viewer.add_image(tifffile.memmap(test.path_im_mask),
+                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
+                         rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
+        viewer.add_tracks(napari_tracks, properties=napari_props, color_by='confidence')
+        neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_network),
+                                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
+                                          contrast_limits=[0, 3], colormap='turbo', interpolation='nearest',
+                                          opacity=0.2)
+        neighbor_layer.interpolation = 'nearest'
+
     print('hi')
