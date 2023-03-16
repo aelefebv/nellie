@@ -172,11 +172,12 @@ class NodeTrackConstructor:
         matches = [(matches_1[i][0], matches_2[i][0]) for i in range(len(matches_1)) if matches_1[i] in matches_2]
         # keep only those that match with each other
         kept = [match for match in matches if tuple(reversed(match)) in matches]
-        for match in matches:
-            track_1 = self.tracks[self.current_frame_num-1][self.t1_remaining[match[0]]]
-            track_2 = self.tracks[self.current_frame_num-1][self.t1_remaining[match[1]]]
+        for match in kept:
+            track_1_num = self.tracks[self.current_frame_num-1][self.t1_remaining[match[0]]]
+            track_2_num = self.tracks[self.current_frame_num-1][self.t1_remaining[match[1]]]
             assignment_cost = self.t1_cost_matrix[match[0], match[1]+len(self.t2_remaining)]
             confidence = 2
+
 
 
     def _confidence_2_assignment(self):
@@ -256,6 +257,34 @@ class NodeTrackConstructor:
                          'track_id': track_t1.track_id}
         track_t1.children.append(t1_assignment)
         track_t2.parents.append(t2_assignment)
+
+    def _match_joined_tracks(self,
+                             track_1_num: int,
+                             track_2_num: int,
+                             assignment_cost: float,
+                             confidence: int):
+        track_t1 = self.tracks[self.current_frame_num - 1][track_1_num]
+        track_t2 = self.tracks[self.current_frame_num - 1][track_2_num]
+        t1_assignment = {'frame': self.current_frame_num - 1,
+                         'track': track_1_num,
+                         'cost': assignment_cost,
+                         'confidence': confidence,
+                         'track_id': track_t2.track_id}
+        track_t1.joins.append(t1_assignment)
+
+    def _match_split_tracks(self,
+                            track_1_num: int,
+                            track_2_num: int,
+                            assignment_cost: float,
+                            confidence: int):
+        track_t1 = self.tracks[self.current_frame_num][track_1_num]
+        track_t2 = self.tracks[self.current_frame_num][track_2_num]
+        t1_assignment = {'frame': self.current_frame_num,
+                         'track': track_1_num,
+                         'cost': assignment_cost,
+                         'confidence': confidence,
+                         'track_id': track_t2.track_id}
+        track_t1.joins.append(t1_assignment)
 
 
 if __name__ == "__main__":
