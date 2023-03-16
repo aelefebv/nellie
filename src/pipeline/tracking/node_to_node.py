@@ -71,6 +71,7 @@ class NodeTrackConstructor:
             self._assign_confidence_1_linkages()
             self._get_tn_cost_matrix()
             self._assign_tn_tn_linkages()
+            self._assign_confidence_1_connection_linkages()
             # self._confidence_2_assignment()
 
     def _initialize_tracks(self):
@@ -221,8 +222,35 @@ class NodeTrackConstructor:
             self.t2_remaining.remove(track)
 
     def _assign_confidence_1_connection_linkages(self):
+        # Check all of t1's connected nodes that are unassigned
+        # Check all of t2's connected nodes that are unassigned
+        # If possible, connect them back via cost minimization
         for t1_track, t2_track in self.confidence_1_linkages:
-            pass
+            t1_all_connections = self.tracks[self.current_frame_num-1][t1_track].node.connected_nodes
+            t2_all_connections = self.tracks[self.current_frame_num][t2_track].node.connected_nodes
+            t1_unassigned_connections = [t1_all_connection for t1_all_connection in t1_all_connections
+                                         if t1_all_connection in self.t1_remaining]
+            t2_unassigned_connections = [t2_all_connection for t2_all_connection in t2_all_connections
+                                         if t2_all_connection in self.t2_remaining]
+            if (len(t1_unassigned_connections) == 0) or (len(t2_unassigned_connections) == 0):
+                continue
+            pre_cost_submatrix = self.t1_t2_cost_matrix[t1_unassigned_connections, :][:, t2_unassigned_connections]
+            cost_submatrix = self._append_unassignment_costs(pre_cost_submatrix)
+            matches = linear_sum_assignment(cost_submatrix)
+            for match_num in range(len(matches[0])):
+                t1_match = matches[0][match_num]
+                t2_match = matches[1][match_num]
+                # if assigned to be unmatched, skip
+                if (t1_match > len(t1_unassigned_connections) - 1) or (t2_match > len(t2_unassigned_connections) - 1):
+                    continue
+
+                # otherwise, match them
+                assignment_cost = cost_submatrix[t1_match, t2_match]
+                t1_track_num = t1_unassigned_connections[t1_match]
+                t2_track_num = t2_unassigned_connections[t2_match]
+                self._match_tracks(t1_track_num, t2_track_num, assignment_cost, 2)
+                self.t1_remaining.remove(t1_track_num)
+                self.t2_remaining.remove(t2_track_num)
 
     def _confidence_2_assignment(self):
         # if a t1 track only has 2 possible assignments,

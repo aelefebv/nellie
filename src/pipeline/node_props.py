@@ -222,7 +222,7 @@ class NodeConstructor:
             for node_num in connected_nodes:
                 self.nodes[frame_num][node_num].connected_nodes += connected_nodes
         for node_num, node in enumerate(self.nodes[frame_num]):
-            node.connected_nodes = [x for x in node.connected_nodes if x != node_num]
+            node.connected_nodes = [x for x in set(node.connected_nodes) if x != node_num]
 
     def get_node_properties(self, num_t: int = None, dtype='uint32'):
         """
