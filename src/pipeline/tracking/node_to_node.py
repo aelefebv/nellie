@@ -54,6 +54,8 @@ class NodeTrackConstructor:
         self.fissions = {}
         self.fusions = {}
 
+        self.confidence_1_linkages = None
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
@@ -114,6 +116,7 @@ class NodeTrackConstructor:
         return cost_matrix
 
     def _assign_confidence_1_linkages(self):
+        confidence_1_linkages = []
         for match_num in range(len(self.t1_t2_assignment[0])):
             t1_match = self.t1_t2_assignment[0][match_num]
             t2_match = self.t1_t2_assignment[1][match_num]
@@ -136,6 +139,8 @@ class NodeTrackConstructor:
             self._match_tracks(t1_match, t2_match, assignment_cost, 1)
             self.t1_remaining.remove(t1_match)
             self.t2_remaining.remove(t2_match)
+            confidence_1_linkages.append((t1_match, t2_match))
+        self.confidence_1_linkages = confidence_1_linkages
 
     def _get_tn_cost_matrix(self):
         for frame in ['t1', 't2']:
@@ -214,6 +219,10 @@ class NodeTrackConstructor:
 
         for track in remove_t2_tracks:
             self.t2_remaining.remove(track)
+
+    def _assign_confidence_1_connection_linkages(self):
+        for t1_track, t2_track in self.confidence_1_linkages:
+            pass
 
     def _confidence_2_assignment(self):
         # if a t1 track only has 2 possible assignments,
@@ -300,17 +309,18 @@ class NodeTrackConstructor:
                              confidence: int):
         track_t1 = self.tracks[self.current_frame_num - 1][track_1_num]
         track_t2 = self.tracks[self.current_frame_num - 1][track_2_num]
+        if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
+            join_type = 'retraction'
+        else:
+            join_type = 'fusion'
         t1_assignment = {'frame': self.current_frame_num - 1,
                          'track': track_2_num,
                          'cost': assignment_cost,
                          'confidence': confidence,
-                         'track_id': track_t2.track_id}
-        if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
-            split_type = 'retraction'
-        else:
-            split_type = 'fusion'
+                         'track_id': track_t2.track_id,
+                         'join_type': join_type}
         track_t1.joins.append(t1_assignment)
-        self.joins[self.current_frame_num-1].append((split_type, track_t1.node.centroid_um, track_t2.node.centroid_um))
+        self.joins[self.current_frame_num-1].append((join_type, track_t1.node.centroid_um, track_t2.node.centroid_um))
 
     def _match_split_tracks(self,
                             track_1_num: int,
@@ -319,16 +329,17 @@ class NodeTrackConstructor:
                             confidence: int):
         track_t1 = self.tracks[self.current_frame_num][track_1_num]
         track_t2 = self.tracks[self.current_frame_num][track_2_num]
-        t1_assignment = {'frame': self.current_frame_num,
-                         'track': track_2_num,
-                         'cost': assignment_cost,
-                         'confidence': confidence,
-                         'track_id': track_t2.track_id}
-        track_t1.splits.append(t1_assignment)
         if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
             split_type = 'protrusion'
         else:
             split_type = 'fission'
+        t1_assignment = {'frame': self.current_frame_num,
+                         'track': track_2_num,
+                         'cost': assignment_cost,
+                         'confidence': confidence,
+                         'track_id': track_t2.track_id,
+                         'split_type': split_type}
+        track_t1.splits.append(t1_assignment)
         self.splits[self.current_frame_num].append((split_type, track_t1.node.centroid_um, track_t2.node.centroid_um))
 
 
@@ -372,7 +383,8 @@ if __name__ == "__main__":
                 point_2 = [frame_num, split[2][0], split[2][1], split[2][2]]
                 fissions.append(xp.array([point_1, point_2]))
         shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
-                                         edge_width=0.1, edge_color='magenta', opacity=0.1)
+                                         edge_width=nodes_test.im_info.dim_sizes['X'],
+                                         edge_color='magenta', opacity=0.1)
         fusions = []
         for frame_num, joins in nodes_test.joins.items():
             for join in joins:
@@ -382,6 +394,7 @@ if __name__ == "__main__":
                 point_2 = [frame_num, join[2][0], join[2][1], join[2][2]]
                 fusions.append(xp.array([point_1, point_2]))
         shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
-                                         edge_width=0.1, edge_color='lime', opacity=0.1)
+                                         edge_width=nodes_test.im_info.dim_sizes['X'],
+                                         edge_color='lime', opacity=0.1)
 
     print('hi')

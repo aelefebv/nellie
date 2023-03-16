@@ -37,6 +37,7 @@ class Node:
         """
         self.node_type = node_type  # should be 'tip' or 'junction'
         self.connected_branches = []
+        self.connected_nodes = []
         self.time_point_sec = time_point
         self.assigned_track = None
         if node_region is not None:
@@ -209,6 +210,20 @@ class NodeConstructor:
             tip_labels[rounded_centroid] = num_tip_labels
         return tip_labels, junction_labels, edge_labels
 
+    def _find_node_connections(self, frame_num):
+        branch_labels = {}
+        for node_num, node in enumerate(self.nodes[frame_num]):
+            for branch_num in node.connected_branches:
+                if branch_num not in branch_labels.keys():
+                    branch_labels[branch_num] = [node_num]
+                else:
+                    branch_labels[branch_num].append(node_num)
+        for branch_label, connected_nodes in branch_labels.items():
+            for node_num in connected_nodes:
+                self.nodes[frame_num][node_num].connected_nodes += connected_nodes
+        for node_num, node in enumerate(self.nodes[frame_num]):
+            node.connected_nodes = [x for x in node.connected_nodes if x != node_num]
+
     def get_node_properties(self, num_t: int = None, dtype='uint32'):
         """
         Computes the properties of nodes in the network and stores them in `self.nodes`.
@@ -251,6 +266,8 @@ class NodeConstructor:
 
             tip_labels, junction_labels, edge_labels = self.clean_labels(
                 xp.array(self.node_type_memmap[frame_num]), frame_num)
+
+            self._find_node_connections(frame_num)
 
             if is_gpu:
                 self.tip_label_memmap[frame_num] = tip_labels.get()
