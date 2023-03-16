@@ -189,7 +189,6 @@ class NodeTrackConstructor:
         for match in kept:
             track_1_num = self.t2_remaining[match[0]]
             track_2_num = self.t2_remaining[match[1]]
-            print(track_1_num, track_2_num)
             assignment_cost = self.t2_cost_matrix[match[0] + self.num_tracks_t1, match[1]]
             confidence = 2
             self._match_split_tracks(track_1_num, track_2_num, assignment_cost, confidence)
