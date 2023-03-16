@@ -352,7 +352,6 @@ class NodeTrackConstructor:
                     continue
                 assignment_cost = self.t1_t2_cost_matrix[possible_match, t2_track]
                 self.possible_connections.append([possible_match, t2_track, assignment_cost, 2])
-                print(possible_match, t2_track, assignment_cost)
 
     def _assign_remainders(self):
         # for all self.possible_connections, sort by lowest to highest assignment cost
@@ -361,6 +360,37 @@ class NodeTrackConstructor:
         # if it's a production assigned (2), remove t2_track from running
         # if it's a node_link assigned (0), remove t1_track and/or t2_track if they are tips only
         # make sure lone tips are properly accounted for.
+        possible_connections = xp.array(self.possible_connections)
+        print('hi')
+        # sort first by cost, then by assignment type
+        sort_idx = xp.lexsort((possible_connections[:, 3], possible_connections[:, 2]))
+        sorted_connections = possible_connections[sort_idx]
+        remove_t1 = []
+        remove_t2 = []
+        for row, connection in enumerate(sorted_connections):
+            if (connection[0] in remove_t1) or (connection[1] in remove_t2):
+                continue
+            track_t1 = self.tracks[self.current_frame_num-1][connection[0]]
+            track_t2 = self.tracks[self.current_frame_num][connection[1]]
+            if connection[-1] == 0:
+                self._match_tracks(connection[0], connection[1], connection[2], 2)
+                if track_t1.node.node_type == 'tip': remove_t1.append(connection[0])
+                if track_t2.node.node_type == 'tip': remove_t2.append(connection[1])
+            i = 1
+            same_match = True
+            match_types = [connection[-1]]
+            while same_match:
+                if xp.array_equal(sorted_connections[row+i, :3], sorted_connections[row, :3]):
+                    match_types.append(sorted_connections[row, -1])
+                    i += 1
+                else:
+                    same_match = False
+            # assign nodes to each other if they are both matched to each other
+            if (1 in match_types) and (2 in match_types):
+                self._match_tracks(connection[0], connection[1], connection[2], 2)
+                remove_t1.append(connection[0])
+                remove_t2.append(connection[1])
+
         pass
 
     def _match_tracks(self,
