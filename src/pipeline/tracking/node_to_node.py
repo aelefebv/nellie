@@ -262,14 +262,14 @@ class NodeTrackConstructor:
                 #     continue
                 t1_track_num = t1_unassigned_connections[t1_match]
                 t2_track_num = t2_unassigned_connections[t2_match]
-                self.possible_connections.append([t1_track_num, t2_track_num, assignment_cost, 'node_link'])
-                valid_connections_t1 = self.t1_t2_cost_matrix[t1_track_num, :][self.t2_remaining]
-                valid_connections_t1 = valid_connections_t1[valid_connections_t1 < self.distance_thresh_um_per_sec]
-                if assignment_cost != xp.min(valid_connections_t1):
-                    continue
-                self._match_tracks(t1_track_num, t2_track_num, assignment_cost, 2)
-                self.t1_remaining.remove(t1_track_num)
-                self.t2_remaining.remove(t2_track_num)
+                self.possible_connections.append([t1_track_num, t2_track_num, assignment_cost, 0])
+                # valid_connections_t1 = self.t1_t2_cost_matrix[t1_track_num, :][self.t2_remaining]
+                # valid_connections_t1 = valid_connections_t1[valid_connections_t1 < self.distance_thresh_um_per_sec]
+                # if assignment_cost != xp.min(valid_connections_t1):
+                #     continue
+                # self._match_tracks(t1_track_num, t2_track_num, assignment_cost, 2)
+                # self.t1_remaining.remove(t1_track_num)
+                # self.t2_remaining.remove(t2_track_num)
 
     def _confidence_2_assignment(self):
         # if a t1 track only has 2 possible assignments,
@@ -330,21 +330,36 @@ class NodeTrackConstructor:
         pass
 
     def _check_consumptions(self):
+        # self.possible_connections type 1
         # for all unassigned t1 nodes, check for any nearby junction it could have merged into
         # keep track of merge cost in self.possible_connections
-        pass
+        for t1_track in self.t1_remaining:
+            possible_matches = xp.where(self.t1_t2_cost_matrix[t1_track]<self.distance_thresh_um_per_sec)[0]
+            for possible_match in possible_matches:
+                if self.tracks[self.current_frame_num][possible_match].node.node_type == 'tip':
+                    continue
+                assignment_cost = self.t1_t2_cost_matrix[t1_track, possible_match]
+                self.possible_connections.append([t1_track, possible_match, assignment_cost, 1])
 
     def _check_productions(self):
+        # self.possible_connections type 2
         # for all unassigned t2 nodes, check for any nearby junction it could have popped off of
         # keep track of merge cost in self.possible_connections
-        pass
+        for t2_track in self.t2_remaining:
+            possible_matches = xp.where(self.t1_t2_cost_matrix[:, t2_track]<self.distance_thresh_um_per_sec)[0]
+            for possible_match in possible_matches:
+                if self.tracks[self.current_frame_num-1][possible_match].node.node_type == 'tip':
+                    continue
+                assignment_cost = self.t1_t2_cost_matrix[possible_match, t2_track]
+                self.possible_connections.append([possible_match, t2_track, assignment_cost, 2])
+                print(possible_match, t2_track, assignment_cost)
 
     def _assign_remainders(self):
         # for all self.possible_connections, sort by lowest to highest assignment cost
         # assign based on order, while removing any other corresponding rows after assignment
-        # if it's a consumption assigned, remove t1_track from running
-        # if it's a production assigned, remove t2_track from running
-        # if it's a node_link assigned, remove t1_track and/or t2_track if they are tips only
+        # if it's a consumption assigned (1), remove t1_track from running
+        # if it's a production assigned (2), remove t2_track from running
+        # if it's a node_link assigned (0), remove t1_track and/or t2_track if they are tips only
         # make sure lone tips are properly accounted for.
         pass
 
