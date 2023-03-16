@@ -364,7 +364,7 @@ if __name__ == "__main__":
                                           opacity=0.2)
         neighbor_layer.interpolation = 'nearest'
         fissions = []
-        for frame_num, splits in nodes_test.splits.values():
+        for frame_num, splits in nodes_test.splits.items():
             for split in splits:
                 if split[0] == 'protrusion':
                     continue
@@ -372,6 +372,16 @@ if __name__ == "__main__":
                 point_2 = [frame_num, split[2][0], split[2][1], split[2][2]]
                 fissions.append(xp.array([point_1, point_2]))
         shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
-                                         edge_width=0.1, edge_color='magenta', opacity=0.2)
+                                         edge_width=0.1, edge_color='magenta', opacity=0.1)
+        fusions = []
+        for frame_num, joins in nodes_test.joins.items():
+            for join in joins:
+                if join[0] == 'retraction':
+                    continue
+                point_1 = [frame_num, join[1][0], join[1][1], join[1][2]]
+                point_2 = [frame_num, join[2][0], join[2][1], join[2][2]]
+                fusions.append(xp.array([point_1, point_2]))
+        shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
+                                         edge_width=0.1, edge_color='lime', opacity=0.1)
 
     print('hi')
