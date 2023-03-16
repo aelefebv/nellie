@@ -154,31 +154,45 @@ class NodeTrackConstructor:
 
             if frame == 't1':
                 self.t1_cost_matrix = xp.concatenate(
-                    [self.t1_t2_cost_matrix[self.t1_remaining, :len(self.t2_remaining)], distance_matrix], axis=1
+                    [self.t1_t2_cost_matrix[self.t1_remaining, :self.num_tracks_t2], distance_matrix], axis=1
                 )
             else:
                 self.t2_cost_matrix = xp.concatenate(
-                    [self.t1_t2_cost_matrix[:len(self.t1_remaining), self.t2_remaining], distance_matrix], axis=0
+                    [self.t1_t2_cost_matrix[:self.num_tracks_t1, self.t2_remaining], distance_matrix], axis=0
                 )
 
     def _assign_tn_tn_linkages(self):
+        # check t1 for joins
         # check the smallest values for each remaining t1 track
         t1_check = xp.argmin(self.t1_cost_matrix, axis=1)
         # check where smallest value links to another t1 track
-        matches_1 = xp.argwhere(t1_check >= len(self.t2_remaining))
+        matches_1 = xp.argwhere(t1_check >= self.num_tracks_t2)
         # pair up those links
-        matches_2 = t1_check[matches_1]-len(self.t2_remaining)
+        matches_2 = t1_check[matches_1]-self.num_tracks_t2
         # keep only those that have matches in both matches_1 and matches_2
         matches = [(matches_1[i][0], matches_2[i][0]) for i in range(len(matches_1)) if matches_1[i] in matches_2]
         # keep only those that match with each other
         kept = [match for match in matches if tuple(reversed(match)) in matches]
         for match in kept:
-            track_1_num = self.tracks[self.current_frame_num-1][self.t1_remaining[match[0]]]
-            track_2_num = self.tracks[self.current_frame_num-1][self.t1_remaining[match[1]]]
-            assignment_cost = self.t1_cost_matrix[match[0], match[1]+len(self.t2_remaining)]
+            track_1_num = self.t1_remaining[match[0]]
+            track_2_num = self.t1_remaining[match[1]]
+            assignment_cost = self.t1_cost_matrix[match[0], match[1]+self.num_tracks_t2]
             confidence = 2
+            self._match_joined_tracks(track_1_num, track_2_num, assignment_cost, confidence)
 
-
+        # check t2 for splits
+        t2_check = xp.argmin(self.t2_cost_matrix, axis=0)
+        matches_1 = xp.argwhere(t2_check >= self.num_tracks_t1)
+        matches_2 = t2_check[matches_1] - self.num_tracks_t1
+        matches = [(matches_1[i][0], matches_2[i][0]) for i in range(len(matches_1)) if matches_1[i] in matches_2]
+        kept = [match for match in matches if tuple(reversed(match)) in matches]
+        for match in kept:
+            track_1_num = self.t2_remaining[match[0]]
+            track_2_num = self.t2_remaining[match[1]]
+            print(track_1_num, track_2_num)
+            assignment_cost = self.t2_cost_matrix[match[0] + self.num_tracks_t1, match[1]]
+            confidence = 2
+            self._match_split_tracks(track_1_num, track_2_num, assignment_cost, confidence)
 
     def _confidence_2_assignment(self):
         # if a t1 track only has 2 possible assignments,
