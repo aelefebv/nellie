@@ -49,6 +49,11 @@ class NodeTrackConstructor:
 
         self.track_id = 0
 
+        self.joins = {}
+        self.splits = {}
+        self.fissions = {}
+        self.fusions = {}
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
@@ -136,8 +141,12 @@ class NodeTrackConstructor:
         for frame in ['t1', 't2']:
             if frame == 't1':
                 tracks_tn = [self.tracks[self.current_frame_num-1][track] for track in self.t1_remaining]
+
             else:
                 tracks_tn = [self.tracks[self.current_frame_num][track] for track in self.t2_remaining]
+
+            time_difference = self.tracks[self.current_frame_num][0].node.time_point_sec - \
+                              self.tracks[self.current_frame_num-1][0].node.time_point_sec
 
             self.num_tracks_tn = len(tracks_tn)
             num_dimensions = len(tracks_tn[0].node.centroid_um)
@@ -148,6 +157,7 @@ class NodeTrackConstructor:
                 tn_centroids[:, 0, track_idx] = track.node.centroid_um
 
             distance_matrix = xp.sqrt(xp.sum((tn_centroids - xp.swapaxes(tn_centroids, -1, -2)) ** 2, axis=0))
+            distance_matrix /= time_difference
             distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
             xp.fill_diagonal(distance_matrix, xp.inf)
             # remaining_cost_matrix = self.t1_t2_cost_matrix[self.t1_remaining, :][:, self.t2_remaining]
@@ -173,25 +183,37 @@ class NodeTrackConstructor:
         matches = [(matches_1[i][0], matches_2[i][0]) for i in range(len(matches_1)) if matches_1[i] in matches_2]
         # keep only those that match with each other
         kept = [match for match in matches if tuple(reversed(match)) in matches]
+        remove_t1_tracks = []
+        self.joins[self.current_frame_num - 1] = []
         for match in kept:
             track_1_num = self.t1_remaining[match[0]]
             track_2_num = self.t1_remaining[match[1]]
             assignment_cost = self.t1_cost_matrix[match[0], match[1]+self.num_tracks_t2]
             confidence = 2
             self._match_joined_tracks(track_1_num, track_2_num, assignment_cost, confidence)
+            remove_t1_tracks.append(track_1_num)
 
+        for track in remove_t1_tracks:
+            self.t1_remaining.remove(track)
+
+        remove_t2_tracks = []
         # check t2 for splits
         t2_check = xp.argmin(self.t2_cost_matrix, axis=0)
         matches_1 = xp.argwhere(t2_check >= self.num_tracks_t1)
         matches_2 = t2_check[matches_1] - self.num_tracks_t1
         matches = [(matches_1[i][0], matches_2[i][0]) for i in range(len(matches_1)) if matches_1[i] in matches_2]
         kept = [match for match in matches if tuple(reversed(match)) in matches]
+        self.splits[self.current_frame_num] = []
         for match in kept:
             track_1_num = self.t2_remaining[match[0]]
             track_2_num = self.t2_remaining[match[1]]
             assignment_cost = self.t2_cost_matrix[match[0] + self.num_tracks_t1, match[1]]
             confidence = 2
             self._match_split_tracks(track_1_num, track_2_num, assignment_cost, confidence)
+            remove_t2_tracks.append(track_1_num)
+
+        for track in remove_t2_tracks:
+            self.t2_remaining.remove(track)
 
     def _confidence_2_assignment(self):
         # if a t1 track only has 2 possible assignments,
@@ -279,11 +301,16 @@ class NodeTrackConstructor:
         track_t1 = self.tracks[self.current_frame_num - 1][track_1_num]
         track_t2 = self.tracks[self.current_frame_num - 1][track_2_num]
         t1_assignment = {'frame': self.current_frame_num - 1,
-                         'track': track_1_num,
+                         'track': track_2_num,
                          'cost': assignment_cost,
                          'confidence': confidence,
                          'track_id': track_t2.track_id}
+        if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
+            split_type = 'retraction'
+        else:
+            split_type = 'fusion'
         track_t1.joins.append(t1_assignment)
+        self.joins[self.current_frame_num-1].append((split_type, track_t1.node.centroid_um, track_t2.node.centroid_um))
 
     def _match_split_tracks(self,
                             track_1_num: int,
@@ -293,11 +320,16 @@ class NodeTrackConstructor:
         track_t1 = self.tracks[self.current_frame_num][track_1_num]
         track_t2 = self.tracks[self.current_frame_num][track_2_num]
         t1_assignment = {'frame': self.current_frame_num,
-                         'track': track_1_num,
+                         'track': track_2_num,
                          'cost': assignment_cost,
                          'confidence': confidence,
                          'track_id': track_t2.track_id}
-        track_t1.joins.append(t1_assignment)
+        track_t1.splits.append(t1_assignment)
+        if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
+            split_type = 'protrusion'
+        else:
+            split_type = 'fission'
+        self.splits[self.current_frame_num].append((split_type, track_t1.node.centroid_um, track_t2.node.centroid_um))
 
 
 if __name__ == "__main__":
@@ -331,5 +363,15 @@ if __name__ == "__main__":
                                           contrast_limits=[0, 3], colormap='turbo', interpolation='nearest',
                                           opacity=0.2)
         neighbor_layer.interpolation = 'nearest'
+        fissions = []
+        for frame_num, splits in nodes_test.splits.values():
+            for split in splits:
+                if split[0] == 'protrusion':
+                    continue
+                point_1 = [frame_num, split[1][0], split[1][1], split[1][2]]
+                point_2 = [frame_num, split[2][0], split[2][1], split[2][2]]
+                fissions.append(xp.array([point_1, point_2]))
+        shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
+                                         edge_width=0.1, edge_color='magenta', opacity=0.2)
 
     print('hi')
