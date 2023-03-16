@@ -13,6 +13,8 @@ class NodeTrack:
         self.node = node
         self.parents = []
         self.children = []
+        self.splits = []
+        self.joins = []
         self.frame_num = frame_num
         self.track_id = track_id
         pass
@@ -152,17 +154,29 @@ class NodeTrackConstructor:
 
             if frame == 't1':
                 self.t1_cost_matrix = xp.concatenate(
-                    [distance_matrix, self.t1_t2_cost_matrix[self.t1_remaining, :len(self.t2_remaining)]], axis=1
+                    [self.t1_t2_cost_matrix[self.t1_remaining, :len(self.t2_remaining)], distance_matrix], axis=1
                 )
             else:
                 self.t2_cost_matrix = xp.concatenate(
-                    [distance_matrix, self.t1_t2_cost_matrix[:len(self.t1_remaining), self.t2_remaining]], axis=0
+                    [self.t1_t2_cost_matrix[:len(self.t1_remaining), self.t2_remaining], distance_matrix], axis=0
                 )
 
     def _assign_tn_tn_linkages(self):
+        # check the smallest values for each remaining t1 track
         t1_check = xp.argmin(self.t1_cost_matrix, axis=1)
-        matched_links = xp.argwhere(t1_check < len(self.t1_remaining))
-
+        # check where smallest value links to another t1 track
+        matches_1 = xp.argwhere(t1_check >= len(self.t2_remaining))
+        # pair up those links
+        matches_2 = t1_check[matches_1]-len(self.t2_remaining)
+        # keep only those that have matches in both matches_1 and matches_2
+        matches = [(matches_1[i][0], matches_2[i][0]) for i in range(len(matches_1)) if matches_1[i] in matches_2]
+        # keep only those that match with each other
+        kept = [match for match in matches if tuple(reversed(match)) in matches]
+        for match in matches:
+            track_1 = self.tracks[self.current_frame_num-1][self.t1_remaining[match[0]]]
+            track_2 = self.tracks[self.current_frame_num-1][self.t1_remaining[match[1]]]
+            assignment_cost = self.t1_cost_matrix[match[0], match[1]+len(self.t2_remaining)]
+            confidence = 2
 
 
     def _confidence_2_assignment(self):
