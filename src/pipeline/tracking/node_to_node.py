@@ -55,6 +55,7 @@ class NodeTrackConstructor:
         self.fusions = {}
 
         self.confidence_1_linkages = None
+        self.confidence_1_linkage_mean_std = None
 
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
@@ -118,6 +119,7 @@ class NodeTrackConstructor:
 
     def _assign_confidence_1_linkages(self):
         confidence_1_linkages = []
+        confidence_1_linkage_costs = []
         for match_num in range(len(self.t1_t2_assignment[0])):
             t1_match = self.t1_t2_assignment[0][match_num]
             t2_match = self.t1_t2_assignment[1][match_num]
@@ -141,7 +143,9 @@ class NodeTrackConstructor:
             self.t1_remaining.remove(t1_match)
             self.t2_remaining.remove(t2_match)
             confidence_1_linkages.append((t1_match, t2_match))
+            confidence_1_linkage_costs.append(assignment_cost)
         self.confidence_1_linkages = confidence_1_linkages
+        self.confidence_1_linkage_mean_std = (xp.mean(confidence_1_linkage_costs), xp.std(confidence_1_linkage_costs))
 
     def _get_tn_cost_matrix(self):
         for frame in ['t1', 't2']:
@@ -244,10 +248,18 @@ class NodeTrackConstructor:
                 if (t1_match > len(t1_unassigned_connections) - 1) or (t2_match > len(t2_unassigned_connections) - 1):
                     continue
 
-                # otherwise, match them
+                # otherwise, match them if assignment cost is lowest of valid assignments.
+                # todo, need to also test against consumption/production costs, but on the right track
+                # todo maybe just make a running list of all possible connections, then pick the smallest
                 assignment_cost = cost_submatrix[t1_match, t2_match]
+                # if assignment_cost > self.confidence_1_linkage_mean_std[0]:
+                #     continue
                 t1_track_num = t1_unassigned_connections[t1_match]
                 t2_track_num = t2_unassigned_connections[t2_match]
+                valid_connections_t1 = self.t1_t2_cost_matrix[t1_track_num, :][self.t2_remaining]
+                valid_connections_t1 = valid_connections_t1[valid_connections_t1 < self.distance_thresh_um_per_sec]
+                if assignment_cost != xp.min(valid_connections_t1):
+                    continue
                 self._match_tracks(t1_track_num, t2_track_num, assignment_cost, 2)
                 self.t1_remaining.remove(t1_track_num)
                 self.t2_remaining.remove(t2_track_num)
