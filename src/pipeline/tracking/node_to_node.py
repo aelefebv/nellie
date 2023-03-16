@@ -359,39 +359,67 @@ class NodeTrackConstructor:
         # if it's a consumption assigned (1), remove t1_track from running
         # if it's a production assigned (2), remove t2_track from running
         # if it's a node_link assigned (0), remove t1_track and/or t2_track if they are tips only
-        # make sure lone tips are properly accounted for.
+        # todo make sure lone tips are properly accounted for, no removal of tips if match to lone tip?
         possible_connections = xp.array(self.possible_connections)
-        print('hi')
         # sort first by cost, then by assignment type
         sort_idx = xp.lexsort((possible_connections[:, 3], possible_connections[:, 2]))
         sorted_connections = possible_connections[sort_idx]
         remove_t1 = []
         remove_t2 = []
+        last_match = xp.array([])
         for row, connection in enumerate(sorted_connections):
-            if (connection[0] in remove_t1) or (connection[1] in remove_t2):
+            track_t1_num = int(connection[0])
+            track_t2_num = int(connection[1])
+            # if the combination was already checked, skip to the next
+            if xp.array_equal(last_match, connection[:3]):
                 continue
-            track_t1 = self.tracks[self.current_frame_num-1][connection[0]]
-            track_t2 = self.tracks[self.current_frame_num][connection[1]]
+            else:
+                last_match = connection[:3]
+
+            # if the match is no longer possible due to a previous assignment, skip to the next
+            if (track_t1_num in remove_t1) or (track_t2_num in remove_t2):
+                continue
+
+            track_t1 = self.tracks[self.current_frame_num-1][track_t1_num]
+            track_t2 = self.tracks[self.current_frame_num][track_t2_num]
+            # check for a 1-1 connection
             if connection[-1] == 0:
-                self._match_tracks(connection[0], connection[1], connection[2], 2)
-                if track_t1.node.node_type == 'tip': remove_t1.append(connection[0])
-                if track_t2.node.node_type == 'tip': remove_t2.append(connection[1])
+                self._match_tracks(track_t1_num, track_t2_num, connection[2], 2)
+                if track_t1.node.node_type == 'tip': remove_t1.append(track_t1_num)
+                if track_t2.node.node_type == 'tip': remove_t2.append(track_t2_num)
+                continue
+
+            # check for a 1-1 connection via consumption/production match
             i = 1
             same_match = True
             match_types = [connection[-1]]
             while same_match:
+                if row+i >= len(sorted_connections):
+                    same_match = False
+                    continue
                 if xp.array_equal(sorted_connections[row+i, :3], sorted_connections[row, :3]):
                     match_types.append(sorted_connections[row, -1])
                     i += 1
                 else:
                     same_match = False
+
             # assign nodes to each other if they are both matched to each other
             if (1 in match_types) and (2 in match_types):
-                self._match_tracks(connection[0], connection[1], connection[2], 2)
-                remove_t1.append(connection[0])
-                remove_t2.append(connection[1])
+                self._match_tracks(track_t1_num, track_t2_num, connection[2], 2)
+                if track_t1.node.node_type == 'tip': remove_t1.append(track_t1_num)
+                if track_t2.node.node_type == 'tip': remove_t2.append(track_t2_num)
+                continue
 
-        pass
+            # assign nodes to each other
+            self._match_tracks(track_t1_num, track_t2_num, connection[2], 2)
+            if 1 in match_types:
+                if track_t1.node.node_type == 'tip': remove_t1.append(track_t1_num)
+            if 2 in match_types:
+                if track_t2.node.node_type == 'tip': remove_t2.append(track_t2_num)
+        for t1_removal in remove_t1:
+            self.t1_remaining.remove(t1_removal)
+        for t2_removal in remove_t2:
+            self.t2_remaining.remove(t2_removal)
 
     def _match_tracks(self,
                       track_t1_num: int,
@@ -401,12 +429,12 @@ class NodeTrackConstructor:
         track_t1 = self.tracks[self.current_frame_num - 1][track_t1_num]
         track_t2 = self.tracks[self.current_frame_num][track_t2_num]
         t1_assignment = {'frame': self.current_frame_num,
-                         'track': track_t1_num,
+                         'track': track_t2_num,
                          'cost': assignment_cost,
                          'confidence': confidence,
                          'track_id': track_t2.track_id}
         t2_assignment = {'frame': self.current_frame_num - 1,
-                         'track': track_t2_num,
+                         'track': track_t1_num,
                          'cost': assignment_cost,
                          'confidence': confidence,
                          'track_id': track_t1.track_id}
