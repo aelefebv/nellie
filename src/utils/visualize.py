@@ -86,7 +86,6 @@ def node_to_node_to_napari(track_dict: dict[list[nnNT]]) -> (list[list[int, int,
     for track_id, track in all_tracks.items():
         z, y, x = track.node.centroid_um
         frame_num = track.frame_num
-        print(track_id)
         napari_track.append([track.napari_track_id, frame_num, z, y, x])
         napari_props['cost'].append(track.cost)
         napari_props['confidence'].append(track.confidence)
