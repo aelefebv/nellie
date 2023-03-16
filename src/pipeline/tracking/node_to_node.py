@@ -57,6 +57,8 @@ class NodeTrackConstructor:
         self.confidence_1_linkages = None
         self.confidence_1_linkage_mean_std = None
 
+        self.possible_connections = None
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
@@ -72,7 +74,10 @@ class NodeTrackConstructor:
             self._assign_confidence_1_linkages()
             self._get_tn_cost_matrix()
             self._assign_tn_tn_linkages()
-            self._assign_confidence_1_connection_linkages()
+            self._check_consumptions()
+            self._check_productions()
+            self._check_connection_linkages()
+            self._assign_remainders()
             # self._confidence_2_assignment()
 
     def _initialize_tracks(self):
@@ -118,6 +123,7 @@ class NodeTrackConstructor:
         return cost_matrix
 
     def _assign_confidence_1_linkages(self):
+        self.possible_connections = []
         confidence_1_linkages = []
         confidence_1_linkage_costs = []
         for match_num in range(len(self.t1_t2_assignment[0])):
@@ -225,7 +231,7 @@ class NodeTrackConstructor:
         for track in remove_t2_tracks:
             self.t2_remaining.remove(track)
 
-    def _assign_confidence_1_connection_linkages(self):
+    def _check_connection_linkages(self):
         # Check all of t1's connected nodes that are unassigned
         # Check all of t2's connected nodes that are unassigned
         # If possible, connect them back via cost minimization
@@ -256,6 +262,7 @@ class NodeTrackConstructor:
                 #     continue
                 t1_track_num = t1_unassigned_connections[t1_match]
                 t2_track_num = t2_unassigned_connections[t2_match]
+                self.possible_connections.append([t1_track_num, t2_track_num, assignment_cost, 'node_link'])
                 valid_connections_t1 = self.t1_t2_cost_matrix[t1_track_num, :][self.t2_remaining]
                 valid_connections_t1 = valid_connections_t1[valid_connections_t1 < self.distance_thresh_um_per_sec]
                 if assignment_cost != xp.min(valid_connections_t1):
@@ -320,6 +327,25 @@ class NodeTrackConstructor:
             self.t2_remaining.remove(t2_removal)
 
     def _confidence_3_assignment(self):
+        pass
+
+    def _check_consumptions(self):
+        # for all unassigned t1 nodes, check for any nearby junction it could have merged into
+        # keep track of merge cost in self.possible_connections
+        pass
+
+    def _check_productions(self):
+        # for all unassigned t2 nodes, check for any nearby junction it could have popped off of
+        # keep track of merge cost in self.possible_connections
+        pass
+
+    def _assign_remainders(self):
+        # for all self.possible_connections, sort by lowest to highest assignment cost
+        # assign based on order, while removing any other corresponding rows after assignment
+        # if it's a consumption assigned, remove t1_track from running
+        # if it's a production assigned, remove t2_track from running
+        # if it's a node_link assigned, remove t1_track and/or t2_track if they are tips only
+        # make sure lone tips are properly accounted for.
         pass
 
     def _match_tracks(self,
