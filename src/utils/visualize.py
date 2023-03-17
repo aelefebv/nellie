@@ -57,7 +57,7 @@ def check_child_tracks(check_track, all_tracks, napari_track_id):
     return all_tracks, napari_track_id
 
 
-def node_to_node_to_napari(track_dict: dict[list[nnNT]]) -> (list[list[int, int, float, float, float]], dict):
+def node_to_node_to_napari(track_dict: dict[int: list[nnNT]]) -> (list[list[int, int, float, float, float]], dict):
     napari_track = []
     napari_graph = {}
     napari_props = {'confidence': [], 'cost': []}
@@ -91,3 +91,33 @@ def node_to_node_to_napari(track_dict: dict[list[nnNT]]) -> (list[list[int, int,
         napari_props['confidence'].append(track.confidence)
 
     return napari_track, napari_props, napari_graph
+
+
+def nodes_to_napari_graph(track_dict: dict[int: list[nnNT]]) -> (list[list[int, int, float, float, float]], dict):
+    import numpy as xp
+    tracks = []
+    lbep = []
+    all_tracks = {}
+    for frame_num, track_frames in track_dict.items():
+        for track in track_frames:
+            z, y, x = track.node.centroid_um
+            label = track.track_id
+            begins = frame_num
+            ends = frame_num + 1
+            if len(track.parents < 1):
+                parent_id = 0
+            else:
+                closest_parent_cost = None
+                closest_parent_id = None
+                for parent in track.parents:
+                    if closest_parent_cost is None or closest_parent_id is None:
+                        closest_parent_cost = parent['cost']
+                        closest_parent_id = parent['track_id']
+                        continue
+                    if parent['cost'] < closest_parent_cost:
+                        closest_parent_cost = parent['cost']
+                        closest_parent_id = parent['track_id']
+                parent_id = closest_parent_id
+            lbep.append([label, begins, ends, parent_id])
+            tracks.append([label, frame_num, z, y, x])
+    lbep = xp.array(lbep)

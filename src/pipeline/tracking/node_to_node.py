@@ -47,7 +47,7 @@ class NodeTrackConstructor:
         self.t1_cost_matrix = None
         self.t2_cost_matrix = None
 
-        self.track_id = 0
+        self.track_id = 1
 
         self.joins = {}
         self.splits = {}
