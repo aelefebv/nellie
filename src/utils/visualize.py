@@ -153,7 +153,7 @@ def check_children_2(tracks, child_info, label, data):
     z, y, x = child_track.node.centroid_um
     data.append([label, child_info['frame'], z, y, x])
     if len(child_track.children) == 1:
-        data, end_frame = check_children(tracks, child_track.children[0], label, data)
+        data, end_frame = check_children_2(tracks, child_track.children[0], label, data)
     else:
         end_frame = child_info['frame']
     return data, end_frame
@@ -184,7 +184,7 @@ list[list[int, int, float, float, float]], dict):
                 for parent in track.parents:
                     parents.append(parent['track_id'])
             if len(track.children) == 1:
-                data, ends = check_children(track_dict, track.children[0], label, data)
+                data, ends = check_children_2(track_dict, track.children[0], label, data)
             else:
                 ends = frame_num
 

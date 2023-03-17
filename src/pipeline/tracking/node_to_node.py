@@ -59,6 +59,9 @@ class NodeTrackConstructor:
 
         self.possible_connections = None
 
+        self.min_t1 = None
+        self.min_t2 = None
+
     def populate_tracks(self, num_t: int = None):
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
@@ -113,6 +116,8 @@ class NodeTrackConstructor:
         distance_matrix[distance_matrix > self.distance_thresh_um_per_sec] = xp.inf
 
         self.t1_t2_cost_matrix = self._append_unassignment_costs(distance_matrix)
+        self.min_t1 = xp.min(self.t1_t2_cost_matrix[:self.num_tracks_t1, :], axis=1)
+        self.min_t2 = xp.min(self.t1_t2_cost_matrix[:, :self.num_tracks_t2], axis=0)
 
     def _append_unassignment_costs(self, pre_cost_matrix):
         rows, cols = pre_cost_matrix.shape
@@ -234,7 +239,7 @@ class NodeTrackConstructor:
     def _check_connection_linkages(self):
         # Check all of t1's connected nodes that are unassigned
         # Check all of t2's connected nodes that are unassigned
-        # If possible, connect them back via cost minimization
+        # If possible, connect them back via cost minimization but only if cost is less than mean+std of average c1 cost
         for t1_track, t2_track in self.confidence_1_linkages:
             t1_all_connections = self.tracks[self.current_frame_num-1][t1_track].node.connected_nodes
             t2_all_connections = self.tracks[self.current_frame_num][t2_track].node.connected_nodes
@@ -255,9 +260,9 @@ class NodeTrackConstructor:
                     continue
 
                 # otherwise, match them if assignment cost is lowest of valid assignments.
-                # todo, need to also test against consumption/production costs, but on the right track
-                # todo maybe just make a running list of all possible connections, then pick the smallest
                 assignment_cost = cost_submatrix[t1_match, t2_match]
+                if assignment_cost >= (self.confidence_1_linkage_mean_std[0] + 2*self.confidence_1_linkage_mean_std[1]):
+                    continue
                 # if assignment_cost > self.confidence_1_linkage_mean_std[0]:
                 #     continue
                 t1_track_num = t1_unassigned_connections[t1_match]
@@ -325,25 +330,31 @@ class NodeTrackConstructor:
     def _check_consumptions(self):
         # self.possible_connections type 1
         # for all unassigned t1 nodes, check for any nearby junction it could have merged into
+        # but only if merge cost is within a standard deviation of the mean confidence 1 cost
         # keep track of merge cost in self.possible_connections
         for t1_track in self.t1_remaining:
             possible_matches = xp.where(self.t1_t2_cost_matrix[t1_track]<self.distance_thresh_um_per_sec)[0]
             for possible_match in possible_matches:
-                if self.tracks[self.current_frame_num][possible_match].node.node_type == 'tip':
-                    continue
+                # if self.tracks[self.current_frame_num][possible_match].node.node_type == 'tip':
+                #     continue
                 assignment_cost = self.t1_t2_cost_matrix[t1_track, possible_match]
+                if assignment_cost >= (self.confidence_1_linkage_mean_std[0] + 2*self.confidence_1_linkage_mean_std[1]):
+                    continue
                 self.possible_connections.append([t1_track, possible_match, assignment_cost, 1])
 
     def _check_productions(self):
         # self.possible_connections type 2
         # for all unassigned t2 nodes, check for any nearby junction it could have popped off of
+        # but only if merge cost is within a standard deviation of the mean confidence 1 cost
         # keep track of merge cost in self.possible_connections
         for t2_track in self.t2_remaining:
             possible_matches = xp.where(self.t1_t2_cost_matrix[:, t2_track]<self.distance_thresh_um_per_sec)[0]
             for possible_match in possible_matches:
-                if self.tracks[self.current_frame_num-1][possible_match].node.node_type == 'tip':
-                    continue
+                # if self.tracks[self.current_frame_num-1][possible_match].node.node_type == 'tip':
+                #     continue
                 assignment_cost = self.t1_t2_cost_matrix[possible_match, t2_track]
+                if assignment_cost >= (self.confidence_1_linkage_mean_std[0] + 2*self.confidence_1_linkage_mean_std[1]):
+                    continue
                 self.possible_connections.append([possible_match, t2_track, assignment_cost, 2])
 
     def _assign_remainders(self):
@@ -398,9 +409,13 @@ class NodeTrackConstructor:
             # assign nodes to each other
             self._match_tracks(track_t1_num, track_t2_num, connection[2], 2)
             if 1 in match_types:
+                if track_t2.node.node_type == 'tip' and track_t2_num not in self.t2_remaining:
+                    continue
                 remove_t1.append(track_t1_num)
                 if track_t2.node.node_type == 'tip': remove_t2.append(track_t2_num)
             if 2 in match_types:
+                if track_t1.node.node_type == 'tip' and track_t1_num not in self.t1_remaining:
+                    continue
                 remove_t2.append(track_t2_num)
                 if track_t1.node.node_type == 'tip': remove_t1.append(track_t1_num)
         for t1_removal in set(remove_t1):
@@ -495,7 +510,7 @@ if __name__ == "__main__":
         viewer.add_image(tifffile.memmap(test.path_im_mask),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
                          rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
-        viewer.add_tracks(napari_tracks, graph=napari_graph, properties=napari_props, color_by='root_id')
+        viewer.add_tracks(napari_tracks, graph=napari_graph, properties=napari_props)
         neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_network),
                                           scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
                                           contrast_limits=[0, 3], colormap='turbo', interpolation='nearest',
