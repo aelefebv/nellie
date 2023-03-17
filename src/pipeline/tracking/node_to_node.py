@@ -482,19 +482,114 @@ if __name__ == "__main__":
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
 
+    def check_children(tracks, child_info, label, data):
+        child_track = tracks[child_info['frame']][child_info['track']]
+        child_track.checked = True
+        z, y, x = child_track.node.centroid_um
+        data = data.append([label, child_info['frame'], z, y, x])
+        if len(child_track.children) == 1:
+            data, end_frame = check_children(tracks, child_track.children[0], label, data)
+        else:
+            end_frame = child_info['frame']
+        return data, end_frame
+
+
+    def nodes_to_napari_graph(track_dict: dict[int: list[NodeTrack]]) -> (
+    list[list[int, int, float, float, float]], dict):
+        """Adapted from https://napari.org/stable/tutorials/tracking/cell_tracking.html"""
+        import numpy as xp
+
+        lbep = []
+        data = []
+        unique_id = 1
+        for frame_num, track_frames in track_dict.items():
+            for track in track_frames:
+                track.checked = True
+                label = unique_id
+                begins = frame_num
+                if len(track.parents) < 1:
+                    parents = 0
+                else:
+                    parents = []
+                    if len(track.parents) > 1:
+                        for parent in track.parents:
+                            parents.append(parent['track_id'])
+                    continue
+                if len(track.children) != 1:
+                    ends = frame_num
+                else:
+                    data = check_children(track_dict, track.children[0], label, data)
+
+                lbep.append([label, begins, ends, parents])
+
+
+        data = []
+        lbep = []
+        for frame_num, track_frames in track_dict.items():
+            for track in track_frames:
+                z, y, x = track.node.centroid_um
+                label = track.track_id
+                begins = frame_num
+                ends = frame_num
+                if len(track.parents) < 1:
+                    parent_id = 0
+                else:
+                    parents = []
+                    closest_parent_cost = None
+                    closest_parent_id = None
+                    for parent in track.parents:
+                        parents.append(parent['track_id'])
+                        # if closest_parent_cost is None or closest_parent_id is None:
+                        #     closest_parent_cost = parent['cost']
+                        #     closest_parent_id = parent['track_id']
+                        #     continue
+                        # if parent['cost'] < closest_parent_cost:
+                        #     closest_parent_cost = parent['cost']
+                        #     closest_parent_id = parent['track_id']
+                    parent_id = parents
+                lbep.append([label, begins, ends, parent_id])
+                data.append([label, frame_num, z, y, x])
+        data = xp.array(data)
+        full_graph = {lbep_single[0]: lbep_single[3] for lbep_single in lbep}
+        # full_graph = dict(lbep[:, [0, 3]])
+        graph = {k: v for k, v in full_graph.items() if v != 0}
+
+        def root(node: int):
+            """Recursive function to determine the root node of each subgraph.
+
+            Parameters
+            ----------
+            node : int
+                the track_id of the starting graph node.
+
+            Returns
+            -------
+            root_id : int
+               The track_id of the root of the track specified by node.
+            """
+            if isinstance(node, list):  # we did not find the root
+                return root(full_graph[node])
+            return node
+
+        roots = {k: root(k) for k in full_graph.keys()}
+        properties = {'root_id': [roots[idx] for idx in data[:, 0]]}
+
+        return data, properties, graph
+
     visualize = False
 
     if visualize:
-        from src.utils.visualize import node_to_node_to_napari
+        from src.utils import visualize
         import napari
         import tifffile
 
-        napari_tracks, napari_props, napari_graph = node_to_node_to_napari(nodes_test.tracks)
+        napari_tracks, napari_props, napari_graph = nodes_to_napari_graph(nodes_test.tracks)
+        # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari(nodes_test.tracks)
         viewer = napari.Viewer(ndisplay=3)
         viewer.add_image(tifffile.memmap(test.path_im_mask),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
                          rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
-        viewer.add_tracks(napari_tracks, properties=napari_props, color_by='confidence')
+        viewer.add_tracks(napari_tracks, properties=napari_props, color_by='root_id')
         neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_network),
                                           scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
                                           contrast_limits=[0, 3], colormap='turbo', interpolation='nearest',
@@ -524,3 +619,5 @@ if __name__ == "__main__":
                                          edge_color='lime', opacity=0.1)
 
     print('hi')
+
+

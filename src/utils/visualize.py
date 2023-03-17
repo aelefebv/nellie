@@ -94,17 +94,17 @@ def node_to_node_to_napari(track_dict: dict[int: list[nnNT]]) -> (list[list[int,
 
 
 def nodes_to_napari_graph(track_dict: dict[int: list[nnNT]]) -> (list[list[int, int, float, float, float]], dict):
+    """Adapted from https://napari.org/stable/tutorials/tracking/cell_tracking.html"""
     import numpy as xp
-    tracks = []
+    data = []
     lbep = []
-    all_tracks = {}
     for frame_num, track_frames in track_dict.items():
         for track in track_frames:
             z, y, x = track.node.centroid_um
             label = track.track_id
             begins = frame_num
             ends = frame_num + 1
-            if len(track.parents < 1):
+            if len(track.parents) < 1:
                 parent_id = 0
             else:
                 closest_parent_cost = None
@@ -119,5 +119,30 @@ def nodes_to_napari_graph(track_dict: dict[int: list[nnNT]]) -> (list[list[int, 
                         closest_parent_id = parent['track_id']
                 parent_id = closest_parent_id
             lbep.append([label, begins, ends, parent_id])
-            tracks.append([label, frame_num, z, y, x])
-    lbep = xp.array(lbep)
+            data.append([label, frame_num, z, y, x])
+    data = xp.array(data)
+    lbep = xp.array(lbep, dtype=xp.uint)
+    full_graph = dict(lbep[:, [0, 3]])
+    graph = {k: v for k, v in full_graph.items() if v != 0}
+
+    def root(node: int):
+        """Recursive function to determine the root node of each subgraph.
+
+        Parameters
+        ----------
+        node : int
+            the track_id of the starting graph node.
+
+        Returns
+        -------
+        root_id : int
+           The track_id of the root of the track specified by node.
+        """
+        if full_graph[node] == 0:  # we found the root
+            return node
+        return root(full_graph[node])
+
+    roots = {k: root(k) for k in full_graph.keys()}
+    properties = {'root_id': [roots[idx] for idx in data[:, 0]]}
+
+    return data, properties, graph
