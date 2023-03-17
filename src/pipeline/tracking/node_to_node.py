@@ -77,11 +77,11 @@ class NodeTrackConstructor:
             self._assign_confidence_1_linkages()
             self._get_tn_cost_matrix()
             self._assign_tn_tn_linkages()
+            self._confidence_N_assignment(5)
             self._check_consumptions()
             self._check_productions()
             self._check_connection_linkages()
             self._assign_remainders()
-            # self._confidence_2_assignment()
 
     def _initialize_tracks(self):
         for frame_num in range(self.num_frames):
@@ -269,7 +269,7 @@ class NodeTrackConstructor:
                 t2_track_num = t2_unassigned_connections[t2_match]
                 self.possible_connections.append([t1_track_num, t2_track_num, assignment_cost, 0])
 
-    def _confidence_2_assignment(self):
+    def _confidence_N_assignment(self, n_assignments):
         # if a t1 track only has 2 possible assignments,
         # and it's assigned to a t2 track's lowest cost possibility, assign it
         t1_removals = []
@@ -278,18 +278,20 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 self.t1_t2_cost_matrix[t1_track, self.t1_t2_cost_matrix[t1_track, :] < self.distance_thresh_um_per_sec]
             )
-            if len(possible_assignments) > 2:
+            if len(possible_assignments) > n_assignments:
                 continue
 
             assigned_t1_idx = self.t1_t2_assignment[0] == t1_track
             assigned_t2_track = self.t1_t2_assignment[1][assigned_t1_idx][0]
+            if (assigned_t2_track >= self.num_tracks_t2) or (assigned_t2_track not in self.t2_remaining):
+                continue
             min_t2_cost = xp.min(self.t1_t2_cost_matrix[:, assigned_t2_track])
             assignment_cost = self.t1_t2_cost_matrix[t1_track, assigned_t2_track]
             if (min_t2_cost != assignment_cost) or (assignment_cost >= self.distance_thresh_um_per_sec):
                 continue
 
             # otherwise, match them
-            self._match_tracks(t1_track, assigned_t2_track, assignment_cost, 2)
+            self._match_tracks(t1_track, assigned_t2_track, assignment_cost, n_assignments)
             t1_removals.append(t1_track)
             t2_removals.append(assigned_t2_track)
         for t1_removal in t1_removals:
@@ -305,18 +307,20 @@ class NodeTrackConstructor:
             possible_assignments = xp.array(
                 self.t1_t2_cost_matrix[self.t1_t2_cost_matrix[:, t2_track] < self.distance_thresh_um_per_sec, t2_track]
             )
-            if len(possible_assignments) > 2:
+            if len(possible_assignments) > n_assignments:
                 continue
 
             assigned_t2_idx = self.t1_t2_assignment[1] == t2_track
             assigned_t1_track = self.t1_t2_assignment[0][assigned_t2_idx][0]
+            if (assigned_t1_track >= self.num_tracks_t1) or (assigned_t1_track not in self.t1_remaining):
+                continue
             min_t2_cost = xp.min(self.t1_t2_cost_matrix[assigned_t1_track, :])
             assignment_cost = self.t1_t2_cost_matrix[assigned_t1_track, t2_track]
             if (min_t2_cost != assignment_cost) or (assignment_cost >= self.distance_thresh_um_per_sec):
                 continue
 
             # otherwise, match them
-            self._match_tracks(assigned_t1_track, t2_track, assignment_cost, 2)
+            self._match_tracks(assigned_t1_track, t2_track, assignment_cost, n_assignments)
             t1_removals.append(assigned_t1_track)
             t2_removals.append(t2_track)
         for t1_removal in t1_removals:
@@ -497,7 +501,7 @@ if __name__ == "__main__":
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
 
-    visualize = True
+    visualize = False
 
     if visualize:
         from src.utils import visualize
