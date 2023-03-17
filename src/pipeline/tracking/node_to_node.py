@@ -497,14 +497,14 @@ if __name__ == "__main__":
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
 
-    visualize = False
+    visualize = True
 
     if visualize:
         from src.utils import visualize
         import napari
         import tifffile
 
-        napari_tracks, napari_props, napari_graph = visualize.nodes_to_napari_graph(nodes_test.tracks)
+        napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(nodes_test.tracks)
         # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari(nodes_test.tracks)
         viewer = napari.Viewer(ndisplay=3)
         viewer.add_image(tifffile.memmap(test.path_im_mask),
