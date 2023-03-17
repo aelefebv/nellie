@@ -211,6 +211,14 @@ class NodeConstructor:
         return tip_labels, junction_labels, edge_labels
 
     def _find_node_connections(self, frame_num):
+        """
+        Find the connections of a node to other nodes in a given frame.
+
+        Parameters
+        ----------
+        frame_num : int
+            The frame number in which to search for node connections.
+        """
         branch_labels = {}
         for node_num, node in enumerate(self.nodes[frame_num]):
             for branch_num in node.connected_branches:

@@ -185,6 +185,20 @@ class ImInfo:
             path_im: str, dtype: Union[Type, str] = 'float', data=None,
             shape: tuple = None,
             description: str = 'No description.'):
+        """
+        Initializes a numpy array to store image data, allocates the memory for it with corresponding
+        ome-types OME-TIFF metadata.
+
+        Args:
+            path_im (str): The path to the file where the memory will be allocated.
+            dtype (Union[Type, str]): The datatype of the resulting file, default is 'float'
+            data (optional): The data to store in the allocated memory. If none, allocated memory will be empty.
+            shape (tuple, optional): The shape for which to allocate the memory block.
+            description (str, optional): The OME-TIFF description tag's value.
+
+        Returns:
+            None
+        """
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
         logger.debug(f'Saving axes as {axes}')
