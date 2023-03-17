@@ -6,10 +6,28 @@ import numpy as xp
 from scipy.optimize import linear_sum_assignment
 
 class NodeTrack:
+    """
+    A class that stores information about how nodes link to one another.
+
+    Attributes:
+        node (Node): the node object associated with the track
+        parents (list): a list of NodeTrack objects that are parents of the current NodeTrack
+        children (list): a list of NodeTrack objects that are children of the current NodeTrack
+        splits (list): a list of NodeTrack objects that are split from the current NodeTrack
+        joins (list): a list of NodeTrack objects that are joined with the current NodeTrack
+        frame_num (int): the frame number associated with the NodeTrack
+        track_id (int): the track ID associated with the NodeTrack
+    """
+
     def __init__(self, node, frame_num, track_id):
-        # stores information about how nodes link to one another
-        # the confidence of those linkages
-        #
+        """
+         Initializes a new NodeTrack object.
+
+         Args:
+             node (Node): the node object associated with the track
+             frame_num (int): the frame number associated with the NodeTrack
+             track_id (int): the track ID associated with the NodeTrack
+         """
         self.node = node
         self.parents = []
         self.children = []
@@ -17,19 +35,83 @@ class NodeTrack:
         self.joins = []
         self.frame_num = frame_num
         self.track_id = track_id
-        pass
 
 class NodeTrackConstructor:
+    """
+    A class for constructing node tracks and connecting them between frames.
+
+    Attributes:
+    -----------
+    im_info: ImInfo
+        An ImInfo object containing metadata about the images to be analyzed.
+    distance_thresh_um_per_sec: float
+        The maximum distance in micrometers per second between two nodes that can be connected.
+        Default value is 2.
+
+    nodes: list[list[Node]]
+        A list of lists of nodes, where each sublist contains the nodes from one frame.
+    tracks: dict[int: list[NodeTrack]]
+        A dictionary where keys are the frame numbers and values are lists of NodeTrack objects
+        containing the nodes that belong to each track in that frame.
+    num_frames: int
+        The number of frames in the image data.
+    current_frame_num: int
+        The current frame number being processed.
+    num_tracks_t1: int
+        The number of tracks in the previous frame.
+    num_tracks_t2: int
+        The number of tracks in the current frame.
+    t1_remaining: list[int]
+        A list of indices of tracks in the previous frame that have not yet been assigned to a track
+        in the current frame.
+    t2_remaining: list[int]
+        A list of indices of tracks in the current frame that have not yet been assigned to a track
+        in the previous frame.
+    t1_t2_cost_matrix: numpy.ndarray
+        A 2D numpy array where the element at row i and column j represents the cost of connecting
+        track i in the previous frame to track j in the current frame.
+    t1_t2_assignment: Tuple[numpy.ndarray]
+        A tuple containing two 1D numpy arrays: the first array contains the indices of tracks in the
+        previous frame that were assigned to tracks in the current frame, and the second array contains
+        the indices of the tracks in the current frame that they were assigned to.
+    t1_cost_matrix: numpy.ndarray
+        A 2D numpy array where the element at row i and column j represents the cost of continuing track i
+        in the previous frame to track j in the current frame.
+    t2_cost_matrix: numpy.ndarray
+        A 2D numpy array where the element at row i and column j represents the cost of continuing track j
+        in the current frame to track i in the next frame.
+    track_id: int
+        An integer used to assign unique IDs to tracks.
+    joins: dict
+        A dictionary where keys are tuples of track IDs and values are the frame numbers in which the tracks
+        were joined together.
+    splits: dict
+        A dictionary where keys are tuples of track IDs and values are the frame numbers in which the tracks
+        were split apart.
+    fissions: dict
+        A dictionary where keys are tuples of track IDs and values are the frame numbers in which the tracks
+        underwent fission events.
+    fusions: dict
+        A dictionary where keys are tuples of track IDs and values are the frame numbers in which the tracks
+        underwent fusion events.
+    confidence_1_linkages: dict
+        A dictionary where keys are tuples of track IDs and values are the frame numbers in which they were
+        linked together with high confidence.
+    confidence_1_linkage_mean_std: Tuple[float, float]
+        A tuple containing the mean and standard deviation of the costs of high-confidence links between tracks.
+    possible_connections: list
+        A list of the possible connections between tracks in the current frame based on a cost matrix.
+        Each element in the list is a tuple of the form (t1_idx, t2_idx, cost), where t1_idx and t2_idx are the
+        indices of the tracks in the previous and current frames, respectively, and cost is the associated cost of
+        the connection.
+    """
     def __init__(self, im_info: ImInfo,
                  distance_thresh_um_per_sec: float = 2):
-        # will basically be in charge of making node tracks, and keeping them organized by frame.
-        # Also in charge of connecting nodes between frames
-        # assigning merge and unmerge events
         self.im_info = im_info
 
-        node_constructor = unpickle_object(self.im_info.path_pickle_node)
+        node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
         self.nodes: list[list[Node]] = node_constructor.nodes
-        self.tracks: dict[list[NodeTrack]] = {}
+        self.tracks: dict[int: list[NodeTrack]] = {}
 
         self.num_frames = len(self.nodes)
         self.current_frame_num = None
@@ -59,10 +141,19 @@ class NodeTrackConstructor:
 
         self.possible_connections = None
 
-        self.min_t1 = None
-        self.min_t2 = None
+    def populate_tracks(self, num_t: int = None) -> None:
+        """
+        Populate the tracks for each frame by assigning them to the nearest track in the next frame.
 
-    def populate_tracks(self, num_t: int = None):
+        Parameters:
+        -----------
+        num_t : int, optional
+            The number of frames to track. If None, then all frames are tracked.
+
+        Returns:
+        --------
+        None
+        """
         if num_t is not None:
             num_t = min(num_t, self.num_frames)
             self.num_frames = num_t
@@ -77,13 +168,20 @@ class NodeTrackConstructor:
             self._assign_confidence_1_linkages()
             self._get_tn_cost_matrix()
             self._assign_tn_tn_linkages()
-            self._confidence_N_assignment(5)
+            self._reverse_confidence_assignment()
             self._check_consumptions()
             self._check_productions()
             self._check_connection_linkages()
             self._assign_remainders()
 
-    def _initialize_tracks(self):
+    def _initialize_tracks(self) -> None:
+        """
+        Initialize the tracks for each frame with the nodes.
+
+        Returns:
+        --------
+        None
+        """
         for frame_num in range(self.num_frames):
             node_list = []
             for node_num, node in enumerate(self.nodes[frame_num]):
@@ -91,7 +189,14 @@ class NodeTrackConstructor:
                 self.track_id += 1
             self.tracks[frame_num] = node_list
 
-    def _get_t1_t2_cost_matrix(self):
+    def _get_t1_t2_cost_matrix(self) -> None:
+        """
+        Calculate the cost matrix for the assignment of tracks from frame T1 to frame T2.
+
+        Returns:
+        --------
+        None
+        """
         tracks_t1 = self.tracks[self.current_frame_num-1]
         tracks_t2 = self.tracks[self.current_frame_num]
         self.num_tracks_t1 = len(tracks_t1)
@@ -120,6 +225,19 @@ class NodeTrackConstructor:
         self.min_t2 = xp.min(self.t1_t2_cost_matrix[:, :self.num_tracks_t2], axis=0)
 
     def _append_unassignment_costs(self, pre_cost_matrix):
+        """
+        Append the unassignment costs to the cost matrix for the Hungarian algorithm.
+
+        Parameters:
+        -----------
+        pre_cost_matrix : numpy.ndarray
+            The pre-assignment cost matrix.
+
+        Returns:
+        --------
+        cost_matrix : numpy.ndarray
+            The cost matrix with unassignment costs appended to it.
+        """
         rows, cols = pre_cost_matrix.shape
         cost_matrix = xp.ones(
             (rows+cols, rows+cols)
@@ -128,6 +246,11 @@ class NodeTrackConstructor:
         return cost_matrix
 
     def _assign_confidence_1_linkages(self):
+        """
+        Assigns confidence 1 linkages to tracks and updates the remaining tracks accordingly.
+        A confidence 1 linkage is an assignment which both globally minizes the cost, and locally minimizes the cost
+            for both its t1 and t2 assignment.
+        """
         self.possible_connections = []
         confidence_1_linkages = []
         confidence_1_linkage_costs = []
@@ -159,6 +282,8 @@ class NodeTrackConstructor:
         self.confidence_1_linkage_mean_std = (xp.mean(confidence_1_linkage_costs), xp.std(confidence_1_linkage_costs))
 
     def _get_tn_cost_matrix(self):
+        """Computes the cost matrix between tracks in the current frame and the next frame."""
+
         for frame in ['t1', 't2']:
             if frame == 't1':
                 tracks_tn = [self.tracks[self.current_frame_num-1][track] for track in self.t1_remaining]
@@ -193,6 +318,15 @@ class NodeTrackConstructor:
                 )
 
     def _assign_tn_tn_linkages(self):
+        """
+        Checks t1 for joins, identifies smallest values for each remaining t1 track, checks where the smallest value
+            links to another t1 track, pairs up those links, keeps only those that have matches in both matches_1 and
+            matches_2, keeps only those that match with each other, and then removes t1 tracks.
+
+        Checks t2 for splits, identifies smallest values for each remaining t2 track, checks where the smallest value
+            links to another t2 track, pairs up those links, keeps only those that have matches in both matches_1 and
+            matches_2, keeps only those that match with each other, and then removes t2 tracks.
+        """
         # check t1 for joins
         # check the smallest values for each remaining t1 track
         t1_check = xp.argmin(self.t1_cost_matrix, axis=1)
@@ -237,6 +371,10 @@ class NodeTrackConstructor:
             self.t2_remaining.remove(track)
 
     def _check_connection_linkages(self):
+        """
+        Checks unassigned connections of t1 and t2 tracks, and connects them back via cost minimization if possible,
+        but only if cost is less than the mean + std of the average c1 cost.
+        """
         # Check all of t1's connected nodes that are unassigned
         # Check all of t2's connected nodes that are unassigned
         # If possible, connect them back via cost minimization but only if cost is less than mean+std of average c1 cost
@@ -269,17 +407,14 @@ class NodeTrackConstructor:
                 t2_track_num = t2_unassigned_connections[t2_match]
                 self.possible_connections.append([t1_track_num, t2_track_num, assignment_cost, 0])
 
-    def _confidence_N_assignment(self, n_assignments):
-        # if a t1 track only has 2 possible assignments,
-        # and it's assigned to a t2 track's lowest cost possibility, assign it
+    def _reverse_confidence_assignment(self):
+        """
+        For non-confidence 1 assignments, if the assignment is locally cost minimizing for either t1 or t2, match the
+        tracks.
+        """
         t1_removals = []
         t2_removals = []
         for t1_track in self.t1_remaining:
-            possible_assignments = xp.array(
-                self.t1_t2_cost_matrix[t1_track, self.t1_t2_cost_matrix[t1_track, :] < self.distance_thresh_um_per_sec]
-            )
-            if len(possible_assignments) > n_assignments:
-                continue
 
             assigned_t1_idx = self.t1_t2_assignment[0] == t1_track
             assigned_t2_track = self.t1_t2_assignment[1][assigned_t1_idx][0]
@@ -291,7 +426,7 @@ class NodeTrackConstructor:
                 continue
 
             # otherwise, match them
-            self._match_tracks(t1_track, assigned_t2_track, assignment_cost, n_assignments)
+            self._match_tracks(t1_track, assigned_t2_track, assignment_cost, 2)
             t1_removals.append(t1_track)
             t2_removals.append(assigned_t2_track)
         for t1_removal in t1_removals:
@@ -299,16 +434,9 @@ class NodeTrackConstructor:
         for t2_removal in t2_removals:
             self.t2_remaining.remove(t2_removal)
 
-        # if a t2 track only has 2 possible assignments,
-        # and it's assigned to a t1 track's lowest cost possibility, assign it
         t1_removals = []
         t2_removals = []
         for t2_track in self.t2_remaining:
-            possible_assignments = xp.array(
-                self.t1_t2_cost_matrix[self.t1_t2_cost_matrix[:, t2_track] < self.distance_thresh_um_per_sec, t2_track]
-            )
-            if len(possible_assignments) > n_assignments:
-                continue
 
             assigned_t2_idx = self.t1_t2_assignment[1] == t2_track
             assigned_t1_track = self.t1_t2_assignment[0][assigned_t2_idx][0]
@@ -320,7 +448,7 @@ class NodeTrackConstructor:
                 continue
 
             # otherwise, match them
-            self._match_tracks(assigned_t1_track, t2_track, assignment_cost, n_assignments)
+            self._match_tracks(assigned_t1_track, t2_track, assignment_cost, 2)
             t1_removals.append(assigned_t1_track)
             t2_removals.append(t2_track)
         for t1_removal in t1_removals:
@@ -328,10 +456,11 @@ class NodeTrackConstructor:
         for t2_removal in t2_removals:
             self.t2_remaining.remove(t2_removal)
 
-    def _confidence_3_assignment(self):
-        pass
-
     def _check_consumptions(self):
+        """
+        Check all unassigned t1 nodes for possible junction merge candidates within a standard deviation of
+        the mean confidence 1 cost, adding them to self.possible_connections.
+        """
         # self.possible_connections type 1
         # for all unassigned t1 nodes, check for any nearby junction it could have merged into
         # but only if merge cost is within a standard deviation of the mean confidence 1 cost
@@ -347,6 +476,10 @@ class NodeTrackConstructor:
                 self.possible_connections.append([t1_track, possible_match, assignment_cost, 1])
 
     def _check_productions(self):
+        """
+        Check all unassigned t2 nodes for possible junction pop-off candidates within a standard deviation
+        of the mean confidence 1 cost, adding them to self.possible_connections.
+        """
         # self.possible_connections type 2
         # for all unassigned t2 nodes, check for any nearby junction it could have popped off of
         # but only if merge cost is within a standard deviation of the mean confidence 1 cost
@@ -362,6 +495,11 @@ class NodeTrackConstructor:
                 self.possible_connections.append([possible_match, t2_track, assignment_cost, 2])
 
     def _assign_remainders(self):
+        """
+        Assign all nodes in self.possible_connections to each other based on lowest to highest assignment cost,
+        removing any other corresponding rows after assignment. Remove any t1_track and/or t2_track if they
+        are tips only.
+        """
         # for all self.possible_connections, sort by lowest to highest assignment cost
         # assign based on order, while removing any other corresponding rows after assignment
         # if it's a consumption assigned (1), remove t1_track from running
@@ -432,6 +570,18 @@ class NodeTrackConstructor:
                       track_t2_num: int,
                       assignment_cost: float,
                       confidence: int):
+        """
+        Matches two tracks and appends assignment information to their parents and children.
+
+        Args:
+            track_t1_num (int): Index of the first track.
+            track_t2_num (int): Index of the second track.
+            assignment_cost (float): Cost of the assignment.
+            confidence (int): Confidence in the assignment.
+
+        Returns:
+            None
+        """
         track_t1 = self.tracks[self.current_frame_num - 1][track_t1_num]
         track_t2 = self.tracks[self.current_frame_num][track_t2_num]
         t1_assignment = {'frame': self.current_frame_num,
@@ -452,6 +602,18 @@ class NodeTrackConstructor:
                              track_2_num: int,
                              assignment_cost: float,
                              confidence: int):
+        """
+        Matches two joined tracks and appends assignment information to their joins.
+
+        Args:
+            track_1_num (int): Index of the first track.
+            track_2_num (int): Index of the second track.
+            assignment_cost (float): Cost of the assignment.
+            confidence (int): Confidence in the assignment.
+
+        Returns:
+            None
+        """
         track_t1 = self.tracks[self.current_frame_num - 1][track_1_num]
         track_t2 = self.tracks[self.current_frame_num - 1][track_2_num]
         if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
@@ -472,6 +634,18 @@ class NodeTrackConstructor:
                             track_2_num: int,
                             assignment_cost: float,
                             confidence: int):
+        """
+        Matches two split tracks and appends assignment information to their splits.
+
+        Args:
+            track_1_num (int): Index of the first track.
+            track_2_num (int): Index of the second track.
+            assignment_cost (float): Cost of the assignment.
+            confidence (int): Confidence in the assignment.
+
+        Returns:
+            None
+        """
         track_t1 = self.tracks[self.current_frame_num][track_1_num]
         track_t2 = self.tracks[self.current_frame_num][track_2_num]
         if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
@@ -521,23 +695,23 @@ if __name__ == "__main__":
                                           opacity=0.2)
         neighbor_layer.interpolation = 'nearest'
         fissions = []
-        for frame_num, splits in nodes_test.splits.items():
+        for frame_number, splits in nodes_test.splits.items():
             for split in splits:
                 if split[0] == 'protrusion':
                     continue
-                point_1 = [frame_num, split[1][0], split[1][1], split[1][2]]
-                point_2 = [frame_num, split[2][0], split[2][1], split[2][2]]
+                point_1 = [frame_number, split[1][0], split[1][1], split[1][2]]
+                point_2 = [frame_number, split[2][0], split[2][1], split[2][2]]
                 fissions.append(xp.array([point_1, point_2]))
         shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
                                          edge_width=nodes_test.im_info.dim_sizes['X'],
                                          edge_color='magenta', opacity=0.1)
         fusions = []
-        for frame_num, joins in nodes_test.joins.items():
+        for frame_number, joins in nodes_test.joins.items():
             for join in joins:
                 if join[0] == 'retraction':
                     continue
-                point_1 = [frame_num, join[1][0], join[1][1], join[1][2]]
-                point_2 = [frame_num, join[2][0], join[2][1], join[2][2]]
+                point_1 = [frame_number, join[1][0], join[1][1], join[1][2]]
+                point_2 = [frame_number, join[2][0], join[2][1], join[2][2]]
                 fusions.append(xp.array([point_1, point_2]))
         shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
                                          edge_width=nodes_test.im_info.dim_sizes['X'],
