@@ -190,13 +190,7 @@ class NodeTrackConstructor:
             self.tracks[frame_num] = node_list
 
     def _get_t1_t2_cost_matrix(self) -> None:
-        """
-        Calculate the cost matrix for the assignment of tracks from frame T1 to frame T2.
-
-        Returns:
-        --------
-        None
-        """
+        """Calculate the cost matrix for the assignment of tracks from frame T1 to frame T2."""
         tracks_t1 = self.tracks[self.current_frame_num-1]
         tracks_t2 = self.tracks[self.current_frame_num]
         self.num_tracks_t1 = len(tracks_t1)
@@ -283,7 +277,6 @@ class NodeTrackConstructor:
 
     def _get_tn_cost_matrix(self):
         """Computes the cost matrix between tracks in the current frame and the next frame."""
-
         for frame in ['t1', 't2']:
             if frame == 't1':
                 tracks_tn = [self.tracks[self.current_frame_num-1][track] for track in self.t1_remaining]
