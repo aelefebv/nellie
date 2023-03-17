@@ -668,7 +668,7 @@ if __name__ == "__main__":
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
 
-    visualize = False
+    visualize = True
 
     if visualize:
         from src.utils import visualize

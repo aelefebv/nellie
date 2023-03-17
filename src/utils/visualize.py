@@ -42,7 +42,30 @@ def node_to_track_to_napari(track_list: list[ntNT]) -> (list[list[int, int, floa
 
 def node_to_node_to_napari_graph(track_dict: dict[int: list[nnNT]]) -> (
 list[list[int, int, float, float, float]], dict):
-    """Adapted from https://napari.org/stable/tutorials/tracking/cell_tracking.html"""
+    """
+    Adapted from https://napari.org/stable/tutorials/tracking/cell_tracking.html
+    Convert a dictionary of tracks into a list and graph that can be visualized in napari.
+
+    Parameters
+    ----------
+    track_dict : dict[int: list[nnNT]]
+        A dictionary of tracks where keys are integers representing frame numbers
+        and values are lists of objects of type `NodeTrack`, representing individual tracks.
+
+    Returns
+    -------
+    data : list[list[int, int, float, float, float]]
+        A list of lists containing the napari_track_id, frame number, z coordinate,
+        y coordinate, and x coordinate for each track in `track_dict`.
+
+    properties : dict
+        A dictionary containing properties of the graph.
+
+    graph : dict
+        A dictionary representing the graph. The keys are the napari_track_id values
+        from `data` and the values are the parents of each node.
+    """
+
     import numpy as xp
     for frame_num, track_frames in track_dict.items():
         for track in track_frames:
@@ -50,6 +73,8 @@ list[list[int, int, float, float, float]], dict):
     data = []
     unique_id = 0
     lp = []
+    assignment_costs = []
+    assignment_confidence = []
     for frame_num, track_frames in track_dict.items():
         for track in track_frames:
             parents = 0
@@ -60,13 +85,21 @@ list[list[int, int, float, float, float]], dict):
                 unique_id += 1
                 track.napari_track_id = unique_id
                 parents = 0
+                assignment_costs.append(0)
+                assignment_confidence.append(0)
             elif len(track.parents) > 1:
                 unique_id += 1
                 track.napari_track_id = unique_id
                 parents = []
+                costs = []
+                confidence = []
                 for parent in track.parents:
                     parent_track_id = track_dict[parent['frame']][parent['track']].napari_track_id
                     parents.append(parent_track_id)
+                    costs.append(parent['cost'])
+                    confidence.append(parent['confidence'])
+                assignment_costs.append(xp.mean(costs))
+                assignment_confidence.append(xp.max(confidence))
             elif len(track.parents) == 1:
                 # if the parent track has >1 child, assign this track a new id, otherwise, same id.
                 parent_track = track_dict[track.parents[0]['frame']][track.parents[0]['track']]
@@ -78,6 +111,8 @@ list[list[int, int, float, float, float]], dict):
                 else:
                     track.napari_track_id = parent_track_id
                     parents = parent_track.napari_parents
+                assignment_costs.append(track.parents[0]['cost'])
+                assignment_confidence.append(track.parents[0]['confidence'])
             track.napari_parents = parents
             z, y, x = track.node.centroid_um
             data.append([track.napari_track_id, frame_num, z, y, x])
@@ -105,6 +140,8 @@ list[list[int, int, float, float, float]], dict):
         return node
 
     roots = {k: root(k) for k in full_graph.keys()}
-    properties = {'root_id': [roots[idx] for idx in data[:, 0]]}
+    properties = {'root_id': [roots[idx] for idx in data[:, 0]],
+                  'costs': assignment_costs,
+                  'confidence': assignment_confidence}
 
     return data, properties, graph
