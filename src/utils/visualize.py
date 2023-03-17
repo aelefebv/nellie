@@ -146,3 +146,73 @@ def nodes_to_napari_graph(track_dict: dict[int: list[nnNT]]) -> (list[list[int, 
     properties = {'root_id': [roots[idx] for idx in data[:, 0]]}
 
     return data, properties, graph
+
+def check_children_2(tracks, child_info, label, data):
+    child_track = tracks[child_info['frame']][child_info['track']]
+    child_track.checked = True
+    z, y, x = child_track.node.centroid_um
+    data.append([label, child_info['frame'], z, y, x])
+    if len(child_track.children) == 1:
+        data, end_frame = check_children(tracks, child_track.children[0], label, data)
+    else:
+        end_frame = child_info['frame']
+    return data, end_frame
+
+
+def nodes_to_napari_graph_2(track_dict: dict[int: list[nnNT]]) -> (
+list[list[int, int, float, float, float]], dict):
+    """Adapted from https://napari.org/stable/tutorials/tracking/cell_tracking.html"""
+    import numpy as xp
+    for frame_num, track_frames in track_dict.items():
+        for track in track_frames:
+            track.checked = False
+    lbep = []
+    data = []
+    unique_id = 0
+    for frame_num, track_frames in track_dict.items():
+        for track in track_frames:
+            if track.checked:
+                continue
+            unique_id += 1
+            track.checked = True
+            label = unique_id
+            begins = frame_num
+            if len(track.parents) < 1:
+                parents = 0
+            else:
+                parents = []
+                for parent in track.parents:
+                    parents.append(parent['track_id'])
+            if len(track.children) == 1:
+                data, ends = check_children(track_dict, track.children[0], label, data)
+            else:
+                ends = frame_num
+
+            lbep.append([label, begins, ends, parents])
+
+    data = xp.array(data)
+    full_graph = {lbep_single[0]: lbep_single[3] for lbep_single in lbep}
+    # full_graph = dict(lbep[:, [0, 3]])
+    graph = {k: v for k, v in full_graph.items() if v != 0}
+
+    def root(node: int):
+        """Recursive function to determine the root node of each subgraph.
+
+        Parameters
+        ----------
+        node : int
+            the track_id of the starting graph node.
+
+        Returns
+        -------
+        root_id : int
+           The track_id of the root of the track specified by node.
+        """
+        if isinstance(node, list):  # we did not find the root
+            return root(full_graph[node])
+        return node
+
+    roots = {k: root(k) for k in full_graph.keys()}
+    properties = {'root_id': [roots[idx] for idx in data[:, 0]]}
+
+    return data, properties, graph
