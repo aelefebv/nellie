@@ -106,8 +106,10 @@ class NodeTrackConstructor:
         the connection.
     """
     def __init__(self, im_info: ImInfo,
-                 distance_thresh_um_per_sec: float = 2):
+                 distance_thresh_um_per_sec: float = 2,
+                 min_radius_um: float = 0.25):
         self.im_info = im_info
+        self.min_radius_um = min_radius_um
 
         node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
         self.nodes: list[list[Node]] = node_constructor.nodes
@@ -336,6 +338,8 @@ class NodeTrackConstructor:
         for match in kept:
             track_1_num = self.t1_remaining[match[0]]
             track_2_num = self.t1_remaining[match[1]]
+            if track_1_num in self.tracks[self.current_frame_num-1][track_2_num].node.connections:
+                continue
             assignment_cost = self.t1_cost_matrix[match[0], match[1]+self.num_tracks_t2]
             confidence = 2
             self._match_joined_tracks(track_1_num, track_2_num, assignment_cost, confidence)
@@ -355,6 +359,8 @@ class NodeTrackConstructor:
         for match in kept:
             track_1_num = self.t2_remaining[match[0]]
             track_2_num = self.t2_remaining[match[1]]
+            if track_1_num in self.tracks[self.current_frame_num][track_2_num].node.connections:
+                continue
             assignment_cost = self.t2_cost_matrix[match[0] + self.num_tracks_t1, match[1]]
             confidence = 2
             self._match_split_tracks(track_1_num, track_2_num, assignment_cost, confidence)
@@ -402,7 +408,7 @@ class NodeTrackConstructor:
 
     def _reverse_confidence_assignment(self):
         """
-        For non-confidence 1 assignments, if the assignment is locally cost minimizing for either t1 or t2, match the
+        For non-confidence-1 assignments, if the assignment is locally cost minimizing for either t1 or t2, match the
         tracks.
         """
         t1_removals = []
@@ -461,8 +467,6 @@ class NodeTrackConstructor:
         for t1_track in self.t1_remaining:
             possible_matches = xp.where(self.t1_t2_cost_matrix[t1_track]<self.distance_thresh_um_per_sec)[0]
             for possible_match in possible_matches:
-                # if self.tracks[self.current_frame_num][possible_match].node.node_type == 'tip':
-                #     continue
                 assignment_cost = self.t1_t2_cost_matrix[t1_track, possible_match]
                 if assignment_cost >= (self.confidence_1_linkage_mean_std[0] + 2*self.confidence_1_linkage_mean_std[1]):
                     continue
@@ -480,8 +484,6 @@ class NodeTrackConstructor:
         for t2_track in self.t2_remaining:
             possible_matches = xp.where(self.t1_t2_cost_matrix[:, t2_track]<self.distance_thresh_um_per_sec)[0]
             for possible_match in possible_matches:
-                # if self.tracks[self.current_frame_num-1][possible_match].node.node_type == 'tip':
-                #     continue
                 assignment_cost = self.t1_t2_cost_matrix[possible_match, t2_track]
                 if assignment_cost >= (self.confidence_1_linkage_mean_std[0] + 2*self.confidence_1_linkage_mean_std[1]):
                     continue
@@ -609,10 +611,15 @@ class NodeTrackConstructor:
         """
         track_t1 = self.tracks[self.current_frame_num - 1][track_1_num]
         track_t2 = self.tracks[self.current_frame_num - 1][track_2_num]
-        if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
-            join_type = 'retraction'
+        # if the assignment cost is less than the min radius, it's probably noisy, so don't label as a fusion
+        if 'junction' not in [track_t1.node.node_type, track_t2.node.node_type]:
+            distance_um = xp.linalg.norm(xp.array(track_t1.node.centroid_um) - xp.array(track_t2.node.centroid_um))
+            if (distance_um > self.min_radius_um * 2) and (track_1_num not in track_t2.node.connected_nodes):
+                join_type = 'fusion'
+            else:
+                join_type = 'retraction'
         else:
-            join_type = 'fusion'
+            join_type = 'retraction'
         t1_assignment = {'frame': self.current_frame_num - 1,
                          'track': track_2_num,
                          'cost': assignment_cost,
@@ -641,10 +648,14 @@ class NodeTrackConstructor:
         """
         track_t1 = self.tracks[self.current_frame_num][track_1_num]
         track_t2 = self.tracks[self.current_frame_num][track_2_num]
-        if 'junction' in [track_t1.node.node_type, track_t2.node.node_type]:
-            split_type = 'protrusion'
+        if 'junction' not in [track_t1.node.node_type, track_t2.node.node_type]:
+            distance_um = xp.linalg.norm(xp.array(track_t1.node.centroid_um) - xp.array(track_t2.node.centroid_um))
+            if (distance_um > self.min_radius_um * 2) and (track_1_num not in track_t2.node.connected_nodes):
+                split_type = 'fission'
+            else:
+                split_type = 'protrusion'
         else:
-            split_type = 'fission'
+            split_type = 'protrusion'
         t1_assignment = {'frame': self.current_frame_num,
                          'track': track_2_num,
                          'cost': assignment_cost,
@@ -678,9 +689,11 @@ if __name__ == "__main__":
         napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(nodes_test.tracks)
         # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari(nodes_test.tracks)
         viewer = napari.Viewer(ndisplay=3)
+        # viewer.add_image(tifffile.memmap(test.path_im_mask),
+        #                  scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
+        #                  rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
         viewer.add_image(tifffile.memmap(test.path_im_mask),
-                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
-                         rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
+                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])
         viewer.add_tracks(napari_tracks, graph=napari_graph, properties=napari_props)
         neighbor_layer = viewer.add_image(tifffile.memmap(test.path_im_network),
                                           scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],

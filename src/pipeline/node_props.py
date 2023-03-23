@@ -63,7 +63,9 @@ class NodeConstructor:
     nodes : list of Node objects
         The list of nodes in the network.
     """
-    def __init__(self, im_info: ImInfo):
+    # todo, again, min_radius should probably default to something based off of a specific organelle. LUT for size?
+    def __init__(self, im_info: ImInfo,
+                 min_radius_um: float = 0.25):
         """
         Constructs a NodeConstructor object.
 
@@ -232,6 +234,42 @@ class NodeConstructor:
         for node_num, node in enumerate(self.nodes[frame_num]):
             node.connected_nodes = [x for x in set(node.connected_nodes) if x != node_num]
 
+    # def _find_all_neighboring_objects(self, tip_labels, junction_labels):
+    #     # Rescale the labeled image according to the scales
+    #     # could do this to scale for x y and z... but the zoom function is slow
+    #     # labelled_image = ndi.zoom(labelled_image, self.spacing, order=0)
+    #     combo_labels = tip_labels + junction_labels
+    #
+    #     # Calculate the Euclidean distance transform for the entire labeled image
+    #     distance_transform = ndi.distance_transform_edt(combo_labels == 0)
+    #
+    #     # Dilate the labeled image using a structuring element with a radius equal to the distance threshold
+    #     structuring_element = ndi.generate_binary_structure(3, 1)
+    #     structuring_element = ndi.iterate_structure(structuring_element, self.min_radius_px)
+    #     dilated_image = ndi.grey_dilation(labelled_image, structure=structuring_element)
+    #
+    #     # Identify where the dilated image and the original labeled image intersect
+    #     intersection_mask = (dilated_image != 0) & (labelled_image != 0) & (dilated_image != labelled_image)
+    #
+    #     # Create a tuple containing coordinates for the intersection points
+    #     intersection_coordinates = xp.where(intersection_mask)
+    #
+    #     # Extract the labels of the original image and the dilated image at the intersection points
+    #     original_labels = labelled_image[intersection_coordinates]
+    #     dilated_labels = dilated_image[intersection_coordinates]
+    #
+    #     # Create a dictionary to store the neighboring labels for each object
+    #     neighbors = {}
+    #
+    #     # Iterate over the labels and add them to the neighbors dictionary
+    #     for original_label, dilated_label in zip(original_labels, dilated_labels):
+    #         if original_label not in neighbors:
+    #             neighbors[original_label] = set()
+    #         neighbors[original_label].add(dilated_label)
+    #
+    #     return neighbors
+
+
     def get_node_properties(self, num_t: int = None, dtype='uint32'):
         """
         Computes the properties of nodes in the network and stores them in `self.nodes`.
@@ -276,6 +314,7 @@ class NodeConstructor:
                 xp.array(self.node_type_memmap[frame_num]), frame_num)
 
             self._find_node_connections(frame_num)
+            self._find_all_neighboring_objects(tip_labels, junction_labels)
 
             if is_gpu:
                 self.tip_label_memmap[frame_num] = tip_labels.get()
