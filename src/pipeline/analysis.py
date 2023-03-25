@@ -110,24 +110,26 @@ class NodeAnalysis:
             aggregate_df[f'{metric_name}_max'] = metric_metrics.apply(lambda x: xp.nanmax(x))
             aggregate_df[f'{metric_name}_min'] = metric_metrics.apply(lambda x: xp.nanmin(x))
             aggregate_df[f'{metric_name}_sum'] = metric_metrics.apply(lambda x: xp.nansum(x))
-        # aggregate_metrics = {
-        #     'median': df.median(),
-        #     'quartiles25': df.quantile(0.25),
-        #     'quartiles75': df.quantile(0.75),
-        #     'mean': df.mean(),
-        #     'std': df.std(),
-        #     'max': df.max(axis=0),
-        #     'min': df.min(axis=0),
-        # }
-        # aggregate_df = pd.DataFrame(aggregate_metrics)
         aggregate_df.to_csv(output_file)
 
     def save_frame_metrics_to_csv(self, output_folder):
         df = pd.DataFrame(self.metrics)
         for metric_name in df.columns:
             frame_output_file = os.path.join(output_folder, f'{metric_name}_frame_metrics.csv')
-            frame_metrics = df[metric_name]
-            frame_metrics.to_csv(frame_output_file, index=False, header=True)
+
+            with open(frame_output_file, 'w', newline='') as csvfile:
+                csv_writer = csv.writer(csvfile)
+
+                # Write the header
+                csv_writer.writerow(['track_id', metric_name, 'frame_num'])
+
+                # Write the data
+                for track_id, frame_metrics in enumerate(df[metric_name]):
+                    for idx, value in enumerate(frame_metrics):
+                        if xp.isnan(value):
+                            csv_writer.writerow([track_id, 'NaN', df['frame'][track_id][idx]])
+                        else:
+                            csv_writer.writerow([track_id, value, df['frame'][track_id][idx]])
 
     def calculate_distance(self, track):
         distance = [xp.nan]
@@ -274,7 +276,7 @@ if __name__ == '__main__':
     analysis = NodeAnalysis(test, track_builder.tracks)
     analysis.calculate_metrics()
     aggregate_output_file = 'aggregate_metrics.csv'
-    frame_output_folder = 'frame_metrics'
+    frame_output_folder = test.output_csv_dirpath
     if not os.path.exists(frame_output_folder):
         os.makedirs(frame_output_folder)
     analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
