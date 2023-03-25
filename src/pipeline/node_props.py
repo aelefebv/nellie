@@ -300,30 +300,30 @@ class NodeConstructor:
         self.im_info.allocate_memory(
             self.im_info.path_im_label_seg, shape=self.shape, dtype=dtype, description='Branch segments image'
         )
-        self.node_type_memmap = tifffile.memmap(self.im_info.path_im_node_types, mode='r+')
-        self.tip_label_memmap = tifffile.memmap(self.im_info.path_im_label_tips, mode='r+')
-        self.junction_label_memmap = tifffile.memmap(self.im_info.path_im_label_junctions, mode='r+')
-        self.edge_label_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
+        node_type_memmap = tifffile.memmap(self.im_info.path_im_node_types, mode='r+')
+        tip_label_memmap = tifffile.memmap(self.im_info.path_im_label_tips, mode='r+')
+        junction_label_memmap = tifffile.memmap(self.im_info.path_im_label_junctions, mode='r+')
+        edge_label_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(network_im) - 1}')
             # self.node_type_memmap[frame_num] = xp.asarray(frame)
-            self.node_type_memmap[frame_num] = frame
+            node_type_memmap[frame_num] = frame
 
             tip_labels, junction_labels, edge_labels = self.clean_labels(
-                xp.array(self.node_type_memmap[frame_num]), frame_num)
+                xp.array(node_type_memmap[frame_num]), frame_num)
 
             self._find_node_connections(frame_num)
-            self._find_all_neighboring_objects(tip_labels, junction_labels)
+            # self._find_all_neighboring_objects(tip_labels, junction_labels)
 
             if is_gpu:
-                self.tip_label_memmap[frame_num] = tip_labels.get()
-                self.junction_label_memmap[frame_num] = junction_labels.get()
-                self.edge_label_memmap[frame_num] = edge_labels.get()
+                tip_label_memmap[frame_num] = tip_labels.get()
+                junction_label_memmap[frame_num] = junction_labels.get()
+                edge_label_memmap[frame_num] = edge_labels.get()
             else:
-                self.tip_label_memmap[frame_num] = tip_labels
-                self.junction_label_memmap[frame_num] = junction_labels
-                self.edge_label_memmap[frame_num] = edge_labels
+                tip_label_memmap[frame_num] = tip_labels
+                junction_label_memmap[frame_num] = junction_labels
+                edge_label_memmap[frame_num] = edge_labels
 
 
 if __name__ == "__main__":

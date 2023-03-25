@@ -338,7 +338,7 @@ class NodeTrackConstructor:
         for match in kept:
             track_1_num = self.t1_remaining[match[0]]
             track_2_num = self.t1_remaining[match[1]]
-            if track_1_num in self.tracks[self.current_frame_num-1][track_2_num].node.connections:
+            if track_1_num in self.tracks[self.current_frame_num-1][track_2_num].node.connected_nodes:
                 continue
             assignment_cost = self.t1_cost_matrix[match[0], match[1]+self.num_tracks_t2]
             confidence = 2
@@ -359,7 +359,7 @@ class NodeTrackConstructor:
         for match in kept:
             track_1_num = self.t2_remaining[match[0]]
             track_2_num = self.t2_remaining[match[1]]
-            if track_1_num in self.tracks[self.current_frame_num][track_2_num].node.connections:
+            if track_1_num in self.tracks[self.current_frame_num][track_2_num].node.connected_nodes:
                 continue
             assignment_cost = self.t2_cost_matrix[match[0] + self.num_tracks_t1, match[1]]
             confidence = 2
@@ -668,6 +668,7 @@ class NodeTrackConstructor:
 
 if __name__ == "__main__":
     import os
+    from src.io.pickle_jar import pickle_object, unpickle_object
     filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
     if not os.path.isfile(filepath):
         filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
@@ -678,8 +679,10 @@ if __name__ == "__main__":
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(5)
+    pickle_object(test.path_pickle_track, nodes_test.tracks)
+    test_tracks = unpickle_object(test.path_pickle_track)
 
-    visualize = True
+    visualize = False
 
     if visualize:
         from src.utils import visualize

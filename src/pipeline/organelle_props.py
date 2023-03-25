@@ -101,5 +101,5 @@ if __name__ == "__main__":
     organelle_props = OrganellePropertiesConstructor(test)
     organelle_props.get_organelle_properties(2)
     pickle_object(test.path_pickle_obj, organelle_props)
-    organelle_props_unpickled = unpickle_object(test.path_pickle_seg)
+    organelle_props_unpickled = unpickle_object(test.path_pickle_obj)
     print('hi')
