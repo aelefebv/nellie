@@ -3,6 +3,8 @@ from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
 from src import xp, logger
 import csv
+import pandas as pd
+from scipy import stats
 
 class TrackBuilder:
     def __init__(self, im_info: ImInfo):
@@ -46,31 +48,86 @@ class NodeAnalysis:
     def __init__(self, im_info: ImInfo, tracks: list[list[NodeTrack]]):
         self.im_info = im_info
         node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
-        self.nodes: list[list[Node]] = node_constructor.nodes
+        self.nodes: dict[int: list[Node]] = node_constructor.nodes
+        self.cell_center = []
+        self.calculate_cell_center()
         self.tracks = tracks
         self.metrics = []
 
+    def calculate_cell_center(self):
+        for frame_num, frame_nodes in self.nodes.items():
+            node_centroids = []
+            for node in frame_nodes:
+                node_centroids.append(node.centroid_um)
+            self.cell_center.append(xp.mean(xp.array(node_centroids), axis=0))
+
     def calculate_metrics(self):
         for track in self.tracks:
+            if len(track) < 2:
+                continue
             track_metrics = {}
-            track_metrics['frame'] = [node.frame_num for node in track]
-            track_metrics['distance'] = self.calculate_distance(track)
-            track_metrics['displacement'] = self.calculate_displacement(track)
-            track_metrics['speed'] = self.calculate_speed(track)
-            track_metrics['direction'] = self.calculate_direction(track)
-            track_metrics['dynamics'] = self.calculate_dynamics(track)
-            track_metrics['num_branches/node'] = self.calculate_num_branches_per_node(track)
-            track_metrics['persistance'] = self.calculate_persistance(track)
-            track_metrics['angles_at_junctions'] = self.calculate_angles_at_junctions(track)
+            track_metrics['frame'] = xp.array([node.frame_num for node in track])
+            track_metrics['distance'] = xp.array(self.calculate_distance(track))
+            track_metrics['displacement'] = xp.array(self.calculate_displacement(track))
+            track_metrics['speed'] = xp.array(self.calculate_speed(track))
+            track_metrics['direction'] = xp.array(self.calculate_direction(track))
+            track_metrics['fission'], track_metrics['fusion'] = self.calculate_dynamics(track)
+            track_metrics['num_branches'] = xp.array(self.calculate_num_branches(track))
+            track_metrics['persistance'] = xp.array(self.calculate_persistance(track))
+            track_metrics['angles_at_junctions'] = xp.array(self.calculate_angles_at_junctions(track))
             self.metrics.append(track_metrics)
 
-    def save_metrics_to_csv(self, output_file):
-        fieldnames = ['frame', 'distance', 'displacement', 'speed', 'direction', 'dynamics', 'num_branches/node', 'persistance', 'angles_at_junctions']
-        with open(output_file, 'w', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            writer.writeheader()
-            for metric in self.metrics:
-                writer.writerow(metric)
+    # def save_metrics_to_csv(self, output_file):
+    #     fieldnames = ['frame', 'distance', 'displacement', 'speed', 'direction', 'fission', 'fusion', 'num_branches/node', 'persistance', 'angles_at_junctions']
+    #     with open(output_file, 'w', newline='') as csvfile:
+    #         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    #         writer.writeheader()
+    #         for metric in self.metrics:
+    #             writer.writerow(metric)
+
+    def save_metrics_to_csv(self, aggregate_output_file, frame_output_file):
+        self.save_aggregate_metrics_to_csv(aggregate_output_file)
+        self.save_frame_metrics_to_csv(frame_output_file)
+
+    def save_aggregate_metrics_to_csv(self, output_file):
+        df = pd.DataFrame(self.metrics)
+        df.to_csv(output_file)
+        # create an empty df that I will append to
+        aggregate_df = pd.DataFrame()
+        aggregate_df['num_frames_tracked'] = df['frame'].apply(lambda x: len(x))
+        for metric_name in df.columns:
+            metric_metrics = df[metric_name]
+            if metric_name == 'frame':
+                continue
+            if metric_name == 'fission' or metric_name == 'fusion':
+                aggregate_df[f'{metric_name}_sum'] = metric_metrics.apply(lambda x: xp.nansum(x))
+                continue
+            aggregate_df[f'{metric_name}_median'] = metric_metrics.apply(lambda x: xp.nanmedian(x))
+            aggregate_df[f'{metric_name}_quartiles25'] = metric_metrics.apply(lambda x: xp.nanquantile(x, 0.25))
+            aggregate_df[f'{metric_name}_quartiles75'] = metric_metrics.apply(lambda x: xp.nanquantile(x, 0.75))
+            aggregate_df[f'{metric_name}_mean'] = metric_metrics.apply(lambda x: xp.nanmean(x))
+            aggregate_df[f'{metric_name}_std'] = metric_metrics.apply(lambda x: xp.nanstd(x))
+            aggregate_df[f'{metric_name}_max'] = metric_metrics.apply(lambda x: xp.nanmax(x))
+            aggregate_df[f'{metric_name}_min'] = metric_metrics.apply(lambda x: xp.nanmin(x))
+            aggregate_df[f'{metric_name}_sum'] = metric_metrics.apply(lambda x: xp.nansum(x))
+        # aggregate_metrics = {
+        #     'median': df.median(),
+        #     'quartiles25': df.quantile(0.25),
+        #     'quartiles75': df.quantile(0.75),
+        #     'mean': df.mean(),
+        #     'std': df.std(),
+        #     'max': df.max(axis=0),
+        #     'min': df.min(axis=0),
+        # }
+        # aggregate_df = pd.DataFrame(aggregate_metrics)
+        aggregate_df.to_csv(output_file)
+
+    def save_frame_metrics_to_csv(self, output_folder):
+        df = pd.DataFrame(self.metrics)
+        for metric_name in df.columns:
+            frame_output_file = os.path.join(output_folder, f'{metric_name}_frame_metrics.csv')
+            frame_metrics = df[metric_name]
+            frame_metrics.to_csv(frame_output_file, index=False, header=True)
 
     def calculate_distance(self, track):
         distance = [xp.nan]
@@ -91,26 +148,62 @@ class NodeAnalysis:
         distance = self.calculate_distance(track)
         time = (len(track) - 1) * self.im_info.dim_sizes['T']
         if time == 0:
-            return 0
+            return [xp.nan]
         speed = xp.array(distance) / time
+        speed[0] = xp.nan
         return speed
 
     def calculate_direction(self, track):
-        # Your implementation for calculating the direction (retro vs antero wrt cell center)
-        # This depends on the specific definition of retrograde and anterograde movement in your context
-        pass
+        direction = [xp.nan]
+        if len(track) == 1:
+            return direction
+        for frame_num, node_track in enumerate(track[1:]):
+            coord1 = xp.array(track[frame_num-1].node.centroid_um)
+            coord2 = self.cell_center[track[frame_num-1].frame_num]
+            cell_vector_1 = xp.linalg.norm(coord1 - coord2)
+            coord1 = xp.array(track[frame_num].node.centroid_um)
+            coord2 = self.cell_center[track[frame_num].frame_num]
+            cell_vector_2 = xp.linalg.norm(coord1 - coord2)
+            direction_frame = cell_vector_2 - cell_vector_1
+            if direction_frame > 0:
+                direction.append(1)
+            elif direction_frame < 0:
+                direction.append(-1)
+            else:
+                direction.append(0)
+        return direction
+
 
     def calculate_dynamics(self, track):
-        # Your implementation for calculating dynamics
-        # This depends on the specific definition of dynamics in your context
-        pass
+        fission = [xp.nan]
+        fusion = [xp.nan]
+        if len(track) == 1:
+            return fission, fusion
+        for frame_num, node_track in enumerate(track[1:]):
+            fusion_frame = 0
+            if len(node_track.joins) > 0:
+                for join in node_track.joins:
+                    if join['join_type'] == 'fusion':
+                        fusion_frame = 1
+                        break
+            fusion.append(fusion_frame)
+            fission_frame = 0
+            if len(node_track.splits) > 0:
+                for split in node_track.splits:
+                    if split['split_type'] == 'fission':
+                        fission_frame = 1
+                        break
+            fission.append(fission_frame)
+        return xp.array(fission), xp.array(fusion)
 
-    def calculate_num_branches_per_node(self, track):
-        num_branches = sum([len(node_track.node.connected_branches) for node_track in track])
-        num_nodes = len(track)
-        if num_nodes == 0:
-            return 0
-        return num_branches / num_nodes
+    def calculate_num_branches(self, track):
+        connection_list = []
+        for node_track in track:
+            connected_nodes = set(node_track.node.connected_nodes)
+            if node_track.node.instance_label in connected_nodes:
+                connected_nodes.remove(node_track.node.instance_label)
+            connection_list.append(len(connected_nodes))
+        return connection_list
 
     def calculate_persistance(self, track):
         displacement = self.calculate_displacement(track)
@@ -119,6 +212,7 @@ class NodeAnalysis:
         persistence = [xp.nan]
         for i in range(1, len(track)):
             sum_distance += distance[i]
+            # first step is always of unit persistance, so no information gained
             if i == 1:
                 persistence.append(xp.nan)
             elif sum_distance == 0:
@@ -130,13 +224,14 @@ class NodeAnalysis:
     def calculate_angles_at_junctions(self, track):
         angles = []
         for node_track in track:
+            track_angles = []
             if len(node_track.node.connected_branches) > 2:
                 angle_list = self.calculate_angles_for_junction(node_track)
-                angles.extend(angle_list)
+                track_angles.extend(angle_list)
+            angles.append(xp.nanmean(track_angles))
         return angles
 
     # Helper functions
-
     def distance_between_nodes(self, node1, node2):
         coord1 = xp.array(node1.centroid_um)
         coord2 = xp.array(node2.centroid_um)
@@ -178,4 +273,8 @@ if __name__ == '__main__':
     track_builder = TrackBuilder(test)
     analysis = NodeAnalysis(test, track_builder.tracks)
     analysis.calculate_metrics()
-    analysis.save_metrics_to_csv('metrics.csv')
+    aggregate_output_file = 'aggregate_metrics.csv'
+    frame_output_folder = 'frame_metrics'
+    if not os.path.exists(frame_output_folder):
+        os.makedirs(frame_output_folder)
+    analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
