@@ -36,6 +36,7 @@ def run(input_path: str, num_t: int = None, ch: int = 0):
     nodes_test.populate_tracks(num_t)
     pickle_object(im_info.path_pickle_track, nodes_test.tracks)
     track_builder = TrackBuilder(im_info)
+    # todo I might want to reconnect disconnected/short tracks here
     analysis = NodeAnalysis(im_info, track_builder.tracks)
     analysis.calculate_metrics()
     aggregate_output_file = f'aggregate_metrics-{im_info.filename}.csv'

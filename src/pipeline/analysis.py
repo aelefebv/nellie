@@ -4,9 +4,9 @@ from src.io.pickle_jar import unpickle_object
 from src import logger
 import csv
 import pandas as pd
-# from scipy import stats
 import numpy as xp
 import os
+
 
 class TrackBuilder:
     def __init__(self, im_info: ImInfo):
@@ -93,7 +93,7 @@ class NodeAnalysis:
 
     def save_aggregate_metrics_to_csv(self, output_file):
         df = pd.DataFrame(self.metrics)
-        df.to_csv(output_file)
+        # df.to_csv(output_file)
         # create an empty df that I will append to
         aggregate_df = pd.DataFrame()
         aggregate_df['num_frames_tracked'] = df['frame'].apply(lambda x: len(x))
@@ -116,22 +116,23 @@ class NodeAnalysis:
 
     def save_frame_metrics_to_csv(self, output_folder):
         df = pd.DataFrame(self.metrics)
+        frame_data = []
+        output_file = os.path.join(output_folder, f'{self.im_info.filename}_frame_metrics.csv')
+
         for metric_name in df.columns:
-            frame_output_file = os.path.join(output_folder, f'{self.im_info.filename}-{metric_name}.csv')
+            if metric_name == 'frame':
+                continue
 
-            with open(frame_output_file, 'w', newline='') as csvfile:
-                csv_writer = csv.writer(csvfile)
+            for track_id, frame_metrics in enumerate(df[metric_name]):
+                for idx, value in enumerate(frame_metrics):
+                    if xp.isnan(value):
+                        frame_data.append([track_id, metric_name, 'NaN', df['frame'][track_id][idx]])
+                    else:
+                        frame_data.append([track_id, metric_name, value, df['frame'][track_id][idx]])
 
-                # Write the header
-                csv_writer.writerow(['track_id', metric_name, 'frame_num'])
-
-                # Write the data
-                for track_id, frame_metrics in enumerate(df[metric_name]):
-                    for idx, value in enumerate(frame_metrics):
-                        if xp.isnan(value):
-                            csv_writer.writerow([track_id, 'NaN', df['frame'][track_id][idx]])
-                        else:
-                            csv_writer.writerow([track_id, value, df['frame'][track_id][idx]])
+        frame_df = pd.DataFrame(frame_data, columns=['track_id', 'metric_name', 'value', 'frame_num'])
+        frame_df = frame_df.pivot_table(index=['track_id', 'frame_num'], columns='metric_name', values='value').reset_index()
+        frame_df.to_csv(output_file, index=False)
 
     def calculate_distance(self, track):
         distance = [xp.nan]
@@ -176,7 +177,6 @@ class NodeAnalysis:
             else:
                 direction.append(0)
         return direction
-
 
     def calculate_dynamics(self, track):
         fission = [xp.nan]
