@@ -118,7 +118,6 @@ class NodeConstructor:
 
         # Loop over each branch point region
         for junction_num, junction_region in enumerate(junction_regions):
-            logger.debug(f'Cleaning junction {junction_num}/{len(junction_regions) - 1}')
 
             # Get the coords of the neighboring pixels
             coords = []
@@ -168,7 +167,6 @@ class NodeConstructor:
         tip_regions = measure.regionprops(tip_labels)
         # if no neighbors, tip becomes lone tip type
         for tip_num, tip_region in enumerate(tip_regions):
-            logger.debug(f'Checking for lone tips {tip_num}/{len(tip_regions) - 1}')
 
             # Get the coords of the neighboring pixels
             coords = []

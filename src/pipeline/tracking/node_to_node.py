@@ -669,7 +669,10 @@ class NodeTrackConstructor:
 if __name__ == "__main__":
     import os
     from src.io.pickle_jar import pickle_object, unpickle_object
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
+
+    top_dir = r"D:\test_files\nelly\20230323-AELxKL-dmr_lipid_droplets"
+    file_name = "deskewed-2023-03-23_13-02-09_000_20230323-AELxKL-dmr-lipid_droplets-1.ome.tif"
+    filepath = os.path.join(top_dir, file_name)
     if not os.path.isfile(filepath):
         filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
     try:
@@ -678,11 +681,11 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
-    nodes_test.populate_tracks(5)
+    nodes_test.populate_tracks()
     pickle_object(test.path_pickle_track, nodes_test.tracks)
     test_tracks = unpickle_object(test.path_pickle_track)
 
-    visualize = False
+    visualize = True
 
     if visualize:
         from src.utils import visualize
@@ -704,6 +707,7 @@ if __name__ == "__main__":
                                           opacity=0.2)
         neighbor_layer.interpolation = 'nearest'
         fissions = []
+
         for frame_number, splits in nodes_test.splits.items():
             for split in splits:
                 if split[0] == 'protrusion':
@@ -711,9 +715,10 @@ if __name__ == "__main__":
                 point_1 = [frame_number, split[1][0], split[1][1], split[1][2]]
                 point_2 = [frame_number, split[2][0], split[2][1], split[2][2]]
                 fissions.append(xp.array([point_1, point_2]))
-        shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
-                                         edge_width=nodes_test.im_info.dim_sizes['X'],
-                                         edge_color='magenta', opacity=0.1)
+        if fissions:
+            shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
+                                             edge_width=nodes_test.im_info.dim_sizes['X'],
+                                             edge_color='magenta', opacity=0.1)
         fusions = []
         for frame_number, joins in nodes_test.joins.items():
             for join in joins:
@@ -722,9 +727,10 @@ if __name__ == "__main__":
                 point_1 = [frame_number, join[1][0], join[1][1], join[1][2]]
                 point_2 = [frame_number, join[2][0], join[2][1], join[2][2]]
                 fusions.append(xp.array([point_1, point_2]))
-        shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
-                                         edge_width=nodes_test.im_info.dim_sizes['X'],
-                                         edge_color='lime', opacity=0.1)
+        if fusions:
+            shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
+                                             edge_width=nodes_test.im_info.dim_sizes['X'],
+                                             edge_color='lime', opacity=0.1)
 
     print('hi')
 

@@ -1,10 +1,12 @@
 from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
-from src import xp, logger
+from src import logger
 import csv
 import pandas as pd
-from scipy import stats
+# from scipy import stats
+import numpy as xp
+import os
 
 class TrackBuilder:
     def __init__(self, im_info: ImInfo):
@@ -115,7 +117,7 @@ class NodeAnalysis:
     def save_frame_metrics_to_csv(self, output_folder):
         df = pd.DataFrame(self.metrics)
         for metric_name in df.columns:
-            frame_output_file = os.path.join(output_folder, f'{metric_name}_frame_metrics.csv')
+            frame_output_file = os.path.join(output_folder, f'{self.im_info.filename}-{metric_name}.csv')
 
             with open(frame_output_file, 'w', newline='') as csvfile:
                 csv_writer = csv.writer(csvfile)

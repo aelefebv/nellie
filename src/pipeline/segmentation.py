@@ -20,7 +20,7 @@ class Segment:
     # todo, min_radius should probably default to something based off of a specific organelle. LUT for size?
     # todo tests
     def __init__(self, im_info: ImInfo,
-                 threshold: float = 1E-04,
+                 threshold: float = 5E-04,
                  min_radius_um: float = 0.25):
         """
         Initializes a Segment object with the given ImInfo object, threshold, and minimum radius.
