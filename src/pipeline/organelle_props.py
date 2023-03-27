@@ -16,6 +16,7 @@ class OrganelleProperties:
             organelle: An object returned by `skimage.measure.regionprops` that contains properties of an organelle.
             skel_coords: The coordinates of the organelle's skeleton in the original image.
         """
+        # self.organelle = organelle
         self.instance_label = organelle.label
         self.centroid = organelle.centroid
         self.coords = organelle.coords
@@ -38,7 +39,7 @@ class OrganellePropertiesConstructor:
             self.spacing = self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
         else:
             self.spacing = self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']
-        self.organelles = []
+        self.organelles = dict()
 
     def get_organelle_properties(self, num_t: int = None):
         """
@@ -83,8 +84,7 @@ class OrganellePropertiesConstructor:
                     skel_coords = skel_dict[label_num].coords
 
                 organelles_frame.append(OrganelleProperties(label_prop, skel_coords))
-
-            self.organelles.append(organelles_frame)
+            self.organelles[frame_num] = organelles_frame
 
 
 if __name__ == "__main__":

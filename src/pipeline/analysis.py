@@ -1,3 +1,6 @@
+from tifffile import tifffile
+
+from src.pipeline.organelle_props import OrganellePropertiesConstructor, OrganelleProperties
 from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
@@ -6,6 +9,58 @@ import csv
 import pandas as pd
 import numpy as xp
 import os
+from skimage import measure
+
+
+class Region:
+    def __init__(self, organelle: OrganelleProperties):
+        self.centroid = organelle.centroid
+        self.coords = organelle.coords
+        self.skeleton_coords = organelle.skeleton_coords
+        self.instance_label = organelle.instance_label
+
+        self.scaled_coords = None
+        self.intensity_coords = None
+        self.volume = None
+        self.distance_from_cell_center_coords = None
+        # self.surface_area = None
+        # self.sphericity = None
+        # self.compactness = None
+        #
+        # self.surface_mesh = None
+
+
+class RegionAnalysis:
+    def __init__(self, im_info: ImInfo):
+        self.im_info = im_info
+        organelle_props: OrganellePropertiesConstructor = unpickle_object(self.im_info.path_pickle_obj)
+        self.organelles = organelle_props.organelles
+        self.spacing = organelle_props.spacing
+        self.regions = dict()
+        self.cell_center = dict()
+
+    def calculate_metrics(self):
+        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
+        # label_image = tifffile.memmap(self.im_info.path_im_label_obj, mode='r')
+        for frame_num, organelles in self.organelles.items():
+            logger.debug(f'Calculating metrics for frame {frame_num}/{len(self.organelles.items())}')
+            self.cell_center[frame_num] = xp.mean(xp.array([organelle.centroid for organelle in organelles]), axis=0)
+            self.regions[frame_num] = []
+            for organelle in organelles:
+                logger.debug(f'Calculating metrics for organelle {organelle.instance_label}/{len(organelles)}')
+                # binary_image = label_image[frame_num] == organelle.instance_label
+                region = Region(organelle)
+                region.scaled_coords = region.coords * self.spacing
+                region.volume = len(region.coords) * xp.prod(self.spacing)
+                region.intensity_coords = intensity_image[frame_num][
+                    region.coords[:, 0], region.coords[:, 1], region.coords[:, 2]]
+                region.distance_from_cell_center = xp.linalg.norm(
+                    region.scaled_coords - self.cell_center[frame_num], axis=1)
+                # region.surface_mesh = measure.marching_cubes(binary_image, step_size=1, spacing=self.spacing)
+                # region.surface_area = measure.mesh_surface_area(region.surface_mesh[0], region.surface_mesh[1])
+                # region.sphericity = region.surface_area / region.volume
+                # region.compactness = region.volume / xp.sqrt(region.surface_area)
+                self.regions[frame_num].append(region)
 
 
 class TrackBuilder:
@@ -79,22 +134,12 @@ class NodeAnalysis:
             track_metrics['angles_at_junctions'] = xp.array(self.calculate_angles_at_junctions(track))
             self.metrics.append(track_metrics)
 
-    # def save_metrics_to_csv(self, output_file):
-    #     fieldnames = ['frame', 'distance', 'displacement', 'speed', 'direction', 'fission', 'fusion', 'num_branches/node', 'persistance', 'angles_at_junctions']
-    #     with open(output_file, 'w', newline='') as csvfile:
-    #         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-    #         writer.writeheader()
-    #         for metric in self.metrics:
-    #             writer.writerow(metric)
-
     def save_metrics_to_csv(self, aggregate_output_file, frame_output_file):
         self.save_aggregate_metrics_to_csv(aggregate_output_file)
         self.save_frame_metrics_to_csv(frame_output_file)
 
     def save_aggregate_metrics_to_csv(self, output_file):
         df = pd.DataFrame(self.metrics)
-        # df.to_csv(output_file)
-        # create an empty df that I will append to
         aggregate_df = pd.DataFrame()
         aggregate_df['num_frames_tracked'] = df['frame'].apply(lambda x: len(x))
         for metric_name in df.columns:
@@ -263,6 +308,49 @@ class NodeAnalysis:
         angle = xp.arccos(xp.clip(cos_theta, -1, 1)) * 180 / xp.pi
         return angle
 
+# class BranchAnalysis:
+#     def __init__(self, label_image, node1, node2, spacing):
+#         self.node1 = node1
+#         self.node2 = node2
+#         self.spacing = spacing
+#         self.label_image = label_image
+#         self.branch_coords = self.get_branch_coords()
+#         self.length = self.calculate_length()
+#         self.tortuosity = self.calculate_tortuosity()
+#         self.orientation = self.calculate_orientation()
+#         self.width = self.calculate_width()
+#         self.aspect_ratio = self.calculate_aspect_ratio()
+#         self.connected_label = self.get_connected_label()
+#
+#     def get_branch_coords(self):
+#         branch_mask = (self.label_image == self.node1.instance_label) | (self.label_image == self.node2.instance_label)
+#         branch_coords = np.argwhere(branch_mask)
+#         return branch_coords
+#
+#     def calculate_length(self):
+#         length = 0
+#         for i in range(1, len(self.branch_coords)):
+#             length += np.linalg.norm(np.array(self.branch_coords[i]) * self.spacing - np.array(self.branch_coords[i-1]) * self.spacing)
+#         return length
+#
+#     def calculate_tortuosity(self):
+#         end_to_end_distance = np.linalg.norm(np.array(self.node1.centroid_um) - np.array(self.node2.centroid_um))
+#         return self.length / end_to_end_distance
+#
+#     def calculate_orientation(self, cell_center):
+#         v1 = np.array(self.node1.centroid_um) - np.array(cell_center)
+#         v2 = np.array(self.node2.centroid_um) - np.array(cell_center)
+#         angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+#         return angle
+#
+#     def calculate_width(self):
+#         branch_mask = (self.label_image == self.node1.instance_label) | (self.label_image == self.node2.instance_label)
+#         dist_map = distance_transform_edt(~branch_mask)
+#         width = 2 * np.mean(dist_map[self.branch_coords[:, 0], self.branch_coords[:, 1]])
+#         return width
+#
+#     def calculate_aspect_ratio(self):
+#         return self.length / self.width
 
 if __name__ == '__main__':
     import os
@@ -274,11 +362,13 @@ if __name__ == '__main__':
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    track_builder = TrackBuilder(test)
-    analysis = NodeAnalysis(test, track_builder.tracks)
-    analysis.calculate_metrics()
-    aggregate_output_file = 'aggregate_metrics.csv'
-    frame_output_folder = test.output_csv_dirpath
-    if not os.path.exists(frame_output_folder):
-        os.makedirs(frame_output_folder)
-    analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
+    # track_builder = TrackBuilder(test)
+    # analysis = NodeAnalysis(test, track_builder.tracks)
+    # analysis.calculate_metrics()
+    # aggregate_output_file = 'aggregate_metrics.csv'
+    # frame_output_folder = test.output_csv_dirpath
+    # if not os.path.exists(frame_output_folder):
+    #     os.makedirs(frame_output_folder)
+    # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
+    regions = RegionAnalysis(test)
+    regions.calculate_metrics()
