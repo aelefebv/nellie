@@ -19,6 +19,9 @@ class Region:
         self.skeleton_coords = organelle.skeleton_coords
         self.instance_label = organelle.instance_label
 
+        self.nodes = []
+        self.branches = []
+
         self.scaled_coords = None
         self.intensity_coords = None
         self.volume = None
@@ -34,18 +37,23 @@ class RegionAnalysis:
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
         organelle_props: OrganellePropertiesConstructor = unpickle_object(self.im_info.path_pickle_obj)
+        node_props: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
+        self.node_props = node_props
         self.organelles = organelle_props.organelles
         self.spacing = organelle_props.spacing
         self.regions = dict()
         self.cell_center = dict()
 
-    def calculate_metrics(self):
+    def get_regions(self):
+        self._calculate_metrics()
+        self._assign_nodes()
+
+    def _calculate_metrics(self):
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
-        # label_image = tifffile.memmap(self.im_info.path_im_label_obj, mode='r')
         for frame_num, organelles in self.organelles.items():
             logger.debug(f'Calculating metrics for frame {frame_num}/{len(self.organelles.items())}')
             self.cell_center[frame_num] = xp.mean(xp.array([organelle.centroid for organelle in organelles]), axis=0)
-            self.regions[frame_num] = []
+            self.regions[frame_num] = dict()
             for organelle in organelles:
                 logger.debug(f'Calculating metrics for organelle {organelle.instance_label}/{len(organelles)}')
                 # binary_image = label_image[frame_num] == organelle.instance_label
@@ -60,7 +68,13 @@ class RegionAnalysis:
                 # region.surface_area = measure.mesh_surface_area(region.surface_mesh[0], region.surface_mesh[1])
                 # region.sphericity = region.surface_area / region.volume
                 # region.compactness = region.volume / xp.sqrt(region.surface_area)
-                self.regions[frame_num].append(region)
+                self.regions[frame_num][region.instance_label] = region
+
+    def _assign_nodes(self):
+        for frame_num, nodes in self.node_props.nodes.items():
+            logger.debug(f'Assigning nodes to regions for frame {frame_num}/{len(self.node_props.nodes.items())}')
+            for node_num, node in enumerate(nodes):
+                self.regions[frame_num][node.skeleton_label].nodes.append(node.instance_label)
 
 
 class TrackBuilder:
@@ -371,4 +385,4 @@ if __name__ == '__main__':
     #     os.makedirs(frame_output_folder)
     # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
     regions = RegionAnalysis(test)
-    regions.calculate_metrics()
+    regions.get_regions()

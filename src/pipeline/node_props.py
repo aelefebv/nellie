@@ -38,6 +38,7 @@ class Node:
         self.node_type = node_type  # should be 'tip' or 'junction'
         self.connected_branches = []
         self.connected_nodes = []
+        self.skeleton_label = None
         self.time_point_sec = time_point
         self.assigned_track = None
         if node_region is not None:
@@ -87,7 +88,7 @@ class NodeConstructor:
         self.nodes = {}
         self.shape = ()
 
-    def clean_labels(self, frame, frame_num):
+    def clean_labels(self, frame, frame_num, skeleton_frame):
         """
         Cleans up and labels branches in a 3D image stack. Assumes branch points are labeled as 3,
         edges are labeled as 2, and tips are labeled as 1.
@@ -155,6 +156,7 @@ class NodeConstructor:
                     edge_label_set.remove(edge_2_label)
             else:  # node is a valid junction
                 new_node = Node('junction', junction_region, time_point_sec, self.spacing)
+                new_node.skeleton_label = skeleton_frame[tuple(junction_region.coords[0])]
                 for edge_neighbor in edge_neighbors:
                     edge_label = edge_labels[tuple(edge_neighbor)]
                     new_node.connected_branches.append(edge_label)
@@ -183,11 +185,13 @@ class NodeConstructor:
                 # set that tip to a "lone tip"
                 frame[tip_labels == tip_region.label] = 11
                 new_node = Node('lone tip', tip_region, time_point_sec, self.spacing)
+                new_node.skeleton_label = skeleton_frame[tuple(tip_region.coords[0])]
                 self.nodes[frame_num].append(new_node)
             elif has_neighbors == 1:  # node is a valid tip
                 new_node = Node('tip', tip_region, time_point_sec, self.spacing)
                 edge_label = edge_labels[tuple(tip_neighbors[0])]
                 new_node.connected_branches.append(edge_label)
+                new_node.skeleton_label = skeleton_frame[tuple(tip_region.coords[0])]
                 self.nodes[frame_num].append(new_node)
                 if edge_label in edge_label_set:
                     edge_label_set.remove(edge_label)
@@ -206,6 +210,7 @@ class NodeConstructor:
             dummy_region = {'instance_label': num_tip_labels, 'coords': node_coords, 'centroid': edge_region.centroid}
             new_node = Node('lone tip', None, time_point_sec, self.spacing, dummy_region=dummy_region)
             new_node.connected_branches.append(edge_label)  # could be useful for later?
+            new_node.skeleton_label = skeleton_frame[tuple(edge_region.coords[0])]
             self.nodes[frame_num].append(new_node)
             tip_labels[rounded_centroid] = num_tip_labels
         return tip_labels, junction_labels, edge_labels
@@ -302,6 +307,7 @@ class NodeConstructor:
         tip_label_memmap = tifffile.memmap(self.im_info.path_im_label_tips, mode='r+')
         junction_label_memmap = tifffile.memmap(self.im_info.path_im_label_junctions, mode='r+')
         edge_label_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
+        skeleton_memmap = tifffile.memmap(self.im_info.path_im_skeleton, mode='r')
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(network_im) - 1}')
@@ -309,7 +315,7 @@ class NodeConstructor:
             node_type_memmap[frame_num] = frame
 
             tip_labels, junction_labels, edge_labels = self.clean_labels(
-                xp.array(node_type_memmap[frame_num]), frame_num)
+                xp.array(node_type_memmap[frame_num]), frame_num, skeleton_memmap[frame_num])
 
             self._find_node_connections(frame_num)
             # self._find_all_neighboring_objects(tip_labels, junction_labels)
