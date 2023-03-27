@@ -11,6 +11,14 @@ import numpy as xp
 import os
 from skimage import measure
 
+class Branch:
+    def __init__(self, frame_num, node_1, node_2=None):
+        self.frame_num = frame_num
+        self.node_1 = node_1
+        self.node_2 = node_2
+        self.length = None
+        self.tortuosity = None
+        self.orientation = None
 
 class Region:
     def __init__(self, organelle: OrganelleProperties):
@@ -20,7 +28,7 @@ class Region:
         self.instance_label = organelle.instance_label
 
         self.nodes = []
-        self.branches = []
+        self.branches = dict()
 
         self.scaled_coords = None
         self.intensity_coords = None
@@ -74,7 +82,40 @@ class RegionAnalysis:
         for frame_num, nodes in self.node_props.nodes.items():
             logger.debug(f'Assigning nodes to regions for frame {frame_num}/{len(self.node_props.nodes.items())}')
             for node_num, node in enumerate(nodes):
-                self.regions[frame_num][node.skeleton_label].nodes.append(node.instance_label)
+                branches = dict()
+                for connected_node_num in node.connected_nodes:
+                    connected_node = self.node_props.nodes[frame_num][connected_node_num]
+                    node_pair = [node_num, connected_node_num]
+                    node_pair.sort()
+                    node_pair = tuple(node_pair)
+                    if node_pair not in self.regions[frame_num][node.skeleton_label].branches:
+                        connected_branches = [branch for branch in node.connected_branches
+                                              if branch in connected_node.connected_branches]
+                        branches[node_pair] = connected_branches
+
+                if node_num not in self.regions[frame_num][node.skeleton_label].nodes:
+                    self.regions[frame_num][node.skeleton_label].nodes.append(node_num)
+                self.regions[frame_num][node.skeleton_label].branches.update(branches)
+
+    def calculate_branch_length(self, node1: Node, node2: Node, frame_num: int) -> float:
+        # Get the coordinates of the skeleton
+        skeleton = self.regions[frame_num][node1.skeleton_label].skeleton_coords
+
+        # Get the indices of the nodes' coordinates in the skeleton
+        index1 = self.get_index_in_skeleton(skeleton, node1.centroid_um)
+        index2 = self.get_index_in_skeleton(skeleton, node2.centroid_um)
+        # Check that the indices are ordered
+        if index1 > index2:
+            index1, index2 = index2, index1
+
+        # Calculate the length of the branch
+        length = xp.sum(xp.linalg.norm(skeleton[index1 + 1:index2 + 1] - skeleton[index1:index2], axis=1))
+
+        return length
+
+    @staticmethod
+    def get_index_in_skeleton(skeleton: xp.ndarray, coord: tuple) -> int:
+        return xp.argmin(xp.linalg.norm(skeleton - coord, axis=1))
 
 
 class TrackBuilder:
