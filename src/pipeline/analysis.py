@@ -1,7 +1,7 @@
 from tifffile import tifffile
 
 from src.pipeline.organelle_props import OrganellePropertiesConstructor, OrganelleProperties
-from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor
+from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor, NodeTrackConstructor
 from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
 from src import logger
@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as xp
 
 
-class NodeStats:
+class StatsNode:
     def __init__(self, frame_tracklets: list[NodeTrack], region_id, node_id):
         # feed in from trackbuilder
         self.node_id = node_id
@@ -27,7 +27,7 @@ class NodeStats:
         self.num_branches = None
         self.angles_at_junctions = None
 
-class BranchStats:
+class StatsBranch:
     def __init__(self, frame_num, branch_tuple, branch_info, region_id):
         self.frame_num = frame_num
         self.branch_tuple = branch_tuple
@@ -243,7 +243,7 @@ class BranchStats:
         return orientation, xp.abs(cell_center_to_start_vector)
 
 
-class RegionStats:
+class StatsRegion:
     def __init__(self, organelle: OrganelleProperties, region_id):
         self.r_centroid = organelle.centroid
         self.r_coords = organelle.coords
@@ -292,6 +292,11 @@ class RegionStats:
         self.rn_mean_num_branches = None
         self.rn_mean_angles_at_junctions = None
 
+    def calculate_region_stats(self, spacing, intensity_image, cell_center):
+        self.r_scaled_coords = self.r_coords * spacing
+        self.r_intensity_coords = intensity_image[self.r_coords[:, 0], self.r_coords[:, 1], self.r_coords[:, 2]]
+        self.r_volume = len(self.r_coords) * xp.prod(spacing)
+        self.r_distance_from_cell_center_coords = xp.linalg.norm(self.r_scaled_coords - cell_center, axis=1)
 
     def get_branch_aggregate_properties(self):
         self.rb_num_branches = len(self.branch_objects)
@@ -317,28 +322,59 @@ class RegionStats:
 
 
 
-class RegionAnalysis:
+class AnalysisHierarchyConstructor:
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
+
+        # load in regions (organelles), and tracks, which have node and branch info.
         organelle_props: OrganellePropertiesConstructor = unpickle_object(self.im_info.path_pickle_obj)
+        track_props: NodeTrackConstructor = unpickle_object(self.im_info.path_pickle_track)
         node_props: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
+        self.tracks = track_props
         self.node_props = node_props
         self.organelles = organelle_props.organelles
-        self.spacing = organelle_props.spacing
-        self.regions = dict()
-        self.cell_center = dict()
 
-    def get_regions(self, tracklets: dict[int, list[NodeTrack]]):
+        # get the voxel spacing
+        self.spacing = [im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X']]
+
+        # construct dicts for hierarchy
+        self.stats_region = dict()
+        self.stats_branches = dict()
+        self.stats_nodes = dict()
+
+        # get the cell center for each frame
+        self.cell_center = dict()
         self._calculate_cell_center()
-        self._calculate_metrics()
-        self._assign_nodes()
-        self._get_branch_stats()
-        self._clean_branch_stats()
-        self._get_mean_stats(tracklets)
 
     def _calculate_cell_center(self):
         for frame_num, frame_nodes in self.node_props.nodes.items():
             self.cell_center[frame_num] = xp.mean(xp.array([node.centroid_um for node in frame_nodes]), axis=0)
+
+    def get_hierarchy(self, tracklets: dict[int, list[NodeTrack]]):
+        # self._calculate_cell_center()
+        # first construct region objects:
+        self._construct_region_objects()
+        self._calculate_region_stats()
+        # self._calculate_metrics()
+        # self._assign_nodes()
+        # self._get_branch_stats()
+        # self._clean_branch_stats()
+        # self._get_mean_stats(tracklets)
+
+    def _construct_region_objects(self):
+        for frame_num, organelles in self.organelles.items():
+            self.stats_region[frame_num] = dict()
+            region_id = 0
+            for organelle in organelles:
+                region = StatsRegion(organelle, region_id)
+                self.stats_region[frame_num][region_id] = region
+                region_id += 1
+
+    def _calculate_region_stats(self):
+        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
+        for frame_num, frame_regions in self.stats_region.items():
+            for region in frame_regions.values():
+                region.calculate_region_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num])
 
     def _calculate_metrics(self):
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
@@ -346,7 +382,7 @@ class RegionAnalysis:
             logger.debug(f'Calculating region metrics for frame {frame_num}/{len(self.organelles.items())}')
             self.regions[frame_num] = dict()
             for organelle in organelles:
-                region = RegionStats(organelle)
+                region = StatsRegion(organelle)
                 region.r_scaled_coords = region.r_coords * self.spacing
                 region.r_volume = len(region.r_coords) * xp.prod(self.spacing)
                 region.r_intensity_coords = intensity_image[frame_num][
@@ -394,7 +430,7 @@ class RegionAnalysis:
             for region_num, region in frame_regions.items():
                 for branch_tuple, branch_infos in region.branch_ids.items():
                     for branch_info in branch_infos:
-                        branch_object = BranchStats(frame_num, branch_tuple, branch_info)
+                        branch_object = StatsBranch(frame_num, branch_tuple, branch_info)
                         branch_label = branch_info[0]
                         branch_object.traverse_and_calculate_length_and_width(
                             branch_labels[frame_num], mask_im[frame_num], self.spacing, self.cell_center[frame_num])
@@ -427,7 +463,7 @@ class RegionAnalysis:
                 self.regions[frame_num][node.skeleton_label].branch_ids.update(branches)
 
 
-class TrackBuilder:
+class StatsDynamics:
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
         self.tracklets: dict[int: list[NodeTrack]] = unpickle_object(self.im_info.path_pickle_track)
@@ -478,7 +514,7 @@ class TrackBuilder:
     #     self.node_track_dict = node_num_track_dict
 
 
-class NodeAnalysis:
+class AnalysisDynamics:
     def __init__(self, im_info: ImInfo, tracks: list[list[NodeTrack]]):
         self.im_info = im_info
         node_constructor: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
@@ -696,15 +732,15 @@ if __name__ == '__main__':
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    track_builder = TrackBuilder(test)
+    track_builder = StatsDynamics(test)
     # track_builder.node_num_track_dict()
-    nodes = NodeAnalysis(test, track_builder.tracks)
+    nodes = AnalysisDynamics(test, track_builder.tracks)
     nodes.calculate_metrics()
     # aggregate_output_file = 'aggregate_metrics.csv'
     # frame_output_folder = test.output_csv_dirpath
     # if not os.path.exists(frame_output_folder):
     #     os.makedirs(frame_output_folder)
     # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
-    regions = RegionAnalysis(test)
+    regions = AnalysisHierarchyConstructor(test)
     # regions.calculate_metrics()
-    regions.get_regions(track_builder.tracklets)
+    regions.get_hierarchy(track_builder.tracklets)

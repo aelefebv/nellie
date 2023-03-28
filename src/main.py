@@ -10,7 +10,7 @@ from src.pipeline.networking import Neighbors
 from src.pipeline.tracking.node_to_node import NodeTrackConstructor
 from src.pipeline.node_props import NodeConstructor
 from src import logger
-from src.pipeline.analysis import TrackBuilder, NodeAnalysis
+from src.pipeline.analysis import StatsDynamics, AnalysisDynamics
 
 
 def run(input_path: str, num_t: int = None, ch: int = 0):
@@ -35,9 +35,9 @@ def run(input_path: str, num_t: int = None, ch: int = 0):
     nodes_test = NodeTrackConstructor(im_info, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(num_t)
     pickle_object(im_info.path_pickle_track, nodes_test.tracks)
-    track_builder = TrackBuilder(im_info)
+    track_builder = StatsDynamics(im_info)
     # todo I might want to reconnect disconnected/short tracks here
-    analysis = NodeAnalysis(im_info, track_builder.tracks)
+    analysis = AnalysisDynamics(im_info, track_builder.tracks)
     analysis.calculate_metrics()
     aggregate_output_file = f'aggregate_metrics-{im_info.filename}.csv'
     frame_output_folder = im_info.output_csv_dirpath
