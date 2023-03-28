@@ -158,8 +158,9 @@ class NodeConstructor:
                 new_node = Node('junction', junction_region, time_point_sec, self.spacing)
                 new_node.skeleton_label = skeleton_frame[tuple(junction_region.coords[0])]
                 for edge_neighbor in edge_neighbors:
-                    edge_label = (edge_labels[tuple(edge_neighbor)], tuple(edge_neighbor))
-                    new_node.connected_branches.append(edge_label)
+                    edge_label = edge_labels[tuple(edge_neighbor)]
+                    # edge_label = (edge_labels[tuple(edge_neighbor)], tuple(edge_neighbor))
+                    new_node.connected_branches.append((edge_labels[tuple(edge_neighbor)], tuple(edge_neighbor)))
                     if edge_label in edge_label_set:
                         edge_label_set.remove(edge_label)
                 self.nodes[frame_num].append(new_node)
@@ -189,9 +190,9 @@ class NodeConstructor:
                 self.nodes[frame_num].append(new_node)
             elif has_neighbors == 1:  # node is a valid tip
                 new_node = Node('tip', tip_region, time_point_sec, self.spacing)
-                # edge_label = edge_labels[tuple(tip_neighbors[0])]
-                edge_label = (edge_labels[tuple(tip_neighbors[0])], tuple(tip_neighbors[0]))
-                new_node.connected_branches.append(edge_label)
+                edge_label = edge_labels[tuple(tip_neighbors[0])]
+                # edge_label = (edge_labels[tuple(tip_neighbors[0])], tuple(tip_neighbors[0]))
+                new_node.connected_branches.append((edge_labels[tuple(tip_neighbors[0])], tuple(tip_neighbors[0])))
                 new_node.skeleton_label = skeleton_frame[tuple(tip_region.coords[0])]
                 self.nodes[frame_num].append(new_node)
                 if edge_label in edge_label_set:
@@ -343,7 +344,7 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     node_props = NodeConstructor(test)
-    node_props.get_node_properties(2)
+    node_props.get_node_properties(5)
     pickle_object(test.path_pickle_node, node_props)
     node_props_unpickled = unpickle_object(test.path_pickle_node)
     print('hi')

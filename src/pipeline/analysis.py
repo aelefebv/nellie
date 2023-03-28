@@ -28,7 +28,7 @@ class Branch:
         self.orientations_mean = None
         self.widths = None
         self.widths_mean = None
-        self.tortuosity_times_num_voxels = None  # could be useful for summing tortuosity over entire tree
+        # self.tortuosity_times_num_voxels = None  # could be useful for summing tortuosity over entire tree
         self.aspect_ratio = None
         self.circularity = None
 
@@ -41,7 +41,7 @@ class Branch:
         else:
             self.tortuosity = self.length / self._euclidean_distance(
                 self.branch_coords[0], self.branch_coords[-1], spacing)
-        self.tortuosity_times_num_voxels = self.tortuosity * len(self.branch_coords)
+        # self.tortuosity_times_num_voxels = self.tortuosity * len(self.branch_coords)
 
     def _euclidean_distance(self, coord1, coord2, spacing):
         """Calculate the euclidean distance between two points."""
@@ -198,6 +198,7 @@ class Branch:
 
         return orientation
 
+
 class Region:
     def __init__(self, organelle: OrganelleProperties):
         self.centroid = organelle.centroid
@@ -205,7 +206,7 @@ class Region:
         self.skeleton_coords = organelle.skeleton_coords
         self.instance_label = organelle.instance_label
 
-        self.nodes = []
+        self.node_nums = []
         self.branches = dict()
         self.branch_objects = dict()
 
@@ -213,12 +214,52 @@ class Region:
         self.intensity_coords = None
         self.volume = None
         self.distance_from_cell_center_coords = None
+
+        self.num_branches = None
+        self.total_length = None
+        self.mean_aspect_ratio = None
+        self.weighted_aspect_ratio = None
+        self.mean_circularity = None
+        self.weighted_circularity = None
+        self.mean_length = None
+        self.weighted_width = None
+        self.mean_width = None
+        self.weighted_orientation = None
+        self.mean_orientation = None
+        self.weighted_tortuosity = None
+        self.mean_tortuosity = None
         # self.surface_area = None
         # self.sphericity = None
         # self.compactness = None
         #
         # self.surface_mesh = None
 
+    def get_branch_aggregate_properties(self):
+        self.num_branches = len(self.branch_objects)
+        if self.num_branches == 0:
+            return
+        self.total_length = sum([branch[0].length for branch in self.branch_objects.values()])
+        self.weighted_aspect_ratio = sum([branch[0].aspect_ratio * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
+        self.mean_aspect_ratio = sum([branch[0].aspect_ratio for branch in self.branch_objects.values()]) / self.num_branches
+        self.weighted_circularity = sum([branch[0].circularity * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
+        self.mean_circularity = sum([branch[0].circularity for branch in self.branch_objects.values()]) / self.num_branches
+        self.mean_length = self.total_length / self.num_branches
+        self.weighted_width = sum([sum(branch[0].widths) * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
+        self.mean_width = sum([branch[0].widths_mean for branch in self.branch_objects.values()]) / self.num_branches
+        self.weighted_orientation = sum([branch[0].orientation * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
+        self.mean_orientation = sum([branch[0].orientation for branch in self.branch_objects.values()]) / self.num_branches
+        self.weighted_tortuosity = sum([branch[0].tortuosity * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
+        self.mean_tortuosity = sum([branch[0].tortuosity for branch in self.branch_objects.values()]) / self.num_branches
+
+    def get_node_aggregate_properties(self, tracklets: list[NodeTrack]):
+        if self.node_nums is None:
+            return
+        for node_num in self.node_nums:
+            node_track = tracklets[node_num]
+            self.volume += node_track.volume
+            self.distance_from_cell_center_coords += node_track.distance_from_cell_center_coords
+            self.intensity_coords += node_track.intensity_coords
+            self.scaled_coords += node_track.scaled_coords
 
 class RegionAnalysis:
     def __init__(self, im_info: ImInfo):
@@ -231,11 +272,20 @@ class RegionAnalysis:
         self.regions = dict()
         self.cell_center = dict()
 
-    def get_regions(self):
+    def get_regions(self, tracklets: dict[int, list[NodeTrack]]):
         self._calculate_metrics()
         self._assign_nodes()
         self._get_branch_stats()
         self._clean_branch_stats()
+        self._get_mean_stats(tracklets)
+
+    def _get_mean_stats(self, tracklets):
+        for frame_num, region_dict in self.regions.items():
+            for region_num, region in region_dict.items():
+                region.get_branch_aggregate_properties()
+                if frame_num == 0:
+                    continue
+                region.get_node_aggregate_properties(tracklets[frame_num])
 
     def _clean_branch_stats(self):
         for frame_num, frame_regions in self.regions.items():
@@ -250,6 +300,7 @@ class RegionAnalysis:
                             remove_branches.append(branch)
                     for branch in remove_branches:
                         self.regions[frame_num][region_num].branch_objects[branch_num].remove(branch)
+
     def _get_branch_stats(self):
         branch_labels = tifffile.memmap(self.im_info.path_im_label_seg, mode='r') > 0
         mask_im = tifffile.memmap(self.im_info.path_im_mask, mode='r') > 0
@@ -266,6 +317,7 @@ class RegionAnalysis:
                         if region.branch_objects.get(branch_label) is None:
                             region.branch_objects[branch_label] = []
                         region.branch_objects[branch_label].append(branch_object)
+
 
     def _calculate_metrics(self):
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
@@ -290,7 +342,10 @@ class RegionAnalysis:
                 self.regions[frame_num][region.instance_label] = region
 
     def _assign_nodes(self):
+        # todo remove frame cap after testing
         for frame_num, nodes in self.node_props.nodes.items():
+            if frame_num > 1:
+                continue
             logger.debug(f'Assigning nodes to regions for frame {frame_num}/{len(self.node_props.nodes.items())}')
             for node_num, node in enumerate(nodes):
                 branches = dict()
@@ -304,8 +359,8 @@ class RegionAnalysis:
                         connected_branches = [branch for branch in node.connected_branches
                                               if branch[0] in connected_node_labels]
                         branches[node_pair] = connected_branches
-                if node_num not in self.regions[frame_num][node.skeleton_label].nodes:
-                    self.regions[frame_num][node.skeleton_label].nodes.append(node_num)
+                if node_num not in self.regions[frame_num][node.skeleton_label].node_nums:
+                    self.regions[frame_num][node.skeleton_label].node_nums.append(node_num)
                 self.regions[frame_num][node.skeleton_label].branches.update(branches)
 
 
@@ -554,49 +609,6 @@ class NodeAnalysis:
         angle = xp.arccos(xp.clip(cos_theta, -1, 1)) * 180 / xp.pi
         return angle
 
-# class BranchAnalysis:
-#     def __init__(self, label_image, node1, node2, spacing):
-#         self.node1 = node1
-#         self.node2 = node2
-#         self.spacing = spacing
-#         self.label_image = label_image
-#         self.branch_coords = self.get_branch_coords()
-#         self.length = self.calculate_length()
-#         self.tortuosity = self.calculate_tortuosity()
-#         self.orientation = self.calculate_orientation()
-#         self.width = self.calculate_width()
-#         self.aspect_ratio = self.calculate_aspect_ratio()
-#         self.connected_label = self.get_connected_label()
-#
-#     def get_branch_coords(self):
-#         branch_mask = (self.label_image == self.node1.instance_label) | (self.label_image == self.node2.instance_label)
-#         branch_coords = np.argwhere(branch_mask)
-#         return branch_coords
-#
-#     def calculate_length(self):
-#         length = 0
-#         for i in range(1, len(self.branch_coords)):
-#             length += np.linalg.norm(np.array(self.branch_coords[i]) * self.spacing - np.array(self.branch_coords[i-1]) * self.spacing)
-#         return length
-#
-#     def calculate_tortuosity(self):
-#         end_to_end_distance = np.linalg.norm(np.array(self.node1.centroid_um) - np.array(self.node2.centroid_um))
-#         return self.length / end_to_end_distance
-#
-#     def calculate_orientation(self, cell_center):
-#         v1 = np.array(self.node1.centroid_um) - np.array(cell_center)
-#         v2 = np.array(self.node2.centroid_um) - np.array(cell_center)
-#         angle = np.arccos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
-#         return angle
-#
-#     def calculate_width(self):
-#         branch_mask = (self.label_image == self.node1.instance_label) | (self.label_image == self.node2.instance_label)
-#         dist_map = distance_transform_edt(~branch_mask)
-#         width = 2 * np.mean(dist_map[self.branch_coords[:, 0], self.branch_coords[:, 1]])
-#         return width
-#
-#     def calculate_aspect_ratio(self):
-#         return self.length / self.width
 
 if __name__ == '__main__':
     import os
@@ -608,9 +620,9 @@ if __name__ == '__main__':
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    # track_builder = TrackBuilder(test)
-    # analysis = NodeAnalysis(test, track_builder.tracks)
-    # analysis.calculate_metrics()
+    track_builder = TrackBuilder(test)
+    nodes = NodeAnalysis(test, track_builder.tracks)
+    nodes.calculate_metrics()
     # aggregate_output_file = 'aggregate_metrics.csv'
     # frame_output_folder = test.output_csv_dirpath
     # if not os.path.exists(frame_output_folder):
