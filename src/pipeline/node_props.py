@@ -42,9 +42,9 @@ class Node:
         self.time_point_sec = time_point
         self.assigned_track = None
         if node_region is not None:
-            self.centroid_um = tuple(x * y for x, y in zip(node_region.centroid, spacing))
+            self.centroid_um = tuple(x * y for x, y in zip(node_region.r_centroid, spacing))
             self.instance_label = node_region.label
-            self.coords = node_region.coords
+            self.coords = node_region.r_coords
         else:
             self.centroid_um = tuple(x * y for x, y in zip(dummy_region['centroid'], spacing))
             self.instance_label = dummy_region['instance_label']

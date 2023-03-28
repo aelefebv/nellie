@@ -18,8 +18,8 @@ class OrganelleProperties:
         """
         # self.organelle = organelle
         self.instance_label = organelle.label
-        self.centroid = organelle.centroid
-        self.coords = organelle.coords
+        self.centroid = organelle.r_centroid
+        self.coords = organelle.r_coords
         self.skeleton_coords = skel_coords
 
 
@@ -75,13 +75,13 @@ class OrganellePropertiesConstructor:
                 # For some reason, skeletonization misses some small ones. This assigns centroid as skeleton.
                 if label_num not in skel_dict.keys():
                     # current gpu implementation does not give unscaled centroid, so I re-derive them here
-                    unscaled_centroid = [round(label_prop.centroid[i] / self.spacing[i])
+                    unscaled_centroid = [round(label_prop.r_centroid[i] / self.spacing[i])
                                          for i in range(len(self.spacing))]
                     unscaled_centroid.insert(0, frame_num)
                     skel_im[tuple(unscaled_centroid)] = label_num
-                    skel_coords = label_prop.centroid
+                    skel_coords = label_prop.r_centroid
                 else:
-                    skel_coords = skel_dict[label_num].coords
+                    skel_coords = skel_dict[label_num].r_coords
 
                 organelles_frame.append(OrganelleProperties(label_prop, skel_coords))
             self.organelles[frame_num] = organelles_frame

@@ -5,41 +5,80 @@ from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
 from src import logger
-import csv
 import pandas as pd
 import numpy as xp
-import os
-from skimage import measure
-import scipy.ndimage as ndi
 
-# todo something is messing up with tip-tip branches I think
 
-class Branch:
-    def __init__(self, frame_num, branch_tuple, branch_info):
+class NodeStats:
+    def __init__(self, frame_tracklets: list[NodeTrack], region_id, node_id):
+        # feed in from trackbuilder
+        self.node_id = node_id
+        self.region_id = region_id
+        self.branch_ids = set()
+
+        # this node's properties
+        self.distance_from_cell_center = None
+        self.node_width = None  # the minimum distance to a zero pixel from 3 orthogonal directions
+        self.speed = None
+        self.distance = None
+        self.direction = None
+        self.fission = None
+        self.fusion = None
+        self.num_branches = None
+        self.angles_at_junctions = None
+
+class BranchStats:
+    def __init__(self, frame_num, branch_tuple, branch_info, region_id):
         self.frame_num = frame_num
         self.branch_tuple = branch_tuple
         self.branch_label = branch_info[0]
         self.start_coord = branch_info[1]
         self.branch_coords = []
-        self.length = None
-        self.tortuosity = None
-        self.orientation = None
-        self.orientations = []
-        self.orientations_mean = None
-        self.widths = None
-        self.widths_mean = None
+        self.cell_center = None
+        self.spacing = None
+
+        # node identifier and storage
+        self.node_ids = set()
+        self.node_objects = dict()
+        self.region_id = region_id
+        self.branch_id = None
+
+        # this branch's properties
+        self.b_aspect_ratio = None
+        self.b_distance_from_cell_center = []
+        self.b_distance_from_cell_center_mean = None
+        self.b_circularity = None
+        self.b_length = None
+        self.b_orientation = None
+        self.b_orientations = []
+        self.b_orientations_mean = None
+        self.b_tortuosity = None
+        self.b_widths = None
+        self.b_widths_mean = None
         # self.tortuosity_times_num_voxels = None  # could be useful for summing tortuosity over entire tree
-        self.aspect_ratio = None
-        self.circularity = None
+
+        # node properties for this branch
+        self.bn_mean_width = None
+        self.bn_mean_speed = None
+        self.bn_mean_distance = None
+        self.bn_mean_distance_from_cell_center = None
+        self.bn_mean_direction = None
+        self.bn_mean_fission_num = None
+        self.bn_mean_fusion_num = None
+        self.bn_mean_num_branches = None
+        self.bn_mean_angles_at_junctions = None
+
+    def get_node_aggregate_properties(self, tracklets: dict[int: list[NodeTrack]], frame_num: int):
+        pass
 
     def calculate_tortuosity(self, spacing):
         """Calculate the tortuosity of the branch."""
         coord_1 = self.branch_coords[0]
         coord_2 = self.branch_coords[-1]
         if coord_1 == coord_2:
-            self.tortuosity = 1
+            self.b_tortuosity = 1
         else:
-            self.tortuosity = self.length / self._euclidean_distance(
+            self.b_tortuosity = self.b_length / self._euclidean_distance(
                 self.branch_coords[0], self.branch_coords[-1], spacing)
         # self.tortuosity_times_num_voxels = self.tortuosity * len(self.branch_coords)
 
@@ -69,6 +108,7 @@ class Branch:
         widths = []
         current_point = xp.array(self.start_coord)
         self.branch_coords.append(tuple(current_point))
+        self.spacing = spacing
 
         while True:
             neighbor = self._neighbors_in_volume(volume, tuple(current_point))
@@ -107,20 +147,23 @@ class Branch:
             widths.append(width)
 
             # Calculate the orientation at the current point
-            current_orientation = self._calculate_point_orientation(current_point * spacing,
-                                                                    xp.array(neighbor) * spacing,
-                                                                    cell_center)
-            self.orientations.append(current_orientation)
+            current_orientation, current_distance_from_cell_center = self._calculate_point_orientation(
+                current_point * spacing,
+                xp.array(neighbor) * spacing,
+                cell_center)
+            self.b_orientations.append(current_orientation)
+            self.b_distance_from_cell_center.append(current_distance_from_cell_center)
 
             # Set the closest point as the new current point and remove it from the volume
             current_point = xp.array(neighbor)
 
-        self.length = total_length
-        self.widths = widths
-        self.circularity = xp.mean(widths) / self.length
-        self.aspect_ratio = 1 / self.circularity
-        self.orientations_mean = xp.mean(self.orientations)
-        self.widths_mean = xp.mean(widths)
+        self.b_length = total_length
+        self.b_widths = widths
+        self.b_circularity = xp.mean(widths) / self.b_length
+        self.b_aspect_ratio = 1 / self.b_circularity
+        self.b_orientations_mean = xp.mean(self.b_orientations)
+        self.b_distance_from_cell_center_mean = xp.mean(self.b_distance_from_cell_center)
+        self.b_widths_mean = xp.mean(widths)
 
     def _search_along_direction(self, mask, start_point, direction, spacing):
         max_distance = 0
@@ -150,8 +193,9 @@ class Branch:
 
     def calculate_orientation(self, cell_center, spacing):
         """Calculate the orientation of the branch with respect to the given cell center."""
+        self.cell_center = cell_center
         if len(self.branch_coords) < 2:
-            self.orientation = xp.nan
+            self.b_orientation = xp.nan
         else:
             start_coord = xp.array(self.branch_coords[0]) * spacing
             end_coord = xp.array(self.branch_coords[-1]) * spacing
@@ -172,7 +216,7 @@ class Branch:
 
             # Convert the angle from radians to degrees and restrict the range to [0, 180]
             angle_deg = xp.degrees(angle_rad)
-            self.orientation = min(angle_deg, 180 - angle_deg)
+            self.b_orientation = min(angle_deg, 180 - angle_deg)
 
     @staticmethod
     def _calculate_point_orientation(start_coord, end_coord, cell_center):
@@ -196,70 +240,82 @@ class Branch:
         angle_deg = xp.degrees(angle_rad)
         orientation = min(angle_deg, 180 - angle_deg)
 
-        return orientation
+        return orientation, xp.abs(cell_center_to_start_vector)
 
 
-class Region:
-    def __init__(self, organelle: OrganelleProperties):
-        self.centroid = organelle.centroid
-        self.coords = organelle.coords
-        self.skeleton_coords = organelle.skeleton_coords
-        self.instance_label = organelle.instance_label
+class RegionStats:
+    def __init__(self, organelle: OrganelleProperties, region_id):
+        self.r_centroid = organelle.centroid
+        self.r_coords = organelle.coords
+        self.r_skeleton_coords = organelle.skeleton_coords
+        self.r_instance_label = organelle.instance_label
+        self.region_id = region_id
 
-        self.node_nums = []
-        self.branches = dict()
+
+        # node and branch identifiers and storage
+        self.node_ids = []
+        self.node_objects = dict()
+        self.branch_ids = dict()
         self.branch_objects = dict()
 
-        self.scaled_coords = None
-        self.intensity_coords = None
-        self.volume = None
-        self.distance_from_cell_center_coords = None
+        # region properties for this region
+        self.r_scaled_coords = None
+        self.r_intensity_coords = None
+        self.r_volume = None
+        self.r_distance_from_cell_center_coords = None
 
-        self.num_branches = None
-        self.total_length = None
-        self.mean_aspect_ratio = None
-        self.weighted_aspect_ratio = None
-        self.mean_circularity = None
-        self.weighted_circularity = None
-        self.mean_length = None
-        self.weighted_width = None
-        self.mean_width = None
-        self.weighted_orientation = None
-        self.mean_orientation = None
-        self.weighted_tortuosity = None
-        self.mean_tortuosity = None
-        # self.surface_area = None
-        # self.sphericity = None
-        # self.compactness = None
-        #
-        # self.surface_mesh = None
+        # branch properties for this region
+        self.rb_num_branches = None
+        self.rb_total_branch_length = None
+        self.rb_mean_branch_aspect_ratio = None
+        self.rb_weighted_branch_aspect_ratio = None
+        self.rb_mean_branch_distance_from_cell_center = None
+        self.rb_weighted_branch_distance_from_cell_center = None
+        self.rb_mean_circularity = None
+        self.rb_weighted_circularity = None
+        self.rb_mean_length = None
+        self.rb_weighted_width = None
+        self.rb_mean_width = None
+        self.rb_weighted_orientation = None
+        self.rb_mean_orientation = None
+        self.rb_weighted_tortuosity = None
+        self.rb_mean_tortuosity = None
+
+        # node properties for this region
+        self.rn_mean_width = None
+        self.rn_mean_speed = None
+        self.rn_mean_distance = None
+        self.rn_mean_distance_from_cell_center = None
+        self.rn_mean_direction = None
+        self.rn_mean_fission_num = None
+        self.rn_mean_fusion_num = None
+        self.rn_mean_num_branches = None
+        self.rn_mean_angles_at_junctions = None
+
 
     def get_branch_aggregate_properties(self):
-        self.num_branches = len(self.branch_objects)
-        if self.num_branches == 0:
+        self.rb_num_branches = len(self.branch_objects)
+        if self.rb_num_branches == 0:
             return
-        self.total_length = sum([branch[0].length for branch in self.branch_objects.values()])
-        self.weighted_aspect_ratio = sum([branch[0].aspect_ratio * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
-        self.mean_aspect_ratio = sum([branch[0].aspect_ratio for branch in self.branch_objects.values()]) / self.num_branches
-        self.weighted_circularity = sum([branch[0].circularity * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
-        self.mean_circularity = sum([branch[0].circularity for branch in self.branch_objects.values()]) / self.num_branches
-        self.mean_length = self.total_length / self.num_branches
-        self.weighted_width = sum([sum(branch[0].widths) * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
-        self.mean_width = sum([branch[0].widths_mean for branch in self.branch_objects.values()]) / self.num_branches
-        self.weighted_orientation = sum([branch[0].orientation * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
-        self.mean_orientation = sum([branch[0].orientation for branch in self.branch_objects.values()]) / self.num_branches
-        self.weighted_tortuosity = sum([branch[0].tortuosity * branch[0].length for branch in self.branch_objects.values()]) / self.total_length
-        self.mean_tortuosity = sum([branch[0].tortuosity for branch in self.branch_objects.values()]) / self.num_branches
+        self.rb_total_branch_length = sum([branch.b_length for branch in self.branch_objects.values()])
+        self.rb_weighted_branch_aspect_ratio = sum([branch.b_aspect_ratio * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
+        self.rb_mean_branch_aspect_ratio = sum([branch.b_aspect_ratio for branch in self.branch_objects.values()]) / self.rb_num_branches
+        self.rb_weighted_circularity = sum([branch.b_circularity * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
+        self.rb_mean_circularity = sum([branch.b_circularity for branch in self.branch_objects.values()]) / self.rb_num_branches
+        self.rb_mean_branch_distance_from_cell_center = sum([branch.b_distance_from_cell_center_mean for branch in self.branch_objects.values()]) / self.rb_num_branches
+        self.rb_weighted_branch_distance_from_cell_center = sum([branch.b_distance_from_cell_center_mean * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
+        self.rb_mean_length = self.rb_total_branch_length / self.rb_num_branches
+        self.rb_weighted_width = sum([sum(branch.b_widths) * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
+        self.rb_mean_width = sum([branch.b_widths_mean for branch in self.branch_objects.values()]) / self.rb_num_branches
+        self.rb_weighted_orientation = sum([branch.b_orientation * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
+        self.rb_mean_orientation = sum([branch.b_orientation for branch in self.branch_objects.values()]) / self.rb_num_branches
+        self.rb_weighted_tortuosity = sum([branch.b_tortuosity * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
+        self.rb_mean_tortuosity = sum([branch.b_tortuosity for branch in self.branch_objects.values()]) / self.rb_num_branches
 
-    def get_node_aggregate_properties(self, tracklets: list[NodeTrack]):
-        if self.node_nums is None:
-            return
-        for node_num in self.node_nums:
-            node_track = tracklets[node_num]
-            self.volume += node_track.volume
-            self.distance_from_cell_center_coords += node_track.distance_from_cell_center_coords
-            self.intensity_coords += node_track.intensity_coords
-            self.scaled_coords += node_track.scaled_coords
+    def get_node_aggregate_properties(self, tracklets: dict[int: list[NodeTrack]], frame_num: int):
+        pass
+
+
 
 class RegionAnalysis:
     def __init__(self, im_info: ImInfo):
@@ -273,11 +329,35 @@ class RegionAnalysis:
         self.cell_center = dict()
 
     def get_regions(self, tracklets: dict[int, list[NodeTrack]]):
+        self._calculate_cell_center()
         self._calculate_metrics()
         self._assign_nodes()
         self._get_branch_stats()
         self._clean_branch_stats()
         self._get_mean_stats(tracklets)
+
+    def _calculate_cell_center(self):
+        for frame_num, frame_nodes in self.node_props.nodes.items():
+            self.cell_center[frame_num] = xp.mean(xp.array([node.centroid_um for node in frame_nodes]), axis=0)
+
+    def _calculate_metrics(self):
+        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
+        for frame_num, organelles in self.organelles.items():
+            logger.debug(f'Calculating region metrics for frame {frame_num}/{len(self.organelles.items())}')
+            self.regions[frame_num] = dict()
+            for organelle in organelles:
+                region = RegionStats(organelle)
+                region.r_scaled_coords = region.r_coords * self.spacing
+                region.r_volume = len(region.r_coords) * xp.prod(self.spacing)
+                region.r_intensity_coords = intensity_image[frame_num][
+                    region.r_coords[:, 0], region.r_coords[:, 1], region.r_coords[:, 2]]
+                region.distance_from_cell_center = xp.linalg.norm(
+                    region.r_scaled_coords - self.cell_center[frame_num], axis=1)
+                # region.surface_mesh = measure.marching_cubes(binary_image, step_size=1, spacing=self.spacing)
+                # region.surface_area = measure.mesh_surface_area(region.surface_mesh[0], region.surface_mesh[1])
+                # region.sphericity = region.surface_area / region.volume
+                # region.compactness = region.volume / xp.sqrt(region.surface_area)
+                self.regions[frame_num][region.r_instance_label] = region
 
     def _get_mean_stats(self, tracklets):
         for frame_num, region_dict in self.regions.items():
@@ -291,24 +371,30 @@ class RegionAnalysis:
         for frame_num, frame_regions in self.regions.items():
             for region_num, region in frame_regions.items():
                 for branch_num, branch_list in region.branch_objects.items():
-                    if len(branch_list) < 2:
-                        continue
-                    longest_branch = max(branch_list, key=lambda x: x.length)
-                    remove_branches = []
+                    node_set = set()
                     for branch in branch_list:
-                        if branch is not longest_branch:
-                            remove_branches.append(branch)
-                    for branch in remove_branches:
-                        self.regions[frame_num][region_num].branch_objects[branch_num].remove(branch)
+                        node_set.add(branch.branch_tuple[0])
+                        node_set.add(branch.branch_tuple[1])
+                    for branch in branch_list:
+                        branch.node_ids = node_set
+                    if len(branch_list) >= 2:
+                        longest_branch = max(branch_list, key=lambda x: x.b_length)
+                        remove_branches = []
+                        for branch in branch_list:
+                            if branch is not longest_branch:
+                                remove_branches.append(branch)
+                        for branch in remove_branches:
+                            self.regions[frame_num][region_num].branch_objects[branch_num].remove(branch)
+                    region.branch_objects[branch_num] = region.branch_objects[branch_num][0]
 
     def _get_branch_stats(self):
         branch_labels = tifffile.memmap(self.im_info.path_im_label_seg, mode='r') > 0
         mask_im = tifffile.memmap(self.im_info.path_im_mask, mode='r') > 0
         for frame_num, frame_regions in self.regions.items():
             for region_num, region in frame_regions.items():
-                for branch_tuple, branch_infos in region.branches.items():
+                for branch_tuple, branch_infos in region.branch_ids.items():
                     for branch_info in branch_infos:
-                        branch_object = Branch(frame_num, branch_tuple, branch_info)
+                        branch_object = BranchStats(frame_num, branch_tuple, branch_info)
                         branch_label = branch_info[0]
                         branch_object.traverse_and_calculate_length_and_width(
                             branch_labels[frame_num], mask_im[frame_num], self.spacing, self.cell_center[frame_num])
@@ -317,29 +403,6 @@ class RegionAnalysis:
                         if region.branch_objects.get(branch_label) is None:
                             region.branch_objects[branch_label] = []
                         region.branch_objects[branch_label].append(branch_object)
-
-
-    def _calculate_metrics(self):
-        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
-        for frame_num, organelles in self.organelles.items():
-            logger.debug(f'Calculating metrics for frame {frame_num}/{len(self.organelles.items())}')
-            self.cell_center[frame_num] = xp.mean(xp.array([organelle.centroid for organelle in organelles]), axis=0)
-            self.regions[frame_num] = dict()
-            for organelle in organelles:
-                logger.debug(f'Calculating metrics for organelle {organelle.instance_label}/{len(organelles)}')
-                # binary_image = label_image[frame_num] == organelle.instance_label
-                region = Region(organelle)
-                region.scaled_coords = region.coords * self.spacing
-                region.volume = len(region.coords) * xp.prod(self.spacing)
-                region.intensity_coords = intensity_image[frame_num][
-                    region.coords[:, 0], region.coords[:, 1], region.coords[:, 2]]
-                region.distance_from_cell_center = xp.linalg.norm(
-                    region.scaled_coords - self.cell_center[frame_num], axis=1)
-                # region.surface_mesh = measure.marching_cubes(binary_image, step_size=1, spacing=self.spacing)
-                # region.surface_area = measure.mesh_surface_area(region.surface_mesh[0], region.surface_mesh[1])
-                # region.sphericity = region.surface_area / region.volume
-                # region.compactness = region.volume / xp.sqrt(region.surface_area)
-                self.regions[frame_num][region.instance_label] = region
 
     def _assign_nodes(self):
         # todo remove frame cap after testing
@@ -354,14 +417,14 @@ class RegionAnalysis:
                     node_pair = [node_num, connected_node_num]
                     node_pair.sort()
                     node_pair = tuple(node_pair)
-                    if node_pair not in self.regions[frame_num][node.skeleton_label].branches:
+                    if node_pair not in self.regions[frame_num][node.skeleton_label].branch_ids:
                         connected_node_labels = [branch[0] for branch in connected_node.connected_branches]
                         connected_branches = [branch for branch in node.connected_branches
                                               if branch[0] in connected_node_labels]
                         branches[node_pair] = connected_branches
-                if node_num not in self.regions[frame_num][node.skeleton_label].node_nums:
-                    self.regions[frame_num][node.skeleton_label].node_nums.append(node_num)
-                self.regions[frame_num][node.skeleton_label].branches.update(branches)
+                if node_num not in self.regions[frame_num][node.skeleton_label].node_ids:
+                    self.regions[frame_num][node.skeleton_label].node_ids.append(node_num)
+                self.regions[frame_num][node.skeleton_label].branch_ids.update(branches)
 
 
 class TrackBuilder:
@@ -370,6 +433,7 @@ class TrackBuilder:
         self.tracklets: dict[int: list[NodeTrack]] = unpickle_object(self.im_info.path_pickle_track)
         self.tracks = []
         self.time_between_volumes = self.im_info.dim_sizes['T']
+        self.node_track_dict = None
 
         root_node_tracks = []
         for frame_num, track_frames in self.tracklets.items():
@@ -400,6 +464,18 @@ class TrackBuilder:
                 self.build_tracks(child_node, current_track.copy(), all_tracks)
 
         return all_tracks
+
+    # def node_num_track_dict(self):
+    #     # create a dictionary where the key is the frame number and the value is a dictionary
+    #     # where the key is the node numbers and value is a list of tracks that contain that node
+    #     node_num_track_dict = dict()
+    #     for frame_num, track_frames in self.tracklets.items():
+    #         node_num_track_dict[frame_num] = dict()
+    #         for node_num, track in enumerate(track_frames):
+    #             if node_num not in node_num_track_dict[frame_num]:
+    #                 node_num_track_dict[frame_num][node_num] = []
+    #             node_num_track_dict[frame_num][node_num].append(track)
+    #     self.node_track_dict = node_num_track_dict
 
 
 class NodeAnalysis:
@@ -621,6 +697,7 @@ if __name__ == '__main__':
         logger.error("File not found.")
         exit(1)
     track_builder = TrackBuilder(test)
+    # track_builder.node_num_track_dict()
     nodes = NodeAnalysis(test, track_builder.tracks)
     nodes.calculate_metrics()
     # aggregate_output_file = 'aggregate_metrics.csv'
@@ -629,4 +706,5 @@ if __name__ == '__main__':
     #     os.makedirs(frame_output_folder)
     # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
     regions = RegionAnalysis(test)
-    regions.get_regions()
+    # regions.calculate_metrics()
+    regions.get_regions(track_builder.tracklets)
