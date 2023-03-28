@@ -10,15 +10,193 @@ import pandas as pd
 import numpy as xp
 import os
 from skimage import measure
+import scipy.ndimage as ndi
+
+# todo something is messing up with tip-tip branches I think
 
 class Branch:
-    def __init__(self, frame_num, node_1, node_2=None):
+    def __init__(self, frame_num, branch_tuple, branch_info):
         self.frame_num = frame_num
-        self.node_1 = node_1
-        self.node_2 = node_2
+        self.branch_tuple = branch_tuple
+        self.branch_label = branch_info[0]
+        self.start_coord = branch_info[1]
+        self.branch_coords = []
         self.length = None
         self.tortuosity = None
         self.orientation = None
+        self.orientations = []
+        self.orientations_mean = None
+        self.widths = None
+        self.widths_mean = None
+        self.tortuosity_times_num_voxels = None  # could be useful for summing tortuosity over entire tree
+        self.aspect_ratio = None
+        self.circularity = None
+
+    def calculate_tortuosity(self, spacing):
+        """Calculate the tortuosity of the branch."""
+        coord_1 = self.branch_coords[0]
+        coord_2 = self.branch_coords[-1]
+        if coord_1 == coord_2:
+            self.tortuosity = 1
+        else:
+            self.tortuosity = self.length / self._euclidean_distance(
+                self.branch_coords[0], self.branch_coords[-1], spacing)
+        self.tortuosity_times_num_voxels = self.tortuosity * len(self.branch_coords)
+
+    def _euclidean_distance(self, coord1, coord2, spacing):
+        """Calculate the euclidean distance between two points."""
+        return xp.sqrt(xp.sum((xp.array(coord1) * spacing - xp.array(coord2) * spacing) ** 2))
+
+    def _neighbors_in_volume(self, volume, check_coord):
+        """Find the coordinates of the neighboring points within the volume."""
+        z, y, x = check_coord
+        neighbors = []
+        for dz in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    if dz == dy == dx == 0:
+                        continue
+                    nz, ny, nx = z + dz, y + dy, x + dx
+                    if 0 <= nz < volume.shape[0] and 0 <= ny < volume.shape[1] and 0 <= nx < volume.shape[2]:
+                        if volume[nz, ny, nx]:
+                            if (nz, ny, nx) not in self.branch_coords:
+                                neighbors.append((nz, ny, nx))
+                                self.branch_coords.append((nz, ny, nx))
+        return neighbors
+
+    def traverse_and_calculate_length_and_width(self, volume, mask, spacing, cell_center):
+        total_length = 0
+        widths = []
+        current_point = xp.array(self.start_coord)
+        self.branch_coords.append(tuple(current_point))
+
+        while True:
+            neighbor = self._neighbors_in_volume(volume, tuple(current_point))
+            if not neighbor:
+                # calculate the width for that pixel in any direction
+                max_distance1 = self._search_along_direction(mask, current_point, xp.array([1, 0, 0]), spacing)
+                max_distance2 = self._search_along_direction(mask, current_point, xp.array([0, 1, 0]), spacing)
+                width = max(max_distance1, max_distance2) * 2
+                # set the length equal to the width
+                total_length += width
+                widths.append(width)
+                break
+            neighbor = neighbor[0]
+            # closest_point = min(neighbor, key=lambda x: xp.linalg.norm(current_point - xp.array(x)))
+
+            # Calculate the distance between the current point and the closest point
+            segment_length = xp.linalg.norm(current_point * spacing - xp.array(neighbor) * spacing)
+            total_length += segment_length
+
+            # Calculate the direction vector of the segment
+            direction_vector = xp.array(neighbor) - current_point
+            direction_vector = direction_vector / xp.linalg.norm(direction_vector)
+
+            # Find two orthogonal vectors
+            orthogonal_vector1 = xp.cross(direction_vector, xp.array([1, 0, 0]))
+            if xp.linalg.norm(orthogonal_vector1) == 0:
+                orthogonal_vector1 = xp.cross(direction_vector, xp.array([0, 1, 0]))
+
+            orthogonal_vector1 = orthogonal_vector1 / xp.linalg.norm(orthogonal_vector1)
+            orthogonal_vector2 = xp.cross(direction_vector, orthogonal_vector1)
+
+            # Find the width of the branch at the current point
+            max_distance1 = self._search_along_direction(mask, current_point, orthogonal_vector1, spacing)
+            max_distance2 = self._search_along_direction(mask, current_point, orthogonal_vector2, spacing)
+            width = max(max_distance1, max_distance2) * 2
+            widths.append(width)
+
+            # Calculate the orientation at the current point
+            current_orientation = self._calculate_point_orientation(current_point * spacing,
+                                                                    xp.array(neighbor) * spacing,
+                                                                    cell_center)
+            self.orientations.append(current_orientation)
+
+            # Set the closest point as the new current point and remove it from the volume
+            current_point = xp.array(neighbor)
+
+        self.length = total_length
+        self.widths = widths
+        self.circularity = xp.mean(widths) / self.length
+        self.aspect_ratio = 1 / self.circularity
+        self.orientations_mean = xp.mean(self.orientations)
+        self.widths_mean = xp.mean(widths)
+
+    def _search_along_direction(self, mask, start_point, direction, spacing):
+        max_distance = 0
+        i = 0
+        while True:
+            # Search in positive direction
+            search_point_pos = start_point + i * direction
+            if not self._is_in_bounds_and_zero(mask, search_point_pos):
+                distance_pos = xp.linalg.norm(start_point * spacing - search_point_pos * spacing)
+                max_distance = max(max_distance, distance_pos)
+                break
+            # Search in negative direction
+            search_point_neg = start_point - i * direction
+            if not self._is_in_bounds_and_zero(mask, search_point_neg):
+                distance_neg = xp.linalg.norm(start_point * spacing - search_point_neg * spacing)
+                max_distance = max(max_distance, distance_neg)
+                break
+            i += 1
+        return max_distance
+
+    @staticmethod
+    def _is_in_bounds_and_zero(mask, search_point):
+        nz, ny, nx = tuple(search_point)
+        if 0 <= nz < mask.shape[0] and 0 <= ny < mask.shape[1] and 0 <= nx < mask.shape[2]:
+            return mask[int(nz), int(ny), int(nx)]
+        return False
+
+    def calculate_orientation(self, cell_center, spacing):
+        """Calculate the orientation of the branch with respect to the given cell center."""
+        if len(self.branch_coords) < 2:
+            self.orientation = xp.nan
+        else:
+            start_coord = xp.array(self.branch_coords[0]) * spacing
+            end_coord = xp.array(self.branch_coords[-1]) * spacing
+            cell_center = xp.array(cell_center)
+
+            # Calculate the branch vector
+            branch_vector = end_coord - start_coord
+            branch_vector_normalized = branch_vector / xp.linalg.norm(branch_vector)
+
+            # Calculate the vector from the cell center to the start point of the branch
+            cell_center_to_start_vector = start_coord - cell_center
+            cell_center_to_start_vector_normalized = cell_center_to_start_vector / xp.linalg.norm(
+                cell_center_to_start_vector)
+
+            # Calculate the orientation as the angle between the two vectors (in radians)
+            dot_product = xp.dot(branch_vector_normalized, cell_center_to_start_vector_normalized)
+            angle_rad = xp.arccos(dot_product)
+
+            # Convert the angle from radians to degrees and restrict the range to [0, 180]
+            angle_deg = xp.degrees(angle_rad)
+            self.orientation = min(angle_deg, 180 - angle_deg)
+
+    @staticmethod
+    def _calculate_point_orientation(start_coord, end_coord, cell_center):
+        """Calculate the orientation at the current point with respect to the given cell center."""
+        if start_coord is None or end_coord is None:
+            return xp.nan
+
+        # Calculate the branch vector
+        branch_vector = end_coord - start_coord
+        branch_vector_normalized = branch_vector / xp.linalg.norm(branch_vector)
+
+        # Calculate the vector from the cell center to the start point of the branch
+        cell_center_to_start_vector = start_coord - cell_center
+        cell_center_to_start_vector_normalized = cell_center_to_start_vector / xp.linalg.norm(cell_center_to_start_vector)
+
+        # Calculate the orientation as the angle between the two vectors (in radians)
+        dot_product = xp.dot(branch_vector_normalized, cell_center_to_start_vector_normalized)
+        angle_rad = xp.arccos(dot_product)
+
+        # Convert the angle from radians to degrees and restrict the range to [0, 180]
+        angle_deg = xp.degrees(angle_rad)
+        orientation = min(angle_deg, 180 - angle_deg)
+
+        return orientation
 
 class Region:
     def __init__(self, organelle: OrganelleProperties):
@@ -29,6 +207,7 @@ class Region:
 
         self.nodes = []
         self.branches = dict()
+        self.branch_objects = dict()
 
         self.scaled_coords = None
         self.intensity_coords = None
@@ -55,6 +234,38 @@ class RegionAnalysis:
     def get_regions(self):
         self._calculate_metrics()
         self._assign_nodes()
+        self._get_branch_stats()
+        self._clean_branch_stats()
+
+    def _clean_branch_stats(self):
+        for frame_num, frame_regions in self.regions.items():
+            for region_num, region in frame_regions.items():
+                for branch_num, branch_list in region.branch_objects.items():
+                    if len(branch_list) < 2:
+                        continue
+                    longest_branch = max(branch_list, key=lambda x: x.length)
+                    remove_branches = []
+                    for branch in branch_list:
+                        if branch is not longest_branch:
+                            remove_branches.append(branch)
+                    for branch in remove_branches:
+                        self.regions[frame_num][region_num].branch_objects[branch_num].remove(branch)
+    def _get_branch_stats(self):
+        branch_labels = tifffile.memmap(self.im_info.path_im_label_seg, mode='r') > 0
+        mask_im = tifffile.memmap(self.im_info.path_im_mask, mode='r') > 0
+        for frame_num, frame_regions in self.regions.items():
+            for region_num, region in frame_regions.items():
+                for branch_tuple, branch_infos in region.branches.items():
+                    for branch_info in branch_infos:
+                        branch_object = Branch(frame_num, branch_tuple, branch_info)
+                        branch_label = branch_info[0]
+                        branch_object.traverse_and_calculate_length_and_width(
+                            branch_labels[frame_num], mask_im[frame_num], self.spacing, self.cell_center[frame_num])
+                        branch_object.calculate_tortuosity(self.spacing)
+                        branch_object.calculate_orientation(self.cell_center[frame_num], self.spacing)
+                        if region.branch_objects.get(branch_label) is None:
+                            region.branch_objects[branch_label] = []
+                        region.branch_objects[branch_label].append(branch_object)
 
     def _calculate_metrics(self):
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
@@ -89,33 +300,13 @@ class RegionAnalysis:
                     node_pair.sort()
                     node_pair = tuple(node_pair)
                     if node_pair not in self.regions[frame_num][node.skeleton_label].branches:
+                        connected_node_labels = [branch[0] for branch in connected_node.connected_branches]
                         connected_branches = [branch for branch in node.connected_branches
-                                              if branch in connected_node.connected_branches]
+                                              if branch[0] in connected_node_labels]
                         branches[node_pair] = connected_branches
-
                 if node_num not in self.regions[frame_num][node.skeleton_label].nodes:
                     self.regions[frame_num][node.skeleton_label].nodes.append(node_num)
                 self.regions[frame_num][node.skeleton_label].branches.update(branches)
-
-    def calculate_branch_length(self, node1: Node, node2: Node, frame_num: int) -> float:
-        # Get the coordinates of the skeleton
-        skeleton = self.regions[frame_num][node1.skeleton_label].skeleton_coords
-
-        # Get the indices of the nodes' coordinates in the skeleton
-        index1 = self.get_index_in_skeleton(skeleton, node1.centroid_um)
-        index2 = self.get_index_in_skeleton(skeleton, node2.centroid_um)
-        # Check that the indices are ordered
-        if index1 > index2:
-            index1, index2 = index2, index1
-
-        # Calculate the length of the branch
-        length = xp.sum(xp.linalg.norm(skeleton[index1 + 1:index2 + 1] - skeleton[index1:index2], axis=1))
-
-        return length
-
-    @staticmethod
-    def get_index_in_skeleton(skeleton: xp.ndarray, coord: tuple) -> int:
-        return xp.argmin(xp.linalg.norm(skeleton - coord, axis=1))
 
 
 class TrackBuilder:

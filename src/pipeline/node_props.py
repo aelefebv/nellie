@@ -158,7 +158,7 @@ class NodeConstructor:
                 new_node = Node('junction', junction_region, time_point_sec, self.spacing)
                 new_node.skeleton_label = skeleton_frame[tuple(junction_region.coords[0])]
                 for edge_neighbor in edge_neighbors:
-                    edge_label = edge_labels[tuple(edge_neighbor)]
+                    edge_label = (edge_labels[tuple(edge_neighbor)], tuple(edge_neighbor))
                     new_node.connected_branches.append(edge_label)
                     if edge_label in edge_label_set:
                         edge_label_set.remove(edge_label)
@@ -189,7 +189,8 @@ class NodeConstructor:
                 self.nodes[frame_num].append(new_node)
             elif has_neighbors == 1:  # node is a valid tip
                 new_node = Node('tip', tip_region, time_point_sec, self.spacing)
-                edge_label = edge_labels[tuple(tip_neighbors[0])]
+                # edge_label = edge_labels[tuple(tip_neighbors[0])]
+                edge_label = (edge_labels[tuple(tip_neighbors[0])], tuple(tip_neighbors[0]))
                 new_node.connected_branches.append(edge_label)
                 new_node.skeleton_label = skeleton_frame[tuple(tip_region.coords[0])]
                 self.nodes[frame_num].append(new_node)
@@ -209,7 +210,7 @@ class NodeConstructor:
             num_tip_labels += 1
             dummy_region = {'instance_label': num_tip_labels, 'coords': node_coords, 'centroid': edge_region.centroid}
             new_node = Node('lone tip', None, time_point_sec, self.spacing, dummy_region=dummy_region)
-            new_node.connected_branches.append(edge_label)  # could be useful for later?
+            new_node.connected_branches.append((edge_label, tuple(edge_region.coords[0])))  # could be useful for later?
             new_node.skeleton_label = skeleton_frame[tuple(edge_region.coords[0])]
             self.nodes[frame_num].append(new_node)
             tip_labels[rounded_centroid] = num_tip_labels
@@ -226,11 +227,11 @@ class NodeConstructor:
         """
         branch_labels = {}
         for node_num, node in enumerate(self.nodes[frame_num]):
-            for branch_num in node.connected_branches:
-                if branch_num not in branch_labels.keys():
-                    branch_labels[branch_num] = [node_num]
+            for connected_branch in node.connected_branches:
+                if connected_branch[0] not in branch_labels.keys():
+                    branch_labels[connected_branch[0]] = [node_num]
                 else:
-                    branch_labels[branch_num].append(node_num)
+                    branch_labels[connected_branch[0]].append(node_num)
         for branch_label, connected_nodes in branch_labels.items():
             for node_num in connected_nodes:
                 self.nodes[frame_num][node_num].connected_nodes += connected_nodes
@@ -342,7 +343,7 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     node_props = NodeConstructor(test)
-    node_props.get_node_properties(5)
+    node_props.get_node_properties(2)
     pickle_object(test.path_pickle_node, node_props)
     node_props_unpickled = unpickle_object(test.path_pickle_node)
     print('hi')

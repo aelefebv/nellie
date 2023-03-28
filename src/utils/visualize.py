@@ -69,7 +69,7 @@ list[list[int, int, float, float, float]], dict):
     import numpy as xp
     for frame_num, track_frames in track_dict.items():
         for track in track_frames:
-            track.checked = False
+            track.branch_coords = False
     data = []
     unique_id = 0
     lp = []
@@ -78,9 +78,9 @@ list[list[int, int, float, float, float]], dict):
     for frame_num, track_frames in track_dict.items():
         for track in track_frames:
             parents = 0
-            if track.checked:
+            if track.branch_coords:
                 continue
-            track.checked = True
+            track.branch_coords = True
             if len(track.parents) < 1:
                 unique_id += 1
                 track.napari_track_id = unique_id
