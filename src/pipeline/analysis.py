@@ -11,7 +11,6 @@ import numpy as xp
 
 class StatsNode:
     def __init__(self, node_id, node_track: NodeTrack, region_id):
-        # feed in from trackbuilder
         self.node_id = node_id
         self.node_track = node_track
 
@@ -32,14 +31,14 @@ class StatsNode:
         self.n_direction = []
         self.n_fission = []
         self.n_fusion = []
-        # will want to save aggregate values (all stats, mean, median, std, etc.)
-        # self.n_mean_angle_at_junctions = None
-        # self.n_mean_intensity = None
-        # self.n_mean_speed = None
-        # self.n_mean_distance = None
-        # self.n_mean_direction = None
-        # self.n_sum_fission = None
-        # self.n_sum_fusion = None
+    # todo will want to save aggregate values (all stats, mean, median, std, etc.)
+    #    self.n_mean_angle_at_junctions = None
+    #    self.n_mean_intensity = None
+    #    self.n_mean_speed = None
+    #    self.n_mean_distance = None
+    #    self.n_mean_direction = None
+    #    self.n_sum_fission = None
+    #    self.n_sum_fusion = None
 
     def calculate_node_stats(self, frame_num, spacing, intensity_image, cell_centers, mask_image,
                              frame_node_tracks, all_tracks, time_step):
@@ -149,15 +148,17 @@ class StatsBranch:
         # this branch's properties
         self.b_aspect_ratio = None
         self.b_distance_from_cell_center = []
-        self.b_distance_from_cell_center_mean = None
         self.b_circularity = None
+        self.b_intensity_coords = None
         self.b_length = None
         self.b_orientation = None
         self.b_orientations = []
-        self.b_orientations_mean = None
         self.b_tortuosity = None
         self.b_widths = None
-        self.b_widths_mean = None
+    # todo will want to save aggregate values (all stats, mean, median, std, etc.)
+    #     self.b_distance_from_cell_center_mean = None
+    #     self.b_orientations_mean = None
+    #     self.b_widths_mean = None
 
         # node properties for this branch
         self.bn_mean_width = None
@@ -170,13 +171,17 @@ class StatsBranch:
         self.bn_mean_num_branches = None
         self.bn_mean_angles_at_junctions = None
 
-    def calculate_branch_stats(self, spacing, intensity_image, cell_center, mask_image):
-        pass
+    def calculate_branch_stats(self, spacing, intensity_image, cell_center, mask_image, frame_branch_labels):
+        self._traverse_and_calculate_length_and_width(frame_branch_labels, mask_image, spacing, cell_center)
+        self._calculate_tortuosity(spacing)
+        self._calculate_orientation(cell_center, spacing)
+        coords = xp.array(self.branch_coords)
+        self.b_intensity_coords = intensity_image[coords[:, 0], coords[:, 1], coords[:, 2]]
 
     def get_node_aggregate_properties(self, tracklets: dict[int: list[NodeTrack]], frame_num: int):
         pass
 
-    def calculate_tortuosity(self, spacing):
+    def _calculate_tortuosity(self, spacing):
         """Calculate the tortuosity of the branch."""
         coord_1 = self.branch_coords[0]
         coord_2 = self.branch_coords[-1]
@@ -207,7 +212,7 @@ class StatsBranch:
                                 self.branch_coords.append((nz, ny, nx))
         return neighbors
 
-    def traverse_and_calculate_length_and_width(self, volume, mask, spacing, cell_center):
+    def _traverse_and_calculate_length_and_width(self, volume, mask, spacing, cell_center):
         total_length = 0
         widths = []
         current_point = xp.array(self.branch_start_coord)
@@ -265,9 +270,6 @@ class StatsBranch:
         self.b_widths = widths
         self.b_circularity = xp.mean(widths) / self.b_length
         self.b_aspect_ratio = 1 / self.b_circularity
-        self.b_orientations_mean = xp.mean(self.b_orientations)
-        self.b_distance_from_cell_center_mean = xp.mean(self.b_distance_from_cell_center)
-        self.b_widths_mean = xp.mean(widths)
 
     def _search_along_direction(self, mask, start_point, direction, spacing):
         max_distance = 0
@@ -295,7 +297,7 @@ class StatsBranch:
             return mask[int(nz), int(ny), int(nx)]
         return False
 
-    def calculate_orientation(self, cell_center, spacing):
+    def _calculate_orientation(self, cell_center, spacing):
         """Calculate the orientation of the branch with respect to the given cell center."""
         self.cell_center = cell_center
         if len(self.branch_coords) < 2:
@@ -461,8 +463,9 @@ class AnalysisHierarchyConstructor:
         # todo account for when there is no intensity image
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
         mask_image = self.im_info.get_im_memmap(self.im_info.path_im_mask)
+        branch_label_image = self.im_info.get_im_memmap(self.im_info.path_im_label_seg)
         self._calculate_region_stats(intensity_image)
-        self._calculate_branch_stats(intensity_image, mask_image)
+        self._calculate_branch_stats(intensity_image, mask_image, branch_label_image)
         self._calculate_node_stats(intensity_image, mask_image)
 
         # self._calculate_metrics()
@@ -495,29 +498,18 @@ class AnalysisHierarchyConstructor:
                     self.stats_branches[frame_num][branch_id].node_ids.add(node_id)
                     self.stats_nodes[frame_num][node_id].branch_ids.add(branch_id)
 
-    def _construct_branch_objects(self):
-        for frame_num, frame_nodes in self.node_props.nodes.items():
-            logger.info(f'Constructing branch objects for frame {frame_num}')
-            self.stats_branches[frame_num] = dict()
-            for node_num, node in enumerate(frame_nodes):
-                for branch_id, branch_start_coord in node.connected_branches:
-                    branch_object = StatsBranch(branch_id, branch_start_coord)
-                    if self.stats_branches[frame_num].get(branch_id) is None:
-                        self.stats_branches[frame_num][branch_id] = []
-                    self.stats_branches[frame_num][branch_id].append(branch_object)
-
     def _calculate_region_stats(self, intensity_image):
         for frame_num, frame_regions in self.stats_region.items():
             logger.info(f'Calculating region stats for frame {frame_num}')
             for region in frame_regions.values():
                 region.calculate_region_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num])
 
-    def _calculate_branch_stats(self, intensity_image, mask_image):
+    def _calculate_branch_stats(self, intensity_image, mask_image, branch_label_image):
         for frame_num, frame_branches in self.stats_branches.items():
             logger.info(f'Calculating branch stats for frame {frame_num}')
             for branch in frame_branches.values():
                 branch.calculate_branch_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num],
-                                              mask_image[frame_num])
+                                              mask_image[frame_num], branch_label_image[frame_num])
 
     def _calculate_node_stats(self, intensity_image, mask_image):
         for frame_num, frame_nodes in self.stats_nodes.items():
@@ -563,10 +555,10 @@ class AnalysisHierarchyConstructor:
                     for branch_info in branch_infos:
                         branch_object = StatsBranch(frame_num, branch_tuple, branch_info)
                         branch_label = branch_info[0]
-                        branch_object.traverse_and_calculate_length_and_width(
+                        branch_object._traverse_and_calculate_length_and_width(
                             branch_labels[frame_num], mask_im[frame_num], self.spacing, self.cell_center[frame_num])
-                        branch_object.calculate_tortuosity(self.spacing)
-                        branch_object.calculate_orientation(self.cell_center[frame_num], self.spacing)
+                        branch_object._calculate_tortuosity(self.spacing)
+                        branch_object._calculate_orientation(self.cell_center[frame_num], self.spacing)
                         if region.branch_objects.get(branch_label) is None:
                             region.branch_objects[branch_label] = []
                         region.branch_objects[branch_label].append(branch_object)
