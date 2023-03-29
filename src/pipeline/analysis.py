@@ -1,7 +1,7 @@
 from tifffile import tifffile
 
 from src.pipeline.organelle_props import OrganellePropertiesConstructor, OrganelleProperties
-from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor, NodeTrackConstructor
+from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor
 from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
 from src import logger
@@ -27,20 +27,30 @@ class StatsNode:
         self.n_num_branches = None
         self.n_angles_at_junctions = None
         # previous frame required
-        self.n_speed = None
-        self.n_distance = None
-        self.n_direction = None
-        self.n_fission = None
-        self.n_fusion = None
+        self.n_speed = []
+        self.n_distance = []
+        self.n_direction = []
+        self.n_fission = []
+        self.n_fusion = []
+        # will want to save aggregate values (all stats, mean, median, std, etc.)
+        # self.n_mean_angle_at_junctions = None
+        # self.n_mean_intensity = None
+        # self.n_mean_speed = None
+        # self.n_mean_distance = None
+        # self.n_mean_direction = None
+        # self.n_sum_fission = None
+        # self.n_sum_fusion = None
 
-    def calculate_node_stats(self, spacing, intensity_image, cell_center, mask_image, frame_node_tracks):
-        self.n_distance_from_cell_center = xp.linalg.norm(self.node_track.node.centroid_um - cell_center, axis=0)
+    def calculate_node_stats(self, frame_num, spacing, intensity_image, cell_centers, mask_image,
+                             frame_node_tracks, all_tracks, time_step):
+        self.n_distance_from_cell_center = xp.linalg.norm(
+            self.node_track.node.centroid_um - cell_centers[frame_num], axis=0)
         self.n_node_width = self._find_node_width(mask_image, spacing)
         node_coords = self.node_track.node.coords
         self.n_intensity_coords = intensity_image[node_coords[:, 0], node_coords[:, 1], node_coords[:, 2]]
         self.n_num_branches = len(self.branch_ids)
         self.n_angles_at_junctions = self._find_angles_at_junctions(frame_node_tracks)
-        # self.n_speed = self.node_track.node.speed
+        self._get_motility_metrics(all_tracks, time_step, cell_centers, frame_num)
 
     def _find_node_width(self, mask_image, spacing):
         # traverse in the given direction from the first coordinate until the intensity image is zero
@@ -78,8 +88,50 @@ class StatsNode:
             track_angles.extend(angles)
         return track_angles
 
-    def _get_motility_metrics(self):
-        pass
+    def _get_motility_metrics(self, all_tracks, time_step, cell_centers, frame_num):
+        for parent_node in self.node_track.parents:
+            # get the previous node
+            previous_node = all_tracks[parent_node['frame']][parent_node['track']].node
+
+            # get the distance between the previous node and this node
+            coord1 = xp.array(self.node_track.node.centroid_um)
+            coord2 = xp.array(previous_node.centroid_um)
+            self.n_distance.append(xp.linalg.norm(coord1 - coord2, axis=0))
+            # get the speed
+            self.n_speed.append(self.n_distance[-1] / time_step)
+            # get the direction
+            coord1 = xp.array(previous_node.centroid_um)
+            coord2 = cell_centers[parent_node['frame']]
+            cell_vector_1 = xp.linalg.norm(coord1 - coord2)
+            coord1 = self.node_track.node.centroid_um
+            coord2 = cell_centers[frame_num]
+            cell_vector_2 = xp.linalg.norm(coord1 - coord2)
+            direction_frame = cell_vector_2 - cell_vector_1
+            if direction_frame > 0:
+                direction = 1
+            elif direction_frame < 0:
+                direction = -1
+            else:
+                direction = 0
+            self.n_direction.append(direction)
+            # get the fission and fusion
+            if len(self.node_track.joins) > 0:
+                for join in self.node_track.joins:
+                    fusion_frame = 0
+                    if join['join_type'] == 'fusion':
+                        fusion_frame = 1
+                    self.n_fusion.append(fusion_frame)
+            else:
+                self.n_fusion.append(0)
+            if len(self.node_track.splits) > 0:
+                for split in self.node_track.splits:
+                    fission_frame = 0
+                    if split['split_type'] == 'fission':
+                        fission_frame = 1
+                    self.n_fission.append(fission_frame)
+            else:
+                self.n_fission.append(0)
+
 
 class StatsBranch:
     def __init__(self, branch_id, branch_start_coord, region_id):
@@ -106,7 +158,6 @@ class StatsBranch:
         self.b_tortuosity = None
         self.b_widths = None
         self.b_widths_mean = None
-        # self.tortuosity_times_num_voxels = None  # could be useful for summing tortuosity over entire tree
 
         # node properties for this branch
         self.bn_mean_width = None
@@ -134,7 +185,6 @@ class StatsBranch:
         else:
             self.b_tortuosity = self.b_length / self._euclidean_distance(
                 self.branch_coords[0], self.branch_coords[-1], spacing)
-        # self.tortuosity_times_num_voxels = self.tortuosity * len(self.branch_coords)
 
     def _euclidean_distance(self, coord1, coord2, spacing):
         """Calculate the euclidean distance between two points."""
@@ -388,6 +438,7 @@ class AnalysisHierarchyConstructor:
 
         # get the voxel spacing
         self.spacing = [im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X']]
+        self.time_step = im_info.dim_sizes['T']
 
         # construct dicts for hierarchy
         self.stats_region = dict()
@@ -472,8 +523,8 @@ class AnalysisHierarchyConstructor:
         for frame_num, frame_nodes in self.stats_nodes.items():
             logger.info(f'Calculating node stats for frame {frame_num}')
             for node in frame_nodes.values():
-                node.calculate_node_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num],
-                                          mask_image[frame_num], self.tracks[frame_num])
+                node.calculate_node_stats(frame_num, self.spacing, intensity_image[frame_num], self.cell_center,
+                                          mask_image[frame_num], self.tracks[frame_num], self.tracks, self.time_step)
 
     def _get_mean_stats(self, tracklets):
         for frame_num, region_dict in self.regions.items():
