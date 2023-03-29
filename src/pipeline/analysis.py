@@ -160,6 +160,7 @@ class StatsBranch:
     #     self.b_orientations_mean = None
     #     self.b_widths_mean = None
 
+        # todo calculate these
         # node properties for this branch
         self.bn_mean_width = None
         self.bn_mean_speed = None
@@ -368,6 +369,7 @@ class StatsRegion:
         self.r_volume = None
         self.r_distance_from_cell_center_coords = None
 
+        # todo make sure everything below here is correct, and calculate them
         # branch properties for this region
         self.rb_num_branches = None
         self.rb_total_branch_length = None
