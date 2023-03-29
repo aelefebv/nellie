@@ -10,9 +10,8 @@ import numpy as xp
 
 
 class StatsNode:
-    def __init__(self, node_id, node_track: NodeTrack, region_id):
+    def __init__(self, node_id, region_id):
         self.node_id = node_id
-        self.node_track = node_track
 
         # region and branch identifiers
         self.branch_ids = set()
@@ -31,27 +30,20 @@ class StatsNode:
         self.n_direction = []
         self.n_fission = []
         self.n_fusion = []
-    # todo will want to save aggregate values (all stats, mean, median, std, etc.)
-    #    self.n_mean_angle_at_junctions = None
-    #    self.n_mean_intensity = None
-    #    self.n_mean_speed = None
-    #    self.n_mean_distance = None
-    #    self.n_mean_direction = None
-    #    self.n_sum_fission = None
-    #    self.n_sum_fusion = None
 
     def calculate_node_stats(self, frame_num, spacing, intensity_image, cell_centers, mask_image,
                              frame_node_tracks, all_tracks, time_step):
+        node_track = frame_node_tracks[self.node_id]
         self.n_distance_from_cell_center = xp.linalg.norm(
-            self.node_track.node.centroid_um - cell_centers[frame_num], axis=0)
-        self.n_node_width = self._find_node_width(mask_image, spacing)
-        node_coords = self.node_track.node.coords
+            node_track.node.centroid_um - cell_centers[frame_num], axis=0)
+        self.n_node_width = self._find_node_width(mask_image, spacing, node_track)
+        node_coords = node_track.node.coords
         self.n_intensity_coords = intensity_image[node_coords[:, 0], node_coords[:, 1], node_coords[:, 2]]
         self.n_num_branches = len(self.branch_ids)
-        self.n_angles_at_junctions = self._find_angles_at_junctions(frame_node_tracks)
-        self._get_motility_metrics(all_tracks, time_step, cell_centers, frame_num)
+        self.n_angles_at_junctions = self._find_angles_at_junctions(frame_node_tracks, node_track)
+        self._get_motility_metrics(all_tracks, time_step, cell_centers, frame_num, node_track)
 
-    def _find_node_width(self, mask_image, spacing):
+    def _find_node_width(self, mask_image, spacing, node_track):
         # traverse in the given direction from the first coordinate until the intensity image is zero
         def _traverse(coord, direction):
             coord_iteration = xp.array(coord)
@@ -59,7 +51,7 @@ class StatsNode:
                 coord_iteration += direction
             return xp.linalg.norm(coord_iteration - xp.array(coord), axis=0)
         # do it for x, y, and z directions
-        start_coord = self.node_track.node.coords[0]
+        start_coord = node_track.node.coords[0]
         # multiply by 2 to get the diameter in micrometers
         z_dist = _traverse(start_coord, (1, 0, 0)) * 2 * spacing[0]
         y_dist = _traverse(start_coord, (0, 1, 0)) * 2 * spacing[1]
@@ -67,9 +59,9 @@ class StatsNode:
         # return the minimum of the three distances
         return min(x_dist, y_dist, z_dist)
 
-    def _find_angles_at_junctions(self, frame_node_tracks):
+    def _find_angles_at_junctions(self, frame_node_tracks, node_track):
         track_angles = []
-        node = self.node_track.node
+        node = node_track.node
         if len(node.connected_nodes) > 1:
             connected_branch_vectors = []
             for connected_node_num in node.connected_nodes:
@@ -87,13 +79,13 @@ class StatsNode:
             track_angles.extend(angles)
         return track_angles
 
-    def _get_motility_metrics(self, all_tracks, time_step, cell_centers, frame_num):
-        for parent_node in self.node_track.parents:
+    def _get_motility_metrics(self, all_tracks, time_step, cell_centers, frame_num, node_track):
+        for parent_node in node_track.parents:
             # get the previous node
             previous_node = all_tracks[parent_node['frame']][parent_node['track']].node
 
             # get the distance between the previous node and this node
-            coord1 = xp.array(self.node_track.node.centroid_um)
+            coord1 = xp.array(node_track.node.centroid_um)
             coord2 = xp.array(previous_node.centroid_um)
             self.n_distance.append(xp.linalg.norm(coord1 - coord2, axis=0))
             # get the speed
@@ -102,7 +94,7 @@ class StatsNode:
             coord1 = xp.array(previous_node.centroid_um)
             coord2 = cell_centers[parent_node['frame']]
             cell_vector_1 = xp.linalg.norm(coord1 - coord2)
-            coord1 = self.node_track.node.centroid_um
+            coord1 = node_track.node.centroid_um
             coord2 = cell_centers[frame_num]
             cell_vector_2 = xp.linalg.norm(coord1 - coord2)
             direction_frame = cell_vector_2 - cell_vector_1
@@ -114,16 +106,16 @@ class StatsNode:
                 direction = 0
             self.n_direction.append(direction)
             # get the fission and fusion
-            if len(self.node_track.joins) > 0:
-                for join in self.node_track.joins:
+            if len(node_track.joins) > 0:
+                for join in node_track.joins:
                     fusion_frame = 0
                     if join['join_type'] == 'fusion':
                         fusion_frame = 1
                     self.n_fusion.append(fusion_frame)
             else:
                 self.n_fusion.append(0)
-            if len(self.node_track.splits) > 0:
-                for split in self.node_track.splits:
+            if len(node_track.splits) > 0:
+                for split in node_track.splits:
                     fission_frame = 0
                     if split['split_type'] == 'fission':
                         fission_frame = 1
@@ -134,7 +126,6 @@ class StatsNode:
 
 class StatsBranch:
     def __init__(self, branch_id, branch_start_coord, region_id):
-    # def __init__(self, branch_tuple, branch_info, region_id):
         self.branch_start_coord = branch_start_coord
         self.branch_coords = []
         self.cell_center = None
@@ -147,30 +138,26 @@ class StatsBranch:
 
         # this branch's properties
         self.b_aspect_ratio = None
-        self.b_distance_from_cell_center = []
         self.b_circularity = None
+        self.b_distance_from_cell_center = []
         self.b_intensity_coords = None
         self.b_length = None
         self.b_orientation = None
         self.b_orientations = []
         self.b_tortuosity = None
         self.b_widths = None
-    # todo will want to save aggregate values (all stats, mean, median, std, etc.)
-    #     self.b_distance_from_cell_center_mean = None
-    #     self.b_orientations_mean = None
-    #     self.b_widths_mean = None
 
-        # todo calculate these
-        # node properties for this branch
-        self.bn_mean_width = None
-        self.bn_mean_speed = None
-        self.bn_mean_distance = None
-        self.bn_mean_distance_from_cell_center = None
-        self.bn_mean_direction = None
-        self.bn_mean_fission_num = None
-        self.bn_mean_fusion_num = None
-        self.bn_mean_num_branches = None
-        self.bn_mean_angles_at_junctions = None
+        # this branch's nodes' properties
+        self.bn_angles_at_junctions = []
+        self.bn_direction = []
+        self.bn_distance = []
+        self.bn_distance_from_cell_center = []
+        self.bn_fission = []
+        self.bn_fusion = []
+        self.bn_intensity_coords = []
+        self.bn_node_width = []
+        self.bn_num_branches = []
+        self.bn_speed = []
 
     def calculate_branch_stats(self, spacing, intensity_image, cell_center, mask_image, frame_branch_labels):
         self._traverse_and_calculate_length_and_width(frame_branch_labels, mask_image, spacing, cell_center)
@@ -179,39 +166,19 @@ class StatsBranch:
         coords = xp.array(self.branch_coords)
         self.b_intensity_coords = intensity_image[coords[:, 0], coords[:, 1], coords[:, 2]]
 
-    def get_node_aggregate_properties(self, tracklets: dict[int: list[NodeTrack]], frame_num: int):
-        pass
-
-    def _calculate_tortuosity(self, spacing):
-        """Calculate the tortuosity of the branch."""
-        coord_1 = self.branch_coords[0]
-        coord_2 = self.branch_coords[-1]
-        if coord_1 == coord_2:
-            self.b_tortuosity = 1
-        else:
-            self.b_tortuosity = self.b_length / self._euclidean_distance(
-                self.branch_coords[0], self.branch_coords[-1], spacing)
-
-    def _euclidean_distance(self, coord1, coord2, spacing):
-        """Calculate the euclidean distance between two points."""
-        return xp.sqrt(xp.sum((xp.array(coord1) * spacing - xp.array(coord2) * spacing) ** 2))
-
-    def _neighbors_in_volume(self, volume, check_coord):
-        """Find the coordinates of the neighboring points within the volume."""
-        z, y, x = check_coord
-        neighbors = []
-        for dz in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                for dx in [-1, 0, 1]:
-                    if dz == dy == dx == 0:
-                        continue
-                    nz, ny, nx = z + dz, y + dy, x + dx
-                    if 0 <= nz < volume.shape[0] and 0 <= ny < volume.shape[1] and 0 <= nx < volume.shape[2]:
-                        if volume[nz, ny, nx]:
-                            if (nz, ny, nx) not in self.branch_coords:
-                                neighbors.append((nz, ny, nx))
-                                self.branch_coords.append((nz, ny, nx))
-        return neighbors
+    def calculate_branch_node_stats(self, frame_nodes):
+        for node_id in self.node_ids:
+            node = frame_nodes[node_id]
+            self.bn_angles_at_junctions.extend(node.n_angles_at_junctions)
+            self.bn_direction.extend(node.n_direction)
+            self.bn_distance.extend(node.n_distance)
+            self.bn_distance_from_cell_center.append(node.n_distance_from_cell_center)
+            self.bn_fission.extend(node.n_fission)
+            self.bn_fusion.extend(node.n_fusion)
+            self.bn_intensity_coords.extend(node.n_intensity_coords)
+            self.bn_node_width.append(node.n_node_width)
+            self.bn_num_branches.append(node.n_num_branches)
+            self.bn_speed.extend(node.n_speed)
 
     def _traverse_and_calculate_length_and_width(self, volume, mask, spacing, cell_center):
         total_length = 0
@@ -262,8 +229,9 @@ class StatsBranch:
                 xp.array(neighbor) * spacing,
                 cell_center)
             self.b_orientations.append(current_orientation)
-            self.b_distance_from_cell_center.append(current_distance_from_cell_center)
-
+            # calculate the euclidean distance from the cell center from current_distance_from_cell_center
+            euclidean_distance = xp.sqrt(xp.sum(current_distance_from_cell_center ** 2))
+            self.b_distance_from_cell_center.append(euclidean_distance)
             # Set the closest point as the new current point and remove it from the volume
             current_point = xp.array(neighbor)
 
@@ -297,6 +265,38 @@ class StatsBranch:
         if 0 <= nz < mask.shape[0] and 0 <= ny < mask.shape[1] and 0 <= nx < mask.shape[2]:
             return mask[int(nz), int(ny), int(nx)]
         return False
+
+    def _neighbors_in_volume(self, volume, check_coord):
+        """Find the coordinates of the neighboring points within the volume."""
+        z, y, x = check_coord
+        neighbors = []
+        for dz in [-1, 0, 1]:
+            for dy in [-1, 0, 1]:
+                for dx in [-1, 0, 1]:
+                    if dz == dy == dx == 0:
+                        continue
+                    nz, ny, nx = z + dz, y + dy, x + dx
+                    if 0 <= nz < volume.shape[0] and 0 <= ny < volume.shape[1] and 0 <= nx < volume.shape[2]:
+                        if volume[nz, ny, nx]:
+                            if (nz, ny, nx) not in self.branch_coords:
+                                neighbors.append((nz, ny, nx))
+                                self.branch_coords.append((nz, ny, nx))
+        return neighbors
+
+    def _calculate_tortuosity(self, spacing):
+        """Calculate the tortuosity of the branch."""
+        coord_1 = self.branch_coords[0]
+        coord_2 = self.branch_coords[-1]
+        if coord_1 == coord_2:
+            self.b_tortuosity = 1
+        else:
+            self.b_tortuosity = self.b_length / self._euclidean_distance(
+                self.branch_coords[0], self.branch_coords[-1], spacing)
+
+    @staticmethod
+    def _euclidean_distance(coord1, coord2, spacing):
+        """Calculate the euclidean distance between two points."""
+        return xp.sqrt(xp.sum((xp.array(coord1) * spacing - xp.array(coord2) * spacing) ** 2))
 
     def _calculate_orientation(self, cell_center, spacing):
         """Calculate the orientation of the branch with respect to the given cell center."""
@@ -368,64 +368,77 @@ class StatsRegion:
         self.r_intensity_coords = None
         self.r_volume = None
         self.r_distance_from_cell_center_coords = None
+        self.r_num_branches = None
+        self.r_num_nodes = None
 
         # todo make sure everything below here is correct, and calculate them
         # branch properties for this region
-        self.rb_num_branches = None
-        self.rb_total_branch_length = None
-        self.rb_mean_branch_aspect_ratio = None
-        self.rb_weighted_branch_aspect_ratio = None
-        self.rb_mean_branch_distance_from_cell_center = None
-        self.rb_weighted_branch_distance_from_cell_center = None
-        self.rb_mean_circularity = None
-        self.rb_weighted_circularity = None
-        self.rb_mean_length = None
-        self.rb_weighted_width = None
-        self.rb_mean_width = None
-        self.rb_weighted_orientation = None
-        self.rb_mean_orientation = None
-        self.rb_weighted_tortuosity = None
-        self.rb_mean_tortuosity = None
+        self.rb_aspect_ratio = []
+        self.rb_circularity = []
+        self.rb_distance_from_cell_center = []
+        self.rb_intensity_coords = []
+        self.rb_length = []
+        self.rb_branch_orientation = []
+        self.rb_edge_travel_orientations = []
+        self.rb_tortuosity = []
+        self.rb_widths = []
+        self.rb_aspect_ratio_len_weighted = []
+        self.rb_circularity_len_weighted = []
+        self.rb_distance_from_cell_center_len_weighted = []
+        self.rb_tortuosity_len_weighted = []
+        self.rb_widths_len_weighted = []
 
         # node properties for this region
-        self.rn_mean_width = None
-        self.rn_mean_speed = None
-        self.rn_mean_distance = None
-        self.rn_mean_distance_from_cell_center = None
-        self.rn_mean_direction = None
-        self.rn_mean_fission_num = None
-        self.rn_mean_fusion_num = None
-        self.rn_mean_num_branches = None
-        self.rn_mean_angles_at_junctions = None
+        self.rn_angles_at_junctions = []
+        self.rn_direction = []
+        self.rn_distance = []
+        self.rn_distance_from_cell_center = []
+        self.rn_fission = []
+        self.rn_fusion = []
+        self.rn_intensity_coords = []
+        self.rn_node_width = []
+        self.rn_num_branches = []
+        self.rn_speed = []
 
     def calculate_region_stats(self, spacing, intensity_image, cell_center):
         self.r_scaled_coords = self.r_coords * spacing
         self.r_intensity_coords = intensity_image[self.r_coords[:, 0], self.r_coords[:, 1], self.r_coords[:, 2]]
         self.r_volume = len(self.r_coords) * xp.prod(spacing)
         self.r_distance_from_cell_center_coords = xp.linalg.norm(self.r_scaled_coords - cell_center, axis=1)
+        self.r_num_nodes = len(self.node_ids)
+        self.r_num_branches = len(self.branch_ids)
 
-    def get_branch_aggregate_properties(self):
-        self.rb_num_branches = len(self.branch_objects)
-        if self.rb_num_branches == 0:
-            return
-        self.rb_total_branch_length = sum([branch.b_length for branch in self.branch_objects.values()])
-        self.rb_weighted_branch_aspect_ratio = sum([branch.b_aspect_ratio * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
-        self.rb_mean_branch_aspect_ratio = sum([branch.b_aspect_ratio for branch in self.branch_objects.values()]) / self.rb_num_branches
-        self.rb_weighted_circularity = sum([branch.b_circularity * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
-        self.rb_mean_circularity = sum([branch.b_circularity for branch in self.branch_objects.values()]) / self.rb_num_branches
-        self.rb_mean_branch_distance_from_cell_center = sum([branch.b_distance_from_cell_center_mean for branch in self.branch_objects.values()]) / self.rb_num_branches
-        self.rb_weighted_branch_distance_from_cell_center = sum([branch.b_distance_from_cell_center_mean * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
-        self.rb_mean_length = self.rb_total_branch_length / self.rb_num_branches
-        self.rb_weighted_width = sum([sum(branch.b_widths) * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
-        self.rb_mean_width = sum([branch.b_widths_mean for branch in self.branch_objects.values()]) / self.rb_num_branches
-        self.rb_weighted_orientation = sum([branch.b_orientation * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
-        self.rb_mean_orientation = sum([branch.b_orientation for branch in self.branch_objects.values()]) / self.rb_num_branches
-        self.rb_weighted_tortuosity = sum([branch.b_tortuosity * branch.b_length for branch in self.branch_objects.values()]) / self.rb_total_branch_length
-        self.rb_mean_tortuosity = sum([branch.b_tortuosity for branch in self.branch_objects.values()]) / self.rb_num_branches
+    def calculate_region_node_stats(self, frame_nodes):
+        for node_id in self.node_ids:
+            node = frame_nodes[node_id]
+            self.rn_angles_at_junctions.extend(node.n_angles_at_junctions)
+            self.rn_direction.extend(node.n_direction)
+            self.rn_distance.extend(node.n_distance)
+            self.rn_distance_from_cell_center.append(node.n_distance_from_cell_center)
+            self.rn_fission.extend(node.n_fission)
+            self.rn_fusion.extend(node.n_fusion)
+            self.rn_intensity_coords.extend(node.n_intensity_coords)
+            self.rn_node_width.append(node.n_node_width)
+            self.rn_num_branches.append(node.n_num_branches)
+            self.rn_speed.extend(node.n_speed)
 
-    def get_node_aggregate_properties(self, tracklets: dict[int: list[NodeTrack]], frame_num: int):
-        pass
-
+    def calculate_region_branch_stats(self, frame_branches):
+        for branch_id in self.branch_ids:
+            branch = frame_branches[branch_id]
+            self.rb_aspect_ratio.append(branch.b_aspect_ratio)
+            self.rb_circularity.append(branch.b_circularity)
+            self.rb_distance_from_cell_center.extend(branch.b_distance_from_cell_center)
+            self.rb_intensity_coords.extend(branch.b_intensity_coords)
+            self.rb_length.append(branch.b_length)
+            self.rb_branch_orientation.append(branch.b_orientation)
+            self.rb_edge_travel_orientations.extend(branch.b_orientations)
+            self.rb_tortuosity.append(branch.b_tortuosity)
+            self.rb_widths.extend(branch.b_widths)
+            self.rb_aspect_ratio_len_weighted.append(branch.b_aspect_ratio * branch.b_length)
+            self.rb_circularity_len_weighted.append(branch.b_circularity * branch.b_length)
+            self.rb_distance_from_cell_center_len_weighted.extend(xp.array(branch.b_distance_from_cell_center) * branch.b_length)
+            self.rb_tortuosity_len_weighted.append(branch.b_tortuosity * branch.b_length)
+            self.rb_widths_len_weighted.extend(xp.array(branch.b_widths) * branch.b_length)
 
 
 class AnalysisHierarchyConstructor:
@@ -453,28 +466,34 @@ class AnalysisHierarchyConstructor:
         self.cell_center = dict()
         self._calculate_cell_center()
 
-    def _calculate_cell_center(self):
-        for frame_num, frame_nodes in self.node_props.nodes.items():
-            self.cell_center[frame_num] = xp.mean(xp.array([node.centroid_um for node in frame_nodes]), axis=0)
-
     def get_hierarchy(self):
         # construct hierarchy objects
         self._construct_region_objects()
         self._construct_node_and_branch_objects()
-        # calculate stats for each object
+
+        # get memmaps for necessary images
         # todo account for when there is no intensity image
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
         mask_image = self.im_info.get_im_memmap(self.im_info.path_im_mask)
         branch_label_image = self.im_info.get_im_memmap(self.im_info.path_im_label_seg)
+
+        # calculate stats for each object
         self._calculate_region_stats(intensity_image)
         self._calculate_branch_stats(intensity_image, mask_image, branch_label_image)
         self._calculate_node_stats(intensity_image, mask_image)
 
-        # self._calculate_metrics()
-        # self._assign_nodes()
-        # self._get_branch_stats()
-        # self._clean_branch_stats()
-        # self._get_mean_stats(tracklets)
+        # calculate aggregate stats for each object
+        self._calculate_branch_node_stats()
+        self._calculate_region_node_stats()
+        self._calculate_region_branch_stats()
+
+    def save_stat_attributes(self):
+        self.save_all_stats_nodes_to_csv()
+        self.save_all_stats_branches_to_csv()
+
+    def _calculate_cell_center(self):
+        for frame_num, frame_nodes in self.node_props.nodes.items():
+            self.cell_center[frame_num] = xp.mean(xp.array([node.centroid_um for node in frame_nodes]), axis=0)
 
     def _construct_region_objects(self):
         for frame_num, organelles in self.organelles.items():
@@ -487,16 +506,21 @@ class AnalysisHierarchyConstructor:
 
     def _construct_node_and_branch_objects(self):
         for frame_num, frame_tracks in self.tracks.items():
+            # todo remove after testing
+            if frame_num > 1:
+                break
             logger.info(f'Constructing node and branch objects for frame {frame_num}')
             self.stats_nodes[frame_num] = dict()
             self.stats_branches[frame_num] = dict()
             for node_id, track in enumerate(frame_tracks):
-                node_object = StatsNode(node_id, track, track.node.skeleton_label)
+                node_object = StatsNode(node_id, track.node.skeleton_label)
                 self.stats_nodes[frame_num][node_id] = node_object
+                self.stats_region[frame_num][track.node.skeleton_label].node_ids.add(node_id)
                 for branch_id, branch_start_coord in track.node.connected_branches:
                     if self.stats_branches[frame_num].get(branch_id) is None:
                         self.stats_branches[frame_num][branch_id] = StatsBranch(
                             branch_id, branch_start_coord, track.node.skeleton_label)
+                        self.stats_region[frame_num][track.node.skeleton_label].branch_ids.add(branch_id)
                     self.stats_branches[frame_num][branch_id].node_ids.add(node_id)
                     self.stats_nodes[frame_num][node_id].branch_ids.add(branch_id)
 
@@ -520,73 +544,106 @@ class AnalysisHierarchyConstructor:
                 node.calculate_node_stats(frame_num, self.spacing, intensity_image[frame_num], self.cell_center,
                                           mask_image[frame_num], self.tracks[frame_num], self.tracks, self.time_step)
 
-    def _get_mean_stats(self, tracklets):
-        for frame_num, region_dict in self.regions.items():
-            for region_num, region in region_dict.items():
-                region.get_branch_aggregate_properties()
-                if frame_num == 0:
-                    continue
-                region.get_node_aggregate_properties(tracklets[frame_num])
+    def _calculate_branch_node_stats(self):
+        for frame_num, frame_branches in self.stats_branches.items():
+            logger.info(f'Aggregating node stats of branches for frame {frame_num}')
+            for branch in frame_branches.values():
+                branch.calculate_branch_node_stats(self.stats_nodes[frame_num])
 
-    def _clean_branch_stats(self):
-        for frame_num, frame_regions in self.regions.items():
-            for region_num, region in frame_regions.items():
-                for branch_num, branch_list in region.branch_objects.items():
-                    node_set = set()
-                    for branch in branch_list:
-                        node_set.add(branch.branch_tuple[0])
-                        node_set.add(branch.branch_tuple[1])
-                    for branch in branch_list:
-                        branch.node_ids = node_set
-                    if len(branch_list) >= 2:
-                        longest_branch = max(branch_list, key=lambda x: x.b_length)
-                        remove_branches = []
-                        for branch in branch_list:
-                            if branch is not longest_branch:
-                                remove_branches.append(branch)
-                        for branch in remove_branches:
-                            self.regions[frame_num][region_num].branch_objects[branch_num].remove(branch)
-                    region.branch_objects[branch_num] = region.branch_objects[branch_num][0]
+    def _calculate_region_node_stats(self):
+        for frame_num, frame_regions in self.stats_region.items():
+            logger.info(f'Aggregating node stats of regions for frame {frame_num}')
+            for region in frame_regions.values():
+                region.calculate_region_node_stats(self.stats_nodes[frame_num])
 
-    def _get_branch_stats(self):
-        branch_labels = tifffile.memmap(self.im_info.path_im_label_seg, mode='r') > 0
-        mask_im = tifffile.memmap(self.im_info.path_im_mask, mode='r') > 0
-        for frame_num, frame_regions in self.regions.items():
-            for region_num, region in frame_regions.items():
-                for branch_tuple, branch_infos in region.branch_ids.items():
-                    for branch_info in branch_infos:
-                        branch_object = StatsBranch(frame_num, branch_tuple, branch_info)
-                        branch_label = branch_info[0]
-                        branch_object._traverse_and_calculate_length_and_width(
-                            branch_labels[frame_num], mask_im[frame_num], self.spacing, self.cell_center[frame_num])
-                        branch_object._calculate_tortuosity(self.spacing)
-                        branch_object._calculate_orientation(self.cell_center[frame_num], self.spacing)
-                        if region.branch_objects.get(branch_label) is None:
-                            region.branch_objects[branch_label] = []
-                        region.branch_objects[branch_label].append(branch_object)
+    def _calculate_region_branch_stats(self):
+        for frame_num, frame_regions in self.stats_region.items():
+            logger.info(f'Aggregating branch stats of regions for frame {frame_num}')
+            for region in frame_regions.values():
+                region.calculate_region_branch_stats(self.stats_branches[frame_num])
 
-    def _assign_nodes(self):
-        # todo remove frame cap after testing
-        for frame_num, nodes in self.node_props.nodes.items():
-            if frame_num > 1:
+    def save_all_stats_nodes_to_csv(self):
+        data = []
+        csv_dir = self.im_info.output_csv_dirpath
+        csv_name = f"all_stats_nodes-{self.im_info.filename}.csv"
+        csv_path = os.path.join(csv_dir, csv_name)
+
+        for frame_number, frame_nodes in self.stats_nodes.items():
+            for node_id, stats_node in frame_nodes.items():
+                node_data = {
+                    'frame_number': frame_number,
+                    'node_id': stats_node.node_id,
+                    'branch_ids': list(stats_node.branch_ids),
+                    'region_id': stats_node.region_id,
+                    'n_distance_from_cell_center': stats_node.n_distance_from_cell_center,
+                    'n_node_width': stats_node.n_node_width,
+                    'n_intensity_coords': list(stats_node.n_intensity_coords),
+                    'n_num_branches': stats_node.n_num_branches,
+                    'n_angles_at_junctions': list(stats_node.n_angles_at_junctions),
+                    'n_speed': list(stats_node.n_speed),
+                    'n_distance': list(stats_node.n_distance),
+                    'n_direction': list(stats_node.n_direction),
+                    'n_fission': list(stats_node.n_fission),
+                    'n_fusion': list(stats_node.n_fusion),
+                }
+                data.append(node_data)
+
+        df = pd.DataFrame(data)
+        df.to_csv(csv_path, index=False)
+
+    def save_all_stats_branches_to_csv(self):
+        data = []
+        for frame_number, frame_branches in self.stats_branches.items():
+            for branch_id, stats_branch in frame_branches.items():
+                node_data = {
+                    'frame_number': frame_number,
+                    'branch_id': stats_branch.branch_id,
+                    'node_ids': list(stats_branch.node_ids),
+                    'region_id': stats_branch.region_id,
+                    'b_aspect_ratio': stats_branch.b_aspect_ratio,
+                    'b_circularity': stats_branch.b_circularity,
+                    'b_distance_from_cell_center': list(stats_branch.b_distance_from_cell_center),
+                    'b_intensity_coords': list(stats_branch.b_intensity_coords),
+                    'b_length': stats_branch.b_length,
+                    'b_orientation': stats_branch.b_orientation,
+                    'b_orientations': list(stats_branch.b_orientations),
+                    'b_tortuosity': stats_branch.b_tortuosity,
+                    'b_widths': list(stats_branch.b_widths),
+                }
+                data.append(node_data)
+
+        csv_dir = self.im_info.output_csv_dirpath
+        all_stats_csv_name = f"all_stats_branches-{self.im_info.filename}.csv"
+        all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
+        all_stats_df = pd.DataFrame(data)
+        all_stats_df.to_csv(all_stats_csv_path, index=False)
+
+        summary_df = pd.DataFrame()
+        for property_name in all_stats_df.columns:
+            properties = all_stats_df[property_name]
+            if not property_name.startswith('b_'):
+                summary_df[property_name] = properties
                 continue
-            logger.debug(f'Assigning nodes to regions for frame {frame_num}/{len(self.node_props.nodes.items())}')
-            for node_num, node in enumerate(nodes):
-                branches = dict()
-                for connected_node_num in node.connected_nodes:
-                    connected_node = self.node_props.nodes[frame_num][connected_node_num]
-                    node_pair = [node_num, connected_node_num]
-                    node_pair.sort()
-                    node_pair = tuple(node_pair)
-                    if node_pair not in self.regions[frame_num][node.skeleton_label].branch_ids:
-                        connected_node_labels = [branch[0] for branch in connected_node.connected_branches]
-                        connected_branches = [branch for branch in node.connected_branches
-                                              if branch[0] in connected_node_labels]
-                        branches[node_pair] = connected_branches
-                if node_num not in self.regions[frame_num][node.skeleton_label].node_ids:
-                    self.regions[frame_num][node.skeleton_label].node_ids.append(node_num)
-                self.regions[frame_num][node.skeleton_label].branch_ids.update(branches)
+            def apply_non_empty(func, x):
+                if isinstance(x, (int, float)):
+                    return func(xp.array([x]))
+                return func(x) if len(x) > 0 else float('nan')
+            summary_df[f'{property_name}_n'] = properties.apply(lambda x: apply_non_empty(len, x))
+            summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.mean, x))
+            summary_df[f'{property_name}_median'] = properties.apply(lambda x: apply_non_empty(xp.nanmedian, x))
+            summary_df[f'{property_name}_quartiles25'] = properties.apply(
+                lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.25), x))
+            summary_df[f'{property_name}_quartiles75'] = properties.apply(
+                lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.75), x))
+            summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.nanmean, x))
+            summary_df[f'{property_name}_std'] = properties.apply(lambda x: apply_non_empty(xp.nanstd, x))
+            summary_df[f'{property_name}_max'] = properties.apply(lambda x: apply_non_empty(xp.nanmax, x))
+            summary_df[f'{property_name}_min'] = properties.apply(lambda x: apply_non_empty(xp.nanmin, x))
+            summary_df[f'{property_name}_sum'] = properties.apply(lambda x: apply_non_empty(xp.nansum, x))
 
+        summary_csv_name = f"summary_stats_branches-{self.im_info.filename}.csv"
+        summary_csv_path = os.path.join(csv_dir, summary_csv_name)
+        summary_df.to_csv(summary_csv_path, index=False)
 
 class StatsDynamics:
     def __init__(self, im_info: ImInfo):
@@ -625,18 +682,6 @@ class StatsDynamics:
                 self.build_tracks(child_node, current_track.copy(), all_tracks)
 
         return all_tracks
-
-    # def node_num_track_dict(self):
-    #     # create a dictionary where the key is the frame number and the value is a dictionary
-    #     # where the key is the node numbers and value is a list of tracks that contain that node
-    #     node_num_track_dict = dict()
-    #     for frame_num, track_frames in self.tracklets.items():
-    #         node_num_track_dict[frame_num] = dict()
-    #         for node_num, track in enumerate(track_frames):
-    #             if node_num not in node_num_track_dict[frame_num]:
-    #                 node_num_track_dict[frame_num][node_num] = []
-    #             node_num_track_dict[frame_num][node_num].append(track)
-    #     self.node_track_dict = node_num_track_dict
 
 
 class AnalysisDynamics:
@@ -868,4 +913,5 @@ if __name__ == '__main__':
     # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
     hierarchy = AnalysisHierarchyConstructor(test)
     hierarchy.get_hierarchy()
+    hierarchy.save_stat_attributes()
     # regions.calculate_metrics()
