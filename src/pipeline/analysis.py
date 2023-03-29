@@ -10,38 +10,89 @@ import numpy as xp
 
 
 class StatsNode:
-    def __init__(self, frame_tracklets: list[NodeTrack], region_id, node_id):
+    def __init__(self, node_id, node_track: NodeTrack, region_id):
         # feed in from trackbuilder
         self.node_id = node_id
-        self.region_id = region_id
+        self.node_track = node_track
+
+        # region and branch identifiers
         self.branch_ids = set()
+        self.region_id = region_id
 
         # this node's properties
-        self.distance_from_cell_center = None
-        self.node_width = None  # the minimum distance to a zero pixel from 3 orthogonal directions
-        self.speed = None
-        self.distance = None
-        self.direction = None
-        self.fission = None
-        self.fusion = None
-        self.num_branches = None
-        self.angles_at_junctions = None
+        # single frame only
+        self.n_distance_from_cell_center = None
+        self.n_node_width = None  # the minimum distance to a zero pixel from 3 orthogonal directions
+        self.n_intensity_coords = None
+        self.n_num_branches = None
+        self.n_angles_at_junctions = None
+        # previous frame required
+        self.n_speed = None
+        self.n_distance = None
+        self.n_direction = None
+        self.n_fission = None
+        self.n_fusion = None
+
+    def calculate_node_stats(self, spacing, intensity_image, cell_center, mask_image, frame_node_tracks):
+        self.n_distance_from_cell_center = xp.linalg.norm(self.node_track.node.centroid_um - cell_center, axis=0)
+        self.n_node_width = self._find_node_width(mask_image, spacing)
+        node_coords = self.node_track.node.coords
+        self.n_intensity_coords = intensity_image[node_coords[:, 0], node_coords[:, 1], node_coords[:, 2]]
+        self.n_num_branches = len(self.branch_ids)
+        self.n_angles_at_junctions = self._find_angles_at_junctions(frame_node_tracks)
+        # self.n_speed = self.node_track.node.speed
+
+    def _find_node_width(self, mask_image, spacing):
+        # traverse in the given direction from the first coordinate until the intensity image is zero
+        def _traverse(coord, direction):
+            coord_iteration = xp.array(coord)
+            while mask_image[tuple(coord_iteration)] == 1:
+                coord_iteration += direction
+            return xp.linalg.norm(coord_iteration - xp.array(coord), axis=0)
+        # do it for x, y, and z directions
+        start_coord = self.node_track.node.coords[0]
+        # multiply by 2 to get the diameter in micrometers
+        z_dist = _traverse(start_coord, (1, 0, 0)) * 2 * spacing[0]
+        y_dist = _traverse(start_coord, (0, 1, 0)) * 2 * spacing[1]
+        x_dist = _traverse(start_coord, (0, 0, 1)) * 2 * spacing[2]
+        # return the minimum of the three distances
+        return min(x_dist, y_dist, z_dist)
+
+    def _find_angles_at_junctions(self, frame_node_tracks):
+        track_angles = []
+        node = self.node_track.node
+        if len(node.connected_nodes) > 1:
+            connected_branch_vectors = []
+            for connected_node_num in node.connected_nodes:
+                connected_node = frame_node_tracks[connected_node_num].node
+                branch_vector = xp.array(node.centroid_um) - xp.array(connected_node.centroid_um)
+                connected_branch_vectors.append(branch_vector)
+            angles = []
+            for i in range(len(connected_branch_vectors)):
+                for j in range(i + 1, len(connected_branch_vectors)):
+                    vec1 = connected_branch_vectors[i]
+                    vec2 = connected_branch_vectors[j]
+                    cos_theta = xp.dot(vec1, vec2) / (xp.linalg.norm(vec1) * xp.linalg.norm(vec2))
+                    angle = xp.arccos(xp.clip(cos_theta, -1, 1)) * 180 / xp.pi
+                    angles.append(angle)
+            track_angles.extend(angles)
+        return track_angles
+
+    def _get_motility_metrics(self):
+        pass
 
 class StatsBranch:
-    def __init__(self, frame_num, branch_tuple, branch_info, region_id):
-        self.frame_num = frame_num
-        self.branch_tuple = branch_tuple
-        self.branch_label = branch_info[0]
-        self.start_coord = branch_info[1]
+    def __init__(self, branch_id, branch_start_coord, region_id):
+    # def __init__(self, branch_tuple, branch_info, region_id):
+        self.branch_start_coord = branch_start_coord
         self.branch_coords = []
         self.cell_center = None
         self.spacing = None
+        self.branch_id = branch_id
 
-        # node identifier and storage
+        # node and region identifiers
         self.node_ids = set()
-        self.node_objects = dict()
         self.region_id = region_id
-        self.branch_id = None
 
         # this branch's properties
         self.b_aspect_ratio = None
@@ -67,6 +118,9 @@ class StatsBranch:
         self.bn_mean_fusion_num = None
         self.bn_mean_num_branches = None
         self.bn_mean_angles_at_junctions = None
+
+    def calculate_branch_stats(self, spacing, intensity_image, cell_center, mask_image):
+        pass
 
     def get_node_aggregate_properties(self, tracklets: dict[int: list[NodeTrack]], frame_num: int):
         pass
@@ -106,7 +160,7 @@ class StatsBranch:
     def traverse_and_calculate_length_and_width(self, volume, mask, spacing, cell_center):
         total_length = 0
         widths = []
-        current_point = xp.array(self.start_coord)
+        current_point = xp.array(self.branch_start_coord)
         self.branch_coords.append(tuple(current_point))
         self.spacing = spacing
 
@@ -252,11 +306,9 @@ class StatsRegion:
         self.region_id = region_id
 
 
-        # node and branch identifiers and storage
-        self.node_ids = []
-        self.node_objects = dict()
-        self.branch_ids = dict()
-        self.branch_objects = dict()
+        # node and branch identifiers
+        self.node_ids = set()
+        self.branch_ids = set()
 
         # region properties for this region
         self.r_scaled_coords = None
@@ -328,7 +380,7 @@ class AnalysisHierarchyConstructor:
 
         # load in regions (organelles), and tracks, which have node and branch info.
         organelle_props: OrganellePropertiesConstructor = unpickle_object(self.im_info.path_pickle_obj)
-        track_props: NodeTrackConstructor = unpickle_object(self.im_info.path_pickle_track)
+        track_props: dict[int: list[NodeTrack]] = unpickle_object(self.im_info.path_pickle_track)
         node_props: NodeConstructor = unpickle_object(self.im_info.path_pickle_node)
         self.tracks = track_props
         self.node_props = node_props
@@ -350,11 +402,18 @@ class AnalysisHierarchyConstructor:
         for frame_num, frame_nodes in self.node_props.nodes.items():
             self.cell_center[frame_num] = xp.mean(xp.array([node.centroid_um for node in frame_nodes]), axis=0)
 
-    def get_hierarchy(self, tracklets: dict[int, list[NodeTrack]]):
-        # self._calculate_cell_center()
-        # first construct region objects:
+    def get_hierarchy(self):
+        # construct hierarchy objects
         self._construct_region_objects()
-        self._calculate_region_stats()
+        self._construct_node_and_branch_objects()
+        # calculate stats for each object
+        # todo account for when there is no intensity image
+        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
+        mask_image = self.im_info.get_im_memmap(self.im_info.path_im_mask)
+        self._calculate_region_stats(intensity_image)
+        self._calculate_branch_stats(intensity_image, mask_image)
+        self._calculate_node_stats(intensity_image, mask_image)
+
         # self._calculate_metrics()
         # self._assign_nodes()
         # self._get_branch_stats()
@@ -363,37 +422,58 @@ class AnalysisHierarchyConstructor:
 
     def _construct_region_objects(self):
         for frame_num, organelles in self.organelles.items():
+            logger.info(f'Constructing region objects for frame {frame_num}')
             self.stats_region[frame_num] = dict()
-            region_id = 0
             for organelle in organelles:
+                region_id = organelle.instance_label
                 region = StatsRegion(organelle, region_id)
                 self.stats_region[frame_num][region_id] = region
-                region_id += 1
 
-    def _calculate_region_stats(self):
-        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
+    def _construct_node_and_branch_objects(self):
+        for frame_num, frame_tracks in self.tracks.items():
+            logger.info(f'Constructing node and branch objects for frame {frame_num}')
+            self.stats_nodes[frame_num] = dict()
+            self.stats_branches[frame_num] = dict()
+            for node_id, track in enumerate(frame_tracks):
+                node_object = StatsNode(node_id, track, track.node.skeleton_label)
+                self.stats_nodes[frame_num][node_id] = node_object
+                for branch_id, branch_start_coord in track.node.connected_branches:
+                    if self.stats_branches[frame_num].get(branch_id) is None:
+                        self.stats_branches[frame_num][branch_id] = StatsBranch(
+                            branch_id, branch_start_coord, track.node.skeleton_label)
+                    self.stats_branches[frame_num][branch_id].node_ids.add(node_id)
+                    self.stats_nodes[frame_num][node_id].branch_ids.add(branch_id)
+
+    def _construct_branch_objects(self):
+        for frame_num, frame_nodes in self.node_props.nodes.items():
+            logger.info(f'Constructing branch objects for frame {frame_num}')
+            self.stats_branches[frame_num] = dict()
+            for node_num, node in enumerate(frame_nodes):
+                for branch_id, branch_start_coord in node.connected_branches:
+                    branch_object = StatsBranch(branch_id, branch_start_coord)
+                    if self.stats_branches[frame_num].get(branch_id) is None:
+                        self.stats_branches[frame_num][branch_id] = []
+                    self.stats_branches[frame_num][branch_id].append(branch_object)
+
+    def _calculate_region_stats(self, intensity_image):
         for frame_num, frame_regions in self.stats_region.items():
+            logger.info(f'Calculating region stats for frame {frame_num}')
             for region in frame_regions.values():
                 region.calculate_region_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num])
 
-    def _calculate_metrics(self):
-        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
-        for frame_num, organelles in self.organelles.items():
-            logger.debug(f'Calculating region metrics for frame {frame_num}/{len(self.organelles.items())}')
-            self.regions[frame_num] = dict()
-            for organelle in organelles:
-                region = StatsRegion(organelle)
-                region.r_scaled_coords = region.r_coords * self.spacing
-                region.r_volume = len(region.r_coords) * xp.prod(self.spacing)
-                region.r_intensity_coords = intensity_image[frame_num][
-                    region.r_coords[:, 0], region.r_coords[:, 1], region.r_coords[:, 2]]
-                region.distance_from_cell_center = xp.linalg.norm(
-                    region.r_scaled_coords - self.cell_center[frame_num], axis=1)
-                # region.surface_mesh = measure.marching_cubes(binary_image, step_size=1, spacing=self.spacing)
-                # region.surface_area = measure.mesh_surface_area(region.surface_mesh[0], region.surface_mesh[1])
-                # region.sphericity = region.surface_area / region.volume
-                # region.compactness = region.volume / xp.sqrt(region.surface_area)
-                self.regions[frame_num][region.r_instance_label] = region
+    def _calculate_branch_stats(self, intensity_image, mask_image):
+        for frame_num, frame_branches in self.stats_branches.items():
+            logger.info(f'Calculating branch stats for frame {frame_num}')
+            for branch in frame_branches.values():
+                branch.calculate_branch_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num],
+                                              mask_image[frame_num])
+
+    def _calculate_node_stats(self, intensity_image, mask_image):
+        for frame_num, frame_nodes in self.stats_nodes.items():
+            logger.info(f'Calculating node stats for frame {frame_num}')
+            for node in frame_nodes.values():
+                node.calculate_node_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num],
+                                          mask_image[frame_num], self.tracks[frame_num])
 
     def _get_mean_stats(self, tracklets):
         for frame_num, region_dict in self.regions.items():
@@ -734,13 +814,13 @@ if __name__ == '__main__':
         exit(1)
     track_builder = StatsDynamics(test)
     # track_builder.node_num_track_dict()
-    nodes = AnalysisDynamics(test, track_builder.tracks)
-    nodes.calculate_metrics()
+    # dynamics = AnalysisDynamics(test, track_builder.tracks)
+    # dynamics.calculate_metrics()
     # aggregate_output_file = 'aggregate_metrics.csv'
     # frame_output_folder = test.output_csv_dirpath
     # if not os.path.exists(frame_output_folder):
     #     os.makedirs(frame_output_folder)
     # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
-    regions = AnalysisHierarchyConstructor(test)
+    hierarchy = AnalysisHierarchyConstructor(test)
+    hierarchy.get_hierarchy()
     # regions.calculate_metrics()
-    regions.get_hierarchy(track_builder.tracklets)
