@@ -142,10 +142,11 @@ class StatsBranch:
         self.b_distance_from_cell_center = []
         self.b_intensity_coords = None
         self.b_length = None
-        self.b_orientation = None
-        self.b_orientations = []
+        self.b_branch_orientation = None
+        self.b_edge_travel_orientations = []
         self.b_tortuosity = None
         self.b_widths = None
+        self.b_num_nodes = None
 
         # this branch's nodes' properties
         self.bn_angles_at_junctions = []
@@ -179,6 +180,7 @@ class StatsBranch:
             self.bn_node_width.append(node.n_node_width)
             self.bn_num_branches.append(node.n_num_branches)
             self.bn_speed.extend(node.n_speed)
+        self.b_num_nodes = len(self.node_ids)
 
     def _traverse_and_calculate_length_and_width(self, volume, mask, spacing, cell_center):
         total_length = 0
@@ -228,7 +230,7 @@ class StatsBranch:
                 current_point * spacing,
                 xp.array(neighbor) * spacing,
                 cell_center)
-            self.b_orientations.append(current_orientation)
+            self.b_edge_travel_orientations.append(current_orientation)
             # calculate the euclidean distance from the cell center from current_distance_from_cell_center
             euclidean_distance = xp.sqrt(xp.sum(current_distance_from_cell_center ** 2))
             self.b_distance_from_cell_center.append(euclidean_distance)
@@ -302,7 +304,7 @@ class StatsBranch:
         """Calculate the orientation of the branch with respect to the given cell center."""
         self.cell_center = cell_center
         if len(self.branch_coords) < 2:
-            self.b_orientation = xp.nan
+            self.b_branch_orientation = xp.nan
         else:
             start_coord = xp.array(self.branch_coords[0]) * spacing
             end_coord = xp.array(self.branch_coords[-1]) * spacing
@@ -323,7 +325,7 @@ class StatsBranch:
 
             # Convert the angle from radians to degrees and restrict the range to [0, 180]
             angle_deg = xp.degrees(angle_rad)
-            self.b_orientation = min(angle_deg, 180 - angle_deg)
+            self.b_branch_orientation = min(angle_deg, 180 - angle_deg)
 
     @staticmethod
     def _calculate_point_orientation(start_coord, end_coord, cell_center):
@@ -430,8 +432,8 @@ class StatsRegion:
             self.rb_distance_from_cell_center.extend(branch.b_distance_from_cell_center)
             self.rb_intensity_coords.extend(branch.b_intensity_coords)
             self.rb_length.append(branch.b_length)
-            self.rb_branch_orientation.append(branch.b_orientation)
-            self.rb_edge_travel_orientations.extend(branch.b_orientations)
+            self.rb_branch_orientation.append(branch.b_branch_orientation)
+            self.rb_edge_travel_orientations.extend(branch.b_edge_travel_orientations)
             self.rb_tortuosity.append(branch.b_tortuosity)
             self.rb_widths.extend(branch.b_widths)
             self.rb_aspect_ratio_len_weighted.append(branch.b_aspect_ratio * branch.b_length)
@@ -458,7 +460,7 @@ class AnalysisHierarchyConstructor:
         self.time_step = im_info.dim_sizes['T']
 
         # construct dicts for hierarchy
-        self.stats_region = dict()
+        self.stats_regions = dict()
         self.stats_branches = dict()
         self.stats_nodes = dict()
 
@@ -490,6 +492,7 @@ class AnalysisHierarchyConstructor:
     def save_stat_attributes(self):
         self.save_all_stats_nodes_to_csv()
         self.save_all_stats_branches_to_csv()
+        self.save_all_stats_regions_to_csv()
 
     def _calculate_cell_center(self):
         for frame_num, frame_nodes in self.node_props.nodes.items():
@@ -498,11 +501,11 @@ class AnalysisHierarchyConstructor:
     def _construct_region_objects(self):
         for frame_num, organelles in self.organelles.items():
             logger.info(f'Constructing region objects for frame {frame_num}')
-            self.stats_region[frame_num] = dict()
+            self.stats_regions[frame_num] = dict()
             for organelle in organelles:
                 region_id = organelle.instance_label
                 region = StatsRegion(organelle, region_id)
-                self.stats_region[frame_num][region_id] = region
+                self.stats_regions[frame_num][region_id] = region
 
     def _construct_node_and_branch_objects(self):
         for frame_num, frame_tracks in self.tracks.items():
@@ -515,17 +518,17 @@ class AnalysisHierarchyConstructor:
             for node_id, track in enumerate(frame_tracks):
                 node_object = StatsNode(node_id, track.node.skeleton_label)
                 self.stats_nodes[frame_num][node_id] = node_object
-                self.stats_region[frame_num][track.node.skeleton_label].node_ids.add(node_id)
+                self.stats_regions[frame_num][track.node.skeleton_label].node_ids.add(node_id)
                 for branch_id, branch_start_coord in track.node.connected_branches:
                     if self.stats_branches[frame_num].get(branch_id) is None:
                         self.stats_branches[frame_num][branch_id] = StatsBranch(
                             branch_id, branch_start_coord, track.node.skeleton_label)
-                        self.stats_region[frame_num][track.node.skeleton_label].branch_ids.add(branch_id)
+                        self.stats_regions[frame_num][track.node.skeleton_label].branch_ids.add(branch_id)
                     self.stats_branches[frame_num][branch_id].node_ids.add(node_id)
                     self.stats_nodes[frame_num][node_id].branch_ids.add(branch_id)
 
     def _calculate_region_stats(self, intensity_image):
-        for frame_num, frame_regions in self.stats_region.items():
+        for frame_num, frame_regions in self.stats_regions.items():
             logger.info(f'Calculating region stats for frame {frame_num}')
             for region in frame_regions.values():
                 region.calculate_region_stats(self.spacing, intensity_image[frame_num], self.cell_center[frame_num])
@@ -551,83 +554,34 @@ class AnalysisHierarchyConstructor:
                 branch.calculate_branch_node_stats(self.stats_nodes[frame_num])
 
     def _calculate_region_node_stats(self):
-        for frame_num, frame_regions in self.stats_region.items():
+        for frame_num, frame_regions in self.stats_regions.items():
             logger.info(f'Aggregating node stats of regions for frame {frame_num}')
             for region in frame_regions.values():
                 region.calculate_region_node_stats(self.stats_nodes[frame_num])
 
     def _calculate_region_branch_stats(self):
-        for frame_num, frame_regions in self.stats_region.items():
+        for frame_num, frame_regions in self.stats_regions.items():
             logger.info(f'Aggregating branch stats of regions for frame {frame_num}')
             for region in frame_regions.values():
                 region.calculate_region_branch_stats(self.stats_branches[frame_num])
 
-    def save_all_stats_nodes_to_csv(self):
-        data = []
-        csv_dir = self.im_info.output_csv_dirpath
-        csv_name = f"all_stats_nodes-{self.im_info.filename}.csv"
-        csv_path = os.path.join(csv_dir, csv_name)
-
-        for frame_number, frame_nodes in self.stats_nodes.items():
-            for node_id, stats_node in frame_nodes.items():
-                node_data = {
-                    'frame_number': frame_number,
-                    'node_id': stats_node.node_id,
-                    'branch_ids': list(stats_node.branch_ids),
-                    'region_id': stats_node.region_id,
-                    'n_distance_from_cell_center': stats_node.n_distance_from_cell_center,
-                    'n_node_width': stats_node.n_node_width,
-                    'n_intensity_coords': list(stats_node.n_intensity_coords),
-                    'n_num_branches': stats_node.n_num_branches,
-                    'n_angles_at_junctions': list(stats_node.n_angles_at_junctions),
-                    'n_speed': list(stats_node.n_speed),
-                    'n_distance': list(stats_node.n_distance),
-                    'n_direction': list(stats_node.n_direction),
-                    'n_fission': list(stats_node.n_fission),
-                    'n_fusion': list(stats_node.n_fusion),
-                }
-                data.append(node_data)
-
-        df = pd.DataFrame(data)
-        df.to_csv(csv_path, index=False)
-
-    def save_all_stats_branches_to_csv(self):
-        data = []
-        for frame_number, frame_branches in self.stats_branches.items():
-            for branch_id, stats_branch in frame_branches.items():
-                node_data = {
-                    'frame_number': frame_number,
-                    'branch_id': stats_branch.branch_id,
-                    'node_ids': list(stats_branch.node_ids),
-                    'region_id': stats_branch.region_id,
-                    'b_aspect_ratio': stats_branch.b_aspect_ratio,
-                    'b_circularity': stats_branch.b_circularity,
-                    'b_distance_from_cell_center': list(stats_branch.b_distance_from_cell_center),
-                    'b_intensity_coords': list(stats_branch.b_intensity_coords),
-                    'b_length': stats_branch.b_length,
-                    'b_orientation': stats_branch.b_orientation,
-                    'b_orientations': list(stats_branch.b_orientations),
-                    'b_tortuosity': stats_branch.b_tortuosity,
-                    'b_widths': list(stats_branch.b_widths),
-                }
-                data.append(node_data)
-
-        csv_dir = self.im_info.output_csv_dirpath
-        all_stats_csv_name = f"all_stats_branches-{self.im_info.filename}.csv"
-        all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
-        all_stats_df = pd.DataFrame(data)
-        all_stats_df.to_csv(all_stats_csv_path, index=False)
-
+    @staticmethod
+    def get_summary_df(aggregate_df, prefixes = None):
+        if prefixes is None:
+            prefixes = []
+        #todo prefixes
         summary_df = pd.DataFrame()
-        for property_name in all_stats_df.columns:
-            properties = all_stats_df[property_name]
-            if not property_name.startswith('b_'):
+        for property_name in aggregate_df.columns:
+            properties = aggregate_df[property_name]
+            if not any(property_name.startswith(prefix) for prefix in prefixes):
                 summary_df[property_name] = properties
                 continue
+
             def apply_non_empty(func, x):
                 if isinstance(x, (int, float)):
                     return func(xp.array([x]))
                 return func(x) if len(x) > 0 else float('nan')
+
             summary_df[f'{property_name}_n'] = properties.apply(lambda x: apply_non_empty(len, x))
             summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.mean, x))
             summary_df[f'{property_name}_median'] = properties.apply(lambda x: apply_non_empty(xp.nanmedian, x))
@@ -640,8 +594,140 @@ class AnalysisHierarchyConstructor:
             summary_df[f'{property_name}_max'] = properties.apply(lambda x: apply_non_empty(xp.nanmax, x))
             summary_df[f'{property_name}_min'] = properties.apply(lambda x: apply_non_empty(xp.nanmin, x))
             summary_df[f'{property_name}_sum'] = properties.apply(lambda x: apply_non_empty(xp.nansum, x))
+        return summary_df
 
+    def save_all_stats_nodes_to_csv(self):
+        data = []
+        for frame_number, frame_nodes in self.stats_nodes.items():
+            for node_id, stats_node in frame_nodes.items():
+                node_data = {
+                    'frame_number': frame_number,
+                    'node_id': stats_node.node_id,
+                    'branch_ids': list(stats_node.branch_ids),
+                    'region_id': stats_node.region_id,
+                    'num_branches': stats_node.n_num_branches,
+
+                    'n_distance_from_cell_center': stats_node.n_distance_from_cell_center,
+                    'n_node_width': stats_node.n_node_width,
+                    'n_intensity_coords': list(stats_node.n_intensity_coords),
+                    'n_angles_at_junctions': list(stats_node.n_angles_at_junctions),
+                    'n_speed': list(stats_node.n_speed),
+                    'n_distance': list(stats_node.n_distance),
+                    'n_direction': list(stats_node.n_direction),
+                    'n_fission': list(stats_node.n_fission),
+                    'n_fusion': list(stats_node.n_fusion),
+                }
+                data.append(node_data)
+
+        csv_dir = self.im_info.output_csv_dirpath
+        all_stats_csv_name = f"all_stats_nodes-{self.im_info.filename}.csv"
+        all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
+        all_stats_df = pd.DataFrame(data)
+        all_stats_df.to_csv(all_stats_csv_path, index=False)
+
+        summary_df = self.get_summary_df(all_stats_df, prefixes=['n_'])
+        summary_csv_name = f"summary_stats_nodes-{self.im_info.filename}.csv"
+        summary_csv_path = os.path.join(csv_dir, summary_csv_name)
+        summary_df.to_csv(summary_csv_path, index=False)
+
+    def save_all_stats_branches_to_csv(self):
+        data = []
+        for frame_number, frame_branches in self.stats_branches.items():
+            for branch_id, stats_branch in frame_branches.items():
+                node_data = {
+                    'frame_number': frame_number,
+                    'branch_id': stats_branch.branch_id,
+                    'node_ids': list(stats_branch.node_ids),
+                    'region_id': stats_branch.region_id,
+                    'num_nodes': stats_branch.b_num_nodes,
+
+                    'b_aspect_ratio': stats_branch.b_aspect_ratio,
+                    'b_circularity': stats_branch.b_circularity,
+                    'b_distance_from_cell_center': list(stats_branch.b_distance_from_cell_center),
+                    'b_intensity_coords': list(stats_branch.b_intensity_coords),
+                    'b_length': stats_branch.b_length,
+                    'b_orientation': stats_branch.b_branch_orientation,
+                    'b_orientations': list(stats_branch.b_edge_travel_orientations),
+                    'b_tortuosity': stats_branch.b_tortuosity,
+                    'b_widths': list(stats_branch.b_widths),
+
+                    'bn_angles_at_junctions': list(stats_branch.bn_angles_at_junctions),
+                    'bn_direction': list(stats_branch.bn_direction),
+                    'bn_distance': list(stats_branch.bn_distance),
+                    'bn_distance_from_cell_center': list(stats_branch.bn_distance_from_cell_center),
+                    'bn_fission': list(stats_branch.bn_fission),
+                    'bn_fusion': list(stats_branch.bn_fusion),
+                    'bn_intensity_coords': list(stats_branch.bn_intensity_coords),
+                    'bn_node_width': list(stats_branch.bn_node_width),
+                    'bn_num_branches': list(stats_branch.bn_num_branches),
+                    'bn_speed': list(stats_branch.bn_speed),
+                }
+                data.append(node_data)
+
+        csv_dir = self.im_info.output_csv_dirpath
+        all_stats_csv_name = f"all_stats_branches-{self.im_info.filename}.csv"
+        all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
+        all_stats_df = pd.DataFrame(data)
+        all_stats_df.to_csv(all_stats_csv_path, index=False)
+
+        summary_df = self.get_summary_df(all_stats_df, prefixes=['b_', 'bn_'])
         summary_csv_name = f"summary_stats_branches-{self.im_info.filename}.csv"
+        summary_csv_path = os.path.join(csv_dir, summary_csv_name)
+        summary_df.to_csv(summary_csv_path, index=False)
+
+    def save_all_stats_regions_to_csv(self):
+        data = []
+        for frame_number, frame_regions in self.stats_regions.items():
+            for region_id, stats_region in frame_regions.items():
+                node_data = {
+                    'frame_number': frame_number,
+                    'region_id': stats_region.region_id,
+                    'node_ids': list(stats_region.node_ids),
+                    'branch_ids': list(stats_region.branch_ids),
+                    'num_branches': stats_region.r_num_branches,
+                    'num_nodes': stats_region.r_num_nodes,
+
+                    'r_distance_from_cell_center_coords': list(stats_region.r_distance_from_cell_center_coords),
+                    'r_intensity_coords': list(stats_region.r_intensity_coords),
+                    'r_volume': stats_region.r_volume,
+
+                    'rb_aspect_ratio': list(stats_region.rb_aspect_ratio),
+                    'rb_circularity': list(stats_region.rb_circularity),
+                    'rb_distance_from_cell_center': list(stats_region.rb_distance_from_cell_center),
+                    'rb_intensity_coords': list(stats_region.rb_intensity_coords),
+                    'rb_length': list(stats_region.rb_length),
+                    'rb_orientation': list(stats_region.rb_branch_orientation),
+                    'rb_orientations': list(stats_region.rb_edge_travel_orientations),
+                    'rb_tortuosity': list(stats_region.rb_tortuosity),
+                    'rb_widths': list(stats_region.rb_widths),
+                    'rb_aspect_ratio_len_weighted': list(stats_region.rb_aspect_ratio_len_weighted),
+                    'rb_circularity_len_weighted': list(stats_region.rb_circularity_len_weighted),
+                    'rb_distance_from_cell_center_len_weighted': list(
+                        stats_region.rb_distance_from_cell_center_len_weighted),
+                    'rb_tortuosity_len_weighted': list(stats_region.rb_tortuosity_len_weighted),
+                    'rb_widths_len_weighted': list(stats_region.rb_widths_len_weighted),
+
+                    'rn_angles_at_junctions': list(stats_region.rn_angles_at_junctions),
+                    'rn_direction': list(stats_region.rn_direction),
+                    'rn_distance': list(stats_region.rn_distance),
+                    'rn_distance_from_cell_center': list(stats_region.rn_distance_from_cell_center),
+                    'rn_fission': list(stats_region.rn_fission),
+                    'rn_fusion': list(stats_region.rn_fusion),
+                    'rn_intensity_coords': list(stats_region.rn_intensity_coords),
+                    'rn_node_width': list(stats_region.rn_node_width),
+                    'rn_num_branches': list(stats_region.rn_num_branches),
+                    'rn_speed': list(stats_region.rn_speed),
+                }
+                data.append(node_data)
+
+        csv_dir = self.im_info.output_csv_dirpath
+        all_stats_csv_name = f"all_stats_regions-{self.im_info.filename}.csv"
+        all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
+        all_stats_df = pd.DataFrame(data)
+        all_stats_df.to_csv(all_stats_csv_path, index=False)
+
+        summary_df = self.get_summary_df(all_stats_df, prefixes=['r_', 'rb_', 'rn_'])
+        summary_csv_name = f"summary_stats_regions-{self.im_info.filename}.csv"
         summary_csv_path = os.path.join(csv_dir, summary_csv_name)
         summary_df.to_csv(summary_csv_path, index=False)
 
