@@ -14,7 +14,7 @@ class NodeTrack:
         self.time_points = [node.time_point_sec]
         self.frame_nums = [frame_num]
         self.centroids_um = [node.centroid_um]
-        self.instance_labels = [node.r_instance_label]
+        self.instance_labels = [node.instance_label]
         self.node_num = [node_num]
         self.node_types = [node.node_type]
         self.assignment_cost = [0]
@@ -32,7 +32,7 @@ class NodeTrack:
         self.time_points.append(node.time_point_sec)
         self.frame_nums.append(frame_num)
         self.centroids_um.append(node.centroid_um)
-        self.instance_labels.append(node.r_instance_label)
+        self.instance_labels.append(node.instance_label)
         self.node_num.append(node_num)
         self.node_types.append(node.node_type)
         self.assignment_cost.append(assignment_cost)
