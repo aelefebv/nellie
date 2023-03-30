@@ -988,7 +988,7 @@ if __name__ == '__main__':
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    track_builder = StatsDynamics(test)
+    # track_builder = StatsDynamics(test)
     # track_builder.node_num_track_dict()
     # dynamics = AnalysisDynamics(test, track_builder.tracks)
     # dynamics.calculate_metrics()

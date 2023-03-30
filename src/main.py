@@ -9,6 +9,7 @@ from src.pipeline.organelle_props import OrganellePropertiesConstructor
 from src.pipeline.networking import Neighbors
 from src.pipeline.tracking.node_to_node import NodeTrackConstructor
 from src.pipeline.node_props import NodeConstructor
+from src.pipeline.analysis import AnalysisHierarchyConstructor
 from src import logger
 from src.pipeline.analysis import StatsDynamics, AnalysisDynamics
 
@@ -17,13 +18,13 @@ def run(input_path: str, num_t: int = None, ch: int = 0):
     im_info = ImInfo(input_path, ch=ch)
     # todo: idea, go backwards from last pipeline step, see if path is populated with a valid file.
     #  If invalid, keep going backwards until a valid one is found, then start pipeline from there.
-    frangi = FrangiFilter(im_info)
-    frangi.run_filter(num_t)
-    segmentation = Segment(im_info)
-    segmentation.semantic(num_t)
-    segmentation.instance(num_t)
-    skeleton = Skeleton(im_info)
-    skeleton.skeletonize(num_t)
+    # frangi = FrangiFilter(im_info)
+    # frangi.run_filter(num_t)
+    # segmentation = Segment(im_info)
+    # segmentation.semantic(num_t)
+    # segmentation.instance(num_t)
+    # skeleton = Skeleton(im_info)
+    # skeleton.skeletonize(num_t)
     organelle_props = OrganellePropertiesConstructor(im_info)
     organelle_props.get_organelle_properties(num_t)
     pickle_object(im_info.path_pickle_obj, organelle_props)
@@ -35,15 +36,11 @@ def run(input_path: str, num_t: int = None, ch: int = 0):
     nodes_test = NodeTrackConstructor(im_info, distance_thresh_um_per_sec=1)
     nodes_test.populate_tracks(num_t)
     pickle_object(im_info.path_pickle_track, nodes_test.tracks)
-    track_builder = StatsDynamics(im_info)
+    hierarchy = AnalysisHierarchyConstructor(im_info)
+    hierarchy.get_hierarchy()
+    hierarchy.save_stat_attributes()
+    # track_builder = StatsDynamics(im_info)
     # todo I might want to reconnect disconnected/short tracks here
-    analysis = AnalysisDynamics(im_info, track_builder.tracks)
-    analysis.calculate_metrics()
-    aggregate_output_file = f'aggregate_metrics-{im_info.filename}.csv'
-    frame_output_folder = im_info.output_csv_dirpath
-    if not os.path.exists(frame_output_folder):
-        os.makedirs(frame_output_folder)
-    analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
 
 
 if __name__ == "__main__":
