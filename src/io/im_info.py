@@ -214,6 +214,8 @@ class ImInfo:
         directory.
         """
         logger.debug('Setting output filepaths.')
+        if '.ome' not in self.filename:
+            self.filename = self.filename + '.ome'
         self.path_im_frangi = os.path.join(self.output_images_dirpath, f'ch{self.ch}-frangi-{self.filename}.tif')
         self.path_im_mask = os.path.join(self.output_images_dirpath, f'ch{self.ch}-mask-{self.filename}.tif')
         self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'ch{self.ch}-skeleton-{self.filename}.tif')
@@ -261,6 +263,7 @@ class ImInfo:
             tifffile.imwrite(
                 path_im, data, bigtiff=True, metadata={"axes": axes}
             )
+        print(shape, axes, dtype)
         ome_xml = tifffile.tiffcomment(path_im)
         ome = ome_types.from_xml(ome_xml, parser="lxml")
         ome.images[0].pixels.physical_size_x = self.dim_sizes['X']
@@ -302,21 +305,21 @@ class ImInfo:
 
 if __name__ == "__main__":
     import os
-    windows_filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    mac_filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
 
-    custom_filepath = r"/Users/austin/test_files/nelly_Alireza/1.tif"
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
 
-    filepath = custom_filepath
-    # if not os.path.isfile(filepath):
-    #     filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    filepath = mac_filepath
     try:
-        test = ImInfo(filepath, ch=0, dimension_order='ZYX')
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     loaded_file = test.get_im_memmap(test.im_path)
 
-    import napari
-    viewer = napari.Viewer()
-    viewer.add_image(loaded_file, name='memmap', scale=(test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']))
+    visualize = False
+    if visualize:
+        import napari
+        viewer = napari.Viewer()
+        viewer.add_image(loaded_file, name='memmap', scale=(test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']))
