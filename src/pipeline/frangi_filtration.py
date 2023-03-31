@@ -37,10 +37,13 @@ class FrangiFilter:
     def __init__(
             self, im_info: ImInfo,
             alpha: float = 0.5, beta: float = 0.5,
-            num_sigma: int = 10,
+            num_sigma: int = 5,
             sigma_min_max: tuple = (None, None),
             gamma: float = None,
             frobenius_thresh: float = None,
+            # todo, get these values depending on sample
+            min_radius_um: float = 0.25,
+            max_radius_um: float = 0.5,
     ):
         """
         Constructor method for FrangiFilter class.
@@ -68,6 +71,8 @@ class FrangiFilter:
         self.frobenius_thresh = frobenius_thresh
         self.num_sigma = num_sigma
         self.sigma_min, self.sigma_max = sigma_min_max
+        self.min_radius_px = min_radius_um / self.im_info.dim_sizes['X']
+        self.max_radius_px = max_radius_um / self.im_info.dim_sizes['X']
 
         # If sigma_min_max is not specified, set default values based on image dimensions
         if (self.sigma_min is None) or (self.sigma_max is None):
@@ -87,8 +92,10 @@ class FrangiFilter:
         If sigma_min and sigma_max are not provided, sets default values for them based on the dimensions of the input image.
         """
         logger.debug('No sigma values provided, setting to defaults.')
-        self.sigma_min = self.im_info.dim_sizes['X'] * 10
-        self.sigma_max = self.im_info.dim_sizes['X'] * 15
+        # self.sigma_min = self.im_info.dim_sizes['X'] * 10
+        # self.sigma_max = self.im_info.dim_sizes['X'] * 15
+        self.sigma_min = self.min_radius_px/2
+        self.sigma_max = self.max_radius_px/3
 
     def _gaussian_filter(self, sigma, t_num):
         """
@@ -304,13 +311,12 @@ class FrangiFilter:
 
 
 if __name__ == "__main__":
-    import os
     windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
     mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
 
     custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
 
-    filepath = mac_filepath
+    filepath = custom_filepath
     try:
         test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:

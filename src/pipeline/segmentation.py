@@ -43,7 +43,7 @@ class Segment:
                     self.im_info.dim_sizes['X'] ** 2 * self.im_info.dim_sizes['Z']
             )
         else:
-            self.min_size_threshold_px = xp.pi * (min_radius_um / 2) ** 2
+            self.min_size_threshold_px = (xp.pi * (min_radius_um / 2) ** 2) / (self.im_info.dim_sizes['X'] ** 2)
 
         self.semantic_mask_memmap = None
         self.instance_mask_memmap = None
