@@ -184,6 +184,7 @@ class ImInfo:
                 else:
                     self.dim_sizes['T'] = 1
                 logger.warning(f'File is not an ImageJ or OME type, estimated dimension sizes: {self.dim_sizes}')
+
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}
@@ -269,7 +270,6 @@ class ImInfo:
             tifffile.imwrite(
                 path_im, data, bigtiff=True, metadata={"axes": axes}
             )
-        print(shape, axes, dtype)
         ome_xml = tifffile.tiffcomment(path_im)
         ome = ome_types.from_xml(ome_xml, parser="lxml")
         ome.images[0].pixels.physical_size_x = self.dim_sizes['X']
@@ -316,7 +316,7 @@ if __name__ == "__main__":
 
     custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
 
-    filepath = mac_filepath
+    filepath = custom_filepath
     try:
         test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:

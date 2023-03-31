@@ -3,6 +3,7 @@ import tifffile
 from src.io.im_info import ImInfo
 from src import xp, is_gpu, ndi, filters, xp_bk, logger
 from src.utils import general
+from src.utils.general import get_reshaped_image
 
 
 class FrangiFilter:
@@ -156,6 +157,15 @@ class FrangiFilter:
                              [dxz, dyz, dzz]])
         return h_matrix
 
+    def _get_h_det(self, h_matrix):
+        """
+        Calculate the determinant of the Hessian matrix.
+        """
+        # h_matrix is symmetric, so we can use this to calculate the determinant (much) more efficiently than linalg.det
+        h_det2 = h_matrix[0, 0] * (h_matrix[1, 1] * h_matrix[2, 2] - h_matrix[1, 2] ** 2) - \
+                h_matrix[0, 1] ** 2 * h_matrix[2, 2] + h_matrix[0, 2] ** 2 * h_matrix[1, 1]
+        return h_det2
+
     def _get_h_mask(self, h_matrix):
         """
         Compute a mask for the Hessian matrix based on the Frobenius norm of its elements.
@@ -243,16 +253,44 @@ class FrangiFilter:
                     z_radius = 1  # 1 should be fine since truncation occurs at 3 sigma?
                     start = max(0, z-z_radius)
                     gauss_slice = gauss_volume[start:z + self.chunk_size + z_radius, ...]
+
                     h_matrix = self._get_h(gauss_slice)
-                    h_matrix, h_mask = self._mask_h_matrix(h_matrix)
-                    if not len(h_matrix):  # means nothing above threshold got through, so keep filtered as blank
+                    h_vector, h_mask = self._mask_h_matrix(h_matrix)
+                    if not len(h_vector):  # means nothing above threshold got through, so keep filtered as blank
                         continue
-                    filtered_im, _ = self._get_filtered_im(h_matrix, gamma)
-                    mask_filtered_im = xp.zeros(gauss_slice.shape, dtype='double')
-                    mask_filtered_im[h_mask] = filtered_im
+
+                    frangi_vector, _ = self._get_filtered_im(h_vector, gamma)
+                    frangi_99_perc = xp.percentile(frangi_vector, 99)  # should be good as max threshold
+                    frangi_vector[frangi_vector > frangi_99_perc] = frangi_99_perc
+
+                    h_det = self._get_h_det(h_matrix)
+                    h_det_vector = h_det[h_mask]
+                    #
+                    h_det_vector[h_det_vector < 0] = -h_det_vector[h_det_vector < 0]
+                    h_det_99_perc_pos = xp.percentile(h_det_vector[h_det_vector>0], 99)  # should be good as max threshold
+                    h_det_1_perc_pos = xp.percentile(h_det_vector[h_det_vector>0], 1)  # should be good as max threshold
+                    frangi_1_perc_pos = xp.percentile(frangi_vector[frangi_vector>0], 1)  # should be good as max threshold
+                    # h_det_vector[h_det_vector > h_det_99_perc_pos] = h_det_99_perc_pos
+                    # h_det_vector[h_det_vector < h_det_99_perc_pos] = 0
+                    frangi_vector[h_det_vector > h_det_99_perc_pos] = xp.max(frangi_vector)
+                    frangi_vector[h_det_vector < h_det_1_perc_pos] = 0
+                    frangi_vector[frangi_vector < frangi_1_perc_pos] = 0
+                    #
+                    # normalized_hessian_det = h_det_vector / h_det_99_perc_pos
+                    # normalized_frangi_output = frangi_vector / frangi_99_perc
+                    frangi_im = xp.zeros(gauss_slice.shape, dtype='double')
+                    # h_det_im = xp.zeros(gauss_slice.shape, dtype='double')
+                    # frangi_im[h_mask] = normalized_frangi_output
+                    frangi_im[h_mask] = frangi_vector
+                    # frangi_im[h_det_vector!=0] = xp.max(frangi_im)
+                    # h_det_im[h_mask] = normalized_hessian_det
+                    #
+                    # filtered_im = (frangi_im + h_det_im) / 2
+                    filtered_im = frangi_im
+
                     if start == 0:
                         z_radius = 0
-                    filtered_volume[z:z + self.chunk_size, ...] = mask_filtered_im[z_radius:z_radius + self.chunk_size]
+                    filtered_volume[z:z + self.chunk_size, ...] = filtered_im[z_radius:z_radius + self.chunk_size]
                 break
             except (xp.cuda.memory.OutOfMemoryError, xp_bk.cuda.libs.cusolver.CUSOLVERError):
                 if self.chunk_size == 1:
@@ -273,22 +311,19 @@ class FrangiFilter:
             remove_edges (bool): If true, removes 10 pixel radius from the image's bounding box's rows.
         """
         logger.info('Allocating memory for frangi filtered image.')
-        im_path = self.im_info.path_im_frangi
-        if 'T' not in self.im_info.axes:
-            num_t = -1
-        else:
-            self.im_memmap = self.im_memmap[:num_t, ...]
-        if num_t == -1:
-            self.im_memmap = self.im_memmap[None, ...]
+        self.im_memmap = get_reshaped_image(self.im_memmap, num_t, self.im_info)
         shape = self.im_memmap.shape
-        num_t = self.im_memmap.shape[0]
+
         self.im_info.allocate_memory(
-            im_path, shape=shape, dtype='double', description='Frangi image.',
+            self.im_info.path_im_frangi, shape=shape, dtype='double', description='Frangi image.',
         )
-        self.im_frangi = tifffile.memmap(im_path, mode='r+')
+
+        self.im_frangi = tifffile.memmap(self.im_info.path_im_frangi, mode='r+')
         if len(self.im_frangi.shape) == len(shape)-1:
             self.im_frangi = self.im_frangi[None, ...]
+
         # allocates memory for a single volume
+        num_t = self.im_memmap.shape[0]
         for t_num in range(num_t):
             for sigma_number, sigma in enumerate(self.sigmas):
                 frangi_in_mem = xp.asarray(self.im_frangi[t_num, ...])
@@ -323,7 +358,7 @@ if __name__ == "__main__":
         logger.error("File not found.")
         exit(1)
     frangi = FrangiFilter(test)
-    frangi.run_filter(1)
+    frangi.run_filter()
     print('hi')
 
     visualize = True
