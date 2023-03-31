@@ -3,6 +3,8 @@ import tifffile
 from src import logger
 from src.io.im_info import ImInfo
 from skimage import morphology  # currently no skeletonization cupy implementation
+from src.utils.general import get_reshaped_image
+
 
 
 class Skeleton:
@@ -35,18 +37,18 @@ class Skeleton:
         semantic_mask = tifffile.memmap(self.im_info.path_im_mask, mode='r')
         label_im = tifffile.memmap(self.im_info.path_im_label_obj, mode='r')
 
-        # Load only a subset of frames if num_t is not None
-        if num_t is not None:
-            num_t = min(num_t, semantic_mask.shape[0])
-            semantic_mask = semantic_mask[:num_t, ...]
-            label_im = label_im[:num_t, ...]
+        semantic_mask = get_reshaped_image(semantic_mask, num_t, self.im_info)
+        label_im = get_reshaped_image(label_im, num_t, self.im_info)
         self.shape = semantic_mask.shape
 
         # Allocate memory for the skeleton volume and load it as a memory-mapped file
         self.im_info.allocate_memory(
             self.im_info.path_im_skeleton, shape=self.shape, dtype=dtype, description='Skeleton image'
         )
+
         self.skel_memmap = tifffile.memmap(self.im_info.path_im_skeleton, mode='r+')
+        if len(self.skel_memmap.shape) == len(self.shape)-1:
+            self.skel_memmap = self.skel_memmap[None, ...]
 
         # Skeletonize each frame in the binary image volume and multiply it by its instance label
         for frame_num, frame in enumerate(semantic_mask):
@@ -55,16 +57,17 @@ class Skeleton:
 
 
 if __name__ == '__main__':
-    import os
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
 
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = custom_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     skel_im_out = Skeleton(test)
-    skel_im_out.skeletonize(2)
+    skel_im_out.skeletonize()
     print('hi')

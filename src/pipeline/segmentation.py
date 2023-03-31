@@ -1,7 +1,7 @@
 import tifffile
 
 from src.io.im_info import ImInfo
-from src import xp, morphology, ndi, is_gpu, logger, filters
+from src import xp, morphology, ndi, is_gpu, logger
 from src.utils.general import get_reshaped_image
 
 
