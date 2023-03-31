@@ -267,13 +267,20 @@ class FrangiFilter:
         """
         logger.info('Allocating memory for frangi filtered image.')
         im_path = self.im_info.path_im_frangi
-        if num_t is not None:
+        if 'T' not in self.im_info.axes:
+            num_t = -1
+        else:
             self.im_memmap = self.im_memmap[:num_t, ...]
+        if num_t == -1:
+            self.im_memmap = self.im_memmap[None, ...]
+        shape = self.im_memmap.shape
         num_t = self.im_memmap.shape[0]
         self.im_info.allocate_memory(
-            im_path, shape=self.im_memmap.shape, dtype='double', description='Frangi image.',
+            im_path, shape=shape, dtype='double', description='Frangi image.',
         )
         self.im_frangi = tifffile.memmap(im_path, mode='r+')
+        if len(self.im_frangi.shape) == len(shape)-1:
+            self.im_frangi = self.im_frangi[None, ...]
         # allocates memory for a single volume
         for t_num in range(num_t):
             for sigma_number, sigma in enumerate(self.sigmas):
@@ -303,12 +310,18 @@ if __name__ == "__main__":
 
     custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
 
-    filepath = custom_filepath
+    filepath = mac_filepath
     try:
         test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     frangi = FrangiFilter(test)
-    frangi.run_filter()
+    frangi.run_filter(1)
     print('hi')
+
+    visualize = True
+    if visualize:
+        import napari
+        viewer = napari.Viewer()
+        viewer.add_image(frangi.im_frangi)#, scale=[test.dim_sizes['T'], test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])

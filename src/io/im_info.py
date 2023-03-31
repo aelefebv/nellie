@@ -174,11 +174,15 @@ class ImInfo:
                         self.dim_sizes['Z'] = 1 / self.metadata[tag_names['ZResolution']].value[0]
                     else:
                         self.dim_sizes['Z'] = 1
+                else:
+                    self.dim_sizes['Z'] = 1
                 if 'T' in self.axes:
                     if 'FrameRate' in tag_names:
                         self.dim_sizes['T'] = 1 / self.metadata[tag_names['FrameRate']].value[0]
                     else:
                         self.dim_sizes['T'] = 1
+                else:
+                    self.dim_sizes['T'] = 1
                 logger.warning(f'File is not an ImageJ or OME type, estimated dimension sizes: {self.dim_sizes}')
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
@@ -254,6 +258,8 @@ class ImInfo:
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
         logger.debug(f'Saving axes as {axes}')
+        if 'T' not in axes:
+            axes = 'T' + axes
         if data is None:
             assert shape is not None
             tifffile.imwrite(
