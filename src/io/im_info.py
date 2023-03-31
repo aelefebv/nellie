@@ -184,6 +184,7 @@ class ImInfo:
                 else:
                     self.dim_sizes['T'] = 1
                 logger.warning(f'File is not an ImageJ or OME type, estimated dimension sizes: {self.dim_sizes}')
+            self.metadata = None
 
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")

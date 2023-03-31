@@ -1,6 +1,8 @@
 from src import xp, ndi, logger, is_gpu
 from src.io.im_info import ImInfo
 import tifffile
+from src.utils.general import get_reshaped_image
+
 
 
 class Neighbors:
@@ -22,7 +24,7 @@ class Neighbors:
         self.network_memmap = None
         self.shape = ()
 
-    def find_neighbors(self, num_t):  # todo this is faster on cpu?
+    def find_neighbors(self, num_t = None):  # todo this is faster on cpu?
         """
         Computes the neighborhood analysis of the skeleton image volume and saves the results in a memory-mapped image.
 
@@ -35,18 +37,17 @@ class Neighbors:
         """
         # Load the skeleton image file as memory-mapped files
         skeleton_im = tifffile.memmap(self.im_info.path_im_skeleton, mode='r')
-
-        # Load only a subset of frames if num_t is not None
-        if num_t is not None:
-            num_t = min(num_t, skeleton_im.shape[0])
-            skeleton_im = skeleton_im[:num_t, ...]
+        skeleton_im = get_reshaped_image(skeleton_im, num_t, self.im_info)
         self.shape = skeleton_im.shape
 
         # Allocate memory for the neighbor volume and load it as a memory-mapped file
         self.im_info.allocate_memory(
             self.im_info.path_im_network, shape=self.shape, dtype='uint8', description='Neighbor image'
         )
+
         self.network_memmap = tifffile.memmap(self.im_info.path_im_network, mode='r+')
+        if len(self.network_memmap.shape) == len(self.shape)-1:
+            self.network_memmap = self.network_memmap[None, ...]
 
         # Get the neighborhood for each frame in the skeleton image and save it to its memory mapped location
         for frame_num, frame in enumerate(skeleton_im):
@@ -75,15 +76,17 @@ class Neighbors:
 
 
 if __name__ == "__main__":
-    import os
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = mac_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     neighbors_test = Neighbors(test)
-    neighbors_test.find_neighbors(5)
+    neighbors_test.find_neighbors()
     print('hi')
