@@ -1,9 +1,10 @@
 from src.pipeline.node_props import Node, NodeConstructor
-from src.io.pickle_jar import unpickle_object
 from src.io.im_info import ImInfo
 from src import logger
 import numpy as xp
 from scipy.optimize import linear_sum_assignment
+from src.io.pickle_jar import unpickle_object
+
 
 class NodeTrack:
     """
@@ -667,16 +668,15 @@ class NodeTrackConstructor:
 
 
 if __name__ == "__main__":
-    import os
-    from src.io.pickle_jar import pickle_object, unpickle_object
+    from src.io.pickle_jar import pickle_object
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
 
-    top_dir = r"D:\test_files\nelly\20230323-AELxKL-dmr_lipid_droplets"
-    file_name = "deskewed-2023-03-23_13-02-09_000_20230323-AELxKL-dmr-lipid_droplets-1.ome.tif"
-    filepath = os.path.join(top_dir, file_name)
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = custom_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)

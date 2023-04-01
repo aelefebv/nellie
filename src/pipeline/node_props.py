@@ -6,6 +6,8 @@ is_gpu = False
 import numpy as xp
 import scipy.ndimage as ndi
 import skimage.measure as measure
+from src.utils.general import get_reshaped_image
+
 
 
 class Node:
@@ -119,6 +121,7 @@ class NodeConstructor:
 
         # Loop over each branch point region
         for junction_num, junction_region in enumerate(junction_regions):
+            logger.debug(f'Junction {junction_num + 1} of {len(junction_regions)}')
 
             # Get the coords of the neighboring pixels
             coords = []
@@ -128,8 +131,21 @@ class NodeConstructor:
                                for i in [-1, 0, 1] for j in [-1, 0, 1] for k in [-1, 0, 1]
                                if (i != 0 or j != 0 or k != 0)])
 
+            tip_neigh = []
+            edge_neighbors = []
             # Get tip neighbors
-            tip_neigh = xp.asarray([idx for idx in coords if frame[idx] == 1])
+            for idx in coords:
+                # if the idx is outside of the image, skip it
+                if ((idx[0] < 0 or idx[0] >= frame.shape[0])
+                    or (idx[1] < 0 or idx[1] >= frame.shape[1])
+                    or (idx[2] < 0 or idx[2] >= frame.shape[2])
+                ):
+                    continue
+                if frame[idx] == 1:
+                    tip_neigh.append(idx)
+                elif frame[idx] == 2:
+                    edge_neighbors.append(idx)
+            # tip_neigh = xp.asarray([idx for idx in coords if frame[idx] == 1])
 
             # Order matters:
 
@@ -137,7 +153,7 @@ class NodeConstructor:
             for neigh in tip_neigh:
                 frame[tuple(neigh)] = 0
             # get junction's edge neighbors
-            edge_neighbors = xp.asarray([idx for idx in coords if frame[idx] == 2])
+            # edge_neighbors = xp.asarray([idx for idx in coords if frame[idx] == 2])
             # if only 1 neighbor, junction becomes a tip
             if len(edge_neighbors) == 1:
                 frame[junction_labels == junction_region.label] = 1
@@ -170,6 +186,7 @@ class NodeConstructor:
         tip_regions = measure.regionprops(tip_labels)
         # if no neighbors, tip becomes lone tip type
         for tip_num, tip_region in enumerate(tip_regions):
+            logger.debug(f'Tip {tip_num + 1} of {len(tip_regions)}')
 
             # Get the coords of the neighboring pixels
             coords = []
@@ -180,7 +197,17 @@ class NodeConstructor:
                                if (i != 0 or j != 0 or k != 0)])
 
             # Get non-tip or background neighbors
-            tip_neighbors = xp.asarray([idx for idx in coords if frame[idx] > 1])
+            tip_neighbors = []
+            for idx in coords:
+                # if the idx is outside of the image, skip it
+                if ((idx[0] < 0 or idx[0] >= frame.shape[0])
+                    or (idx[1] < 0 or idx[1] >= frame.shape[1])
+                    or (idx[2] < 0 or idx[2] >= frame.shape[2])
+                ):
+                    continue
+                if frame[idx] > 1:
+                    tip_neighbors.append(idx)
+            # tip_neighbors = xp.asarray([idx for idx in coords if frame[idx] > 1])
             has_neighbors = len(tip_neighbors)
             if not has_neighbors:
                 # set that tip to a "lone tip"
@@ -285,11 +312,7 @@ class NodeConstructor:
             The number of timepoints to process. If None, all timepoints are processed.
         """
         network_im = tifffile.memmap(self.im_info.path_im_network, mode='r')
-
-
-        if num_t is not None:
-            num_t = min(num_t, network_im.shape[0])
-            network_im = network_im[:num_t, ...]
+        network_im = get_reshaped_image(network_im, num_t, self.im_info)
         self.shape = network_im.shape
 
         # Allocate memory for the node type and label, and node segment volumes and load it as a memory-mapped file
@@ -306,10 +329,20 @@ class NodeConstructor:
             self.im_info.path_im_label_seg, shape=self.shape, dtype=dtype, description='Branch segments image'
         )
         node_type_memmap = tifffile.memmap(self.im_info.path_im_node_types, mode='r+')
+        if len(node_type_memmap.shape) == len(self.shape)-1:
+            node_type_memmap = node_type_memmap[None, ...]
         tip_label_memmap = tifffile.memmap(self.im_info.path_im_label_tips, mode='r+')
+        if len(tip_label_memmap.shape) == len(self.shape)-1:
+            tip_label_memmap = tip_label_memmap[None, ...]
         junction_label_memmap = tifffile.memmap(self.im_info.path_im_label_junctions, mode='r+')
+        if len(junction_label_memmap.shape) == len(self.shape)-1:
+            junction_label_memmap = junction_label_memmap[None, ...]
         edge_label_memmap = tifffile.memmap(self.im_info.path_im_label_seg, mode='r+')
+        if len(edge_label_memmap.shape) == len(self.shape)-1:
+            edge_label_memmap = edge_label_memmap[None, ...]
         skeleton_memmap = tifffile.memmap(self.im_info.path_im_skeleton, mode='r')
+        if len(skeleton_memmap.shape) == len(self.shape)-1:
+            skeleton_memmap = skeleton_memmap[None, ...]
 
         for frame_num, frame in enumerate(network_im):
             logger.info(f'Running branch point analysis, volume {frame_num}/{len(network_im) - 1}')
@@ -334,17 +367,19 @@ class NodeConstructor:
 
 if __name__ == "__main__":
     from src.io.pickle_jar import pickle_object, unpickle_object
-    import os
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/2.tif", 'ZYX')
+
+    filepath = custom_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     node_props = NodeConstructor(test)
-    node_props.get_node_properties(5)
+    node_props.get_node_properties()
     pickle_object(test.path_pickle_node, node_props)
     node_props_unpickled = unpickle_object(test.path_pickle_node)
     print('hi')
