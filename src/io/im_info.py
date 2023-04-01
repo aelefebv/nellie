@@ -20,7 +20,12 @@ class ImInfo:
         ch (int, optional): Channel index for multichannel TIFF files.
         dim_sizes (dict, optional): Dictionary mapping dimension names to physical voxel sizes.
     """
-    def __init__(self, im_path: str, output_dirpath: str = None, ch: int = 0, dim_sizes: dict = None):
+    def __init__(self, im_path: str,
+                 output_dirpath: str = None,
+                 ch: int = None,
+                 dim_sizes: dict = None,
+                 dimension_order: str = '',
+                 ):
         """
         Initialize an ImInfo object for a TIFF file.
 
@@ -34,7 +39,11 @@ class ImInfo:
             ImInfo object.
         """
         self.im_path = im_path
-        self.ch = ch
+        if ch is None:
+            logger.warning(f'Multichannel file found, but no channel specified, using channel 0.')
+            self.ch = 0
+        else:
+            self.ch = ch
         self.dim_sizes = dim_sizes
         self.extension = self.im_path.split('.')[-1]
         self.sep = os.sep if os.sep in self.im_path else '/'
@@ -44,7 +53,7 @@ class ImInfo:
         except IndexError:
             self.dirname = ''
         self.input_dirpath = self.im_path.split(self.sep+self.filename)[0]
-        self.axes = ''
+        self.axes = dimension_order
         self.shape = ()
         self.metadata = None
         self._get_metadata()
@@ -101,13 +110,28 @@ class ImInfo:
                     ome = ome_types.from_xml(ome_xml, parser="lxml")
                     self.metadata = ome
                     self.metadata_type = 'ome'
-                self.axes = tif.series[0].axes
+                else:
+                    self.metadata = tif.pages[0].tags._dict
+                    self.metadata_type = None
+                    if 'C' in self.axes:
+                        logger.error('Multichannel TIFF files must have ImageJ or OME metadata. Resubmit the'
+                                     'file either with correct metadata or the single channel of interest.')
+                if self.axes == '':
+                    self.axes = tif.series[0].axes
                 self.shape = tif.series[0].shape
+                if len(self.axes) != len(self.shape):
+                    logger.error(f"Dimension order {self.axes} does not match the number of dimensions in the image "
+                                   f"({len(self.shape)}).")
+                    exit(1)
         except Exception as e:
             logger.error(f"Error loading file {self.im_path}: {str(e)}")
             exit(1)
-        if self.axes not in ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX']:
-            logger.error(f"File dimensions must be in one of these orders: 'TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX'")
+        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
+        if self.axes not in accepted_axes:
+            # todo, have user optionally specify axes
+            logger.warning(f"File dimension order is in unknown order {self.axes} with {len(self.shape)} dimensions. \n"
+                           f"Please specify the order of the dimensions in the run. \n"
+                           f"Accepted dimensions are: {accepted_axes}.")
             exit(1)
 
     def _get_dim_sizes(self):
@@ -129,7 +153,39 @@ class ImInfo:
                 self.dim_sizes['Y'] = self.metadata.images[0].pixels.physical_size_y
                 self.dim_sizes['Z'] = self.metadata.images[0].pixels.physical_size_z
                 self.dim_sizes['T'] = self.metadata.images[0].pixels.time_increment
-            self.dim_sizes['C'] = 1
+            elif self.metadata_type is None:
+                tag_names = {tag_value.name: tag_code for tag_code, tag_value in self.metadata.items()}
+                if 'XResolution' in tag_names:
+                    self.dim_sizes['X'] = self.metadata[tag_names['XResolution']].value[1]\
+                                          / self.metadata[tag_names['XResolution']].value[0]
+                else:
+                    self.dim_sizes['X'] = 1
+                if 'YResolution' in tag_names:
+                    self.dim_sizes['Y'] = self.metadata[tag_names['YResolution']].value[1]\
+                                          / self.metadata[tag_names['YResolution']].value[0]
+                else:
+                    self.dim_sizes['Y'] = 1
+                if 'ResolutionUnit' in tag_names:
+                    if self.metadata[tag_names['ResolutionUnit']].value == tifffile.TIFF.RESUNIT.CENTIMETER:
+                        self.dim_sizes['X'] *= 1E-2 * 1E6
+                        self.dim_sizes['Y'] *= 1E-2 * 1E6
+                if 'Z' in self.axes:
+                    if 'ZResolution' in tag_names:
+                        self.dim_sizes['Z'] = 1 / self.metadata[tag_names['ZResolution']].value[0]
+                    else:
+                        self.dim_sizes['Z'] = 1
+                else:
+                    self.dim_sizes['Z'] = 1
+                if 'T' in self.axes:
+                    if 'FrameRate' in tag_names:
+                        self.dim_sizes['T'] = 1 / self.metadata[tag_names['FrameRate']].value[0]
+                    else:
+                        self.dim_sizes['T'] = 1
+                else:
+                    self.dim_sizes['T'] = 1
+                logger.warning(f'File is not an ImageJ or OME type, estimated dimension sizes: {self.dim_sizes}')
+            self.metadata = None
+
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}
@@ -164,6 +220,8 @@ class ImInfo:
         directory.
         """
         logger.debug('Setting output filepaths.')
+        if '.ome' not in self.filename:
+            self.filename = self.filename + '.ome'
         self.path_im_frangi = os.path.join(self.output_images_dirpath, f'ch{self.ch}-frangi-{self.filename}.tif')
         self.path_im_mask = os.path.join(self.output_images_dirpath, f'ch{self.ch}-mask-{self.filename}.tif')
         self.path_im_skeleton = os.path.join(self.output_images_dirpath, f'ch{self.ch}-skeleton-{self.filename}.tif')
@@ -202,6 +260,8 @@ class ImInfo:
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
         logger.debug(f'Saving axes as {axes}')
+        if 'T' not in axes:
+            axes = 'T' + axes
         if data is None:
             assert shape is not None
             tifffile.imwrite(
@@ -238,7 +298,11 @@ class ImInfo:
             np.ndarray: A memory-mapped array of the image data, with shape and data type determined by the file.
         """
         logger.debug('Getting and returning read-only memmap.')
-        im_memmap = tifffile.memmap(path_im, mode='r')
+        try:
+            im_memmap = tifffile.memmap(path_im, mode='r')
+        except ValueError:
+            logger.warning('Could not get memmap, loading file into memory instead.')
+            im_memmap = tifffile.imread(path_im)
 
         # Only get wanted channel
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
@@ -248,12 +312,21 @@ class ImInfo:
 
 if __name__ == "__main__":
     import os
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = custom_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    memmap = test.get_im_memmap(test.im_path)
+    loaded_file = test.get_im_memmap(test.im_path)
+
+    visualize = False
+    if visualize:
+        import napari
+        viewer = napari.Viewer()
+        viewer.add_image(loaded_file, name='memmap', scale=(test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']))

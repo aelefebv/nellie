@@ -3,6 +3,7 @@ import tifffile
 from src.io.im_info import ImInfo
 from src import xp, is_gpu, ndi, filters, xp_bk, logger
 from src.utils import general
+from src.utils.general import get_reshaped_image
 
 
 class FrangiFilter:
@@ -37,10 +38,13 @@ class FrangiFilter:
     def __init__(
             self, im_info: ImInfo,
             alpha: float = 0.5, beta: float = 0.5,
-            num_sigma: int = 10,
+            num_sigma: int = 5,
             sigma_min_max: tuple = (None, None),
             gamma: float = None,
             frobenius_thresh: float = None,
+            # todo, get these values depending on sample
+            min_radius_um: float = 0.25,
+            max_radius_um: float = 0.5,
     ):
         """
         Constructor method for FrangiFilter class.
@@ -68,6 +72,8 @@ class FrangiFilter:
         self.frobenius_thresh = frobenius_thresh
         self.num_sigma = num_sigma
         self.sigma_min, self.sigma_max = sigma_min_max
+        self.min_radius_px = min_radius_um / self.im_info.dim_sizes['X']
+        self.max_radius_px = max_radius_um / self.im_info.dim_sizes['X']
 
         # If sigma_min_max is not specified, set default values based on image dimensions
         if (self.sigma_min is None) or (self.sigma_max is None):
@@ -87,8 +93,10 @@ class FrangiFilter:
         If sigma_min and sigma_max are not provided, sets default values for them based on the dimensions of the input image.
         """
         logger.debug('No sigma values provided, setting to defaults.')
-        self.sigma_min = self.im_info.dim_sizes['X'] * 10
-        self.sigma_max = self.im_info.dim_sizes['X'] * 15
+        # self.sigma_min = self.im_info.dim_sizes['X'] * 10
+        # self.sigma_max = self.im_info.dim_sizes['X'] * 15
+        self.sigma_min = self.min_radius_px/2
+        self.sigma_max = self.max_radius_px/3
 
     def _gaussian_filter(self, sigma, t_num):
         """
@@ -148,6 +156,15 @@ class FrangiFilter:
                              [dxy, dyy, dyz],
                              [dxz, dyz, dzz]])
         return h_matrix
+
+    def _get_h_det(self, h_matrix):
+        """
+        Calculate the determinant of the Hessian matrix.
+        """
+        # h_matrix is symmetric, so we can use this to calculate the determinant (much) more efficiently than linalg.det
+        h_det2 = h_matrix[0, 0] * (h_matrix[1, 1] * h_matrix[2, 2] - h_matrix[1, 2] ** 2) - \
+                h_matrix[0, 1] ** 2 * h_matrix[2, 2] + h_matrix[0, 2] ** 2 * h_matrix[1, 1]
+        return h_det2
 
     def _get_h_mask(self, h_matrix):
         """
@@ -236,16 +253,44 @@ class FrangiFilter:
                     z_radius = 1  # 1 should be fine since truncation occurs at 3 sigma?
                     start = max(0, z-z_radius)
                     gauss_slice = gauss_volume[start:z + self.chunk_size + z_radius, ...]
+
                     h_matrix = self._get_h(gauss_slice)
-                    h_matrix, h_mask = self._mask_h_matrix(h_matrix)
-                    if not len(h_matrix):  # means nothing above threshold got through, so keep filtered as blank
+                    h_vector, h_mask = self._mask_h_matrix(h_matrix)
+                    if not len(h_vector):  # means nothing above threshold got through, so keep filtered as blank
                         continue
-                    filtered_im, _ = self._get_filtered_im(h_matrix, gamma)
-                    mask_filtered_im = xp.zeros(gauss_slice.shape, dtype='double')
-                    mask_filtered_im[h_mask] = filtered_im
+
+                    frangi_vector, _ = self._get_filtered_im(h_vector, gamma)
+                    frangi_99_perc = xp.percentile(frangi_vector, 99)  # should be good as max threshold
+                    frangi_vector[frangi_vector > frangi_99_perc] = frangi_99_perc
+
+                    h_det = self._get_h_det(h_matrix)
+                    h_det_vector = h_det[h_mask]
+                    #
+                    h_det_vector[h_det_vector < 0] = -h_det_vector[h_det_vector < 0]
+                    h_det_99_perc_pos = xp.percentile(h_det_vector[h_det_vector>0], 99)  # should be good as max threshold
+                    h_det_1_perc_pos = xp.percentile(h_det_vector[h_det_vector>0], 1)  # should be good as max threshold
+                    frangi_1_perc_pos = xp.percentile(frangi_vector[frangi_vector>0], 1)  # should be good as max threshold
+                    # h_det_vector[h_det_vector > h_det_99_perc_pos] = h_det_99_perc_pos
+                    # h_det_vector[h_det_vector < h_det_99_perc_pos] = 0
+                    frangi_vector[h_det_vector > h_det_99_perc_pos] = xp.max(frangi_vector)
+                    frangi_vector[h_det_vector < h_det_1_perc_pos] = 0
+                    frangi_vector[frangi_vector < frangi_1_perc_pos] = 0
+                    #
+                    # normalized_hessian_det = h_det_vector / h_det_99_perc_pos
+                    # normalized_frangi_output = frangi_vector / frangi_99_perc
+                    frangi_im = xp.zeros(gauss_slice.shape, dtype='double')
+                    # h_det_im = xp.zeros(gauss_slice.shape, dtype='double')
+                    # frangi_im[h_mask] = normalized_frangi_output
+                    frangi_im[h_mask] = frangi_vector
+                    # frangi_im[h_det_vector!=0] = xp.max(frangi_im)
+                    # h_det_im[h_mask] = normalized_hessian_det
+                    #
+                    # filtered_im = (frangi_im + h_det_im) / 2
+                    filtered_im = frangi_im
+
                     if start == 0:
                         z_radius = 0
-                    filtered_volume[z:z + self.chunk_size, ...] = mask_filtered_im[z_radius:z_radius + self.chunk_size]
+                    filtered_volume[z:z + self.chunk_size, ...] = filtered_im[z_radius:z_radius + self.chunk_size]
                 break
             except (xp.cuda.memory.OutOfMemoryError, xp_bk.cuda.libs.cusolver.CUSOLVERError):
                 if self.chunk_size == 1:
@@ -266,15 +311,19 @@ class FrangiFilter:
             remove_edges (bool): If true, removes 10 pixel radius from the image's bounding box's rows.
         """
         logger.info('Allocating memory for frangi filtered image.')
-        im_path = self.im_info.path_im_frangi
-        if num_t is not None:
-            self.im_memmap = self.im_memmap[:num_t, ...]
-        num_t = self.im_memmap.shape[0]
+        self.im_memmap = get_reshaped_image(self.im_memmap, num_t, self.im_info)
+        shape = self.im_memmap.shape
+
         self.im_info.allocate_memory(
-            im_path, shape=self.im_memmap.shape, dtype='double', description='Frangi image.',
+            self.im_info.path_im_frangi, shape=shape, dtype='double', description='Frangi image.',
         )
-        self.im_frangi = tifffile.memmap(im_path, mode='r+')
+
+        self.im_frangi = tifffile.memmap(self.im_info.path_im_frangi, mode='r+')
+        if len(self.im_frangi.shape) == len(shape)-1:
+            self.im_frangi = self.im_frangi[None, ...]
+
         # allocates memory for a single volume
+        num_t = self.im_memmap.shape[0]
         for t_num in range(num_t):
             for sigma_number, sigma in enumerate(self.sigmas):
                 frangi_in_mem = xp.asarray(self.im_frangi[t_num, ...])
@@ -297,15 +346,23 @@ class FrangiFilter:
 
 
 if __name__ == "__main__":
-    import os
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = custom_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     frangi = FrangiFilter(test)
-    frangi.run_filter(2)
+    frangi.run_filter()
     print('hi')
+
+    visualize = True
+    if visualize:
+        import napari
+        viewer = napari.Viewer()
+        viewer.add_image(frangi.im_frangi)#, scale=[test.dim_sizes['T'], test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])

@@ -1,5 +1,3 @@
-from tifffile import tifffile
-
 from src.pipeline.organelle_props import OrganellePropertiesConstructor, OrganelleProperties
 from src.pipeline.tracking.node_to_node import NodeTrack, Node, NodeConstructor
 from src.io.im_info import ImInfo
@@ -7,6 +5,9 @@ from src.io.pickle_jar import unpickle_object
 from src import logger
 import pandas as pd
 import numpy as xp
+import os
+from src.utils.general import get_reshaped_image
+
 
 
 class StatsNode:
@@ -47,8 +48,11 @@ class StatsNode:
         # traverse in the given direction from the first coordinate until the intensity image is zero
         def _traverse(coord, direction):
             coord_iteration = xp.array(coord)
+            z_max, y_max, x_max = mask_image.shape
             while mask_image[tuple(coord_iteration)] == 1:
                 coord_iteration += direction
+                if coord_iteration[0] >= z_max or coord_iteration[1] >= y_max or coord_iteration[2] >= x_max:
+                    return xp.nan
             return xp.linalg.norm(coord_iteration - xp.array(coord), axis=0)
         # do it for x, y, and z directions
         start_coord = node_track.node.coords[0]
@@ -57,7 +61,7 @@ class StatsNode:
         y_dist = _traverse(start_coord, (0, 1, 0)) * 2 * spacing[1]
         x_dist = _traverse(start_coord, (0, 0, 1)) * 2 * spacing[2]
         # return the minimum of the three distances
-        return min(x_dist, y_dist, z_dist)
+        return xp.nanmin([x_dist, y_dist, z_dist])
 
     def _find_angles_at_junctions(self, frame_node_tracks, node_track):
         track_angles = []
@@ -478,6 +482,9 @@ class AnalysisHierarchyConstructor:
         intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
         mask_image = self.im_info.get_im_memmap(self.im_info.path_im_mask)
         branch_label_image = self.im_info.get_im_memmap(self.im_info.path_im_label_seg)
+        intensity_image = get_reshaped_image(intensity_image, im_info=self.im_info)
+        mask_image = get_reshaped_image(mask_image, im_info=self.im_info)
+        branch_label_image = get_reshaped_image(branch_label_image, im_info=self.im_info)
 
         # calculate stats for each object
         self._calculate_region_stats(intensity_image)
@@ -979,12 +986,14 @@ class AnalysisDynamics:
 
 
 if __name__ == '__main__':
-    import os
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = mac_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)

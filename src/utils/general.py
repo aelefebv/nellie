@@ -1,5 +1,13 @@
 import numpy as xp  # could use cupy, but I think overhead typically takes more time...
 
+def get_reshaped_image(im, num_t = None, im_info = None):
+    im_to_return = im
+    if 'T' not in im_info.axes or (len(im_info.axes) > 3 and len(im_to_return.shape) == 3):
+        im_to_return = im_to_return[None, ...]
+    elif num_t is not None:
+        num_t = min(num_t, im_to_return.shape[0])
+        im_to_return = im_to_return[:num_t, ...]
+    return im_to_return
 
 def bbox(im):
     """

@@ -1,6 +1,7 @@
 from src.io.im_info import ImInfo
 from src import xp, measure, logger
 import tifffile
+from src.utils.general import get_reshaped_image
 
 
 class OrganelleProperties:
@@ -52,12 +53,11 @@ class OrganellePropertiesConstructor:
         # could potentially include intensity-weighted centroid, but not sure that it's necessary
         label_im = tifffile.memmap(self.im_info.path_im_label_obj, mode='r')
         skel_im = tifffile.memmap(self.im_info.path_im_skeleton, mode='r+')
-
-        # Load only a subset of frames if num_t is not None
-        if num_t is not None:
-            num_t = min(num_t, label_im.shape[0])
-            label_im = label_im[:num_t, ...]
-            skel_im = skel_im[:num_t, ...]
+        label_im = get_reshaped_image(label_im, num_t, self.im_info)
+        skel_im = get_reshaped_image(skel_im, num_t, self.im_info)
+        shape = label_im.shape
+        if len(skel_im.shape) == len(shape)-1:
+            skel_im = skel_im[None, ...]
 
         for frame_num, frame in enumerate(label_im):
             logger.info(f'Getting organelle properties, volume {frame_num}/{len(label_im)}')
@@ -89,17 +89,19 @@ class OrganellePropertiesConstructor:
 
 if __name__ == "__main__":
     from src.io.pickle_jar import pickle_object, unpickle_object
-    import os
-    filepath = r"D:\test_files\nelly\deskewed-single.ome.tif"
-    if not os.path.isfile(filepath):
-        filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+
+    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+
+    filepath = custom_filepath
     try:
-        test = ImInfo(filepath, ch=0)
+        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
     organelle_props = OrganellePropertiesConstructor(test)
-    organelle_props.get_organelle_properties(2)
+    organelle_props.get_organelle_properties()
     pickle_object(test.path_pickle_obj, organelle_props)
     organelle_props_unpickled = unpickle_object(test.path_pickle_obj)
     print('hi')
