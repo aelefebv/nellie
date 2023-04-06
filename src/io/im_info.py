@@ -282,7 +282,7 @@ class ImInfo:
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(path_im, ome_xml)
 
-    def get_im_memmap(self, path_im: str):
+    def get_im_memmap(self, path_im: str, ch = None):
         """
         Loads an image from a TIFF file located at `path_im` using the `tifffile.memmap` function,
         and returns a memory-mapped array of the image data.
@@ -293,6 +293,8 @@ class ImInfo:
 
         Args:
             path_im (str): The path to the TIFF file containing the image to load.
+            ch (int, optional): The channel to load.
+                If not specified, the channel specified in `self.ch` will be loaded.
 
         Returns:
             np.ndarray: A memory-mapped array of the image data, with shape and data type determined by the file.
@@ -305,8 +307,10 @@ class ImInfo:
             im_memmap = tifffile.imread(path_im)
 
         # Only get wanted channel
+        if ch is None:
+            ch = self.ch
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
-            im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
+            im_memmap = np.take(im_memmap, ch, axis=self.axes.index('C'))
         return im_memmap
 
 

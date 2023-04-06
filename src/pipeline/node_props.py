@@ -67,8 +67,7 @@ class NodeConstructor:
         The list of nodes in the network.
     """
     # todo, again, min_radius should probably default to something based off of a specific organelle. LUT for size?
-    def __init__(self, im_info: ImInfo,
-                 min_radius_um: float = 0.25):
+    def __init__(self, im_info: ImInfo):
         """
         Constructs a NodeConstructor object.
 

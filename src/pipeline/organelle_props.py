@@ -1,5 +1,7 @@
 from src.io.im_info import ImInfo
-from src import xp, measure, logger
+from src import logger  #, xp, measure
+import numpy as xp
+import skimage.measure as measure
 import tifffile
 from src.utils.general import get_reshaped_image
 

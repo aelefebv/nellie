@@ -448,8 +448,12 @@ class StatsRegion:
 
 
 class AnalysisHierarchyConstructor:
-    def __init__(self, im_info: ImInfo):
+    def __init__(self, im_info: ImInfo, intensity_im_ch_to_use: int = None):
         self.im_info = im_info
+        if intensity_im_ch_to_use is None:
+            self.intensity_im_ch_to_use = self.im_info.ch
+        else:
+            self.intensity_im_ch_to_use = intensity_im_ch_to_use
 
         # load in regions (organelles), and tracks, which have node and branch info.
         organelle_props: OrganellePropertiesConstructor = unpickle_object(self.im_info.path_pickle_obj)
@@ -479,7 +483,7 @@ class AnalysisHierarchyConstructor:
 
         # get memmaps for necessary images
         # todo account for when there is no intensity image
-        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path)
+        intensity_image = self.im_info.get_im_memmap(self.im_info.im_path, ch=self.intensity_im_ch_to_use)
         mask_image = self.im_info.get_im_memmap(self.im_info.path_im_mask)
         branch_label_image = self.im_info.get_im_memmap(self.im_info.path_im_label_seg)
         intensity_image = get_reshaped_image(intensity_image, im_info=self.im_info)
@@ -516,9 +520,6 @@ class AnalysisHierarchyConstructor:
 
     def _construct_node_and_branch_objects(self):
         for frame_num, frame_tracks in self.tracks.items():
-            # todo remove after testing
-            if frame_num > 1:
-                break
             logger.info(f'Constructing node and branch objects for frame {frame_num}')
             self.stats_nodes[frame_num] = dict()
             self.stats_branches[frame_num] = dict()
@@ -577,11 +578,11 @@ class AnalysisHierarchyConstructor:
         if prefixes is None:
             prefixes = []
         #todo prefixes
-        summary_df = pd.DataFrame()
+        summary_data = []
         for property_name in aggregate_df.columns:
             properties = aggregate_df[property_name]
             if not any(property_name.startswith(prefix) for prefix in prefixes):
-                summary_df[property_name] = properties
+                summary_data.append(properties)
                 continue
 
             def apply_non_empty(func, x):
@@ -589,18 +590,34 @@ class AnalysisHierarchyConstructor:
                     return func(xp.array([x]))
                 return func(x) if len(x) > 0 else float('nan')
 
-            summary_df[f'{property_name}_n'] = properties.apply(lambda x: apply_non_empty(len, x))
-            summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.mean, x))
-            summary_df[f'{property_name}_median'] = properties.apply(lambda x: apply_non_empty(xp.nanmedian, x))
-            summary_df[f'{property_name}_quartiles25'] = properties.apply(
-                lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.25), x))
-            summary_df[f'{property_name}_quartiles75'] = properties.apply(
-                lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.75), x))
-            summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.nanmean, x))
-            summary_df[f'{property_name}_std'] = properties.apply(lambda x: apply_non_empty(xp.nanstd, x))
-            summary_df[f'{property_name}_max'] = properties.apply(lambda x: apply_non_empty(xp.nanmax, x))
-            summary_df[f'{property_name}_min'] = properties.apply(lambda x: apply_non_empty(xp.nanmin, x))
-            summary_df[f'{property_name}_sum'] = properties.apply(lambda x: apply_non_empty(xp.nansum, x))
+            summary_dict = {
+                f'{property_name}_n': properties.apply(lambda x: apply_non_empty(len, x)),
+                f'{property_name}_mean': properties.apply(lambda x: apply_non_empty(xp.nanmean, x)),
+                f'{property_name}_median': properties.apply(lambda x: apply_non_empty(xp.nanmedian, x)),
+                f'{property_name}_quartiles25': properties.apply(
+                    lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.25), x)),
+                f'{property_name}_quartiles75': properties.apply(
+                    lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.75), x)),
+                f'{property_name}_std': properties.apply(lambda x: apply_non_empty(xp.nanstd, x)),
+                f'{property_name}_max': properties.apply(lambda x: apply_non_empty(xp.nanmax, x)),
+                f'{property_name}_min': properties.apply(lambda x: apply_non_empty(xp.nanmin, x)),
+                f'{property_name}_sum': properties.apply(lambda x: apply_non_empty(xp.nansum, x))
+            }
+            summary_data.append(pd.DataFrame(summary_dict))
+
+            # summary_df[f'{property_name}_n'] = properties.apply(lambda x: apply_non_empty(len, x))
+            # summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.nanmean, x))
+            # summary_df[f'{property_name}_median'] = properties.apply(lambda x: apply_non_empty(xp.nanmedian, x))
+            # summary_df[f'{property_name}_quartiles25'] = properties.apply(
+            #     lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.25), x))
+            # summary_df[f'{property_name}_quartiles75'] = properties.apply(
+            #     lambda x: apply_non_empty(lambda a: xp.nanquantile(a, 0.75), x))
+            # summary_df[f'{property_name}_mean'] = properties.apply(lambda x: apply_non_empty(xp.nanmean, x))
+            # summary_df[f'{property_name}_std'] = properties.apply(lambda x: apply_non_empty(xp.nanstd, x))
+            # summary_df[f'{property_name}_max'] = properties.apply(lambda x: apply_non_empty(xp.nanmax, x))
+            # summary_df[f'{property_name}_min'] = properties.apply(lambda x: apply_non_empty(xp.nanmin, x))
+            # summary_df[f'{property_name}_sum'] = properties.apply(lambda x: apply_non_empty(xp.nansum, x))
+            summary_df = pd.concat(summary_data, axis=1)
         return summary_df
 
     def save_all_stats_nodes_to_csv(self):
@@ -616,7 +633,7 @@ class AnalysisHierarchyConstructor:
 
                     'n_distance_from_cell_center': stats_node.n_distance_from_cell_center,
                     'n_node_width': stats_node.n_node_width,
-                    'n_intensity_coords': list(stats_node.n_intensity_coords),
+                    f'n_intensity_coords_ch{self.intensity_im_ch_to_use}': list(stats_node.n_intensity_coords),
                     'n_angles_at_junctions': list(stats_node.n_angles_at_junctions),
                     'n_speed': list(stats_node.n_speed),
                     'n_distance': list(stats_node.n_distance),
@@ -627,13 +644,13 @@ class AnalysisHierarchyConstructor:
                 data.append(node_data)
 
         csv_dir = self.im_info.output_csv_dirpath
-        all_stats_csv_name = f"all_stats_nodes-{self.im_info.filename}.csv"
+        all_stats_csv_name = f"all_stats_nodes-{self.im_info.filename}-ch{self.im_info.ch}.csv"
         all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
         all_stats_df = pd.DataFrame(data)
         all_stats_df.to_csv(all_stats_csv_path, index=False)
 
         summary_df = self.get_summary_df(all_stats_df, prefixes=['n_'])
-        summary_csv_name = f"summary_stats_nodes-{self.im_info.filename}.csv"
+        summary_csv_name = f"summary_stats_nodes-{self.im_info.filename}-ch{self.im_info.ch}.csv"
         summary_csv_path = os.path.join(csv_dir, summary_csv_name)
         summary_df.to_csv(summary_csv_path, index=False)
 
@@ -651,7 +668,7 @@ class AnalysisHierarchyConstructor:
                     'b_aspect_ratio': stats_branch.b_aspect_ratio,
                     'b_circularity': stats_branch.b_circularity,
                     'b_distance_from_cell_center': list(stats_branch.b_distance_from_cell_center),
-                    'b_intensity_coords': list(stats_branch.b_intensity_coords),
+                    f'b_intensity_coords_ch{self.intensity_im_ch_to_use}': list(stats_branch.b_intensity_coords),
                     'b_length': stats_branch.b_length,
                     'b_orientation': stats_branch.b_branch_orientation,
                     'b_orientations': list(stats_branch.b_edge_travel_orientations),
@@ -664,7 +681,7 @@ class AnalysisHierarchyConstructor:
                     'bn_distance_from_cell_center': list(stats_branch.bn_distance_from_cell_center),
                     'bn_fission': list(stats_branch.bn_fission),
                     'bn_fusion': list(stats_branch.bn_fusion),
-                    'bn_intensity_coords': list(stats_branch.bn_intensity_coords),
+                    f'bn_intensity_coords_ch{self.intensity_im_ch_to_use}': list(stats_branch.bn_intensity_coords),
                     'bn_node_width': list(stats_branch.bn_node_width),
                     'bn_num_branches': list(stats_branch.bn_num_branches),
                     'bn_speed': list(stats_branch.bn_speed),
@@ -672,13 +689,13 @@ class AnalysisHierarchyConstructor:
                 data.append(node_data)
 
         csv_dir = self.im_info.output_csv_dirpath
-        all_stats_csv_name = f"all_stats_branches-{self.im_info.filename}.csv"
+        all_stats_csv_name = f"all_stats_branches-{self.im_info.filename}-ch{self.im_info.ch}.csv"
         all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
         all_stats_df = pd.DataFrame(data)
         all_stats_df.to_csv(all_stats_csv_path, index=False)
 
         summary_df = self.get_summary_df(all_stats_df, prefixes=['b_', 'bn_'])
-        summary_csv_name = f"summary_stats_branches-{self.im_info.filename}.csv"
+        summary_csv_name = f"summary_stats_branches-{self.im_info.filename}-ch{self.im_info.ch}.csv"
         summary_csv_path = os.path.join(csv_dir, summary_csv_name)
         summary_df.to_csv(summary_csv_path, index=False)
 
@@ -695,13 +712,13 @@ class AnalysisHierarchyConstructor:
                     'num_nodes': stats_region.r_num_nodes,
 
                     'r_distance_from_cell_center_coords': list(stats_region.r_distance_from_cell_center_coords),
-                    'r_intensity_coords': list(stats_region.r_intensity_coords),
+                    f'r_intensity_coords_ch{self.intensity_im_ch_to_use}': list(stats_region.r_intensity_coords),
                     'r_volume': stats_region.r_volume,
 
                     'rb_aspect_ratio': list(stats_region.rb_aspect_ratio),
                     'rb_circularity': list(stats_region.rb_circularity),
                     'rb_distance_from_cell_center': list(stats_region.rb_distance_from_cell_center),
-                    'rb_intensity_coords': list(stats_region.rb_intensity_coords),
+                    f'rb_intensity_coords_ch{self.intensity_im_ch_to_use}': list(stats_region.rb_intensity_coords),
                     'rb_length': list(stats_region.rb_length),
                     'rb_orientation': list(stats_region.rb_branch_orientation),
                     'rb_orientations': list(stats_region.rb_edge_travel_orientations),
@@ -720,7 +737,7 @@ class AnalysisHierarchyConstructor:
                     'rn_distance_from_cell_center': list(stats_region.rn_distance_from_cell_center),
                     'rn_fission': list(stats_region.rn_fission),
                     'rn_fusion': list(stats_region.rn_fusion),
-                    'rn_intensity_coords': list(stats_region.rn_intensity_coords),
+                    f'rn_intensity_coords_ch{self.intensity_im_ch_to_use}': list(stats_region.rn_intensity_coords),
                     'rn_node_width': list(stats_region.rn_node_width),
                     'rn_num_branches': list(stats_region.rn_num_branches),
                     'rn_speed': list(stats_region.rn_speed),
@@ -728,13 +745,13 @@ class AnalysisHierarchyConstructor:
                 data.append(node_data)
 
         csv_dir = self.im_info.output_csv_dirpath
-        all_stats_csv_name = f"all_stats_regions-{self.im_info.filename}.csv"
+        all_stats_csv_name = f"all_stats_regions-{self.im_info.filename}-ch{self.im_info.ch}.csv"
         all_stats_csv_path = os.path.join(csv_dir, all_stats_csv_name)
         all_stats_df = pd.DataFrame(data)
         all_stats_df.to_csv(all_stats_csv_path, index=False)
 
         summary_df = self.get_summary_df(all_stats_df, prefixes=['r_', 'rb_', 'rn_'])
-        summary_csv_name = f"summary_stats_regions-{self.im_info.filename}.csv"
+        summary_csv_name = f"summary_stats_regions-{self.im_info.filename}-ch{self.im_info.ch}.csv"
         summary_csv_path = os.path.join(csv_dir, summary_csv_name)
         summary_df.to_csv(summary_csv_path, index=False)
 
@@ -989,9 +1006,9 @@ if __name__ == '__main__':
     windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
     mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
 
-    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+    custom_filepath = (r"D:\test_files\nelly\20230330-AELxZL-A549-TMRE_mtG\deskewed-2023-03-30_15-28-45_000_20230330-AELxZL-A549-TMRE_mtG-ctrl.ome.tif", '')
 
-    filepath = mac_filepath
+    filepath = custom_filepath
     try:
         test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
     except FileNotFoundError:
@@ -1006,7 +1023,7 @@ if __name__ == '__main__':
     # if not os.path.exists(frame_output_folder):
     #     os.makedirs(frame_output_folder)
     # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
-    hierarchy = AnalysisHierarchyConstructor(test)
+    hierarchy = AnalysisHierarchyConstructor(test, intensity_im_ch_to_use=1)
     hierarchy.get_hierarchy()
     hierarchy.save_stat_attributes()
     # regions.calculate_metrics()
