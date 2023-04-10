@@ -39,7 +39,7 @@ class Segment:
         self.remove_in_2d = False
         if any(xp.array(
                 [self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']]
-        ) > self.min_radius_um):
+        ) > (self.min_radius_um*2)):
             logger.warning(f"One of the dimensions' voxel sizes is greater than the minimum radius of the structure in "
                            f"question so object removal will be conducted based on 2D parameters instead of 3D. "
                            f"This may result in objects being kept that should not be.")

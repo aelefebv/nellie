@@ -1003,27 +1003,51 @@ class AnalysisDynamics:
 
 
 if __name__ == '__main__':
-    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
-    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
-
-    custom_filepath = (r"D:\test_files\nelly\20230330-AELxZL-A549-TMRE_mtG\deskewed-2023-03-30_15-28-45_000_20230330-AELxZL-A549-TMRE_mtG-ctrl.ome.tif", '')
-
-    filepath = custom_filepath
-    try:
-        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
-    except FileNotFoundError:
-        logger.error("File not found.")
-        exit(1)
-    # track_builder = StatsDynamics(test)
-    # track_builder.node_num_track_dict()
-    # dynamics = AnalysisDynamics(test, track_builder.tracks)
-    # dynamics.calculate_metrics()
-    # aggregate_output_file = 'aggregate_metrics.csv'
-    # frame_output_folder = test.output_csv_dirpath
-    # if not os.path.exists(frame_output_folder):
-    #     os.makedirs(frame_output_folder)
-    # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
-    hierarchy = AnalysisHierarchyConstructor(test, intensity_im_ch_to_use=1)
-    hierarchy.get_hierarchy()
-    hierarchy.save_stat_attributes()
+    # windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    # mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+    #
+    # custom_filepath = (r"D:\test_files\nelly\20230330-AELxZL-A549-TMRE_mtG\deskewed-2023-03-30_15-28-45_000_20230330-AELxZL-A549-TMRE_mtG-ctrl.ome.tif", '')
+    #
+    # filepath = custom_filepath
+    # try:
+    #     test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
+    # except FileNotFoundError:
+    #     logger.error("File not found.")
+    #     exit(1)
+    # # track_builder = StatsDynamics(test)
+    # # track_builder.node_num_track_dict()
+    # # dynamics = AnalysisDynamics(test, track_builder.tracks)
+    # # dynamics.calculate_metrics()
+    # # aggregate_output_file = 'aggregate_metrics.csv'
+    # # frame_output_folder = test.output_csv_dirpath
+    # # if not os.path.exists(frame_output_folder):
+    # #     os.makedirs(frame_output_folder)
+    # # analysis.save_metrics_to_csv(os.path.join(frame_output_folder, aggregate_output_file), frame_output_folder)
+    # hierarchy = AnalysisHierarchyConstructor(test, intensity_im_ch_to_use=1)
+    # hierarchy.get_hierarchy()
+    # hierarchy.save_stat_attributes()
     # regions.calculate_metrics()
+    import os
+    import glob
+
+    top_dir = r"D:\test_files\nelly\20230330-AELxZL-A549-TMRE_mtG"
+
+    files = glob.glob(os.path.join(top_dir, '*.tif*'))
+    files.sort()
+    # file_name = "deskewed-2023-03-23_13-02-09_000_20230323-AELxKL-dmr-lipid_droplets-1.ome.tif"
+    for file_num, filepath in enumerate(files):
+        print(file_num, len(files), filepath)
+        # filepath = os.path.join(top_dir, file_name)
+        # if not os.path.isfile(filepath):
+        #     filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
+        try:
+            # run(filepath, num_t=None, dimension_order='ZYX')
+            im_info = ImInfo(filepath)
+            hierarchy = AnalysisHierarchyConstructor(im_info, intensity_im_ch_to_use=1)
+            hierarchy.get_hierarchy()
+            hierarchy.save_stat_attributes()
+        except FileNotFoundError:
+            logger.error("File not found.")
+            continue
+            # exit(1)
+    print('hi')

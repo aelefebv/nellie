@@ -366,19 +366,25 @@ class NodeConstructor:
 
 if __name__ == "__main__":
     from src.io.pickle_jar import pickle_object, unpickle_object
-    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
-    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+    # windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
+    # mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+    #
+    # custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/2.tif", 'ZYX')
+    #
+    # filepath = custom_filepath
+    # try:
+    #     test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
+    # except FileNotFoundError:
+    #     logger.error("File not found.")
+    #     exit(1)
+    # node_props = NodeConstructor(test)
+    # node_props.get_node_properties()
+    # pickle_object(test.path_pickle_node, node_props)
+    # node_props_unpickled = unpickle_object(test.path_pickle_node)
+    # print('hi')
+    import os
+    top_dir = r'D:\test_files\nelly\20230330-AELxZL-A549-TMRE_mtG\output\pickles'
+    pkl_file = r'ch0-node-deskewed-2023-03-30_15-11-11_000_20230330-AELxZL-A549-TMRE_mtG-ctrl.ome.pkl'
+    full_pkl_path = os.path.join(top_dir, pkl_file)
 
-    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/2.tif", 'ZYX')
-
-    filepath = custom_filepath
-    try:
-        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
-    except FileNotFoundError:
-        logger.error("File not found.")
-        exit(1)
-    node_props = NodeConstructor(test)
-    node_props.get_node_properties()
-    pickle_object(test.path_pickle_node, node_props)
-    node_props_unpickled = unpickle_object(test.path_pickle_node)
-    print('hi')
+    node_props = unpickle_object(full_pkl_path)

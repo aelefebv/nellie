@@ -48,8 +48,8 @@ if __name__ == "__main__":
     import os
 
     top_dir = r"D:\test_files\nelly\20230330-AELxES-U2OS_dmr_PERK-stress_granules\chunks"
-    min_radius_um = 0.1
-    max_radius_um = 0.6
+    min_radius_um = 0.15
+    max_radius_um = 0.5
 
     files = glob.glob(os.path.join(top_dir, '*.tif*'))
     files.sort()
@@ -64,5 +64,6 @@ if __name__ == "__main__":
             run(filepath, ch=0, min_radius_um=min_radius_um, max_radius_um=max_radius_um)
         except FileNotFoundError:
             logger.error("File not found.")
-            exit(1)
+            continue
+            # exit(1)
     print('hi')

@@ -19,7 +19,8 @@ new_ome_xml = None
 print('Writing chunks...')
 for i in range(0, n_frames, chunk_size):
     print(i)
-    path_im = os.path.join(im_dir, f'{im_name}-chunk_{i//chunk_size}.ome.tif')
+    chunk_dir = os.path.join(im_dir, 'chunks')
+    path_im = os.path.join(chunk_dir, f'chunk_{i//chunk_size:0>5}-{im_name}')
     chunk = tif_stack[i:i + chunk_size]
     if not os.path.exists(path_im):
         tifffile.imwrite(path_im, chunk)
@@ -28,3 +29,6 @@ for i in range(0, n_frames, chunk_size):
         ome.images[0].pixels.tiff_data_blocks[0].plane_count = chunk_size*ome.images[0].pixels.size_z
         new_ome_xml = ome_types.to_xml(ome)
     tifffile.tiffcomment(path_im, new_ome_xml)
+    # new_name = f'chunk_{i//chunk_size:0>5}-{im_name}'
+    # new_path_im = os.path.join(chunk_dir, new_name)
+    # os.rename(path_im, new_path_im)
