@@ -9,9 +9,11 @@ from sklearn.ensemble import RandomForestClassifier
 from datetime import datetime
 from umap import UMAP
 
+from src.analysis.preprocessing.csv_preprocessing import fill_na_in_csv
+
 
 class ClusteringAnalysis:
-    def __init__(self, df_in, output_dir,
+    def __init__(self, df_in, output_dir, file_path,
                  remove_cols=None,
                  ignore_cols=None,
                  keep_groups=None,
@@ -21,8 +23,10 @@ class ClusteringAnalysis:
                  dbscan_eps=None,
                  dbscan_min_samples=None,
                  sample_size=None,
-                 frames_to_keep=None):
+                 frames_to_keep=None,
+                 save_df_out=True):
         self.date_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.file_path = file_path
         self.df_in = df_in
         self.output_dir = output_dir
         self.remove_cols = remove_cols or ['len_weighted', 'angles', 'orientation', 'cell_center', 'direction', 'fission', 'fusion']
@@ -36,6 +40,9 @@ class ClusteringAnalysis:
         self.dbscan_min_samples = dbscan_min_samples or 20
         self.sample_size = sample_size
         self.frames_to_keep = frames_to_keep
+
+        self.df_out = None
+        self.save_df_out = save_df_out
 
     def preprocess_data(self):
         df_in = self.df_in
@@ -105,7 +112,7 @@ class ClusteringAnalysis:
                             title="Clusters", bbox_to_anchor=(1.01, 1), loc=2, borderaxespad=0.)
         ax.add_artist(legend1)
         plt.subplots_adjust(right=0.80)
-        full_save_path = os.path.join(self.output_dir, f'{self.date_time}_pca_kmeans_plot.png')
+        full_save_path = os.path.join(self.output_dir, f'{self.date_time}-{self.file_path}-pca_kmeans_plot.png')
         plt.savefig(full_save_path, dpi=500, bbox_inches='tight')
         plt.show()
         plt.close()
@@ -129,7 +136,7 @@ class ClusteringAnalysis:
                             handlelength=2.5)
         ax.add_artist(legend1)
         plt.subplots_adjust(right=0.80)
-        full_save_path = os.path.join(self.output_dir, f'{self.date_time}_umap_dbscan_plot.png')
+        full_save_path = os.path.join(self.output_dir, f'{self.date_time}-{self.file_path}-umap_dbscan_plot.png')
         plt.savefig(full_save_path, dpi=500, bbox_inches='tight')
         plt.show()
         plt.close()
@@ -154,7 +161,7 @@ class ClusteringAnalysis:
         # Convert non-list values to single-element lists
         params_series = pd.Series(params, name='value')
         params_df = params_series.to_frame()
-        params_df.to_csv(os.path.join(self.output_dir, f'{self.date_time}_parameters.csv'))
+        params_df.to_csv(os.path.join(self.output_dir, f'{self.date_time}-{self.file_path}-parameters.csv'))
 
     def run(self):
         self.preprocess_data()
@@ -169,9 +176,13 @@ class ClusteringAnalysis:
         df_with_labels['cluster_umap'] = cluster_labels_dbscan
         df_with_labels['umap_1'] = umap_results[:, 0]
         df_with_labels['umap_2'] = umap_results[:, 1]
-        df_with_labels.to_csv(os.path.join(self.output_dir, f'{self.date_time}_umap_pca_data.csv'), index=False)
+        self.df_out = df_with_labels
 
+        if self.save_df_out:
+            df_with_labels.to_csv(os.path.join(self.output_dir, f'{self.date_time}-{self.file_path}-umap_pca_data.csv'), index=False)
         self.save_parameters()
+
+        return self.df_out
 
 
 def run_20230410_tips_umap_test(df_in, output_dir):
@@ -181,15 +192,16 @@ def run_20230410_tips_umap_test(df_in, output_dir):
 
 if __name__ == '__main__':
     output_dir = r'D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR\output\csv'
-    file_path = 'summary_stats_regions-deskewed-2023-04-06_17-01-43_000_AELxKL-dmr_PERK-lipid_droplets_mtDR-5000-4h.ome-ch1_filled.csv'
-    df_in = pd.read_csv(os.path.join(output_dir, file_path))
+    file_path = 'summary_stats_regions-deskewed-2023-04-06_17-01-43_000_AELxKL-dmr_PERK-lipid_droplets_mtDR-5000-4h.ome-ch1.csv'
+    # df_in = pd.read_csv(os.path.join(output_dir, file_path))
+    df_preprocessed = fill_na_in_csv(output_dir, file_path)
     # run_20230410_tips_umap_test(df_in, output_dir)
     ignore_cols = ['group', 'filename', 'frame_number',
                    'branch_ids', 'node_id', 'region_id', 'branch_id', 'node_ids']
     remove_cols = None
     # remove_cols = ['qqq']
-    clustering_analysis = ClusteringAnalysis(df_in, output_dir,
+    clustering_analysis = ClusteringAnalysis(df_preprocessed, output_dir, file_path,
                                              corr_threshold=0.8, frames_to_keep=1,
                                              ignore_cols=ignore_cols,
                                              remove_cols=remove_cols,)
-    clustering_analysis.run()
+    df_out = clustering_analysis.run()
