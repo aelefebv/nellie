@@ -47,8 +47,8 @@ def run(input_path: str, min_radius_um = 0.25, max_radius_um = 0.5, num_t: int =
 if __name__ == "__main__":
     import os
 
-    top_dir = r"D:\test_files\nelly\20230330-AELxES-U2OS_dmr_PERK-stress_granules\chunks"
-    min_radius_um = 0.15
+    top_dir = r"D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR"
+    min_radius_um = 0.25
     max_radius_um = 0.5
 
     files = glob.glob(os.path.join(top_dir, '*.tif*'))
@@ -61,7 +61,7 @@ if __name__ == "__main__":
         #     filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
         try:
             # run(filepath, num_t=None, dimension_order='ZYX')
-            run(filepath, ch=0, min_radius_um=min_radius_um, max_radius_um=max_radius_um)
+            run(filepath, ch=1, min_radius_um=min_radius_um, max_radius_um=max_radius_um, num_t=2)
         except FileNotFoundError:
             logger.error("File not found.")
             continue
