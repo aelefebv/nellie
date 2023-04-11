@@ -36,8 +36,8 @@ class ClusteringAnalysis:
         self.corr_threshold = corr_threshold or 0.67
         self.n_pca_clusters = n_pca_clusters or 3
         self.umap_params = umap_params
-        self.dbscan_eps = dbscan_eps or 1
-        self.dbscan_min_samples = dbscan_min_samples or 20
+        self.dbscan_eps = dbscan_eps or 0.75
+        self.dbscan_min_samples = dbscan_min_samples or 5
         self.sample_size = sample_size
         self.frames_to_keep = frames_to_keep
 
@@ -90,8 +90,11 @@ class ClusteringAnalysis:
         return reduced_data, kmeans_cluster_labels, df_with_labels
 
     def umap_clustering(self, umap_params=None):
-        umap_params = umap_params or {'n_components': 2, 'n_neighbors': 15, 'min_dist': 0.1, 'metric': 'euclidean', 'random_state': 42}
-        self.umap_params = umap_params
+        if self.umap_params is None:
+            umap_params = {'n_components': 2, 'n_neighbors': 15, 'min_dist': 0.1, 'metric': 'euclidean', 'random_state': 42}
+            self.umap_params = umap_params
+        else:
+            umap_params = self.umap_params
         umap_model = UMAP(**umap_params)
         umap_results = umap_model.fit_transform(self.scaled_data)
 
@@ -109,7 +112,8 @@ class ClusteringAnalysis:
         scatter = plt.scatter(reduced_data[:, 0], reduced_data[:, 1],
                               cmap='tab20', c=integer_labels, s=1)
         legend1 = ax.legend(*scatter.legend_elements(),
-                            title="Clusters", bbox_to_anchor=(1.01, 1), loc=2, borderaxespad=0.)
+                            title="Clusters", bbox_to_anchor=(1.01, 1), loc=2, borderaxespad=0.,
+                            handlelength=2.5)
         ax.add_artist(legend1)
         plt.subplots_adjust(right=0.80)
         full_save_path = os.path.join(self.output_dir, f'{self.date_time}-{self.file_path}-pca_kmeans_plot.png')
@@ -130,10 +134,17 @@ class ClusteringAnalysis:
         plt.title('DBSCAN Clusters in UMAP space')
         scatter = plt.scatter(umap_results[:, 0], umap_results[:, 1],
                               cmap='tab20', c=integer_labels, s=1)
-        legend1 = ax.legend(*scatter.legend_elements(),
-                            title="Clusters", bbox_to_anchor=(1.01, 1),
-                            loc=2, borderaxespad=0.,
-                            handlelength=2.5)
+
+        # Manually create the legend by iterating over the unique cluster labels
+        unique_labels = np.unique(integer_labels)
+        handles = []
+        labels = []
+        for label in unique_labels:
+            handles.append(plt.scatter([], [], color=scatter.cmap(scatter.norm(label)), s=10))
+            labels.append(str(label))
+
+        legend1 = ax.legend(handles, labels, title="Clusters", bbox_to_anchor=(1.01, 1),
+                            loc=2, borderaxespad=0., handlelength=2.5)
         ax.add_artist(legend1)
         plt.subplots_adjust(right=0.80)
         full_save_path = os.path.join(self.output_dir, f'{self.date_time}-{self.file_path}-umap_dbscan_plot.png')
@@ -176,6 +187,9 @@ class ClusteringAnalysis:
         df_with_labels['cluster_umap'] = cluster_labels_dbscan
         df_with_labels['umap_1'] = umap_results[:, 0]
         df_with_labels['umap_2'] = umap_results[:, 1]
+        # if the 'filename' column doesn't exist, add it
+        if 'filename' not in df_with_labels.columns:
+            df_with_labels['filename'] = self.file_path
         self.df_out = df_with_labels
 
         if self.save_df_out:
