@@ -21,7 +21,8 @@ class StatsNode:
         # this node's properties
         # single frame only
         self.n_distance_from_cell_center = None
-        self.n_node_width = None  # the minimum distance to a zero pixel from 3 orthogonal directions
+        self.n_node_width = None  # the mean of the smallest two distances to a zero pixel from 3 orthogonal directions
+        self.all_widths = None
         self.n_intensity_coords = None
         self.n_num_branches = None
         self.n_angles_at_junctions = None
@@ -60,8 +61,12 @@ class StatsNode:
         z_dist = _traverse(start_coord, (1, 0, 0)) * 2 * spacing[0]
         y_dist = _traverse(start_coord, (0, 1, 0)) * 2 * spacing[1]
         x_dist = _traverse(start_coord, (0, 0, 1)) * 2 * spacing[2]
-        # return the minimum of the three distances
-        return xp.nanmin([x_dist, y_dist, z_dist])
+        # return the mean of the smallest two distances
+        distances = [z_dist, y_dist, x_dist]
+        distances.sort()
+        mean_of_smallest_two = (distances[0] + distances[1]) / 2
+        self.all_widths = distances
+        return mean_of_smallest_two
 
     def _find_angles_at_junctions(self, frame_node_tracks, node_track):
         track_angles = []

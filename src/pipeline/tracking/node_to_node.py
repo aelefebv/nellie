@@ -669,21 +669,21 @@ class NodeTrackConstructor:
 
 if __name__ == "__main__":
     from src.io.pickle_jar import pickle_object
-    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", '')
-    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", '')
+    windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", 0, '')
+    mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", 0, '')
 
-    custom_filepath = (r"/Users/austin/test_files/nelly_Alireza/1.tif", 'ZYX')
+    custom_filepath = ( r"D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR\deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR-5000-1h.ome.tif", 1, '')
 
     filepath = custom_filepath
     try:
-        test = ImInfo(filepath[0], ch=0, dimension_order=filepath[1])
+        test = ImInfo(filepath[0], ch=filepath[1], dimension_order=filepath[2])
     except FileNotFoundError:
         logger.error("File not found.")
         exit(1)
-    nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
-    nodes_test.populate_tracks()
-    pickle_object(test.path_pickle_track, nodes_test.tracks)
-    test_tracks = unpickle_object(test.path_pickle_track)
+    # nodes_test = NodeTrackConstructor(test, distance_thresh_um_per_sec=1)
+    # nodes_test.populate_tracks()
+    # pickle_object(test.path_pickle_track, nodes_test.tracks)
+    just_tracks = unpickle_object(test.path_pickle_track)
 
     visualize = True
 
@@ -692,7 +692,8 @@ if __name__ == "__main__":
         import napari
         import tifffile
 
-        napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(nodes_test.tracks)
+        # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(nodes_test.tracks)
+        napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(just_tracks)
         # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari(nodes_test.tracks)
         viewer = napari.Viewer(ndisplay=3)
         # viewer.add_image(tifffile.memmap(test.path_im_mask),
@@ -708,29 +709,29 @@ if __name__ == "__main__":
         neighbor_layer.interpolation = 'nearest'
         fissions = []
 
-        for frame_number, splits in nodes_test.splits.items():
-            for split in splits:
-                if split[0] == 'protrusion':
-                    continue
-                point_1 = [frame_number, split[1][0], split[1][1], split[1][2]]
-                point_2 = [frame_number, split[2][0], split[2][1], split[2][2]]
-                fissions.append(xp.array([point_1, point_2]))
-        if fissions:
-            shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
-                                             edge_width=nodes_test.im_info.dim_sizes['X'],
-                                             edge_color='magenta', opacity=0.1)
-        fusions = []
-        for frame_number, joins in nodes_test.joins.items():
-            for join in joins:
-                if join[0] == 'retraction':
-                    continue
-                point_1 = [frame_number, join[1][0], join[1][1], join[1][2]]
-                point_2 = [frame_number, join[2][0], join[2][1], join[2][2]]
-                fusions.append(xp.array([point_1, point_2]))
-        if fusions:
-            shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
-                                             edge_width=nodes_test.im_info.dim_sizes['X'],
-                                             edge_color='lime', opacity=0.1)
+        # for frame_number, splits in nodes_test.splits.items():
+        #     for split in splits:
+        #         if split[0] == 'protrusion':
+        #             continue
+        #         point_1 = [frame_number, split[1][0], split[1][1], split[1][2]]
+        #         point_2 = [frame_number, split[2][0], split[2][1], split[2][2]]
+        #         fissions.append(xp.array([point_1, point_2]))
+        # if fissions:
+        #     shapes_layer = viewer.add_shapes(fissions, ndim=4, shape_type='line',
+        #                                      edge_width=nodes_test.im_info.dim_sizes['X'],
+        #                                      edge_color='magenta', opacity=0.1)
+        # fusions = []
+        # for frame_number, joins in nodes_test.joins.items():
+        #     for join in joins:
+        #         if join[0] == 'retraction':
+        #             continue
+        #         point_1 = [frame_number, join[1][0], join[1][1], join[1][2]]
+        #         point_2 = [frame_number, join[2][0], join[2][1], join[2][2]]
+        #         fusions.append(xp.array([point_1, point_2]))
+        # if fusions:
+        #     shapes_layer = viewer.add_shapes(fusions, ndim=4, shape_type='line',
+        #                                      edge_width=nodes_test.im_info.dim_sizes['X'],
+        #                                      edge_color='lime', opacity=0.1)
 
     print('hi')
 

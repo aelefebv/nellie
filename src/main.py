@@ -61,7 +61,7 @@ if __name__ == "__main__":
         #     filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
         try:
             # run(filepath, num_t=None, dimension_order='ZYX')
-            run(filepath, ch=1, min_radius_um=min_radius_um, max_radius_um=max_radius_um, num_t=2)
+            run(filepath, ch=1, min_radius_um=min_radius_um, max_radius_um=max_radius_um)#, num_t=2)
         except FileNotFoundError:
             logger.error("File not found.")
             continue
