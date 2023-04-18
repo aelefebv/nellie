@@ -16,7 +16,7 @@ class AllBranches:
         self.stats_branches = dict()
         self.mask_im = mask_im
         self.branch_im = branch_im
-        self.spacing = [self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']]
+        self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
         self._construct_branch_objects()
 
     def _construct_branch_objects(self):
@@ -43,6 +43,7 @@ class BranchMorphology:
         self.branch_length = []
         self.branch_width = []
         self.branch_tortuosity = []
+        self.tortuosity_length = []
         self.calculate_branch_stats(mask_frame, branch_frame, spacing)
         self.calculate_branch_tortuosity(spacing)
 
@@ -60,6 +61,7 @@ class BranchMorphology:
                 max_distance2 = self._search_along_direction(mask_frame, current_point, xp.array([0, 1, 0]), spacing)
                 width = max(max_distance1, max_distance2) * 2
                 # set the length equal to the width
+                self.tortuosity_length = total_length
                 total_length += width
                 widths.append(width)
                 break
@@ -67,7 +69,8 @@ class BranchMorphology:
             # closest_point = min(neighbor, key=lambda x: xp.linalg.norm(current_point - xp.array(x)))
 
             # Calculate the distance between the current point and the closest point
-            segment_length = xp.linalg.norm(current_point * spacing - xp.array(neighbor) * spacing)
+            segment_length = self._euclidean_distance(current_point, xp.array(neighbor), spacing)
+            # segment_length = xp.linalg.norm(current_point * spacing - xp.array(neighbor) * spacing)
             total_length += segment_length
 
             # Calculate the direction vector of the segment
@@ -143,8 +146,8 @@ class BranchMorphology:
         if coord_1 == coord_2:
             self.branch_tortuosity = 1
         else:
-            self.branch_tortuosity = xp.array(self.branch_length) / self._euclidean_distance(
-                self.branch_coords[-1][0], self.branch_coords[-1][-1], spacing)
+            self.branch_tortuosity = xp.array(self.tortuosity_length) / self._euclidean_distance(
+                coord_1, coord_2, spacing)
 
     def _euclidean_distance(self, coord1, coord2, spacing):
         """Calculate the euclidean distance between two points."""
@@ -307,8 +310,8 @@ class MotilityAnalysis:
         self.speed_q75 = xp.nanpercentile(self.speed, 75)
         self.speed_IQR = self.speed_q75 - self.speed_q25
         self.speed_range = self.speed_max - self.speed_min
-        self.speed_max_min_ratio = self.speed_max / self.speed_min
-        self.speed_max_med_ratio = self.speed_max / self.speed_med
+        # self.speed_max_min_ratio = self.speed_max / self.speed_min
+        # self.speed_max_med_ratio = self.speed_max / self.speed_med
 
         self.displacement_final = self.displacement[-1]
         self.displacement_max = xp.nanmax(self.displacement)
@@ -473,49 +476,52 @@ if __name__ == "__main__":
     import os
 
     top_dir = r"D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR"
-    file_name = "deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR-5000-1h.ome.tif"
-    im_info = ImInfo(os.path.join(top_dir, file_name), ch=1)
-    num_t = im_info.shape[0]
-    # tracks = unpickle_object(im_info.path_pickle_track)
-    stats = TrackBuilder(im_info)
-    tracks = stats.tracks
-
-    remove_tracks = []
-    for track_a_num, track_a in enumerate(tracks):
-        if len(track_a) < (num_t / 2):
-            remove_tracks.append(track_a)
-        num_junctions = 0
-        for node_track in track_a:
-            if node_track.node.node_type == 'junction':
-                num_junctions += 1
-        if num_junctions >= (num_t / 2) - 1:
-            remove_tracks.append(track_a)
-
-    for track in remove_tracks:
-        if track in tracks:
-            tracks.remove(track)
-
-    mask_image = im_info.get_im_memmap(im_info.path_im_mask)
-    branch_image = im_info.get_im_memmap(im_info.path_im_label_seg)
-
-    intensity_image = im_info.get_im_memmap(im_info.im_path, ch=1)
-
-    all_branches = AllBranches(im_info, tracks, mask_image, branch_image)
-    track_stats = {}
-    for track_num, track in enumerate(tracks):
-        print(track_num, len(tracks))
-        track_stats[track_num] = TrackStats()
-        track_stats[track_num].motility = MotilityAnalysis(im_info, track)
-        track_stats[track_num].morphology = MorphologyAnalysis(im_info, track, mask_image, intensity_image, all_branches)
-        track_stats[track_num].track_num = track_num
-
+    # find all files that end with 0-1h.ome.tif
+    files = [file for file in os.listdir(top_dir) if file.endswith("-0-1h.ome.tif")]
+    # file_name = "deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR"#-5000-1h.ome.tif"
     data = []
-    for track_stats in track_stats.values():
-        attributes = track_stats.gather_attributes()
-        data.append(attributes)
+    for file_num, file_name in enumerate(files):
+        im_info = ImInfo(os.path.join(top_dir, file_name), ch=1)
+        num_t = im_info.shape[0]
+        # tracks = unpickle_object(im_info.path_pickle_track)
+        stats = TrackBuilder(im_info)
+        tracks = stats.tracks
+
+        remove_tracks = []
+        for track_a_num, track_a in enumerate(tracks):
+            if len(track_a) < (num_t / 2):
+                remove_tracks.append(track_a)
+            num_junctions = 0
+            for node_track in track_a:
+                if node_track.node.node_type == 'junction':
+                    num_junctions += 1
+            if num_junctions >= (num_t / 2) - 1:
+                remove_tracks.append(track_a)
+
+        for track in remove_tracks:
+            if track in tracks:
+                tracks.remove(track)
+
+        mask_image = im_info.get_im_memmap(im_info.path_im_mask)
+        branch_image = im_info.get_im_memmap(im_info.path_im_label_seg)
+
+        intensity_image = im_info.get_im_memmap(im_info.im_path, ch=1)
+
+        all_branches = AllBranches(im_info, tracks, mask_image, branch_image)
+        track_stats = {}
+        for track_num, track in enumerate(tracks):
+            print(track_num, len(tracks))
+            track_stats[track_num] = TrackStats()
+            track_stats[track_num].motility = MotilityAnalysis(im_info, track)
+            track_stats[track_num].morphology = MorphologyAnalysis(im_info, track, mask_image, intensity_image, all_branches)
+            track_stats[track_num].track_num = track_num
+
+        for track_stats in track_stats.values():
+            attributes = track_stats.gather_attributes()
+            data.append(attributes)
 
     df = pd.DataFrame(data)
     date_now = datetime.now().strftime("%Y%m%d-%H%M%S")
     df.to_csv(os.path.join(top_dir, f"{date_now}-track_stats.csv"))
 
-   need a good way to visualize tracks from dataframe
+   # need a good way to visualize tracks from dataframe
