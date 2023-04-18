@@ -1,9 +1,12 @@
+from datetime import datetime
+
 from tifffile import tifffile
 
 from src.io.im_info import ImInfo
 from src.io.pickle_jar import unpickle_object
 from src.pipeline.tracking.node_to_node import NodeTrack
 import numpy as xp
+import pandas as pd
 
 
 class AllBranches:
@@ -48,9 +51,7 @@ class BranchMorphology:
         widths = []
         start_coord = self.start_coord
         current_point = xp.array(start_coord)
-        branch_coords = []
-        branch_coords.append(tuple(current_point))
-        self.branch_coords.append(branch_coords)
+        self.branch_coords.append(tuple(current_point))
         while True:
             neighbor = self._neighbors_in_volume(branch_frame, tuple(current_point))
             if not neighbor:
@@ -149,166 +150,102 @@ class BranchMorphology:
         """Calculate the euclidean distance between two points."""
         return xp.sqrt(xp.sum((xp.array(coord1) * spacing - xp.array(coord2) * spacing) ** 2))
 
-
-class BranchStats:
-    def __init__(self, im_info: ImInfo, all_branches: AllBranches, mask_image, branch_image):
-        self.im_info = im_info
-        self.branches = all_branches.stats_branches
-        self.branch_stats = dict()
-        self.mask_image = mask_image
-        self.branch_image = branch_image
-        self.spacing = [self.im_info.dim_size['Z'], self.im_info.dim_size['Y'], self.im_info.dim_size['X']]
-
-        for frame_num, frame_branches in self.branches.items():
-            for branch_id, branch in frame_branches.items():
-                self.calculate_branch_stats(branch, frame_num)
-
-    def calculate_branch_stats(self, branch, frame_num):
-        total_length = 0
-        widths = []
-        start_coord = node_track.node.connected_branches[0][1]
-        current_point = xp.array(start_coord)
-        branch_coords = []
-        branch_coords.append(tuple(current_point))
-        self.branch_coords.append(branch_coords)
-        while True:
-            neighbor = self._neighbors_in_volume(self.branch_image[frame_num], tuple(current_point))
-            if not neighbor:
-                # calculate the width for that pixel in any direction
-                max_distance1 = self._search_along_direction(self.mask_image[frame_num], current_point, xp.array([1, 0, 0]),
-                                                             self.spacing)
-                max_distance2 = self._search_along_direction(self.mask_image[frame_num], current_point, xp.array([0, 1, 0]),
-                                                             self.spacing)
-                width = max(max_distance1, max_distance2) * 2
-                # set the length equal to the width
-                total_length += width
-                widths.append(width)
-                break
-            neighbor = neighbor[0]
-            # closest_point = min(neighbor, key=lambda x: xp.linalg.norm(current_point - xp.array(x)))
-
-            # Calculate the distance between the current point and the closest point
-            segment_length = xp.linalg.norm(current_point * self.spacing - xp.array(neighbor) * self.spacing)
-            total_length += segment_length
-
-            # Calculate the direction vector of the segment
-            direction_vector = xp.array(neighbor) - current_point
-            direction_vector = direction_vector / xp.linalg.norm(direction_vector)
-
-            # Find two orthogonal vectors
-            orthogonal_vector1 = xp.cross(direction_vector, xp.array([1, 0, 0]))
-            if xp.linalg.norm(orthogonal_vector1) == 0:
-                orthogonal_vector1 = xp.cross(direction_vector, xp.array([0, 1, 0]))
-
-            orthogonal_vector1 = orthogonal_vector1 / xp.linalg.norm(orthogonal_vector1)
-            orthogonal_vector2 = xp.cross(direction_vector, orthogonal_vector1)
-
-            # Find the width of the branch at the current point
-            max_distance1 = self._search_along_direction(self.mask_image[frame_num], current_point, orthogonal_vector1, self.spacing)
-            max_distance2 = self._search_along_direction(self.mask_image[frame_num], current_point, orthogonal_vector2, self.spacing)
-            width = max(max_distance1, max_distance2) * 2
-            widths.append(width)
-
-            current_point = xp.array(neighbor)
-
-        self.branch_length.append(total_length)
-        self.branch_width.append(width)
-
-    def _search_along_direction(self, mask, start_point, direction, spacing):
-        max_distance = 0
-        i = 0
-        while True:
-            # Search in positive direction
-            search_point_pos = start_point + i * direction
-            if not self._is_in_bounds_and_zero(mask, search_point_pos):
-                distance_pos = xp.linalg.norm(start_point * spacing - search_point_pos * spacing)
-                max_distance = max(max_distance, distance_pos)
-                break
-            # Search in negative direction
-            search_point_neg = start_point - i * direction
-            if not self._is_in_bounds_and_zero(mask, search_point_neg):
-                distance_neg = xp.linalg.norm(start_point * spacing - search_point_neg * spacing)
-                max_distance = max(max_distance, distance_neg)
-                break
-            i += 1
-        return max_distance
-
-    @staticmethod
-    def _is_in_bounds_and_zero(mask, search_point):
-        nz, ny, nx = tuple(search_point)
-        if 0 <= nz < mask.shape[0] and 0 <= ny < mask.shape[1] and 0 <= nx < mask.shape[2]:
-            return mask[int(nz), int(ny), int(nx)]
-        return False
-
-    def _neighbors_in_volume(self, volume, check_coord):
-        """Find the coordinates of the neighboring points within the volume."""
-        z, y, x = check_coord
-        neighbors = []
-        for dz in [-1, 0, 1]:
-            for dy in [-1, 0, 1]:
-                for dx in [-1, 0, 1]:
-                    if dz == dy == dx == 0:
-                        continue
-                    nz, ny, nx = z + dz, y + dy, x + dx
-                    if 0 <= nz < volume.shape[0] and 0 <= ny < volume.shape[1] and 0 <= nx < volume.shape[2]:
-                        if volume[nz, ny, nx]:
-                            if (nz, ny, nx) not in self.branch_coords:
-                                neighbors.append((nz, ny, nx))
-                                self.branch_coords[-1].append((nz, ny, nx))
-        return neighbors
-
-    def calculate_branch_tortuosity(self, spacing):
-        """Calculate the tortuosity of the branch."""
-        coord_1 = self.branch_coords[0]
-        coord_2 = self.branch_coords[-1]
-        if coord_1 == coord_2:
-            self.branch_tortuosity.append(1)
-        else:
-            self.branch_tortuosity.append(self.branch_length[-1] / self._euclidean_distance(
-                self.branch_coords[-1][0], self.branch_coords[-1][-1], self.spacing))
-
-    def _euclidean_distance(self, coord1, coord2):
-        """Calculate the euclidean distance between two points."""
-        return xp.sqrt(xp.sum((xp.array(coord1) * self.spacing - xp.array(coord2) * self.spacing) ** 2))
-
 class MorphologyAnalysis:
-    def __init__(self, im_info: ImInfo, track: list[NodeTrack]):
+    def __init__(self, im_info: ImInfo, track: list[NodeTrack], mask_image, intensity_image, all_branches):
         self.track = track
         self.im_info = im_info
         self.spacing = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
 
         # self.node_distance_from_center
+        self.node_widths = []
+
         self.node_width = []
         self.branch_length = []
         self.branch_width = []
         self.node_branch_width_ratio = []
         self.branch_tortuosity = []
         self.branch_intensity = []
-        self.branch_coords = []
+
+        self.run(mask_image, intensity_image, all_branches)
+
+        self.node_width_min = xp.nanmin(self.node_width)
+        self.node_width_max = xp.nanmax(self.node_width)
+        self.node_width_med = xp.nanmedian(self.node_width)
+        self.node_width_q25 = xp.nanpercentile(self.node_width, 25)
+        self.node_width_q75 = xp.nanpercentile(self.node_width, 75)
+        self.node_width_IQR = self.node_width_q75 - self.node_width_q25
+        self.node_width_range = self.node_width_max - self.node_width_min
+
+        self.branch_length_min = xp.nanmin(self.branch_length)
+        self.branch_length_max = xp.nanmax(self.branch_length)
+        self.branch_length_med = xp.nanmedian(self.branch_length)
+        self.branch_length_q25 = xp.nanpercentile(self.branch_length, 25)
+        self.branch_length_q75 = xp.nanpercentile(self.branch_length, 75)
+        self.branch_length_IQR = self.branch_length_q75 - self.branch_length_q25
+        self.branch_length_range = self.branch_length_max - self.branch_length_min
+
+        self.branch_width_min = xp.nanmin(self.branch_width)
+        self.branch_width_max = xp.nanmax(self.branch_width)
+        self.branch_width_med = xp.nanmedian(self.branch_width)
+        self.branch_width_q25 = xp.nanpercentile(self.branch_width, 25)
+        self.branch_width_q75 = xp.nanpercentile(self.branch_width, 75)
+        self.branch_width_IQR = self.branch_width_q75 - self.branch_width_q25
+        self.branch_width_range = self.branch_width_max - self.branch_width_min
+
+        self.node_branch_width_ratio_min = xp.nanmin(self.node_branch_width_ratio)
+        self.node_branch_width_ratio_max = xp.nanmax(self.node_branch_width_ratio)
+        self.node_branch_width_ratio_med = xp.nanmedian(self.node_branch_width_ratio)
+        self.node_branch_width_ratio_q25 = xp.nanpercentile(self.node_branch_width_ratio, 25)
+        self.node_branch_width_ratio_q75 = xp.nanpercentile(self.node_branch_width_ratio, 75)
+        self.node_branch_width_ratio_IQR = self.node_branch_width_ratio_q75 - self.node_branch_width_ratio_q25
+        self.node_branch_width_ratio_range = self.node_branch_width_ratio_max - self.node_branch_width_ratio_min
+
+        self.branch_tortuosity_min = xp.nanmin(self.branch_tortuosity)
+        self.branch_tortuosity_max = xp.nanmax(self.branch_tortuosity)
+        self.branch_tortuosity_med = xp.nanmedian(self.branch_tortuosity)
+        self.branch_tortuosity_q25 = xp.nanpercentile(self.branch_tortuosity, 25)
+        self.branch_tortuosity_q75 = xp.nanpercentile(self.branch_tortuosity, 75)
+        self.branch_tortuosity_IQR = self.branch_tortuosity_q75 - self.branch_tortuosity_q25
+        self.branch_tortuosity_range = self.branch_tortuosity_max - self.branch_tortuosity_min
+
+        self.branch_intensity_min = xp.nanmin(self.branch_intensity)
+        self.branch_intensity_max = xp.nanmax(self.branch_intensity)
+        self.branch_intensity_med = xp.nanmedian(self.branch_intensity)
+        self.branch_intensity_q25 = xp.nanpercentile(self.branch_intensity, 25)
+        self.branch_intensity_q75 = xp.nanpercentile(self.branch_intensity, 75)
+        self.branch_intensity_IQR = self.branch_intensity_q75 - self.branch_intensity_q25
+        self.branch_intensity_range = self.branch_intensity_max - self.branch_intensity_min
 
 
-    def run(self, mask_image, branch_image, intensity_image):
+    def run(self, mask_image, intensity_image, all_branches):
         for node_track in self.track:
             num_branches = len(node_track.node.connected_branches)
             if num_branches > 1:
+                self.node_widths.append(xp.nan)
                 self.node_width.append(xp.nan)
                 self.branch_length.append(xp.nan)
                 self.branch_width.append(xp.nan)
                 self.node_branch_width_ratio.append(xp.nan)
                 self.branch_tortuosity.append(xp.nan)
                 self.branch_intensity.append(xp.nan)
-                self.branch_coords.append(xp.nan)
                 continue
-            elif num_branches == 0:
-                # todo implement stuff
+            self.node_widths.append(self.calculate_node_width(node_track, mask_image[node_track.frame_num]))
+            if num_branches == 0:
+                self.node_width.append(xp.nanmean(self.node_widths[-1]))
+                self.branch_length.append(xp.nanmax(self.node_widths[-1]))
+                self.branch_width.append(xp.nanmean(self.node_widths[-1][:2]))
+                self.branch_tortuosity.append(1.0)
+                branch_intensities = []
+                for coord in node_track.node.coords:
+                    branch_intensities.append(xp.nanmean(intensity_image[node_track.frame_num][tuple(coord)]))
+                branch_intensity_mean = xp.nanmean(branch_intensities)
+                self.branch_intensity.append(branch_intensity_mean)
+                self.node_branch_width_ratio.append(self.node_width[-1] / self.branch_width[-1])
                 continue
-            self.node_width.append(self.calculate_node_width(node_track, mask_image[node_track.frame_num]))
+            branch = all_branches.stats_branches[node_track.frame_num][node_track.node.connected_branches[0][0]]
+            self.get_branch_stats(branch, intensity_image[node_track.frame_num])
             # todo don't do this, get branch stats for branches first then pull from there
-            self.calculate_branch_stats(node_track, branch_image[node_track.frame_num], mask_image)
-            # self.node_branch_width_ratio.append(self.calculate_node_branch_width_ratio(node_track))
-            # self.branch_tortuosity.append(self.calculate_branch_tortuosity(node_track))
-            # self.branch_intensity.append(self.calculate_branch_intensity(node_track))
 
     def calculate_node_width(self, node_track: NodeTrack, mask_image):
         # traverse in the given direction from the first coordinate until the intensity image is zero
@@ -335,16 +272,25 @@ class MorphologyAnalysis:
         # self.all_widths = distances
         return distances
 
+    def get_branch_stats(self, branch, intensity_image):
+        self.node_width.append(xp.nanmean(self.node_widths[-1][:2]))
+        self.branch_length.append(branch.branch_length + xp.nanmin(self.node_widths[-1]))
+        self.branch_width.append(branch.branch_width)
+        self.branch_tortuosity.append(branch.branch_tortuosity)
+        branch_intensities = []
+        for coord in branch.branch_coords:
+            branch_intensities.append(intensity_image[tuple(coord)])
+        branch_intensity_mean = xp.nanmean(branch_intensities)
+        self.branch_intensity.append(branch_intensity_mean)
+        self.node_branch_width_ratio.append(self.node_width[-1] / self.branch_width[-1])
 
 
 class MotilityAnalysis:
     # todo: this should be a class that takes in a track and stores a bunch of motility stats
     #  and then has a method to return a dict of those stats
-    def __init__(self, im_info: ImInfo, track: list[NodeTrack], mask_image, branch_image, intensity_image):
+    def __init__(self, im_info: ImInfo, track: list[NodeTrack]):
         self.track = track
         self.im_info = im_info
-        self.morphology_stats = MorphologyAnalysis(im_info, track)
-        # self.morphology_stats.run(mask_image, branch_image, intensity_image)
 
 
         self.distance = self.calculate_distance()
@@ -361,6 +307,8 @@ class MotilityAnalysis:
         self.speed_q75 = xp.nanpercentile(self.speed, 75)
         self.speed_IQR = self.speed_q75 - self.speed_q25
         self.speed_range = self.speed_max - self.speed_min
+        self.speed_max_min_ratio = self.speed_max / self.speed_min
+        self.speed_max_med_ratio = self.speed_max / self.speed_med
 
         self.displacement_final = self.displacement[-1]
         self.displacement_max = xp.nanmax(self.displacement)
@@ -484,6 +432,43 @@ class TrackBuilder:
         return all_tracks
 
 
+class TrackStats:
+    def __init__(self):
+        self.morphology = None
+        self.motility = None
+        self.track_num = None
+
+
+    # def gather_attributes(self):
+    #     EXCLUDED_ATTRIBUTES = [
+    #         'track', 'im_info', 'spacing',
+    #         'node_widths', 'node_width',
+    #         'branch_length', 'branch_width', 'node_branch_width_ratio',
+    #         'branch_tortuosity', 'branch_intensity',
+    #         'distance', 'speed', 'displacement', ''
+    #     ]
+    #     attributes = {}
+    #     for attr_name in dir(self.morphology):
+    #         if not attr_name.startswith("__") and attr_name not in EXCLUDED_ATTRIBUTES:
+    #             attributes[attr_name] = getattr(self.morphology, attr_name)
+    #     for attr_name in dir(self.motility):
+    #         if not attr_name.startswith("__") and attr_name not in EXCLUDED_ATTRIBUTES:
+    #             attributes[attr_name] = getattr(self.motility, attr_name)
+    #     return attributes
+
+    def gather_attributes(self):
+        attributes = {}
+        for analysis_instance in [self.morphology, self.motility]:
+            for attr_name in dir(analysis_instance):
+                attr_value = getattr(analysis_instance, attr_name)
+                if (
+                    not attr_name.startswith("__")
+                    and isinstance(attr_value, (float, int))
+                ):
+                    attributes[attr_name] = attr_value
+        attributes['track_num'] = self.track_num
+        return attributes
+
 if __name__ == "__main__":
     import os
 
@@ -497,25 +482,40 @@ if __name__ == "__main__":
 
     remove_tracks = []
     for track_a_num, track_a in enumerate(tracks):
-        if len(track_a) < num_t / 2:
+        if len(track_a) < (num_t / 2):
             remove_tracks.append(track_a)
         num_junctions = 0
         for node_track in track_a:
             if node_track.node.node_type == 'junction':
                 num_junctions += 1
-        if num_junctions >= num_t / 2:
+        if num_junctions >= (num_t / 2) - 1:
             remove_tracks.append(track_a)
 
     for track in remove_tracks:
-        tracks.remove(track)
+        if track in tracks:
+            tracks.remove(track)
 
     mask_image = im_info.get_im_memmap(im_info.path_im_mask)
     branch_image = im_info.get_im_memmap(im_info.path_im_label_seg)
 
     intensity_image = im_info.get_im_memmap(im_info.im_path, ch=1)
 
-    track_stats = []
-    for track in tracks:
-        track_stats.append(MotilityAnalysis(im_info, track, mask_image, branch_image, intensity_image))
-
     all_branches = AllBranches(im_info, tracks, mask_image, branch_image)
+    track_stats = {}
+    for track_num, track in enumerate(tracks):
+        print(track_num, len(tracks))
+        track_stats[track_num] = TrackStats()
+        track_stats[track_num].motility = MotilityAnalysis(im_info, track)
+        track_stats[track_num].morphology = MorphologyAnalysis(im_info, track, mask_image, intensity_image, all_branches)
+        track_stats[track_num].track_num = track_num
+
+    data = []
+    for track_stats in track_stats.values():
+        attributes = track_stats.gather_attributes()
+        data.append(attributes)
+
+    df = pd.DataFrame(data)
+    date_now = datetime.now().strftime("%Y%m%d-%H%M%S")
+    df.to_csv(os.path.join(top_dir, f"{date_now}-track_stats.csv"))
+
+   need a good way to visualize tracks from dataframe
