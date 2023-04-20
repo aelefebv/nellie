@@ -3,7 +3,7 @@ from datetime import datetime
 from tifffile import tifffile
 
 from src.io.im_info import ImInfo
-from src.io.pickle_jar import unpickle_object
+from src.io.pickle_jar import unpickle_object, pickle_object
 from src.pipeline.tracking.node_to_node import NodeTrack
 import numpy as xp
 import pandas as pd
@@ -21,7 +21,6 @@ class AllBranches:
 
     def _construct_branch_objects(self):
         for track_num, track in enumerate(self.tracks):
-            print(track_num, len(self.tracks))
             for idx, node_track in enumerate(track):
                 if len(node_track.node.connected_branches) != 1:
                     continue
@@ -440,6 +439,9 @@ class TrackStats:
         self.morphology = None
         self.motility = None
         self.track_num = None
+        self.concentration = None
+        self.file_name = None
+        self.file_num = None
 
 
     # def gather_attributes(self):
@@ -470,17 +472,28 @@ class TrackStats:
                 ):
                     attributes[attr_name] = attr_value
         attributes['track_num'] = self.track_num
+        attributes['file_num'] = self.file_num
+        attributes['file_name'] = self.file_name
+        attributes['concentration'] = self.concentration
         return attributes
 
 if __name__ == "__main__":
     import os
+    import re
 
     top_dir = r"D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR"
     # find all files that end with 0-1h.ome.tif
-    files = [file for file in os.listdir(top_dir) if file.endswith("-0-1h.ome.tif")]
+    files = [file for file in os.listdir(top_dir) if file.endswith("-1h.ome.tif")]
     # file_name = "deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR"#-5000-1h.ome.tif"
     data = []
     for file_num, file_name in enumerate(files):
+        print(file_num, len(files))
+        match = re.search(r'-(\d+)-\d+h', file_name)
+
+        if match:
+            output = match.group(1)
+        else:
+            output = xp.nan
         im_info = ImInfo(os.path.join(top_dir, file_name), ch=1)
         num_t = im_info.shape[0]
         # tracks = unpickle_object(im_info.path_pickle_track)
@@ -502,19 +515,26 @@ if __name__ == "__main__":
             if track in tracks:
                 tracks.remove(track)
 
+        # pickle the tracks list
+        pickle_object(im_info.path_pickle_seg, tracks)
+
         mask_image = im_info.get_im_memmap(im_info.path_im_mask)
         branch_image = im_info.get_im_memmap(im_info.path_im_label_seg)
 
         intensity_image = im_info.get_im_memmap(im_info.im_path, ch=1)
 
+
         all_branches = AllBranches(im_info, tracks, mask_image, branch_image)
         track_stats = {}
         for track_num, track in enumerate(tracks):
-            print(track_num, len(tracks))
             track_stats[track_num] = TrackStats()
             track_stats[track_num].motility = MotilityAnalysis(im_info, track)
             track_stats[track_num].morphology = MorphologyAnalysis(im_info, track, mask_image, intensity_image, all_branches)
             track_stats[track_num].track_num = track_num
+            track_stats[track_num].concentration = output
+            track_stats[track_num].file_name = file_name
+            track_stats[track_num].file_num = file_num
+
 
         for track_stats in track_stats.values():
             attributes = track_stats.gather_attributes()
