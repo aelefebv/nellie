@@ -45,6 +45,7 @@ class FrangiFilter:
             # todo, get these values depending on sample
             min_radius_um: float = 0.25,
             max_radius_um: float = 0.5,
+            intensity_threshold = None,
     ):
         """
         Constructor method for FrangiFilter class.
@@ -74,6 +75,8 @@ class FrangiFilter:
         self.sigma_min, self.sigma_max = sigma_min_max
         self.min_radius_px = min_radius_um / self.im_info.dim_sizes['X']
         self.max_radius_px = max_radius_um / self.im_info.dim_sizes['X']
+
+        self.intensity_threshold = intensity_threshold
 
         # If sigma_min_max is not specified, set default values based on image dimensions
         if (self.sigma_min is None) or (self.sigma_max is None):
@@ -119,6 +122,10 @@ class FrangiFilter:
             logger.error('Frangi filter supported only for 2D and 3D arrays')
             exit(1)
         gauss_volume = xp.asarray(self.im_memmap[t_num, ...])
+
+        if self.intensity_threshold is not None:
+            gauss_volume[gauss_volume < self.intensity_threshold] = 0
+
         gauss_volume = ndi.gaussian_filter(gauss_volume, sigma=sigma_vec,
                                            mode='reflect', cval=0.0, truncate=3).astype('double')
         return gauss_volume
@@ -182,7 +189,15 @@ class FrangiFilter:
         # replace inf values with max finite value
         frobenius_norm[xp.isinf(frobenius_norm)] = xp.nanmax(frobenius_norm[~xp.isinf(frobenius_norm)])
         if self.frobenius_thresh is None:
-            frobenius_threshold = xp.sqrt(xp.nanmax(frobenius_norm))
+            # replace nan values with 0
+            frobenius_norm[xp.isnan(frobenius_norm)] = 0
+            # 90th percentile of non-zero values of frobenius_norm
+            frobenius_threshold = xp.sqrt(xp.percentile(frobenius_norm[frobenius_norm > 0], 90))
+            # print(frobenius_threshold)
+            #
+            # print(xp.sqrt(xp.nanmax(frobenius_norm)))
+            # frobenius_threshold = xp.sqrt(xp.nanmax(frobenius_norm[frobenius_norm > 0]))
+            # frobenius_threshold = xp.sqrt(xp.nanmedian(perc_90))
         else:
             frobenius_threshold = self.frobenius_thresh
         mask = frobenius_norm > frobenius_threshold

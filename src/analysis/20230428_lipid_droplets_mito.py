@@ -43,13 +43,11 @@ now = now.strftime("%Y%m%d_%H%M%S")
 # open csv as a dataframe
 df = pd.read_csv(csv_path)
 df = df.dropna()
-
-check_concentration_1 = 0
-check_concentration_2 = 5000
 # keep rows where concentration is 1 or 5000
-df = df[(df['concentration'] == check_concentration_1) | (df['concentration'] == check_concentration_2)]
+df = df[(df['concentration'] == 1) | (df['concentration'] == 5000)]
 # df = df[df['concentration'] < 10]
 df = df.sample(frac=1).reset_index(drop=True)
+df = df[~df['file_name'].str.contains('4h')]
 df_original = df.copy()
 # remove the columns we don't want
 df = df.filter(regex='^(?!Unnamed:)')
@@ -57,7 +55,7 @@ df = df.filter(regex='^(?!Unnamed:)')
 #remove any columns with words in remove_cols in the name
 df = df.drop(columns=[col for col in df.columns if any(word in col for word in remove_cols)])
 # df = df[keep_cols]
-
+# remove any rows with filename containing 4h
 # # remove correlated features
 # corr_matrix = np.corrcoef(df.T)
 # corr_matrix = pd.DataFrame(corr_matrix, columns=df.columns, index=df.columns)
@@ -89,6 +87,7 @@ df_original['concentration'] = df_original['concentration'].astype(str)
 
 x = scaled_data
 y = df_original['concentration']
+# y = df_original['concentration']
 
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score
@@ -195,11 +194,11 @@ LFC = np.log2(grouped_df.iloc[1] / grouped_df.iloc[0])
 SMDs = []
 MDs = []
 for col in df_volcano.columns[:-1]:
-    mean1 = df_volcano[df_volcano['concentration']==check_concentration_1][col].mean()
-    mean2 = df_volcano[df_volcano['concentration']==check_concentration_2][col].mean()
-    sd1 = df_volcano[df_volcano['concentration']==check_concentration_1][col].std(ddof=1)
-    sd2 = df_volcano[df_volcano['concentration']==check_concentration_2][col].std(ddof=1)
-    n1, n2 = len(df_volcano[df_volcano['concentration']==check_concentration_1]), len(df_volcano[df_volcano['concentration']==check_concentration_2])
+    mean1 = df_volcano[df_volcano['concentration']==1][col].mean()
+    mean2 = df_volcano[df_volcano['concentration']==5000][col].mean()
+    sd1 = df_volcano[df_volcano['concentration']==1][col].std(ddof=1)
+    sd2 = df_volcano[df_volcano['concentration']==5000][col].std(ddof=1)
+    n1, n2 = len(df_volcano[df_volcano['concentration']==0]), len(df_volcano[df_volcano['concentration']==1])
     pooled_sd = np.sqrt(((n1 - 1) * sd1**2 + (n2 - 1) * sd2**2) / (n1 + n2 - 2))
     MD = mean2 - mean1
     SMD = MD / pooled_sd
@@ -217,7 +216,7 @@ pvals = []
 
 from scipy.stats import ttest_ind
 for col in df_volcano.columns[:-1]:
-    pvals.append(ttest_ind(df_volcano[df_volcano['concentration']==check_concentration_1][col], df_volcano[df_volcano['concentration']==check_concentration_2][col])[1])
+    pvals.append(ttest_ind(df_volcano[df_volcano['concentration']==1][col], df_volcano[df_volcano['concentration']==5000][col])[1])
 
 neg_log10_pvals = -np.log10(pvals)
 # cap the values at 100

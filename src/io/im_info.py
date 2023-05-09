@@ -307,6 +307,9 @@ class ImInfo:
             im_memmap = tifffile.imread(path_im)
 
         # Only get wanted channel
+        if ch == 'all':
+            return im_memmap
+
         if ch is None:
             ch = self.ch
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):

@@ -167,7 +167,20 @@ class MorphologyAnalysis:
         self.branch_width = []
         self.node_branch_width_ratio = []
         self.branch_tortuosity = []
-        self.branch_intensity = []
+        self.branch_intensity = {}
+
+        self.axes = self.im_info.axes
+        # get the number of intensity channels and channel dimension position
+        self.num_intensity_channels = 0
+        self.channel_dim = None
+        if self.axes.find('C') != -1:
+            self.channel_dim = self.axes.find('C')
+            self.num_intensity_channels = intensity_image.shape[self.channel_dim]
+        else:
+            self.num_intensity_channels = 1
+
+        for i in range(self.num_intensity_channels):
+            self.branch_intensity[i] = []
 
         self.run(mask_image, intensity_image, all_branches)
 
@@ -211,13 +224,22 @@ class MorphologyAnalysis:
         self.branch_tortuosity_IQR = self.branch_tortuosity_q75 - self.branch_tortuosity_q25
         self.branch_tortuosity_range = self.branch_tortuosity_max - self.branch_tortuosity_min
 
-        self.branch_intensity_min = xp.nanmin(self.branch_intensity)
-        self.branch_intensity_max = xp.nanmax(self.branch_intensity)
-        self.branch_intensity_med = xp.nanmedian(self.branch_intensity)
-        self.branch_intensity_q25 = xp.nanpercentile(self.branch_intensity, 25)
-        self.branch_intensity_q75 = xp.nanpercentile(self.branch_intensity, 75)
-        self.branch_intensity_IQR = self.branch_intensity_q75 - self.branch_intensity_q25
-        self.branch_intensity_range = self.branch_intensity_max - self.branch_intensity_min
+        self.branch_intensity_min = []
+        self.branch_intensity_max = []
+        self.branch_intensity_med = []
+        self.branch_intensity_q25 = []
+        self.branch_intensity_q75 = []
+        self.branch_intensity_IQR = []
+        self.branch_intensity_range = []
+
+        for i in range(self.num_intensity_channels):
+            self.branch_intensity_min.append(xp.nanmin(self.branch_intensity[i]))
+            self.branch_intensity_max.append(xp.nanmax(self.branch_intensity[i]))
+            self.branch_intensity_med.append(xp.nanmedian(self.branch_intensity[i]))
+            self.branch_intensity_q25.append(xp.nanpercentile(self.branch_intensity[i], 25))
+            self.branch_intensity_q75.append(xp.nanpercentile(self.branch_intensity[i], 75))
+            self.branch_intensity_IQR.append(self.branch_intensity_q75[i] - self.branch_intensity_q25[i])
+            self.branch_intensity_range.append(self.branch_intensity_max[i] - self.branch_intensity_min[i])
 
 
     def run(self, mask_image, intensity_image, all_branches):
@@ -230,7 +252,9 @@ class MorphologyAnalysis:
                 self.branch_width.append(xp.nan)
                 self.node_branch_width_ratio.append(xp.nan)
                 self.branch_tortuosity.append(xp.nan)
-                self.branch_intensity.append(xp.nan)
+                for channel in range(self.num_intensity_channels):
+                    self.branch_intensity[channel].append(xp.nan)
+                # self.branch_intensity.append(xp.nan)
                 continue
             self.node_widths.append(self.calculate_node_width(node_track, mask_image[node_track.frame_num]))
             if num_branches == 0:
@@ -238,11 +262,15 @@ class MorphologyAnalysis:
                 self.branch_length.append(xp.nanmax(self.node_widths[-1]))
                 self.branch_width.append(xp.nanmean(self.node_widths[-1][:2]))
                 self.branch_tortuosity.append(1.0)
-                branch_intensities = []
-                for coord in node_track.node.coords:
-                    branch_intensities.append(xp.nanmean(intensity_image[node_track.frame_num][tuple(coord)]))
-                branch_intensity_mean = xp.nanmean(branch_intensities)
-                self.branch_intensity.append(branch_intensity_mean)
+                for channel in range(self.num_intensity_channels):
+                    channel_intensity_image = xp.take(intensity_image, channel, axis=self.channel_dim)
+                    branch_intensities = []
+                    for coord in node_track.node.coords:
+                        # print(coord)
+                        # print(channel_intensity_image.shape)
+                        branch_intensities.append(xp.nanmean(channel_intensity_image[node_track.frame_num][tuple(coord)]))
+                    branch_intensity_mean = xp.nanmean(branch_intensities)
+                    self.branch_intensity[channel].append(branch_intensity_mean)
                 self.node_branch_width_ratio.append(self.node_width[-1] / self.branch_width[-1])
                 continue
             branch = all_branches.stats_branches[node_track.frame_num][node_track.node.connected_branches[0][0]]
@@ -279,11 +307,15 @@ class MorphologyAnalysis:
         self.branch_length.append(branch.branch_length + xp.nanmin(self.node_widths[-1]))
         self.branch_width.append(branch.branch_width)
         self.branch_tortuosity.append(branch.branch_tortuosity)
-        branch_intensities = []
-        for coord in branch.branch_coords:
-            branch_intensities.append(intensity_image[tuple(coord)])
-        branch_intensity_mean = xp.nanmean(branch_intensities)
-        self.branch_intensity.append(branch_intensity_mean)
+        for channel in range(self.num_intensity_channels):
+            channel_intensity_image = xp.take(intensity_image, channel, axis=self.channel_dim-1)
+            branch_intensities = []
+            for coord in branch.branch_coords:
+                # print(coord)
+                # print(intensity_image.shape)
+                branch_intensities.append(channel_intensity_image[tuple(coord)])
+            branch_intensity_mean = xp.nanmean(branch_intensities)
+            self.branch_intensity[channel].append(branch_intensity_mean)
         self.node_branch_width_ratio.append(self.node_width[-1] / self.branch_width[-1])
 
 
@@ -396,9 +428,12 @@ class MotilityAnalysis:
 
 
 class TrackBuilder:
-    def __init__(self, im_info: ImInfo):
+    def __init__(self, im_info: ImInfo, num_t=None):
         self.im_info = im_info
         self.tracklets: dict[int: list[NodeTrack]] = unpickle_object(self.im_info.path_pickle_track)
+        # only get tracklets from first num_t frames
+        if num_t is not None:
+            self.tracklets = {frame_num: tracklets for frame_num, tracklets in self.tracklets.items() if frame_num < num_t}
         self.tracks = []
         self.time_between_volumes = self.im_info.dim_sizes['T']
         self.node_track_dict = None
@@ -428,7 +463,12 @@ class TrackBuilder:
             all_tracks.append(current_track)
         else:
             for child in node_track.children:
+                if child['frame'] not in self.tracklets:
+                    continue
                 child_node = self.tracklets[child['frame']][child['track']]
+                # print(child_node)
+                # if child_node.frame_num >= num_t:
+                #     continue
                 self.build_tracks(child_node, current_track.copy(), all_tracks)
 
         return all_tracks
@@ -471,80 +511,126 @@ class TrackStats:
                     and isinstance(attr_value, (float, int))
                 ):
                     attributes[attr_name] = attr_value
+                elif attr_name.startswith("branch_intensity"):
+                    for ch, attr in enumerate(attr_value):
+                        attributes[f"{attr_name}_ch{ch}"] = attr
+
         attributes['track_num'] = self.track_num
         attributes['file_num'] = self.file_num
         attributes['file_name'] = self.file_name
         attributes['concentration'] = self.concentration
+
+        # num_intensity_channels = self.morphology.num_intensity_channels
+        # for ch in range(num_intensity_channels):
+        #     attributes[f'branch_intensity_ch{ch}'] = self.morphology.branch_intensity[ch]
         return attributes
 
 if __name__ == "__main__":
     import os
     import re
 
-    ch_to_analyze = 0
-    intensity_ch_to_use = 0
+    ch_to_analyze = 1
+    num_t = 10
+    num_t_threshold = num_t // 2
 
-    top_dir = r"D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR"
+    top_dir = r"D:\test_files\nelly\20230330-AELxES-CAGE_cells"
     # find all files that end with 0-1h.ome.tif
-    files = [file for file in os.listdir(top_dir) if file.endswith("-1h.ome.tif")]
+    files = [file for file in os.listdir(top_dir) if file.endswith(".ome.tif")]
+    files.sort()
+
+    # Set up the CSV file
+    date_now = datetime.now().strftime("%Y%m%d-%H%M%S")
+    csv_path = os.path.join(top_dir, f"{date_now}-ch_{ch_to_analyze}-track_stats.csv")
+
     # file_name = "deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR"#-5000-1h.ome.tif"
     data = []
     for file_num, file_name in enumerate(files):
-        print(file_num, len(files))
-        match = re.search(r'-(\d+)-\d+h', file_name)
+        try:
+            print(file_num, len(files))
+            match = re.search(r'-(\d+)-\d+h', file_name)
 
-        if match:
-            output = match.group(1)
-        else:
-            output = xp.nan
-        im_info = ImInfo(os.path.join(top_dir, file_name), ch=ch_to_analyze)
-        num_t = im_info.shape[0]
-        # tracks = unpickle_object(im_info.path_pickle_track)
-        stats = TrackBuilder(im_info)
-        tracks = stats.tracks
+            if match:
+                output = match.group(1)
+            else:
+                output = xp.nan
+            print('Loading image info...')
+            im_info = ImInfo(os.path.join(top_dir, file_name), ch=ch_to_analyze)
+            if num_t is None:
+                num_t = im_info.shape[0]
+            # tracks = unpickle_object(im_info.path_pickle_track)
+            print('Creating tracks...')
+            stats = TrackBuilder(im_info, num_t=num_t)
+            tracks = stats.tracks
 
-        remove_tracks = []
-        for track_a_num, track_a in enumerate(tracks):
-            if len(track_a) < (num_t / 2):
-                remove_tracks.append(track_a)
-            num_junctions = 0
-            for node_track in track_a:
-                if node_track.node.node_type == 'junction':
-                    num_junctions += 1
-            if num_junctions >= (num_t / 2) - 1:
-                remove_tracks.append(track_a)
+            print('Finding short tracks and junction tracks...')
+            # remove_tracks = []
+            keep_tracks = []
+            for track_a_num, track_a in enumerate(tracks):
+                print(track_a_num, len(tracks))
+                if len(track_a) < num_t_threshold:
+                    # remove_tracks.append(track_a)
+                    continue
+                num_junctions = 0
+                for node_track in track_a:
+                    if node_track.node.node_type == 'junction':
+                        num_junctions += 1
+                if num_junctions >= (num_t / 2) - 1:
+                    # remove_tracks.append(track_a)
+                    continue
+                keep_tracks.append(track_a)
+            # break
 
-        for track in remove_tracks:
-            if track in tracks:
-                tracks.remove(track)
+            # print('Removing short tracks and junction tracks...')
+            # for track_num, track in enumerate(remove_tracks):
+            #     print(track_num, len(remove_tracks))
+            #     if track in tracks:
+            #         tracks.remove(track)
 
-        # pickle the tracks list
-        pickle_object(im_info.path_pickle_seg, tracks)
+            print('Pickling tracks...')
+            # pickle the tracks list
+            pickle_object(im_info.path_pickle_seg, keep_tracks)
 
-        mask_image = im_info.get_im_memmap(im_info.path_im_mask)
-        branch_image = im_info.get_im_memmap(im_info.path_im_label_seg)
+            print('Loading images...')
+            mask_image = im_info.get_im_memmap(im_info.path_im_mask)
+            branch_image = im_info.get_im_memmap(im_info.path_im_label_seg)
+            intensity_image = im_info.get_im_memmap(im_info.im_path, ch='all')
 
-        intensity_image = im_info.get_im_memmap(im_info.im_path, ch=intensity_ch_to_use)
+            print('Getting branches...')
+            all_branches = AllBranches(im_info, keep_tracks, mask_image, branch_image)
+
+            print('Analyzing tracks...')
+            track_stats = {}
+            for track_num, track in enumerate(keep_tracks):
+                print(track_num, len(keep_tracks))
+                track_stats[track_num] = TrackStats()
+                track_stats[track_num].motility = MotilityAnalysis(im_info, track)
+                track_stats[track_num].morphology = MorphologyAnalysis(im_info, track, mask_image, intensity_image, all_branches)
+                track_stats[track_num].track_num = track_num
+                track_stats[track_num].concentration = output
+                track_stats[track_num].file_name = file_name
+                track_stats[track_num].file_num = file_num
+
+            # Gather track attributes
+            data = []
+            print('Gathering track attributes...')
+            for track_stats in track_stats.values():
+                attributes = track_stats.gather_attributes()
+                data.append(attributes)
+
+            # Save the attributes to the CSV for this file
+            df = pd.DataFrame(data)
+            mode = 'a' if os.path.exists(csv_path) else 'w'
+            with open(csv_path, mode) as f:
+                df.to_csv(f, header=f.tell() == 0, index=False)
 
 
-        all_branches = AllBranches(im_info, tracks, mask_image, branch_image)
-        track_stats = {}
-        for track_num, track in enumerate(tracks):
-            track_stats[track_num] = TrackStats()
-            track_stats[track_num].motility = MotilityAnalysis(im_info, track)
-            track_stats[track_num].morphology = MorphologyAnalysis(im_info, track, mask_image, intensity_image, all_branches)
-            track_stats[track_num].track_num = track_num
-            track_stats[track_num].concentration = output
-            track_stats[track_num].file_name = file_name
-            track_stats[track_num].file_num = file_num
+        except:
+            print('beep boop something went wrong')
+            continue
 
-
-        for track_stats in track_stats.values():
-            attributes = track_stats.gather_attributes()
-            data.append(attributes)
-
-    df = pd.DataFrame(data)
-    date_now = datetime.now().strftime("%Y%m%d-%H%M%S")
-    df.to_csv(os.path.join(top_dir, f"{date_now}-track_stats.csv"))
+    # print('Saving track attributes...')
+    # df = pd.DataFrame(data)
+    # date_now = datetime.now().strftime("%Y%m%d-%H%M%S")
+    # df.to_csv(os.path.join(top_dir, f"{date_now}-ch_{ch_to_analyze}-track_stats.csv"))
 
    # need a good way to visualize tracks from dataframe

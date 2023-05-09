@@ -22,7 +22,9 @@ class Segment:
     # todo tests
     def __init__(self, im_info: ImInfo,
                  threshold: float = 0,
-                 min_radius_um: float = 0.25):
+                 min_radius_um: float = 0.25,
+                 min_mean_intensity = None,
+                 max_size_threshold = None,):
         """
         Initializes a Segment object with the given ImInfo object, threshold, and minimum radius.
 
@@ -36,6 +38,12 @@ class Segment:
         self.im_info = im_info
         self.threshold = threshold
         self.min_radius_um = min_radius_um
+        self.im_memmap = None
+
+        self.min_mean_intensity = min_mean_intensity
+        if self.min_mean_intensity is not None:
+            self.im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
+
         self.remove_in_2d = False
         if any(xp.array(
                 [self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']]
@@ -51,8 +59,14 @@ class Segment:
             self.min_size_threshold_px = (4 / 3 * xp.pi * (min_radius_um / 2) ** 2) / (
                     self.im_info.dim_sizes['X'] ** 2 * self.im_info.dim_sizes['Z']
             )
+            # min area of 3*3*3 pixels
+            self.min_size_threshold_px = max(self.min_size_threshold_px, 27)
         else:
             self.min_size_threshold_px = (xp.pi * (min_radius_um / 2) ** 2) / (self.im_info.dim_sizes['X'] ** 2)
+            # min area of 3*3 pixels
+            self.min_size_threshold_px = max(self.min_size_threshold_px, 9)
+
+        self.max_size_threshold_px = max_size_threshold
 
         self.semantic_mask_memmap = None
         self.instance_mask_memmap = None
@@ -121,6 +135,34 @@ class Segment:
             logger.info(f'Running instance segmentation, volume {frame_num}/{len(self.semantic_mask_memmap) - 1}')
             label_im = xp.asarray(frame).astype(bool)
             label_im, _ = ndi.label(label_im, structure=structure)
+            # remove objects that have a mean intensity less that a threshold
+            if self.min_mean_intensity is not None:
+                unique_labels = xp.unique(label_im)
+                # print('unique_labels', unique_labels)
+                # print('memmap_shape', self.im_memmap[frame_num, ...].shape)
+
+                mean_intensities = ndi.labeled_comprehension(self.im_memmap[frame_num, ...], label_im, unique_labels,
+                                                             xp.mean, float, xp.nan)
+                # print(mean_intensities)
+                label_mean_intensity = dict(zip(unique_labels.tolist(), mean_intensities.tolist()))
+                filtered_label_mean_intensity = {label: mean_intensity
+                                                 for label, mean_intensity in label_mean_intensity.items()
+                                                 if mean_intensity >= self.min_mean_intensity}
+                label_voxel_count = {label: xp.sum(label_im == label) for label in filtered_label_mean_intensity.keys()}
+                if self.max_size_threshold_px is not None:
+                    filtered_label_voxel_count = {label: voxel_count for label, voxel_count in label_voxel_count.items() if
+                                                  voxel_count < self.max_size_threshold_px}
+                    # Create a new label image with only the remaining labels
+                    filtered_label_img = xp.zeros_like(label_im)
+                    for label in filtered_label_voxel_count.keys():
+                        filtered_label_img[label_im == label] = label
+                else:
+                    # Create a new label image with only the remaining labels
+                    filtered_label_img = xp.zeros_like(label_im)
+                    for label in filtered_label_mean_intensity.keys():
+                        filtered_label_img[label_im == label] = label
+                label_im = filtered_label_img
+
             if is_gpu:
                 self.instance_mask_memmap[frame_num] = label_im.get()
             else:
