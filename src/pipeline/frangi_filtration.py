@@ -121,8 +121,7 @@ class FrangiFilter:
             sigma_vec = None
             logger.error('Frangi filter supported only for 2D and 3D arrays')
             exit(1)
-        gauss_volume = xp.asarray(self.im_memmap[t_num, ...])
-
+        gauss_volume = xp.asarray(self.im_memmap[t_num, ...]).astype('double')
         if self.intensity_threshold is not None:
             gauss_volume[gauss_volume < self.intensity_threshold] = 0
 

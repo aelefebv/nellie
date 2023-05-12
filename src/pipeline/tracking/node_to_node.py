@@ -167,6 +167,8 @@ class NodeTrackConstructor:
             if frame_num == 0:
                 continue
             self._get_t1_t2_cost_matrix()
+            if self.num_tracks_t1 == 0 or self.num_tracks_t2 == 0:
+                continue
             self.t1_t2_assignment = linear_sum_assignment(self.t1_t2_cost_matrix)
             self._assign_confidence_1_linkages()
             self._get_tn_cost_matrix()
@@ -198,6 +200,8 @@ class NodeTrackConstructor:
         tracks_t2 = self.tracks[self.current_frame_num]
         self.num_tracks_t1 = len(tracks_t1)
         self.num_tracks_t2 = len(tracks_t2)
+        if self.num_tracks_t1 == 0 or self.num_tracks_t2 == 0:
+            return
         num_dimensions = len(tracks_t1[0].node.centroid_um)
 
         self.t1_remaining = list(range(self.num_tracks_t1))
@@ -291,6 +295,8 @@ class NodeTrackConstructor:
                               self.tracks[self.current_frame_num-1][0].node.time_point_sec
 
             self.num_tracks_tn = len(tracks_tn)
+            if self.num_tracks_tn == 0:
+                return
             num_dimensions = len(tracks_tn[0].node.centroid_um)
 
             tn_centroids = xp.empty((num_dimensions, 1, self.num_tracks_tn))
@@ -502,6 +508,8 @@ class NodeTrackConstructor:
         # if it's a production assigned (2), remove t2_track from running
         # if it's a node_link assigned (0), remove t1_track and/or t2_track if they are tips only
         possible_connections = xp.array(self.possible_connections)
+        if possible_connections.size == 0:
+            return
         # sort first by cost, then by assignment type
         sort_idx = xp.lexsort((possible_connections[:, 3], possible_connections[:, 2]))
         sorted_connections = possible_connections[sort_idx]
@@ -672,7 +680,7 @@ if __name__ == "__main__":
     windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", 0, '')
     mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", 0, '')
 
-    custom_filepath = ( r"D:\test_files\nelly\20230406-AELxKL-dmr_lipid_droplets_mtDR\deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR-5000-1h.ome.tif", 1, '')
+    custom_filepath = ( r"D:\test_files\nelly\20230413_AELxES-good-dmr_lipid_droplets_mt_DR-activate_deactivate\deskewed-2023-04-13_16-26-04_000_AELxES-stress_granules-dmr_perk-activate_deactivate-0p1nM-activate.ome.tif", 0, '')
 
     filepath = custom_filepath
     try:
@@ -695,6 +703,7 @@ if __name__ == "__main__":
         # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(nodes_test.tracks)
         napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari_graph(just_tracks)
         # napari_tracks, napari_props, napari_graph = visualize.node_to_node_to_napari(nodes_test.tracks)
+        # if not viewer:
         viewer = napari.Viewer(ndisplay=3)
         # viewer.add_image(tifffile.memmap(test.path_im_mask),
         #                  scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],

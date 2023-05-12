@@ -533,10 +533,13 @@ if __name__ == "__main__":
     num_t = 10
     num_t_threshold = num_t // 2
 
+
     top_dir = r"D:\test_files\nelly\20230330-AELxES-CAGE_cells"
     # find all files that end with 0-1h.ome.tif
     files = [file for file in os.listdir(top_dir) if file.endswith(".ome.tif")]
     files.sort()
+
+
 
     # Set up the CSV file
     date_now = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -544,6 +547,7 @@ if __name__ == "__main__":
 
     # file_name = "deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR"#-5000-1h.ome.tif"
     data = []
+
     for file_num, file_name in enumerate(files):
         try:
             print(file_num, len(files))

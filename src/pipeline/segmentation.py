@@ -1,7 +1,7 @@
 import tifffile
 
 from src.io.im_info import ImInfo
-from src import xp, morphology, ndi, is_gpu, logger
+from src import xp, morphology, ndi, is_gpu, logger, filters
 from src.utils.general import get_reshaped_image
 
 
@@ -94,13 +94,15 @@ class Segment:
         for frame_num, frame in enumerate(frangi_memmap):
             logger.info(f'Running semantic segmentation, volume {frame_num}/{len(frangi_memmap) - 1}')
             frame_in_mem = xp.asarray(frame)
-            frame_in_mem = frame_in_mem > self.threshold
+            test_triangle = filters.threshold_triangle(frame_in_mem[frame_in_mem > 0])
+            frame_in_mem = frame_in_mem > test_triangle
             if self.remove_in_2d:
                 struct = ndi.generate_binary_structure(2, 1)
                 for z in range(frame_in_mem.shape[0]):
                     frame_in_mem[z] = ndi.binary_opening(frame_in_mem[z], structure=struct)
             else:
                 frame_in_mem = ndi.binary_opening(frame_in_mem)
+                # frame_in_mem = ndi.grey_opening(frame_in_mem)
             frame_in_mem = morphology.remove_small_objects(frame_in_mem, self.min_size_threshold_px)
             if is_gpu:
                 self.semantic_mask_memmap[frame_num] = frame_in_mem.get()

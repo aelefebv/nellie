@@ -52,34 +52,39 @@ if __name__ == "__main__":
     import os
 
     top_dir = r"D:\test_files\nelly\20230413_AELxES-good-dmr_lipid_droplets_mt_DR-activate_deactivate"
+    specific_file = None
+    # specific_file = r"D:\test_files\nelly\20230413_AELxES-good-dmr_lipid_droplets_mt_DR-activate_deactivate\deskewed-2023-04-13_16-26-04_000_AELxES-stress_granules-dmr_perk-activate_deactivate-0p1nM-activate.ome.tif"
     min_radius_um = 0.2
     max_radius_um = 1
     ch_to_analyze = 0
 
-    intensity_threshold = 160
-    max_size_thresh = 10000
+    # intensity_threshold = 160
+    intensity_threshold = None
+    max_size_thresh = None
 
     files = glob.glob(os.path.join(top_dir, '*.tif*'))
     files.sort()
+    if specific_file:
+        files = [specific_file]
     # file_name = "deskewed-2023-03-23_13-02-09_000_20230323-AELxKL-dmr-lipid_droplets-1.ome.tif"
     for file_num, filepath in enumerate(files):
         print(file_num, len(files), filepath)
         # if 0p1 in filepath, skip
-        if '0p1' in filepath:
-            continue
+        # if '0p1' in filepath:
+        #     continue
         # filepath = os.path.join(top_dir, file_name)
         # if not os.path.isfile(filepath):
         #     filepath = "/Users/austin/Documents/Transferred/deskewed-single.ome.tif"
-        try:
+        # try:
         #     run(filepath, num_t=None, dimension_order='ZYX')
-            run(filepath, ch=ch_to_analyze,
-                min_radius_um=min_radius_um, max_radius_um=max_radius_um,
-                intensity_threshold=intensity_threshold, max_size_threshold=max_size_thresh)#, num_t=2)
+        run(filepath, ch=ch_to_analyze,
+            min_radius_um=min_radius_um, max_radius_um=max_radius_um,
+            intensity_threshold=intensity_threshold, max_size_threshold=max_size_thresh)#, num_t=2)
             # run(filepath, ch=0)#, num_t=2)
-        except:
+        # except:
         # except FileNotFoundError:
-            logger.error("Error, skipping.")
+        #     logger.error("Error, skipping.")
             # logger.error("File not found.")
-            continue
+            # continue
             # exit(1)
     print('hi')
