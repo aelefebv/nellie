@@ -51,11 +51,11 @@ def run(input_path: str, min_radius_um = 0.25, max_radius_um = 0.5,
 if __name__ == "__main__":
     import os
 
-    top_dir = r"D:\test_files\nelly\20230413_AELxES-good-dmr_lipid_droplets_mt_DR-activate_deactivate"
+    top_dir = r"D:\test_files\20230713-AELxZL-coated_DENSPM_wt_ko_A549"
     specific_file = None
-    # specific_file = r"D:\test_files\nelly\20230413_AELxES-good-dmr_lipid_droplets_mt_DR-activate_deactivate\deskewed-2023-04-13_16-26-04_000_AELxES-stress_granules-dmr_perk-activate_deactivate-0p1nM-activate.ome.tif"
-    min_radius_um = 0.2
-    max_radius_um = 1
+    # specific_file = r"D:\test_files\nelly\20230511-AELxML-Davidson_ER_Vim_Per_MTge\deskewed-2023-05-11_15-57-45_000_EB3.ome.tif"
+    min_radius_um = 0.25
+    max_radius_um = 0.5
     ch_to_analyze = 0
 
     # intensity_threshold = 160

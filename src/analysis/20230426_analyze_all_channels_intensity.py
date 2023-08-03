@@ -529,12 +529,13 @@ if __name__ == "__main__":
     import os
     import re
 
-    ch_to_analyze = 1
-    num_t = 10
-    num_t_threshold = num_t // 2
+    ch_to_analyze = 0
+    num_t = None
+    if num_t is not None:
+        num_t_threshold = num_t // 2
 
 
-    top_dir = r"D:\test_files\nelly\20230330-AELxES-CAGE_cells"
+    top_dir = r"D:\test_files\20230713-AELxZL-coated_DENSPM_wt_ko_A549"
     # find all files that end with 0-1h.ome.tif
     files = [file for file in os.listdir(top_dir) if file.endswith(".ome.tif")]
     files.sort()
@@ -561,6 +562,7 @@ if __name__ == "__main__":
             im_info = ImInfo(os.path.join(top_dir, file_name), ch=ch_to_analyze)
             if num_t is None:
                 num_t = im_info.shape[0]
+                num_t_threshold = num_t // 2
             # tracks = unpickle_object(im_info.path_pickle_track)
             print('Creating tracks...')
             stats = TrackBuilder(im_info, num_t=num_t)

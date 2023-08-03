@@ -680,7 +680,7 @@ if __name__ == "__main__":
     windows_filepath = (r"D:\test_files\nelly\deskewed-single.ome.tif", 0, '')
     mac_filepath = ("/Users/austin/Documents/Transferred/deskewed-single.ome.tif", 0, '')
 
-    custom_filepath = ( r"D:\test_files\nelly\20230413_AELxES-good-dmr_lipid_droplets_mt_DR-activate_deactivate\deskewed-2023-04-13_16-26-04_000_AELxES-stress_granules-dmr_perk-activate_deactivate-0p1nM-activate.ome.tif", 0, '')
+    custom_filepath = ( r"D:\test_files\20230713-AELxZL-coated_DENSPM_wt_ko_A549\deskewed-2023-07-13_14-55-25_000_wt_0_acquire.ome.tif", 0, '')
 
     filepath = custom_filepath
     try:
@@ -708,6 +708,8 @@ if __name__ == "__main__":
         # viewer.add_image(tifffile.memmap(test.path_im_mask),
         #                  scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']],
         #                  rendering='iso', iso_threshold=0, opacity=0.2, contrast_limits=[0, 1])
+        viewer.add_image(tifffile.memmap(test.im_path)[:, 0, ...],
+                         scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])
         viewer.add_image(tifffile.memmap(test.path_im_mask),
                          scale=[test.dim_sizes['Z'], test.dim_sizes['Y'], test.dim_sizes['X']])
         viewer.add_tracks(napari_tracks, graph=napari_graph, properties=napari_props)

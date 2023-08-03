@@ -1035,7 +1035,7 @@ if __name__ == '__main__':
     import os
     import glob
 
-    top_dir = r"D:\test_files\nelly\20230330-AELxZL-A549-TMRE_mtG"
+    top_dir = r"D:\test_files\20230713-AELxZL-coated_DENSPM_wt_ko_A549"
 
     files = glob.glob(os.path.join(top_dir, '*.tif*'))
     files.sort()
