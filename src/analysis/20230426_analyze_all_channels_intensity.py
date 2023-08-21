@@ -549,7 +549,7 @@ if __name__ == "__main__":
     # file_name = "deskewed-2023-04-06_13-58-58_000_AELxKL-dmr_PERK-lipid_droplets_mtDR"#-5000-1h.ome.tif"
     data = []
 
-    for file_num, file_name in enumerate(files):
+    for file_num, file_name in enumerate(files[1:2]):
         try:
             print(file_num, len(files))
             match = re.search(r'-(\d+)-\d+h', file_name)
@@ -606,7 +606,7 @@ if __name__ == "__main__":
 
             print('Analyzing tracks...')
             track_stats = {}
-            for track_num, track in enumerate(keep_tracks):
+            for track_num, track in enumerate(keep_tracks[:10]):
                 print(track_num, len(keep_tracks))
                 track_stats[track_num] = TrackStats()
                 track_stats[track_num].motility = MotilityAnalysis(im_info, track)
