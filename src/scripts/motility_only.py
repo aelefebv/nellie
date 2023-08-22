@@ -17,7 +17,9 @@ ome_tif_files = [os.path.join(top_dir, file) for file in os.listdir(top_dir) if 
 
 length_cutoff = 6  # greater than half the frames means no duplicates
 
-for file_num, filepath in enumerate(ome_tif_files[:1]):
+# create
+df = pd.DataFrame()
+for file_num, filepath in enumerate(ome_tif_files):
     print(f'Processing file {file_num + 1} of {len(ome_tif_files)}')
     try:
         test = ImInfo(filepath, ch=0, dimension_order='')
@@ -34,9 +36,7 @@ for file_num, filepath in enumerate(ome_tif_files[:1]):
     track_list = []
     track_idx = 0
     for frame_num, frame_tracks in tracks.items():
-        print(f'Processing frame {frame_num} of {len(tracks)}')
         for track_num, track in enumerate(frame_tracks):
-            print(f'Processing track {track_num} of {len(frame_tracks)}')
             num_parents = len(track.parents)
             num_children = len(track.children)
             if num_children > 1:
@@ -63,13 +63,13 @@ for file_num, filepath in enumerate(ome_tif_files[:1]):
             else:
                 continue
 
-    for track_num, track in enumerate(track_list[:1]):
+    for track_num, track in enumerate(track_list):
         speeds = []
         total_distance = 0
         displacements = []
         first_node = track[0]
         for node_num, node in enumerate(track[1:]):
-            node_last = track[node_num - 1]
+            node_last = track[node_num]
             distance = np.linalg.norm(np.array(node_last.centroid_um) - np.array(node.centroid_um))
             displacement = np.linalg.norm(np.array(first_node.centroid_um) - np.array(node.centroid_um))
             time_diff = node.time_point_sec - node_last.time_point_sec
@@ -82,14 +82,32 @@ for file_num, filepath in enumerate(ome_tif_files[:1]):
         speed_mean = np.mean(speeds)
         speed_median = np.median(speeds)
         speed_std = np.std(speeds)
-        final_displacement = displacements[-1]
-        max_displacement = np.max(displacements)
+        speed_max = np.max(speeds)
+        displacement_max = np.max(displacements)
+        # normalize these values by the length of the track
+        displacement_final = displacements[-1] / len(track)
+        total_distance = total_distance / len(track)
+
+        track_df = pd.DataFrame({
+            'file_num': file_num,
+            'condition': condition,
+            'concentration': concentration,
+            'track_num': track_num,
+            'speed_mean': speed_mean,
+            'speed_median': speed_median,
+            'speed_std': speed_std,
+            'speed_max': speed_max,
+            'displacement_max': displacement_max,
+            'displacement_final_n_frame_normalized': displacement_final,
+            'total_distance_n_frame_normalized': total_distance,
+        }, index=[0])
+
 
         # concat the region_df to the df
-        df = pd.concat([df, region_df], ignore_index=True)
+        df = pd.concat([df, track_df], ignore_index=True)
 
 # save df as csv in the top dir with top dir name
-df.to_csv(os.path.join(top_dir, f'{top_dir.split(os.sep)[-1]}_first_frame_morphology.csv'), index=False)
+df.to_csv(os.path.join(top_dir, f'{top_dir.split(os.sep)[-1]}_motility.csv'), index=False)
 
 # import napari
 # viewer = napari.Viewer()
