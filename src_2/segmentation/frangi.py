@@ -3,7 +3,7 @@ from itertools import combinations_with_replacement
 
 from src import logger
 from src_2.io.im_info import ImInfo
-from src_2.utils.general import get_reshaped_image
+from src_2.utils.general import get_reshaped_image, bbox
 from src import xp, ndi
 from skimage import filters
 
@@ -137,7 +137,7 @@ class FrangiFilter:
 
         return eigenvalues_flat
 
-    def _filter_hessian(self, eigenvalues, hessian_matrices, gamma_sq):
+    def _filter_hessian(self, eigenvalues, gamma_sq):
         alpha_sq = 0.5
         beta_sq = 0.5
 
@@ -152,36 +152,36 @@ class FrangiFilter:
         filtered_im = xp.nan_to_num(filtered_im, False, 1)
         return filtered_im
 
+    def _run_frame(self, t):
+        logger.info(f'Running frangi filter on {t=}.')
+        vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
+        temp = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
+        masks = xp.ones_like(self.im_memmap[t, ...])
+        for sigma_num, sigma in enumerate(self.sigmas):
+            gauss_volume = self._gauss_filter(sigma, t)
+            gamma = self._calculate_gamma(gauss_volume)
+            gamma_sq = 2 * gamma ** 2
+            h_mask, hessian_matrices = self._compute_hessian(gauss_volume)
+            eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
+            temp[h_mask] = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
+            max_indices = temp > vesselness
+            vesselness[max_indices] = temp[max_indices]
+            masks = xp.where(~h_mask, 0, masks)
+        vesselness = xp.where(masks, vesselness, 0)
+        return vesselness
+
     def _run_filter(self):
         for t in range(self.num_t):
-            logger.info(f'Running frangi filter on {t=}.')
-            vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
-            temp = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
-            # masks = xp.zeros_like(self.im_memmap[t, ...])
-            for sigma_num, sigma in enumerate(self.sigmas):
-                # logger.info(f'Running frangi filter on {t=} for {sigma=}.')
-                gauss_volume = self._gauss_filter(sigma, t)
-                # gamma = self._calculate_gamma(gauss_volume)
-                # gamma_sq = 2 * gamma ** 2
-                h_mask, hessian_matrices = self._compute_hessian(gauss_volume)
-                eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
-                temp[h_mask] = self._filter_hessian(eigenvalues, hessian_matrices, gamma_sq=1)
-                max_indices = temp > vesselness
-                vesselness[max_indices] = temp[max_indices]
-                # Combine the Hessian elements into a single tensor with the right shape
-                # Start by reshaping the components to add two new axes at the end:
-
-            # eigenvalues = xp.linalg.eigvalsh(
-                #     xp.array([[hxx, hxy, hxz], [hxy, hyy, hyz], [hxz, hyz, hzz]])
-                # )
-            import napari
-            viewer = napari.Viewer()
-            viewer.add_image(vesselness.get())
-            # for h_idx, h_elem in enumerate(h):
-            #     viewer.add_image(h_elem.get(), name=f'h{h_idx}')
-            viewer.add_image(self.im_memmap[t, ...], name='im')
-            print('hi')
-
+            frangi_frame = self._run_frame(t)
+            # self.frangi_memmap[t, ...] = self._run_frame(t).get()
+            if self.remove_edges:
+                for z_idx, z_slice in enumerate(frangi_frame):
+                    rmin, rmax, cmin, cmax = bbox(z_slice)
+                    frangi_frame[z_idx, rmin:rmin + 10, ...] = 0
+                    frangi_frame[z_idx, rmax - 10:rmax + 1, ...] = 0
+                    frangi_frame[z_idx, :, cmin:cmin + 10] = 0
+                    frangi_frame[z_idx, :, cmax - 10:cmax + 1] = 0
+            self.frangi_memmap[t, ...] = frangi_frame.get()
 
     def run(self):
         logger.info('Running frangi filter.')
