@@ -96,7 +96,7 @@ class FrangiFilter:
 
         h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)
                    for ax0, ax1 in combinations_with_replacement(axes, 2)])
-        h_mask = self._get_h_mask(h_elems)
+        h_mask = self._get_frob_mask(h_elems)
 
         hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., xp.newaxis, xp.newaxis] for elem in h_elems[:, h_mask]]
 
@@ -108,7 +108,7 @@ class FrangiFilter:
 
         return h_mask, hessian_matrices
 
-    def _get_h_mask(self, hessian_matrices):
+    def _get_frob_mask(self, hessian_matrices):
         frobenius_norm = xp.linalg.norm(hessian_matrices, axis=0)
         frobenius_threshold = triangle_threshold(frobenius_norm[frobenius_norm > 0])
         mask = frobenius_norm > frobenius_threshold
@@ -132,13 +132,31 @@ class FrangiFilter:
 
         # Concatenate all the eigenvalue chunks and reshape to the original spatial structure
         eigenvalues_flat = xp.concatenate(eigenvalues_list, axis=0)
+        sort_order = xp.argsort(xp.abs(eigenvalues_flat), axis=1)
+        eigenvalues_flat = xp.take_along_axis(eigenvalues_flat, sort_order, axis=1)
 
         return eigenvalues_flat
+
+    def _filter_hessian(self, eigenvalues, hessian_matrices, gamma_sq):
+        alpha_sq = 0.5
+        beta_sq = 0.5
+
+        ra_sq = (xp.abs(eigenvalues[:, 1]) / xp.abs(eigenvalues[:, 2])) ** 2
+        rb_sq = (xp.abs(eigenvalues[:, 1]) / xp.sqrt(xp.abs(eigenvalues[:, 1] * eigenvalues[:, 2]))) ** 2
+        s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2) + (eigenvalues[:, 2] ** 2))) ** 2
+
+        filtered_im = (1 - xp.exp(-(ra_sq / alpha_sq))) * (xp.exp(-(rb_sq / beta_sq))) * \
+                      (1 - xp.exp(-(s_sq / gamma_sq)))
+        filtered_im[eigenvalues[:, 2] > 0] = 0
+        filtered_im[eigenvalues[:, 1] > 0] = 0
+        filtered_im = xp.nan_to_num(filtered_im, False, 1)
+        return filtered_im
 
     def _run_filter(self):
         for t in range(self.num_t):
             logger.info(f'Running frangi filter on {t=}.')
-            # vesselness = xp.zeros_like(self.im_memmap[t, ...])
+            vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
+            temp = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
             # masks = xp.zeros_like(self.im_memmap[t, ...])
             for sigma_num, sigma in enumerate(self.sigmas):
                 # logger.info(f'Running frangi filter on {t=} for {sigma=}.')
@@ -147,20 +165,22 @@ class FrangiFilter:
                 # gamma_sq = 2 * gamma ** 2
                 h_mask, hessian_matrices = self._compute_hessian(gauss_volume)
                 eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
-                hi
+                temp[h_mask] = self._filter_hessian(eigenvalues, hessian_matrices, gamma_sq=1)
+                max_indices = temp > vesselness
+                vesselness[max_indices] = temp[max_indices]
                 # Combine the Hessian elements into a single tensor with the right shape
                 # Start by reshaping the components to add two new axes at the end:
 
             # eigenvalues = xp.linalg.eigvalsh(
                 #     xp.array([[hxx, hxy, hxz], [hxy, hyy, hyz], [hxz, hyz, hzz]])
                 # )
-                # import napari
-                # viewer = napari.Viewer()
-                # viewer.add_image(gauss_volume.get())
-                # for h_idx, h_elem in enumerate(h):
-                #     viewer.add_image(h_elem.get(), name=f'h{h_idx}')
-                # viewer.add_image(self.im_memmap[t, ...], name='im')
-                # print('hi')
+            import napari
+            viewer = napari.Viewer()
+            viewer.add_image(vesselness.get())
+            # for h_idx, h_elem in enumerate(h):
+            #     viewer.add_image(h_elem.get(), name=f'h{h_idx}')
+            viewer.add_image(self.im_memmap[t, ...], name='im')
+            print('hi')
 
 
     def run(self):
