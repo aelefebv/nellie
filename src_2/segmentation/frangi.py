@@ -1,4 +1,5 @@
 import os
+from itertools import combinations_with_replacement
 
 from src import logger
 from src_2.io.im_info import ImInfo
@@ -89,13 +90,77 @@ class FrangiFilter:
         gamma = (gamma_tri + gamma_otsu) / 2
         return gamma
 
+    def _compute_hessian(self, image):
+        gradients = xp.gradient(image)
+        axes = range(image.ndim)
+
+        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)
+                   for ax0, ax1 in combinations_with_replacement(axes, 2)])
+        h_mask = self._get_h_mask(h_elems)
+
+        hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., xp.newaxis, xp.newaxis] for elem in h_elems[:, h_mask]]
+
+        hessian_matrices = xp.concatenate([
+            xp.concatenate([hxx, hxy, hxz], axis=-1),
+            xp.concatenate([hxy, hyy, hyz], axis=-1),
+            xp.concatenate([hxz, hyz, hzz], axis=-1)
+        ], axis=-2)
+
+        return h_mask, hessian_matrices
+
+    def _get_h_mask(self, hessian_matrices):
+        frobenius_norm = xp.linalg.norm(hessian_matrices, axis=0)
+        frobenius_threshold = triangle_threshold(frobenius_norm[frobenius_norm > 0])
+        mask = frobenius_norm > frobenius_threshold
+        return mask
+
+    def _compute_chunkwise_eigenvalues(self, hessian_matrices, chunk_size=1E6):
+        total_voxels = len(hessian_matrices)
+
+        eigenvalues_list = []
+
+        if chunk_size is None:  # chunk size is entire vector
+            chunk_size = total_voxels
+
+        # Iterate over chunks
+        for start_idx in range(0, total_voxels, int(chunk_size)):
+            end_idx = min(start_idx + chunk_size, total_voxels)
+            chunk_eigenvalues = xp.linalg.eigvalsh(
+                hessian_matrices[start_idx:end_idx]
+            )
+            eigenvalues_list.append(chunk_eigenvalues)
+
+        # Concatenate all the eigenvalue chunks and reshape to the original spatial structure
+        eigenvalues_flat = xp.concatenate(eigenvalues_list, axis=0)
+
+        return eigenvalues_flat
+
     def _run_filter(self):
         for t in range(self.num_t):
+            logger.info(f'Running frangi filter on {t=}.')
+            # vesselness = xp.zeros_like(self.im_memmap[t, ...])
+            # masks = xp.zeros_like(self.im_memmap[t, ...])
             for sigma_num, sigma in enumerate(self.sigmas):
-                logger.info(f'Running frangi filter on {t=} for {sigma=}.')
+                # logger.info(f'Running frangi filter on {t=} for {sigma=}.')
                 gauss_volume = self._gauss_filter(sigma, t)
-                gamma = self._calculate_gamma(gauss_volume)
-                logger.debug(f'Gamma calculated as {gamma}.')
+                # gamma = self._calculate_gamma(gauss_volume)
+                # gamma_sq = 2 * gamma ** 2
+                h_mask, hessian_matrices = self._compute_hessian(gauss_volume)
+                eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
+                hi
+                # Combine the Hessian elements into a single tensor with the right shape
+                # Start by reshaping the components to add two new axes at the end:
+
+            # eigenvalues = xp.linalg.eigvalsh(
+                #     xp.array([[hxx, hxy, hxz], [hxy, hyy, hyz], [hxz, hyz, hzz]])
+                # )
+                # import napari
+                # viewer = napari.Viewer()
+                # viewer.add_image(gauss_volume.get())
+                # for h_idx, h_elem in enumerate(h):
+                #     viewer.add_image(h_elem.get(), name=f'h{h_idx}')
+                # viewer.add_image(self.im_memmap[t, ...], name='im')
+                # print('hi')
 
 
     def run(self):
@@ -117,6 +182,6 @@ if __name__ == "__main__":
 
     frangis = []
     for im_info in im_infos:
-        frangi = FrangiFilter(im_info)
+        frangi = FrangiFilter(im_info, num_t=2)
         frangi.run()
         frangis.append(frangi)
