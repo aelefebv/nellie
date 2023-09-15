@@ -5,7 +5,6 @@ from src import logger
 from src_2.io.im_info import ImInfo
 from src_2.utils.general import get_reshaped_image, bbox
 from src import xp, ndi
-from skimage import filters
 
 from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 
@@ -15,6 +14,7 @@ class FrangiFilter:
                  num_t=None, remove_edges=True,
                  min_radius_um=0.20, max_radius_um=1):
         self.im_info = im_info
+        self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
         self.num_t = num_t
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
@@ -28,8 +28,6 @@ class FrangiFilter:
 
         self.im_memmap = None
         self.frangi_memmap = None
-
-        self.chunk_size = 128
 
         self.sigma_vec = None
         self.sigmas = None
@@ -57,8 +55,7 @@ class FrangiFilter:
         if self.im_info.no_z:
             self.sigma_vec = (sigma, sigma)
         else:
-            z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
-            self.sigma_vec = (sigma / z_ratio, sigma, sigma)
+            self.sigma_vec = (sigma / self.z_ratio, sigma, sigma)
 
     def _set_default_sigmas(self):
         logger.debug('Setting to sigma values.')
@@ -72,12 +69,12 @@ class FrangiFilter:
         sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / num_sigma
         sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)  # Avoid taking too small of steps.
 
-        logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Using {sigma_step_size}')
         self.sigmas = list(xp.arange(self.sigma_min, self.sigma_max, sigma_step_size))
+        logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
     def _gauss_filter(self, sigma, t=None):
-        if self.sigma_vec is None:
-            self._get_sigma_vec(sigma)
+        # if self.sigma_vec is None:
+        self._get_sigma_vec(sigma)
         gauss_volume = xp.asarray(self.im_memmap[t, ...]).astype('double')
         logger.debug(f'Gaussian filtering {t=} with {self.sigma_vec=}.')
         gauss_volume = ndi.gaussian_filter(gauss_volume, sigma=self.sigma_vec,
@@ -154,34 +151,51 @@ class FrangiFilter:
 
     def _run_frame(self, t):
         logger.info(f'Running frangi filter on {t=}.')
+
         vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
         temp = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
         masks = xp.ones_like(self.im_memmap[t, ...])
+
         for sigma_num, sigma in enumerate(self.sigmas):
             gauss_volume = self._gauss_filter(sigma, t)
+
             gamma = self._calculate_gamma(gauss_volume)
             gamma_sq = 2 * gamma ** 2
+
             h_mask, hessian_matrices = self._compute_hessian(gauss_volume)
             eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
+
             temp[h_mask] = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
+
             max_indices = temp > vesselness
             vesselness[max_indices] = temp[max_indices]
             masks = xp.where(~h_mask, 0, masks)
-        vesselness = xp.where(masks, vesselness, 0)
+
+        vesselness = vesselness * masks
         return vesselness
+
+    def _mask_volume(self, frangi_frame):
+        frangi_threshold = xp.percentile(frangi_frame[frangi_frame > 0], 1)
+        frangi_mask = frangi_frame > frangi_threshold
+        frangi_mask = ndi.binary_opening(frangi_mask)
+        frangi_frame = frangi_frame * frangi_mask
+        return frangi_frame
+
+    def _remove_edges(self, frangi_frame):
+        for z_idx, z_slice in enumerate(frangi_frame):
+            rmin, rmax, cmin, cmax = bbox(z_slice)
+            frangi_frame[z_idx, rmin:rmin + 10, ...] = 0
+            frangi_frame[z_idx, rmax - 10:rmax + 1, ...] = 0
+            frangi_frame[z_idx, :, cmin:cmin + 10] = 0
+            frangi_frame[z_idx, :, cmax - 10:cmax + 1] = 0
+        return frangi_frame
 
     def _run_filter(self):
         for t in range(self.num_t):
             frangi_frame = self._run_frame(t)
-            # self.frangi_memmap[t, ...] = self._run_frame(t).get()
             if self.remove_edges:
-                for z_idx, z_slice in enumerate(frangi_frame):
-                    rmin, rmax, cmin, cmax = bbox(z_slice)
-                    frangi_frame[z_idx, rmin:rmin + 10, ...] = 0
-                    frangi_frame[z_idx, rmax - 10:rmax + 1, ...] = 0
-                    frangi_frame[z_idx, :, cmin:cmin + 10] = 0
-                    frangi_frame[z_idx, :, cmax - 10:cmax + 1] = 0
-            self.frangi_memmap[t, ...] = frangi_frame.get()
+                frangi_frame = self._remove_edges(frangi_frame)
+            self.frangi_memmap[t, ...] = self._mask_volume(frangi_frame).get()
 
     def run(self):
         logger.info('Running frangi filter.')
