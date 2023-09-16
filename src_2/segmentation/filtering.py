@@ -158,7 +158,6 @@ class Filter:
             current_lapofg = current_lapofg * mask
             current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
-        # lapofg_max_proj = xp.max(lapofg, axis=0)
         lapofg_min_proj = xp.min(lapofg, axis=0)
         return lapofg_min_proj
 
@@ -208,7 +207,6 @@ class Filter:
             frangi_frame = self._run_frame(t)
             if self.remove_edges:
                 frangi_frame = self._remove_edges(frangi_frame)
-            # self.frangi_memmap[t, ...]
             frangi_frame = self._mask_volume(frangi_frame)#.get()
             log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
             self.frangi_memmap[t, ...] = log_frame.get()

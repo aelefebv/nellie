@@ -31,18 +31,14 @@ class Network:
 
         self.debug = None
 
-        # skeletonize
-        # traverse skeletons and look at dips of intensity (in original?)
-        # if dip is below threshold, remove that point from the skeleton
-
     def _skeletonize(self, frame):
         cpu_frame = np.array(frame)
         gpu_frame = xp.array(frame)
 
         skel = xp.array(morph.skeletonize(cpu_frame > 0)).astype('bool')
-        # eroded_frame = ndi.binary_erosion(gpu_frame > 0)
 
-        skel_out = skel * gpu_frame# * eroded_frame
+        skel_out = skel * gpu_frame
+        # todo any skeleton pixel next to a pixel that is not zero or its own pixel should be set to 0
 
         return skel_out
 
@@ -75,10 +71,6 @@ class Network:
             current_lapofg = current_lapofg * mask
             current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
-        lapofg_max_proj = xp.max(lapofg, axis=0)
-        lapofg_min_proj = xp.min(lapofg, axis=0)
-        # lapofg_thresh = triangle_threshold(lapofg_max_proj[lapofg_max_proj > 0])
-        lapofg_mask = lapofg_max_proj > 2E-4
 
         filt_footprint = xp.ones((3,) * (frame.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
@@ -90,7 +82,6 @@ class Network:
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
         coords_3d = xp.argwhere(coords)
-        self.debug = lapofg_min_proj
 
     def _get_t(self):
         if self.num_t is None:
