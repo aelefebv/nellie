@@ -1,12 +1,9 @@
-import tifffile
-
 from src_2.io.im_info import ImInfo
-from src import xp, morphology, ndi, is_gpu, logger, filters
+from src import xp, ndi, logger
 from src_2.utils.general import get_reshaped_image
-from src_2.utils.gpu_functions import otsu_threshold, triangle_threshold
 
 
-class Segment:
+class Label:
     def __init__(self, im_info: ImInfo,
                  num_t=None,
                  threshold: float = 0,
@@ -69,10 +66,10 @@ class Segment:
         self.frangi_memmap = get_reshaped_image(frangi_memmap, self.num_t, self.im_info)
         self.shape = self.frangi_memmap.shape
 
-        im_semantic_mask_path = self.im_info.create_output_path('im_semantic_mask')
-        self.semantic_mask_memmap = self.im_info.allocate_memory(im_semantic_mask_path, shape=self.shape, dtype='int8',
-                                                                 description='semantic segmentation',
-                                                                 return_memmap=True)
+        # im_semantic_mask_path = self.im_info.create_output_path('im_semantic_mask')
+        # self.semantic_mask_memmap = self.im_info.allocate_memory(im_semantic_mask_path, shape=self.shape, dtype='int8',
+        #                                                          description='semantic segmentation',
+        #                                                          return_memmap=True)
 
         im_instance_label_path = self.im_info.create_output_path('im_instance_label')
         self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path, shape=self.shape, dtype='int16',
@@ -82,15 +79,24 @@ class Segment:
     def _remove_bad_sized_objects(self, frame):
         ndim = 2 if self.remove_in_2d else 3
         footprint = ndi.generate_binary_structure(ndim, 1)
-        labels, _ = ndi.label(frame>0, structure=footprint)
+
+        mask = frame > 0
+        mask = ndi.binary_fill_holes(mask)
+        mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
+
+        labels, _ = ndi.label(mask, structure=footprint)
         label_sizes = xp.bincount(labels.ravel())
+
         above_threshold = label_sizes > self.min_size_threshold_px
         below_threshold = label_sizes < self.max_size_threshold_px
         mask_sizes = above_threshold * below_threshold
+
         mask = xp.zeros_like(labels, dtype=bool)
         mask[mask_sizes[labels]] = True
         mask[labels == 0] = False
-        labels = labels * mask
+
+        labels, _ = ndi.label(mask, structure=footprint)
+
         return mask, labels
 
     # def _trim_labels(self, frangi_frame, labels):
@@ -114,8 +120,7 @@ class Segment:
 
     def _run_segmentation(self):
         for t in range(self.num_t):
-            semantic_mask, instance_mask = self._run_frame(t)
-            self.semantic_mask_memmap[t, ...] = semantic_mask.get()
+            _, instance_mask = self._run_frame(t)
             self.instance_label_memmap[t, ...] = instance_mask.get()
 
     def run(self):
@@ -139,6 +144,6 @@ if __name__ == "__main__":
 
     segmentations = []
     for im_info in im_infos:
-        segment_unique = Segment(im_info, num_t=2)
+        segment_unique = Label(im_info, num_t=2)
         segment_unique.run()
         segmentations.append(segment_unique)

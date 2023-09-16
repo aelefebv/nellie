@@ -9,7 +9,7 @@ from src import xp, ndi
 from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
-class FrangiFilter:
+class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=True,
                  min_radius_um=0.20, max_radius_um=1):
@@ -56,6 +56,7 @@ class FrangiFilter:
             self.sigma_vec = (sigma, sigma)
         else:
             self.sigma_vec = (sigma / self.z_ratio, sigma, sigma)
+        return self.sigma_vec
 
     def _set_default_sigmas(self):
         logger.debug('Setting to sigma values.')
@@ -149,6 +150,18 @@ class FrangiFilter:
         filtered_im = xp.nan_to_num(filtered_im, False, 1)
         return filtered_im
 
+    def _filter_log(self, frame, mask):
+        lapofg = xp.empty(((len(self.sigmas),) + frame.shape), dtype=float)
+        for i, s in enumerate(self.sigmas):
+            sigma_vec = self._get_sigma_vec(s)
+            current_lapofg = -ndi.gaussian_laplace(frame, sigma_vec) * xp.mean(s) ** 2
+            current_lapofg = current_lapofg * mask
+            current_lapofg[current_lapofg < 0] = 0
+            lapofg[i] = current_lapofg
+        # lapofg_max_proj = xp.max(lapofg, axis=0)
+        lapofg_min_proj = xp.min(lapofg, axis=0)
+        return lapofg_min_proj
+
     def _run_frame(self, t):
         logger.info(f'Running frangi filter on {t=}.')
 
@@ -195,7 +208,10 @@ class FrangiFilter:
             frangi_frame = self._run_frame(t)
             if self.remove_edges:
                 frangi_frame = self._remove_edges(frangi_frame)
-            self.frangi_memmap[t, ...] = self._mask_volume(frangi_frame).get()
+            # self.frangi_memmap[t, ...]
+            frangi_frame = self._mask_volume(frangi_frame)#.get()
+            log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
+            self.frangi_memmap[t, ...] = log_frame.get()
 
     def run(self):
         logger.info('Running frangi filter.')
@@ -216,6 +232,6 @@ if __name__ == "__main__":
 
     frangis = []
     for im_info in im_infos:
-        frangi = FrangiFilter(im_info, num_t=2)
+        frangi = Filter(im_info, num_t=2)
         frangi.run()
         frangis.append(frangi)

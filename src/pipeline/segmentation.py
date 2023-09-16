@@ -140,8 +140,6 @@ class Segment:
             # remove objects that have a mean intensity less that a threshold
             if self.min_mean_intensity is not None:
                 unique_labels = xp.unique(label_im)
-                # print('unique_labels', unique_labels)
-                # print('memmap_shape', self.im_memmap[frame_num, ...].shape)
 
                 mean_intensities = ndi.labeled_comprehension(self.im_memmap[frame_num, ...], label_im, unique_labels,
                                                              xp.mean, float, xp.nan)
