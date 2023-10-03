@@ -31,16 +31,42 @@ class Network:
 
         self.debug = None
 
+    def _remove_connected_label_pixels(self, skel_labels):
+        depth, height, width = skel_labels.shape
+
+        true_coords = np.argwhere(skel_labels>0)
+
+        pixels_to_delete = []
+        for z, y, x in true_coords:
+            if z == 0 or z == depth - 1 or y == 0 or y == height - 1 or x == 0 or x == width - 1:
+                continue  # Skip boundary voxels
+
+            # Extract 3x3x3 neighborhood
+            label_neighborhood = skel_labels[z - 1:z + 2, y - 1:y + 2, x - 1:x + 2]
+
+            # Get labels of set voxels in the neighborhood
+            labels_in_neighborhood = label_neighborhood[label_neighborhood > 0]
+
+            if len(set(labels_in_neighborhood)) > 1:
+                pixels_to_delete.append((z, y, x))
+
+        for z, y, x in pixels_to_delete:
+            skel_labels[z, y, x] = 0
+
+        return skel_labels
+
     def _skeletonize(self, frame):
         cpu_frame = np.array(frame)
-        gpu_frame = xp.array(frame)
+        # gpu_frame = xp.array(frame)
+        # test = self._remove_connected_label_pixels(cpu_frame)
 
-        skel = xp.array(morph.skeletonize(cpu_frame > 0)).astype('bool')
+        skel = morph.skeletonize(cpu_frame > 0).astype('bool')
+        # skel = morph.skeletonize(test > 0).astype('bool')
 
-        skel_out = skel * gpu_frame
-        # todo any skeleton pixel next to a pixel that is not zero or its own pixel should be set to 0
+        skel_labels = skel * cpu_frame
+        skel_labels = self._remove_connected_label_pixels(skel_labels)
 
-        return skel_out
+        return skel_labels
 
     def _get_sigma_vec(self, sigma):
         if self.im_info.no_z:
@@ -96,24 +122,37 @@ class Network:
         logger.debug('Allocating memory for semantic segmentation.')
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
+
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
         self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
+
         im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
-
         self.shape = self.label_memmap.shape
+
+        im_skel_path = self.im_info.create_output_path('im_skel')
+        self.skel_memmap = self.im_info.allocate_memory(im_skel_path, shape=self.shape,
+                                                                  dtype='uint16',
+                                                                  description='skeleton image',
+                                                                  return_memmap=True)
+
+
+    def _run_frame(self, t):
+        logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
+        label_frame = self.label_memmap[t]
+        skel = self._skeletonize(label_frame)
+        return skel
 
     def _run_networking(self):
         for t in range(self.num_t):
-            logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
-            label_frame = self.label_memmap[t]
-            frame = self._skeletonize(label_frame)
+            skel = self._run_frame(t)
+            self.skel_memmap[t] = skel
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])
             # peaks = self._local_max_peak(intensity_frame, xp.asarray(label_frame > 0))
             # self.network_memmap[t] = frame
-            self.debug = frame
-            break
+            # self.debug = frame
+            # break
 
     def run(self):
         self._get_t()
@@ -141,11 +180,11 @@ if __name__ == "__main__":
         skel.run()
         skeletonis.append(skel)
 
-    # check if viewer exists as a variable
-    if 'viewer' not in locals():
-        import napari
-        viewer = napari.Viewer()
-    # viewer.add_points(skeletonis[0].debug.get(), name='debug', size=1, face_color='red')
-    # viewer.add_points(skeletonis[1].debug.get(), name='debug', size=1, face_color='red')
-    viewer.add_image(skeletonis[0].debug.get(), name='im')
-    viewer.add_image(skeletonis[1].debug.get(), name='im')
+    # # check if viewer exists as a variable
+    # if 'viewer' not in locals():
+    #     import napari
+    #     viewer = napari.Viewer()
+    # # viewer.add_points(skeletonis[0].debug.get(), name='debug', size=1, face_color='red')
+    # # viewer.add_points(skeletonis[1].debug.get(), name='debug', size=1, face_color='red')
+    # viewer.add_image(skeletonis[0].debug.get(), name='im')
+    # viewer.add_image(skeletonis[1].debug.get(), name='im')
