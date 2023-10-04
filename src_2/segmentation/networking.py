@@ -55,6 +55,27 @@ class Network:
 
         return skel_labels
 
+    def _add_missing_skeleton_labels(self, skel_frame, label_frame):
+        logger.debug('Adding missing skeleton labels.')
+
+        # identify unique labels and find missing ones
+        unique_labels = np.unique(label_frame)
+        unique_skel_labels = np.unique(skel_frame)
+
+        missing_labels = set(unique_labels) - set(unique_skel_labels)
+
+        # for each missing label, find the centroid and mark it in the skeleton
+        for label in missing_labels:
+            if label == 0:  # ignore bg label
+                continue
+
+            label_coords = np.argwhere(label_frame == label)
+            centroid = label_coords.mean(axis=0).astype(int)
+
+            skel_frame[tuple(centroid)] = label
+
+        return skel_frame
+
     def _skeletonize(self, frame):
         cpu_frame = np.array(frame)
         # gpu_frame = xp.array(frame)
@@ -136,11 +157,11 @@ class Network:
                                                                   description='skeleton image',
                                                                   return_memmap=True)
 
-
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
-        skel = self._skeletonize(label_frame)
+        skel_frame = self._skeletonize(label_frame)
+        skel = self._add_missing_skeleton_labels(skel_frame, label_frame)
         return skel
 
     def _run_networking(self):
