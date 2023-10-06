@@ -3,7 +3,7 @@ from src_2.io.im_info import ImInfo
 from src_2.utils.general import get_reshaped_image
 import skimage.morphology as morph
 import numpy as np
-import scipy.ndimage
+from scipy.spatial import cKDTree
 
 from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 
@@ -132,6 +132,16 @@ class Network:
         self.sigmas = list(xp.arange(self.sigma_min, self.sigma_max, sigma_step_size))
         logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
+    def _relabel_objects(self, label_frame, skel_frame):
+        # the non-0 pixels in label_frame will be relabelled based on the nearest skeleton pixel's label
+        skel_coords = np.argwhere(skel_frame > 0)
+        skel_tree = cKDTree(skel_coords)
+        label_coords = np.argwhere(label_frame > 0)
+        _, nearest_skel_indices = skel_tree.query(label_coords, k=1)
+        nearest_skel_labels = skel_frame[tuple(skel_coords[nearest_skel_indices].T)]
+        label_frame[tuple(np.transpose(label_coords))] = nearest_skel_labels
+
+
     def _local_max_peak(self, frame, mask):
         lapofg = xp.empty(((len(self.sigmas),) + frame.shape), dtype=float)
         for i, s in enumerate(self.sigmas):
@@ -163,7 +173,7 @@ class Network:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for semantic segmentation.')
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'], read_type='r+')
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
@@ -187,6 +197,7 @@ class Network:
         skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
         final_skel, _ = ndi.label(skel > 0, structure=xp.ones((3, 3, 3)))
         final_skel = self._remove_connected_label_pixels(final_skel)
+        self._relabel_objects(label_frame, final_skel)
         return final_skel
 
     def _run_networking(self):
@@ -221,7 +232,7 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     skeletonis = []
-    for im_info in im_infos[:1]:
+    for im_info in im_infos:
         skel = Network(im_info, num_t=2)
         skel.run()
         skeletonis.append(skel)

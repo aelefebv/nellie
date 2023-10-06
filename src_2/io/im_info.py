@@ -193,13 +193,16 @@ class ImInfo:
         if return_memmap:
             return tifffile.memmap(path_im, mode=read_mode)
 
-    def get_im_memmap(self, path_im: str):
+    def get_im_memmap(self, path_im: str, read_type='r'):
         logger.debug('Getting and returning read-only memmap.')
         try:
-            im_memmap = tifffile.memmap(path_im, mode='r')
+            im_memmap = tifffile.memmap(path_im, mode=read_type)
         except ValueError:
-            logger.warning('Could not get memmap, loading file into memory instead.')
-            im_memmap = tifffile.imread(path_im)
+            if read_type == 'r':
+                logger.warning('Could not get memmap, loading file into memory instead.')
+                im_memmap = tifffile.imread(path_im)
+            else:
+                raise ValueError
 
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
             im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
