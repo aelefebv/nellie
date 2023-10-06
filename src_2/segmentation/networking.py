@@ -29,6 +29,7 @@ class Network:
         self.im_frangi_memmap = None
         self.label_memmap = None
         self.network_memmap = None
+        self.pixel_class_memmap = None
 
         self.sigmas = None
 
@@ -169,6 +170,12 @@ class Network:
         peak_im[tuple(coords_3d.T)] = 1
         return coords_3d
 
+    def _get_pixel_class(self, skel):
+        skel_mask = xp.array(skel > 0).astype('uint8')
+        skel_mask_sum = ndi.convolve(skel_mask, weights=xp.ones((3, 3, 3)), mode='constant', cval=0) * skel_mask
+        skel_mask_sum[skel_mask_sum > 4] = 4
+        return skel_mask_sum
+
     def _get_t(self):
         if self.num_t is None:
             if self.im_info.no_t:
@@ -196,6 +203,12 @@ class Network:
                                                                   description='skeleton image',
                                                                   return_memmap=True)
 
+        im_pixel_class = self.im_info.create_output_path('im_pixel_class')
+        self.pixel_class_memmap = self.im_info.allocate_memory(im_pixel_class, shape=self.shape,
+                                                                dtype='uint8',
+                                                                description='pixel class image',
+                                                                return_memmap=True)
+
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
@@ -205,12 +218,14 @@ class Network:
         final_skel, _ = ndi.label(skel > 0, structure=xp.ones((3, 3, 3)))
         final_skel = self._remove_connected_label_pixels(final_skel)
         self._relabel_objects(label_frame, final_skel)
-        return final_skel
+        pixel_class = self._get_pixel_class(final_skel).get()
+        return final_skel, pixel_class
 
     def _run_networking(self):
         for t in range(self.num_t):
-            skel = self._run_frame(t)
+            skel, pixel_class = self._run_frame(t)
             self.skel_memmap[t] = skel
+            self.pixel_class_memmap[t] = pixel_class
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
             # label_frame = xp.asarray(self.label_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])
