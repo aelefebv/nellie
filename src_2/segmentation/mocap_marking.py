@@ -43,8 +43,8 @@ class Markers:
         min_sigma_step_size = 0.2
         num_sigma = 5
 
-        self.sigma_min = self.min_radius_px
-        self.sigma_max = self.max_radius_px
+        self.sigma_min = self.min_radius_px / 2
+        self.sigma_max = self.max_radius_px / 3
 
         sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / num_sigma
         sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)  # Avoid taking too small of steps.
@@ -65,6 +65,9 @@ class Markers:
         logger.debug('Allocating memory for mocap marking.')
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
+
+        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
+        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
 
         im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
@@ -88,25 +91,24 @@ class Markers:
         distances_im_frame[mask_coords[:, 0], mask_coords[:, 1], mask_coords[:, 2]] = dist
         return distances_im_frame
 
-    def _remove_close_peaks(self, coords_gpu, distance_im_gpu):
-        coord = coords_gpu.get()
-        distance_im = distance_im_gpu.get()
-        intensities = distance_im[coord]
+    def _remove_close_peaks(self, coord, check_im):
+        check_im_max = ndi.maximum_filter(check_im, size=3, mode='nearest')
+        intensities = check_im_max[coord[:, 0], coord[:, 1], coord[:, 2]]
         idx_maxsort = np.argsort(-intensities)
-        coord = np.transpose(coord)[idx_maxsort]
+        coord_sorted = coord[idx_maxsort].get()
 
         # print('Removing peaks that are too close')
-        tree = cKDTree(coord)
+        tree = cKDTree(coord_sorted)
         min_dist = self.min_radius_px * 2
-        indices = tree.query_ball_point(coord, r=min_dist, p=2, workers=-1)
+        indices = tree.query_ball_point(coord_sorted, r=min_dist, p=2, workers=-1)
         rejected_peaks_indices = set()
         naccepted = 0
         for idx, candidates in enumerate(indices):
             if idx not in rejected_peaks_indices:
                 # keep current point and the points at exactly spacing from it
                 candidates.remove(idx)
-                dist = distance.cdist([coord[idx]],
-                                      coord[candidates],
+                dist = distance.cdist([coord_sorted[idx]],
+                                      coord_sorted[candidates],
                                       distance.minkowski,
                                       p=2).reshape(-1)
                 candidates = [c for c, d in zip(candidates, dist)
@@ -116,7 +118,7 @@ class Markers:
                 rejected_peaks_indices.update(candidates)
                 naccepted += 1
 
-        cleaned_coords = np.delete(coord, tuple(rejected_peaks_indices), axis=0)
+        cleaned_coords = np.delete(coord_sorted, tuple(rejected_peaks_indices), axis=0)
 
         return cleaned_coords
 
@@ -126,33 +128,36 @@ class Markers:
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
             current_lapofg = -ndi.gaussian_laplace(distance_im, sigma_vec) * xp.mean(s) ** 2
-            current_lapofg = current_lapofg * mask
+            # current_lapofg = current_lapofg * mask
             current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
 
         filt_footprint = xp.ones((3,) * (distance_im.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
         peaks = xp.empty(lapofg.shape, dtype=bool)
-        # max_filt_mask = mask
         for filt_slice, max_filt_slice in enumerate(max_filt):
-            thresh = 10**triangle_threshold(xp.log10(max_filt_slice[max_filt_slice > 0]))
-            max_filt_mask = xp.asarray(max_filt_slice > thresh) * mask
+            thresh = triangle_threshold(max_filt_slice[max_filt_slice > 0])
+            max_filt_mask = xp.asarray(max_filt_slice > thresh)
             peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
+        peaks = peaks * mask
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
         coords_idx = xp.argwhere(coords)
-        coords_cleaned = self._remove_close_peaks(coords_idx, distance_im)
-        peak_im = xp.zeros_like(mask)
-        peak_im[tuple(coords_cleaned.T)] = 1
-        return peak_im
+
+        return coords_idx
 
     def _run_frame(self, t):
         logger.info(f'Running motion capture marking, volume {t}/{self.num_t - 1}')
+        intensity_frame = xp.asarray(self.im_memmap[t])
         # frangi_frame = xp.asarray(self.im_frangi_memmap[t])
         mask_frame = xp.asarray(self.label_memmap[t] > 0)
         distance_im = self._distance_im(mask_frame)
-        marker_frame = self._local_max_peak(distance_im)
-        return marker_frame
+        peak_coords = self._local_max_peak(distance_im)
+        cleaned_coords = self._remove_close_peaks(peak_coords, intensity_frame)
+        peak_im = xp.zeros_like(mask_frame)
+        peak_im[tuple(cleaned_coords.T)] = 1
+        # marker_frame = self._local_max_peak(distance_im)
+        return peak_im
 
     def _run_mocap_marking(self):
         for t in range(self.num_t):
