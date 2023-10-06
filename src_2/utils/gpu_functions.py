@@ -1,6 +1,14 @@
 from src import xp
 
 
+def otsu_effectiveness(image, inter_variance):
+    # Flatten image and create histogram
+    flattened_image = image.flatten()
+    sigma_total_squared = xp.var(flattened_image)
+    normalized_sigma_B_squared = inter_variance / sigma_total_squared
+    return normalized_sigma_B_squared
+
+
 def otsu_threshold(matrix, nbins=256):
     # gpu version of skimage.filters.threshold_otsu
     counts, bin_edges = xp.histogram(matrix.reshape(-1), bins=nbins, range=(matrix.min(), matrix.max()))
@@ -17,7 +25,7 @@ def otsu_threshold(matrix, nbins=256):
     idx = xp.argmax(variance12)
     threshold = bin_centers[idx]
 
-    return threshold
+    return threshold, variance12[idx]
 
 def triangle_threshold(matrix, nbins=256):
     # gpu version of skimage.filters.threshold_triangle

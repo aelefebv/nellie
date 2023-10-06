@@ -84,7 +84,7 @@ class Filter:
 
     def _calculate_gamma(self, gauss_volume):
         gamma_tri = triangle_threshold(gauss_volume[gauss_volume > 0])
-        gamma_otsu = otsu_threshold(gauss_volume[gauss_volume > 0])
+        gamma_otsu, _ = otsu_threshold(gauss_volume[gauss_volume > 0])
         gamma = (gamma_tri + gamma_otsu) / 2
         return gamma
 

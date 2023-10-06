@@ -1,6 +1,7 @@
 from src_2.io.im_info import ImInfo
 from src import xp, ndi, logger
 from src_2.utils.general import get_reshaped_image
+from src_2.utils.gpu_functions import otsu_threshold, triangle_threshold
 
 
 class Label:
@@ -20,7 +21,8 @@ class Label:
         self.im_memmap = None
         self.frangi_memmap = None
         # remove objects less than 9 voxels
-        self.min_size_threshold_px = 9
+        self.min_size_threshold_px = 4
+        self.min_size_threshold_px = 0
         self.max_size_threshold_px = xp.inf
 
         self.remove_in_2d = False
@@ -87,7 +89,12 @@ class Label:
         ndim = 2 if self.remove_in_2d else 3
         footprint = ndi.generate_binary_structure(ndim, 1)
 
-        mask = frame > 0
+        # thresh, _ = otsu_threshold(xp.log10(frame[frame > 0]))
+        # thresh = 10**thresh
+        thresh = 10**triangle_threshold(xp.log10(frame[frame > 0]))
+        # print(thresh, triangle_thresh)
+
+        mask = frame > thresh
         mask = ndi.binary_fill_holes(mask)
         mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
 
@@ -97,12 +104,7 @@ class Label:
     def _remove_bad_sized_objects(self, labels):
         ndim = 2 if self.remove_in_2d else 3
         footprint = ndi.generate_binary_structure(ndim, 1)
-        #
-        # mask = frame > 0
-        # mask = ndi.binary_fill_holes(mask)
-        # mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
-        #
-        # labels, _ = ndi.label(mask, structure=footprint)
+
         label_sizes = xp.bincount(labels.ravel())
 
         above_threshold = label_sizes > self.min_size_threshold_px
@@ -187,7 +189,6 @@ class Label:
         for t in range(self.num_t):
             labels = self._run_frame(t)
             self.instance_label_memmap[t, ...] = labels.get()
-            break
 
     def run(self):
         logger.info('Running semantic segmentation.')
@@ -209,7 +210,7 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     segmentations = []
-    for im_info in im_infos[-1:]:
+    for im_info in im_infos:
         segment_unique = Label(im_info, num_t=2)
         segment_unique.run()
         segmentations.append(segment_unique)

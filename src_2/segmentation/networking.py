@@ -5,7 +5,7 @@ import skimage.morphology as morph
 import numpy as np
 import scipy.ndimage
 
-from src_2.utils.gpu_functions import triangle_threshold
+from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
 class Network:
@@ -32,6 +32,7 @@ class Network:
         self.debug = None
 
     def _remove_connected_label_pixels(self, skel_labels):
+        skel_labels = skel_labels.get()
         depth, height, width = skel_labels.shape
 
         true_coords = np.argwhere(skel_labels>0)
@@ -47,7 +48,7 @@ class Network:
             # Get labels of set voxels in the neighborhood
             labels_in_neighborhood = label_neighborhood[label_neighborhood > 0]
 
-            if len(set(labels_in_neighborhood)) > 1:
+            if len(set(labels_in_neighborhood.tolist())) > 1:
                 pixels_to_delete.append((z, y, x))
 
         for z, y, x in pixels_to_delete:
@@ -55,39 +56,60 @@ class Network:
 
         return skel_labels
 
-    def _add_missing_skeleton_labels(self, skel_frame, label_frame):
+    def _add_missing_skeleton_labels(self, skel_frame, label_frame, frangi_frame, thresh):
         logger.debug('Adding missing skeleton labels.')
-
+        gpu_frame = xp.array(label_frame)
         # identify unique labels and find missing ones
-        unique_labels = np.unique(label_frame)
-        unique_skel_labels = np.unique(skel_frame)
+        unique_labels = xp.unique(gpu_frame)
+        unique_skel_labels = xp.unique(skel_frame)
 
-        missing_labels = set(unique_labels) - set(unique_skel_labels)
+        missing_labels = set(unique_labels.tolist()) - set(unique_skel_labels.tolist())
 
         # for each missing label, find the centroid and mark it in the skeleton
         for label in missing_labels:
             if label == 0:  # ignore bg label
                 continue
 
-            label_coords = np.argwhere(label_frame == label)
-            centroid = label_coords.mean(axis=0).astype(int)
+            label_coords = xp.argwhere(gpu_frame == label)
+            label_intensities = frangi_frame[tuple(label_coords.T)]
+            # max_intensity = xp.max(label_intensities)
+            # if max_intensity < thresh:
+            #     continue
+            # centroid is where label_intensities is maximal
+            centroid = label_coords[xp.argmax(label_intensities)]
 
             skel_frame[tuple(centroid)] = label
 
         return skel_frame
 
-    def _skeletonize(self, frame):
-        cpu_frame = np.array(frame)
+    def _skeletonize(self, label_frame, frangi_frame):
         # gpu_frame = xp.array(frame)
         # test = self._remove_connected_label_pixels(cpu_frame)
+        cpu_frame = np.array(label_frame)
+        gpu_frame = xp.array(label_frame)
 
-        skel = morph.skeletonize(cpu_frame > 0).astype('bool')
+        skel = xp.array(morph.skeletonize(cpu_frame > 0).astype('bool'))
+        masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=1) * skel
+        # thresh, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
+        thresh = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
+        thresh = 10**thresh
+        cleaned_skel = masked_frangi > thresh
         # skel = morph.skeletonize(test > 0).astype('bool')
 
-        skel_labels = skel * cpu_frame
-        skel_labels = self._remove_connected_label_pixels(skel_labels)
+        skel_labels = gpu_frame * cleaned_skel
+        # unique_labels = xp.unique(skel_labels)
+        label_sizes = xp.bincount(skel_labels.ravel())
 
-        return skel_labels
+        above_threshold = label_sizes > 1
+
+        mask = xp.zeros_like(skel_labels, dtype=bool)
+        mask[above_threshold[skel_labels]] = True
+        mask[skel_labels == 0] = False
+
+        skel_labels = gpu_frame * mask
+        # skel_labels, _ = ndi.label(cleaned_skel)
+
+        return skel_labels, thresh
 
     def _get_sigma_vec(self, sigma):
         if self.im_info.no_z:
@@ -160,9 +182,12 @@ class Network:
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
-        skel_frame = self._skeletonize(label_frame)
-        skel = self._add_missing_skeleton_labels(skel_frame, label_frame)
-        return skel
+        frangi_frame = xp.array(self.im_frangi_memmap[t])
+        skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
+        skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
+        final_skel, _ = ndi.label(skel > 0, structure=xp.ones((3, 3, 3)))
+        final_skel = self._remove_connected_label_pixels(final_skel)
+        return final_skel
 
     def _run_networking(self):
         for t in range(self.num_t):
@@ -196,7 +221,7 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     skeletonis = []
-    for im_info in im_infos:
+    for im_info in im_infos[:1]:
         skel = Network(im_info, num_t=2)
         skel.run()
         skeletonis.append(skel)
