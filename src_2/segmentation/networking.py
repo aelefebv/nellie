@@ -26,8 +26,11 @@ class Network:
         self.shape = ()
 
         self.im_memmap = None
+        self.im_frangi_memmap = None
         self.label_memmap = None
         self.network_memmap = None
+
+        self.sigmas = None
 
         self.debug = None
 
@@ -154,13 +157,17 @@ class Network:
         filt_footprint = xp.ones((3,) * (frame.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
         peaks = xp.empty(lapofg.shape, dtype=bool)
+        max_filt_mask = mask
         for filt_slice, max_filt_slice in enumerate(max_filt):
-            thresh = triangle_threshold(max_filt_slice[max_filt_slice > 0]) / 2
-            max_filt_mask = xp.asarray(max_filt_slice > thresh) * mask
+            # thresh = 10**triangle_threshold(xp.log10(max_filt_slice[max_filt_slice > 0]))
+            # max_filt_mask = xp.asarray(max_filt_slice > thresh) * mask
             peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
         coords_3d = xp.argwhere(coords)
+        peak_im = xp.zeros_like(frame)
+        peak_im[tuple(coords_3d.T)] = 1
+        return coords_3d
 
     def _get_t(self):
         if self.num_t is None:
@@ -172,7 +179,7 @@ class Network:
             return
 
     def _allocate_memory(self):
-        logger.debug('Allocating memory for semantic segmentation.')
+        logger.debug('Allocating memory for skeletonization.')
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'], read_type='r+')
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
@@ -205,8 +212,9 @@ class Network:
             skel = self._run_frame(t)
             self.skel_memmap[t] = skel
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
+            # label_frame = xp.asarray(self.label_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])
-            # peaks = self._local_max_peak(intensity_frame, xp.asarray(label_frame > 0))
+            # coords3d = self._local_max_peak(intensity_frame, xp.asarray(label_frame > 0))
             # self.network_memmap[t] = frame
             # self.debug = frame
             # break
