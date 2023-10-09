@@ -28,6 +28,7 @@ class Markers:
         self.im_frangi_memmap = None
         self.label_memmap = None
         self.im_marker_memmap = None
+        self.im_distance_memmap = None
 
         self.debug = None
 
@@ -78,6 +79,12 @@ class Markers:
                                                             dtype='uint8',
                                                             description='mocap marker image',
                                                             return_memmap=True)
+
+        im_distance_path = self.im_info.create_output_path('im_distance')
+        self.im_distance_memmap = self.im_info.allocate_memory(im_distance_path, shape=self.shape,
+                                                             dtype='float',
+                                                             description='distance transform image',
+                                                             return_memmap=True)
     def _distance_im(self, mask):
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
 
@@ -157,12 +164,12 @@ class Markers:
         peak_im = xp.zeros_like(mask_frame)
         peak_im[tuple(cleaned_coords.T)] = 1
         # marker_frame = self._local_max_peak(distance_im)
-        return peak_im
+        return peak_im.get(), distance_im.get()
 
     def _run_mocap_marking(self):
         for t in range(self.num_t):
             marker_frame = self._run_frame(t)
-            self.im_marker_memmap[t] = marker_frame.get()
+            self.im_marker_memmap[t], self.im_distance_memmap[t] = marker_frame
 
     def run(self):
         self._get_t()
