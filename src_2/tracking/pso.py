@@ -31,7 +31,7 @@ class ParticleSwarmOptimization:
         self.w = 0.5
         self.c1 = 1.5
         self.c2 = 1.5
-        self.num_particles = 20
+        self.num_particles = 100
 
         self.debug = None
 
@@ -82,6 +82,13 @@ class ParticleSwarmOptimization:
     def _evaluate_fitness(self, lmp_frangi, lmp_intensity, lmp_distance, particle_indices, post_intensity, post_distance, post_frangi):
         frangi, intensities, distances = self._get_frame_values(particle_indices, post_intensity, post_distance, post_frangi)
 
+        frangi[frangi == 0] = xp.nan
+        intensities[intensities == 0] = xp.nan
+        distances[distances == 0] = xp.nan
+        lmp_frangi[lmp_frangi == 0] = xp.nan
+        lmp_intensity[lmp_intensity == 0] = xp.nan
+        lmp_distance[lmp_distance == 0] = xp.nan
+
         frangi_diff = xp.abs(frangi - lmp_frangi)
         intensity_diff = xp.abs(intensities - lmp_intensity)
         distance_diff = xp.abs(distances - lmp_distance)
@@ -90,8 +97,8 @@ class ParticleSwarmOptimization:
         z_score_intensity = xp.abs(intensity_diff - xp.mean(intensity_diff)) / xp.std(intensity_diff)
         z_score_distance = xp.abs(distance_diff - xp.mean(distance_diff)) / xp.std(distance_diff)
 
-        fitness = -(z_score_frangi + z_score_distance)
-        # fitness = -(z_score_frangi + z_score_intensity + z_score_distance)
+        # fitness = -(z_score_frangi + z_score_distance)
+        fitness = -(z_score_frangi + z_score_intensity + z_score_distance)
         return fitness
 
     def _update_particles(self, lmp_idxs, lmp_frangi, lmp_intensity, lmp_distance,
@@ -165,7 +172,19 @@ class ParticleSwarmOptimization:
             pre_frame_marker_indices, lmp_frangi, lmp_intensity, lmp_distance,
             particles.copy(), post_frangi_frame, post_intensity_frame, post_distance_frame
         )
+        new_particle_list = [p.get() for i, p in enumerate(particle_list[1])]
+        all_particles = []
+        for frame_num, frame in enumerate(new_particle_list[:20]):
+            for idx_num, idx in enumerate(frame):
+                idx = np.append(frame_num, idx)
+                all_particles.append(idx)
 
+        import napari
+        viewer = napari.Viewer()
+        viewer.add_points(pre_frame_marker_indices.get(), size=2, face_color='green')
+        viewer.add_points(particle_list[1][20].get(), size=2, face_color='red')
+        viewer.add_points(particle_list[1][-1].get(), size=2, face_color='blue')
+        viewer.add_points(all_particles, size=2, face_color='red')
         # viewer.add_points(particles2[1].get(), size=5, face_color='red')
         # viewer.add_points(particles[1].get(), size=5, face_color='blue')
         return None
