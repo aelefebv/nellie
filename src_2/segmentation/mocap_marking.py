@@ -160,10 +160,12 @@ class Markers:
         mask_frame = xp.asarray(self.label_memmap[t] > 0)
         distance_im = self._distance_im(mask_frame)
         peak_coords = self._local_max_peak(distance_im)
-        cleaned_coords = self._remove_close_peaks(peak_coords, intensity_frame)
+        # cleaned_coords = self._remove_close_peaks(peak_coords, intensity_frame)
         peak_im = xp.zeros_like(mask_frame)
-        peak_im[tuple(cleaned_coords.T)] = 1
+        peak_im[tuple(peak_coords.T)] = 1
+        # peak_im[tuple(cleaned_coords.T)] = 1
         # marker_frame = self._local_max_peak(distance_im)
+        xp.ix_(peak_coords[:, 0], peak_coords[:, 1], peak_coords[:, 2])
         return peak_im.get(), distance_im.get()
 
     def _run_mocap_marking(self):
