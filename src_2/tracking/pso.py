@@ -73,94 +73,101 @@ class ParticleSwarmOptimization:
         particles = xp.array(particles)
         return particles
 
-    def _get_pre_values(self, lmp_indices, pre_intensity, pre_distance, pre_frangi):
-        # frangi_im = ndi.gaussian_filter(pre_frangi, sigma=0.5)
-        # intensities_im = ndi.gaussian_filter(pre_intensity, sigma=0.5)
-        # distances_im = ndi.gaussian_filter(pre_distance, sigma=0.5)
-
-        frangi = pre_frangi[lmp_indices[:, 0], lmp_indices[:, 1], lmp_indices[:, 2]]
-        intensities = pre_intensity[lmp_indices[:, 0], lmp_indices[:, 1], lmp_indices[:, 2]]
-        distances = pre_distance[lmp_indices[:, 0], lmp_indices[:, 1], lmp_indices[:, 2]]
+    def _get_frame_values(self, indices, intensity, distance, frangi):
+        frangi = frangi[indices[:, 0], indices[:, 1], indices[:, 2]]
+        intensities = intensity[indices[:, 0], indices[:, 1], indices[:, 2]]
+        distances = distance[indices[:, 0], indices[:, 1], indices[:, 2]]
         return frangi, intensities, distances
 
-    def _evaluate_fitness(self, lmp_values, particle_indices, post_intensity, post_distance, post_frangi):
-        frangi = post_frangi[particle_indices[:, 0], particle_indices[:, 1], particle_indices[:, 2]]
-        intensities = post_intensity[particle_indices[:, 0], particle_indices[:, 1], particle_indices[:, 2]]
-        distances = post_distance[particle_indices[:, 0], particle_indices[:, 1], particle_indices[:, 2]]
+    def _evaluate_fitness(self, lmp_frangi, lmp_intensity, lmp_distance, particle_indices, post_intensity, post_distance, post_frangi):
+        frangi, intensities, distances = self._get_frame_values(particle_indices, post_intensity, post_distance, post_frangi)
 
-        frangi_diff = xp.abs(frangi - lmp_values['frangi'])
-        intensity_diff = xp.abs(intensities - lmp_values['intensities'])
-        distance_diff = xp.abs(distances - lmp_values['distances'])
+        frangi_diff = xp.abs(frangi - lmp_frangi)
+        intensity_diff = xp.abs(intensities - lmp_intensity)
+        distance_diff = xp.abs(distances - lmp_distance)
 
         z_score_frangi = xp.abs(frangi_diff - xp.mean(frangi_diff)) / xp.std(frangi_diff)
         z_score_intensity = xp.abs(intensity_diff - xp.mean(intensity_diff)) / xp.std(intensity_diff)
         z_score_distance = xp.abs(distance_diff - xp.mean(distance_diff)) / xp.std(distance_diff)
 
-        fitness = -(z_score_frangi + z_score_intensity + z_score_distance)
+        fitness = -(z_score_frangi + z_score_distance)
+        # fitness = -(z_score_frangi + z_score_intensity + z_score_distance)
         return fitness
+
+    def _update_particles(self, lmp_idxs, lmp_frangi, lmp_intensity, lmp_distance,
+                          particle_idxs, post_frangi_frame, post_intensity_frame, post_distance_frame):
+        self.num_iterations = 100
+        particle_list = []
+        for lmp_num, lmp_idx in enumerate(lmp_idxs):
+            logger.debug(f'Updating particles for marker {lmp_num} of {len(lmp_idxs)}')
+            # initialize
+            for particle_num, particle_idx in enumerate(particle_idxs[lmp_num]):
+                # clip
+                particle_idx = xp.clip(particle_idx, 0, xp.array(self.shape[1:]))
+                particle_idxs[lmp_num][particle_num] = particle_idx
+            lmp_particles = particle_idxs[lmp_num]
+            personal_best_idxs = lmp_particles.copy()
+            local_fitnesses_last = xp.array(self._evaluate_fitness(
+                    lmp_frangi[lmp_num], lmp_intensity[lmp_num], lmp_distance[lmp_num], particle_idxs[lmp_num],
+                    post_intensity_frame, post_distance_frame, post_frangi_frame
+                ))
+            local_particle_list = []
+            for i in range(self.num_iterations):
+                local_particle_list.append(lmp_particles.copy())
+                local_fitnesses = xp.array(self._evaluate_fitness(
+                    lmp_frangi[lmp_num], lmp_intensity[lmp_num], lmp_distance[lmp_num], particle_idxs[lmp_num],
+                    post_intensity_frame, post_distance_frame, post_frangi_frame
+                ))
+                personal_best_idxs_comparison = xp.where(local_fitnesses > local_fitnesses_last, 1, 0)
+                personal_best_idxs[personal_best_idxs_comparison == 1] = lmp_particles[personal_best_idxs_comparison == 1]
+                # test = xp.where(local_fitnesses > local_fitnesses_last, 0, 1)
+                global_best_idx = lmp_particles[xp.argmax(local_fitnesses)]
+                # lmp_values = lmp_values_all[lmp_num]
+                for particle_num, particle_idx in enumerate(lmp_particles):
+                    # clip to image bounds
+                    new_velocity = self.w * xp.random.rand(3) + \
+                                   self.c1 * xp.random.rand() * (personal_best_idxs[particle_num] - particle_idx) + \
+                                   self.c2 * xp.random.rand() * (global_best_idx - particle_idx)
+                    new_position = particle_idx + new_velocity
+                    new_position = xp.rint(new_position).astype(int)
+                    lmp_particles[particle_num] = xp.clip(new_position, 0, xp.array(self.shape[1:]))
+
+                particle_idxs[lmp_num] = lmp_particles
+                local_fitnesses_last = local_fitnesses
+
+            particle_list.append(local_particle_list)
+
+        return particle_idxs, particle_list
+
 
     def _run_frame(self, t):
         marker_frame = xp.array(self.im_marker_memmap[t - 1] > 0)
         pre_frame_marker_indices = xp.argwhere(marker_frame)
+
+        pre_mask = xp.array(self.im_frangi_memmap[t - 1]) > 0
+        pre_frangi_frame = ndi.gaussian_filter(xp.array(self.im_frangi_memmap[t - 1]).astype('float'), sigma=0.5) * pre_mask
+        pre_intensity_frame = ndi.gaussian_filter(xp.array(self.im_memmap[t - 1]).astype('float'), sigma=0.5) * pre_mask
+        pre_distance_frame = ndi.gaussian_filter(xp.array(self.im_distance_memmap[t - 1]).astype('float'), sigma=0.5) * pre_mask
+        lmp_frangi, lmp_intensity, lmp_distance = self._get_frame_values(
+            pre_frame_marker_indices,
+            pre_intensity_frame,
+            pre_distance_frame,
+            pre_frangi_frame)
+
+        pre_frame_marker_indices = pre_frame_marker_indices[:3]  # todo for testing
         particles = self._get_particles(pre_frame_marker_indices)
 
-        pre_frangi_frame = xp.array(ndi.gaussian_filter(self.im_frangi_memmap[t - 1], sigma=0.5))
-        pre_intensity_frame = xp.array(ndi.gaussian_filter(self.im_memmap[t - 1], sigma=0.5))
-        pre_distance_frame = xp.array(ndi.gaussian_filter(self.im_distance_memmap[t - 1], sigma=0.5))
+        post_mask = xp.array(self.im_frangi_memmap[t]) > 0
+        post_frangi_frame = ndi.gaussian_filter(xp.array(self.im_frangi_memmap[t]).astype('float'), sigma=0.5) * post_mask
+        post_intensity_frame = ndi.gaussian_filter(xp.array(self.im_memmap[t]).astype('float'), sigma=0.5) * post_mask
+        post_distance_frame = ndi.gaussian_filter(xp.array(self.im_distance_memmap[t]).astype('float'), sigma=0.5) * post_mask
+        particles2, particle_list = self._update_particles(
+            pre_frame_marker_indices, lmp_frangi, lmp_intensity, lmp_distance,
+            particles.copy(), post_frangi_frame, post_intensity_frame, post_distance_frame
+        )
 
-        frangi, intensities, distances = self._get_pre_values(pre_frame_marker_indices,
-                                                              pre_intensity_frame,
-                                                              pre_distance_frame,
-                                                              pre_frangi_frame)
-
-        post_frangi_frame = xp.array(ndi.gaussian_filter(self.im_frangi_memmap[t], sigma=0.5))
-        post_intensity_frame = xp.array(ndi.gaussian_filter(self.im_memmap[t], sigma=0.5))
-        post_distance_frame = xp.array(ndi.gaussian_filter(self.im_distance_memmap[t], sigma=0.5))
-
-
-
-        # viewer.add_points(particles.get(), size=5)
-# remove points that are outside the image
-
-            # z = xp.random.randint(low=pre_frame_marker_indices[j, 0]-10, high=pre_frame_marker_indices[j, 0]+10, size=num_particles)
-            # y = xp.random.randint(low=pre_frame_marker_indices[j, 1]-10, high=pre_frame_marker_indices[j, 1]+10, size=num_particles)
-            # x = xp.random.randint(low=pre_frame_marker_indices[j, 2]-10, high=pre_frame_marker_indices[j, 2]+10, size=num_particles)
-            # for i in range(num_particles):
-            #     if z[i] > 0 and y[i] > 0 and x[i] > 0 and z[i] < gpu_frame.shape[0] and y[i] < gpu_frame.shape[1] and x[i] < gpu_frame.shape[2]:
-            #         particles.append([z[i], y[i], x[i]])
-        # post_frame_marker_indices = xp.argwhere(xp.array(self.im_marker_memmap[t] > 0))
-
-        # pre_frangi_im = ndi.gaussian_filter(xp.array(self.im_frangi_memmap[t - 1]), sigma=0.5)
-        # pre_intensities_im = ndi.gaussian_filter(xp.array(self.im_memmap[t - 1]), sigma=0.5)
-        # pre_distances_im = ndi.gaussian_filter(xp.array(self.im_distance_memmap[t - 1]), sigma=0.5)
-        # post_frangi_im = ndi.gaussian_filter(xp.array(self.im_frangi_memmap[t]), sigma=0.5)
-        # post_intensities_im = ndi.gaussian_filter(xp.array(self.im_memmap[t]), sigma=0.5)
-        # post_distances_im = ndi.gaussian_filter(xp.array(self.im_distance_memmap[t]), sigma=0.5)
-        #
-        # pre_distances = pre_distances_im[
-        #     pre_frame_marker_indices[:, 0], pre_frame_marker_indices[:, 1], pre_frame_marker_indices[:, 2]
-        # ]
-        # pre_frangi = np.log10(pre_frangi_im[
-        #     pre_frame_marker_indices[:, 0], pre_frame_marker_indices[:, 1], pre_frame_marker_indices[:, 2]
-        # ])
-        # pre_intensities = pre_intensities_im[
-        #     pre_frame_marker_indices[:, 0], pre_frame_marker_indices[:, 1], pre_frame_marker_indices[:, 2]
-        # ]
-        # post_distances = post_distances_im[
-        #     post_frame_marker_indices[:, 0], post_frame_marker_indices[:, 1], post_frame_marker_indices[:, 2]
-        # ]
-        # post_frangi = np.log10(post_frangi_im[
-        #     post_frame_marker_indices[:, 0], post_frame_marker_indices[:, 1], post_frame_marker_indices[:, 2]
-        # ])
-        # post_intensities = post_intensities_im[
-        #     post_frame_marker_indices[:, 0], post_frame_marker_indices[:, 1], post_frame_marker_indices[:, 2]
-        # ]
-        # # distance between pre and post marker
-        # diff_matrix = xp.sqrt(
-        #     (pre_frame_marker_indices[:, 0] - post_frame_marker_indices[:, 0]) ** 2 +
-        #     (pre_frame_marker_indices[:, 1] - post_frame_marker_indices[:, 1]) ** 2 +
-        #     (pre_frame_marker_indices[:, 2] - post_frame_marker_indices[:, 2]) ** 2
-        # )
+        # viewer.add_points(particles2[1].get(), size=5, face_color='red')
+        # viewer.add_points(particles[1].get(), size=5, face_color='blue')
         return None
 
     def _run_pso(self):
