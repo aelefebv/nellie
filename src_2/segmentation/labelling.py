@@ -9,14 +9,16 @@ class Label:
                  num_t=None,
                  threshold: float = 0,
                  min_radius_um: float = 0.2,
-                 max_radius_um=xp.inf):
+                 max_radius_um=xp.inf,
+                 snr_cleaning=True):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.threshold = threshold
         self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
         self.max_radius_um = max_radius_um
+        self.snr_cleaning = snr_cleaning
 
         self.im_memmap = None
         self.frangi_memmap = None
@@ -137,6 +139,8 @@ class Label:
         return subtraction_mask
 
     def _get_object_snrs(self, original_frame, labels_frame):
+        if not self.snr_cleaning:
+            return labels_frame
         logger.debug('Calculating object SNRs.')
         subtraction_mask = self._get_subtraction_mask(original_frame, labels_frame)
         unique_labels = xp.unique(labels_frame)
@@ -188,7 +192,10 @@ class Label:
     def _run_segmentation(self):
         for t in range(self.num_t):
             labels = self._run_frame(t)
-            self.instance_label_memmap[t, ...] = labels.get()
+            if self.im_info.no_t:
+                self.instance_label_memmap[:] = labels.get()[:]
+            else:
+                self.instance_label_memmap[t, ...] = labels.get()
 
     def run(self):
         logger.info('Running semantic segmentation.')
@@ -199,18 +206,21 @@ class Label:
 
 if __name__ == "__main__":
     import os
-    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\nelly_tests"
+    test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
     im_infos = []
     for file in all_files:
         im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
+        # im_info = ImInfo(im_path)
+        im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
         im_info.create_output_path('im_frangi')
         im_infos.append(im_info)
 
     segmentations = []
     for im_info in im_infos:
-        segment_unique = Label(im_info, num_t=2)
+        segment_unique = Label(im_info, snr_cleaning=False)
+        # segment_unique = Label(im_info, num_t=2)
         segment_unique.run()
         segmentations.append(segment_unique)

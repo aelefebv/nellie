@@ -13,7 +13,7 @@ class Network:
                  min_radius_um=0.20, max_radius_um=1):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
         # either (roughly) diffraction limit, or pixel size, whichever is larger
@@ -224,8 +224,12 @@ class Network:
     def _run_networking(self):
         for t in range(self.num_t):
             skel, pixel_class = self._run_frame(t)
-            self.skel_memmap[t] = skel
-            self.pixel_class_memmap[t] = pixel_class
+            if self.im_info.no_t:
+                self.skel_memmap[:] = skel[:]
+                self.pixel_class_memmap[:] = pixel_class[:]
+            else:
+                self.skel_memmap[t] = skel
+                self.pixel_class_memmap[t] = pixel_class
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
             # label_frame = xp.asarray(self.label_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])
@@ -243,20 +247,23 @@ class Network:
 
 if __name__ == "__main__":
     import os
-    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\nelly_tests"
+    test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
     im_infos = []
     for file in all_files:
         im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
+        # im_info = ImInfo(im_path)
+        im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
         im_info.create_output_path('im_instance_label')
         im_info.create_output_path('im_frangi')
         im_infos.append(im_info)
 
     skeletonis = []
     for im_info in im_infos:
-        skel = Network(im_info, num_t=2)
+        skel = Network(im_info)
+        # skel = Network(im_info, num_t=2)
         skel.run()
         skeletonis.append(skel)
 

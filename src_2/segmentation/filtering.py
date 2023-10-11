@@ -16,7 +16,7 @@ class Filter:
         self.im_info = im_info
         self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.remove_edges = remove_edges
         # either (roughly) diffraction limit, or pixel size, whichever is larger
@@ -209,7 +209,10 @@ class Filter:
                 frangi_frame = self._remove_edges(frangi_frame)
             frangi_frame = self._mask_volume(frangi_frame)#.get()
             log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
-            self.frangi_memmap[t, ...] = log_frame.get()
+            if self.im_info.no_t:
+                self.frangi_memmap[:] = log_frame.get()[:]
+            else:
+                self.frangi_memmap[t, ...] = log_frame.get()
 
     def run(self):
         logger.info('Running frangi filter.')
@@ -219,17 +222,20 @@ class Filter:
         self._run_filter()
 
 if __name__ == "__main__":
-    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\nelly_tests"
+    test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
     im_infos = []
     for file in all_files:
         im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
+        # im_info = ImInfo(im_path)
+        im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
         im_infos.append(im_info)
 
     frangis = []
     for im_info in im_infos:
-        frangi = Filter(im_info, num_t=2)
+        frangi = Filter(im_info, remove_edges=False)
+        # frangi = Filter(im_info, num_t=2)
         frangi.run()
         frangis.append(frangi)

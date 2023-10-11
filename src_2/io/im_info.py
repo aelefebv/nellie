@@ -60,6 +60,8 @@ class ImInfo:
 
     def _set_dim_sizes(self):
         logger.debug('Getting dimension sizes.')
+        if self.dim_sizes is not None:
+            return
         try:
             self.dim_sizes = {'X': None, 'Y': None, 'Z': None, 'T': None}
             if self.metadata_type == 'imagej':
