@@ -83,6 +83,22 @@ class HuMomentTracking:
 
         return hu  # return the first 5 Hu moments for each image
 
+    def _calculate_mean_and_variance(self, images):
+        num_images = images.shape[0]
+        features = xp.zeros((num_images, 2))
+        mask = images != 0
+
+        count_nonzero = xp.sum(mask, axis=(1, 2, 3))
+        sum_nonzero = xp.sum(images * mask, axis=(1, 2, 3))
+        sumsq_nonzero = xp.sum((images * mask) ** 2, axis=(1, 2, 3))
+
+        mean = sum_nonzero / count_nonzero
+        variance = (sumsq_nonzero - (sum_nonzero ** 2) / count_nonzero) / count_nonzero
+
+        features[:, 0] = mean
+        features[:, 1] = variance
+        return features
+
     def _get_im_bounds(self, markers, distance_frame):
         radii = distance_frame[markers[:, 0], markers[:, 1], markers[:, 2]]
         marker_radii = xp.ceil(radii)
@@ -94,7 +110,7 @@ class HuMomentTracking:
         x_high = xp.clip(markers[:, 2] + (marker_radii + 1), 0, self.shape[3])
         return z_low, z_high, y_low, y_high, x_low, x_high
 
-    def _get_orthogonal_projections(self, im_frame, im_bounds, max_radius):
+    def _get_sub_volumes(self, im_frame, im_bounds, max_radius):
         z_low, z_high, y_low, y_high, x_low, x_high = im_bounds
 
         # Preallocate arrays
@@ -105,23 +121,16 @@ class HuMomentTracking:
             zl, zh, yl, yh, xl, xh = z_low[i], z_high[i], y_low[i], y_high[i], x_low[i], x_high[i]
             sub_volumes[i, :zh - zl, :yh - yl, :xh - xl] = im_frame[zl:zh, yl:yh, xl:xh]
 
+        return sub_volumes
+
+
+    def _get_orthogonal_projections(self, im_frame, sub_volumes, max_radius):
         # Max projections along each axis
         z_projections = xp.max(sub_volumes, axis=1)
         y_projections = xp.max(sub_volumes, axis=2)
         x_projections = xp.max(sub_volumes, axis=3)
 
         return z_projections, y_projections, x_projections
-
-    def _get_hu_moments(self, projections):
-        z_moments = self._calculate_normalized_moments(projections[0])
-        y_moments = self._calculate_normalized_moments(projections[1])
-        x_moments = self._calculate_normalized_moments(projections[2])
-
-        z_hu = self._calculate_hu_moments(z_moments)
-        y_hu = self._calculate_hu_moments(y_moments)
-        x_hu = self._calculate_hu_moments(x_moments)
-
-        return xp.concatenate((z_hu, y_hu, x_hu))
 
     def _get_t(self):
         if self.num_t is None:
@@ -150,8 +159,8 @@ class HuMomentTracking:
         im_distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_distance_memmap = get_reshaped_image(im_distance_memmap, self.num_t, self.im_info)
 
-    def _get_hu_moments(self, im_frame, region_bounds, max_radius):
-        intensity_projections = self._get_orthogonal_projections(im_frame, region_bounds, max_radius)
+    def _get_hu_moments(self, im_frame, sub_volumes, max_radius):
+        intensity_projections = self._get_orthogonal_projections(im_frame, sub_volumes, max_radius)
         etas_z = self._calculate_normalized_moments(intensity_projections[0])
         etas_y = self._calculate_normalized_moments(intensity_projections[1])
         etas_x = self._calculate_normalized_moments(intensity_projections[2])
@@ -178,16 +187,25 @@ class HuMomentTracking:
         region_bounds = self._get_im_bounds(marker_indices, distance_max_frame)
         max_radius = int(xp.ceil(xp.max(distance_frame[marker_frame])))*4+1
 
-        intensity_hus = self._get_hu_moments(intensity_frame, region_bounds, max_radius)
-        frangi_hus = self._get_hu_moments(frangi_frame, region_bounds, max_radius)
-        distance_hus = self._get_hu_moments(distance_frame, region_bounds, max_radius)
+        intensity_sub_volumes = self._get_sub_volumes(intensity_frame, region_bounds, max_radius)
+        frangi_sub_volumes = self._get_sub_volumes(frangi_frame, region_bounds, max_radius)
+        distance_sub_volumes = self._get_sub_volumes(distance_frame, region_bounds, max_radius)
+
+        intensity_stats = self._calculate_mean_and_variance(intensity_sub_volumes)
+        frangi_stats = self._calculate_mean_and_variance(frangi_sub_volumes)
+        distance_stats = self._calculate_mean_and_variance(distance_sub_volumes)
+        stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats, distance_stats])
+
+        intensity_hus = self._get_hu_moments(intensity_frame, intensity_sub_volumes, max_radius)
+        frangi_hus = self._get_hu_moments(frangi_frame, frangi_sub_volumes, max_radius)
+        distance_hus = self._get_hu_moments(distance_frame, distance_sub_volumes, max_radius)
+        hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus, distance_hus])
+        log_hu_feature_matrix = -1*xp.copysign(1.0, hu_feature_matrix)*xp.log10(xp.abs(hu_feature_matrix))
+        log_hu_feature_matrix[xp.isinf(log_hu_feature_matrix)] = xp.nan
 
         # feature_matrix = frangi_hus
-        feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus, distance_hus])
-        log_feature_matrix = -1*xp.copysign(1.0, feature_matrix)*xp.log10(xp.abs(feature_matrix))
-        log_feature_matrix[xp.isinf(log_feature_matrix)] = xp.nan
 
-        z_score_normalized_features = (log_feature_matrix - xp.nanmean(log_feature_matrix, axis=0)) / xp.nanstd(log_feature_matrix, axis=0)
+        # z_score_normalized_features = (log_feature_matrix - xp.nanmean(log_feature_matrix, axis=0)) / xp.nanstd(log_feature_matrix, axis=0)
 
         # # can visualize some stuff:
         # from sklearn.decomposition import PCA
@@ -211,7 +229,7 @@ class HuMomentTracking:
 
         # return feature_matrix
         # return log_feature_matrix
-        return z_score_normalized_features
+        return stats_feature_matrix, log_hu_feature_matrix
 
     def _get_distance_mask(self, t):
         marker_frame_pre = np.array(self.im_marker_memmap[t-1]) > 0
@@ -240,10 +258,14 @@ class HuMomentTracking:
         return distance_matrix, distance_mask
 
     def _run_pso(self):
-        feature_matrices = []
+        stats_matrices = []
+        hu_matrices = []
         for t in range(self.num_t):
             logger.debug(f'Running hu-moment tracking for frame {t + 1} of {self.num_t}')
-            feature_matrices.append(self._get_feature_matrix(t))
+            stats_matrix, hu_matrix = self._get_feature_matrix(t)
+            # todo zscore of only valid values, divide by number of hu moments
+            #  also divide by number of features
+            #  make distance weighting be dependent on number of seconds between frames (more uncertain with more time)
             if t == 0:
                 continue
             distance_matrix, distance_mask = self._get_distance_mask(t)
