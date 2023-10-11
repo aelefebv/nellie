@@ -240,8 +240,9 @@ class HuMomentTracking:
         marker_indices_post_scaled = marker_indices_post * self.scaling
 
 
-        distance_matrix = cdist(marker_indices_pre_scaled, marker_indices_post_scaled)
-        distance_mask = distance_matrix < self.max_distance_um
+        distance_matrix = cdist(marker_indices_post_scaled, marker_indices_pre_scaled)
+        distance_mask = xp.array(distance_matrix) < self.max_distance_um
+
         distance_matrix[distance_matrix > self.max_distance_um] = np.inf
         distance_matrix = distance_matrix / self.max_distance_um  # normalize to furthest possible distance
 
@@ -257,20 +258,53 @@ class HuMomentTracking:
         # return mask
         return distance_matrix, distance_mask
 
+    def _get_difference_matrix(self, m1, m2):
+        m1_reshaped = m1[:, xp.newaxis, :]
+        m2_reshaped = m2[xp.newaxis, :, :]
+        difference_matrix = xp.abs(m1_reshaped - m2_reshaped)
+        return difference_matrix
+
+    def _zscore_normalize(self, m, mask):
+        depth = m.shape[2]
+        extended_mask = xp.repeat(mask[:, :, xp.newaxis], depth, axis=2)
+
+        sum_extended_mask = xp.sum(extended_mask, axis=(0, 1))
+        mean_vals = xp.sum(m * extended_mask, axis=(0, 1)) / sum_extended_mask
+        std_vals = xp.sqrt(
+            xp.sum(((m - mean_vals) ** 2) * extended_mask, axis=(0, 1)) / sum_extended_mask)
+
+        normalized_diff = (m - mean_vals) / std_vals
+        normalized_diff[extended_mask == 0] = xp.inf
+        return normalized_diff
+
     def _run_pso(self):
         stats_matrices = []
         hu_matrices = []
+        distance_matrices = []
+        distance_masks = []
+        pre_stats_vecs = None
+        pre_hu_vecs = None
         for t in range(self.num_t):
             logger.debug(f'Running hu-moment tracking for frame {t + 1} of {self.num_t}')
-            stats_matrix, hu_matrix = self._get_feature_matrix(t)
-            # todo zscore of only valid values, divide by number of hu moments
+            stats_vecs, hu_vecs = self._get_feature_matrix(t)
+            # todo divide by number of hu moments
             #  also divide by number of features
             #  make distance weighting be dependent on number of seconds between frames (more uncertain with more time)
-            if t == 0:
+            if pre_stats_vecs is None or pre_hu_vecs is None:
+                pre_stats_vecs = stats_vecs
+                pre_hu_vecs = hu_vecs
                 continue
-            distance_matrix, distance_mask = self._get_distance_mask(t)
 
-        from scipy.spatial.distance import cdist
+            distance_matrix, distance_mask = self._get_distance_mask(t)
+            distance_matrices.append(distance_matrix)
+            distance_masks.append(distance_mask)
+
+            stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
+            stats_matrices.append(self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2])
+
+            hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
+            hu_matrices.append(self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2])
+
         cost_matrix = cdist(feature_matrices[0].get(), feature_matrices[1].get())# * distance_mask
         valid_distance_vals = distance_matrix[distance_mask]
         zscore_distance_matrix = distance_matrix.copy()
