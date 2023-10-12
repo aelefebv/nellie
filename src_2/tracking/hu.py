@@ -198,9 +198,10 @@ class HuMomentTracking:
         # stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats, distance_stats])
 
         intensity_hus = self._get_hu_moments(intensity_frame, intensity_sub_volumes, max_radius)
-        frangi_hus = self._get_hu_moments(frangi_frame, frangi_sub_volumes, max_radius)
+        # frangi_hus = self._get_hu_moments(frangi_frame, frangi_sub_volumes, max_radius)
         # distance_hus = self._get_hu_moments(distance_frame, distance_sub_volumes, max_radius)
-        hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus])
+        hu_feature_matrix = intensity_hus
+        # hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus])
         # hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus, distance_hus])
         log_hu_feature_matrix = -1*xp.copysign(1.0, hu_feature_matrix)*xp.log10(xp.abs(hu_feature_matrix))
         log_hu_feature_matrix[xp.isinf(log_hu_feature_matrix)] = xp.nan
@@ -269,7 +270,7 @@ class HuMomentTracking:
 
     def _find_best_matches(self, cost_matrix):
         candidates = []
-        cost_cutoff = 3
+        cost_cutoff = 1
 
         # Find row-wise minimums
         row_min_idx = xp.argmin(cost_matrix, axis=1)
@@ -344,24 +345,81 @@ class HuMomentTracking:
             cost_matrix = self._get_cost_matrix(t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs)
             row_indices, col_indices = self._find_best_matches(cost_matrix)
 
-            cost_mean = xp.mean(cost_matrix[row_indices, col_indices])
-            cost_std = xp.std(cost_matrix[row_indices, col_indices])
+            cost_median = xp.median(cost_matrix[row_indices, col_indices])
+            cost_p25 = xp.percentile(cost_matrix[row_indices, col_indices], 25)
+            cost_p75 = xp.percentile(cost_matrix[row_indices, col_indices], 75)
 
         pre_marker_frame = xp.array(self.im_marker_memmap[0]).astype('float')
-        pre_marker_indices = xp.argwhere(pre_marker_frame)[col_matches]
+        pre_marker_indices = xp.argwhere(pre_marker_frame)[col_indices]
         marker_frame = xp.array(self.im_marker_memmap[1]).astype('float')
-        marker_indices = xp.argwhere(marker_frame)[row_matches]
+        marker_indices = xp.argwhere(marker_frame)[row_indices]
+
+        from collections import defaultdict
+        import numpy as np
+
+        def compute_flow_vectors(pre_marker_indices, marker_indices):
+            if len(pre_marker_indices) != len(marker_indices):
+                raise ValueError("Lists must have the same length.")
+
+            return np.array(marker_indices.get()) - np.array(pre_marker_indices.get())
+
+        def average_unique_flow_vectors(pre_marker_indices, marker_indices):
+            flow_vectors = compute_flow_vectors(pre_marker_indices, marker_indices)
+            unique_vectors = defaultdict(set)
+
+            # Group vectors by their origin (MLP at t0)
+            for i, pre_marker in enumerate(pre_marker_indices):
+                unique_vectors[tuple(pre_marker.tolist())].add(tuple(flow_vectors[i].tolist()))
+
+            # Compute the average vector for each unique MLP at t0
+            avg_vectors = {}
+            for pre_marker, vectors in unique_vectors.items():
+                avg_vectors[pre_marker] = np.mean(np.array(list(vectors)), axis=0)
+
+            return avg_vectors
+
+        tracks = []
+        for track_num, (k, v) in enumerate(avg_vectors.items()):
+            tracks.append([track_num, 0, pre_track_cpu[0], pre_track_cpu[1], pre_track_cpu[2]])
+            tracks.append([track_num, 1, track_cpu[0], track_cpu[1], track_cpu[2]])
+
         import napari
         viewer = napari.Viewer()
         viewer.add_image(self.im_memmap[:2])
-        viewer.add_points(pre_marker_indices.get(), size=1, face_color='cyan')
-        viewer.add_points(marker_indices.get(), size=1, face_color='magenta')
+        # viewer.add_points(pre_marker_indices.get(), size=1, face_color='cyan')
+        # viewer.add_points(marker_indices.get(), size=1, face_color='magenta')
         # draw lines from pre_marker_indices to marker_indices
-        lines = []
-        for pre_marker_index, marker_index in zip(pre_marker_indices, marker_indices):
-            lines.append(np.stack((pre_marker_index.get(), marker_index.get())))
-        viewer.add_shapes(lines, shape_type='path', edge_color='yellow', edge_width=0.5)
+        # lines = []
+        # for pre_marker_index, marker_index in zip(pre_marker_indices, marker_indices):
+        #     lines.append(np.stack((pre_marker_index.get(), marker_index.get())))
+        # viewer.add_shapes(lines, shape_type='path', edge_color='yellow', edge_width=0.5)
 
+        test_tracks = [[0, 0, 0, 0, 0], [0, 1, 0, 0, 4.5], [1, 0, 0, 8, 0], [1, 1, 0, 0, 5]]
+        viewer.add_tracks(test_tracks)
+        cost_matrix_cpu = cost_matrix.get()
+        tracks = []
+        properties = {'travel_angles': [], 'travel_magnitudes': [], 'travel_costs': []}
+        phi = {}
+        for track_num, (pre_marker_index, marker_index) in enumerate(zip(pre_marker_indices, marker_indices)):
+            pre_track_cpu = pre_marker_index.get()
+            track_cpu = marker_index.get()
+            travel_angle = np.arctan2(track_cpu[1] - pre_track_cpu[1], track_cpu[2] - pre_track_cpu[2]) * 180 / np.pi
+            travel_magnitude = np.sqrt((track_cpu[1] - pre_track_cpu[1])**2 + (track_cpu[2] - pre_track_cpu[2])**2)
+            travel_cost = cost_matrix_cpu[row_indices[track_num], col_indices[track_num]]
+            properties['travel_angles'].append(travel_angle)
+            properties['travel_angles'].append(travel_angle)
+            properties['travel_magnitudes'].append(travel_magnitude)
+            properties['travel_magnitudes'].append(travel_magnitude)
+            properties['travel_costs'].append(travel_cost)
+            properties['travel_costs'].append(travel_cost)
+            phi_current = np.arctan2(track_cpu[1] - pre_track_cpu[1], track_cpu[2] - pre_track_cpu[2]) * 180 / np.pi
+            theta_current =
+
+            tracks.append([track_num, 0, pre_track_cpu[0], pre_track_cpu[1], pre_track_cpu[2]])
+            tracks.append([track_num, 1, track_cpu[0], track_cpu[1], track_cpu[2]])
+
+        # tracks = tracks[:200]
+        viewer.add_tracks(tracks, properties=properties)
             # feature_matrix = xp.concatenate((pre_stats_vecs, pre_hu_vecs), axis=1)
 
         # # can visualize some stuff:
@@ -444,7 +502,7 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     hu_files = []
-    for im_info in im_infos[-1:]:
+    for im_info in im_infos[:1]:
         hu = HuMomentTracking(im_info, num_t=2)
         hu.run()
         hu_files.append(hu)
