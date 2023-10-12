@@ -189,46 +189,22 @@ class HuMomentTracking:
 
         intensity_sub_volumes = self._get_sub_volumes(intensity_frame, region_bounds, max_radius)
         frangi_sub_volumes = self._get_sub_volumes(frangi_frame, region_bounds, max_radius)
-        distance_sub_volumes = self._get_sub_volumes(distance_frame, region_bounds, max_radius)
+        # distance_sub_volumes = self._get_sub_volumes(distance_frame, region_bounds, max_radius)
 
         intensity_stats = self._calculate_mean_and_variance(intensity_sub_volumes)
         frangi_stats = self._calculate_mean_and_variance(frangi_sub_volumes)
-        distance_stats = self._calculate_mean_and_variance(distance_sub_volumes)
-        stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats, distance_stats])
+        # distance_stats = self._calculate_mean_and_variance(distance_sub_volumes)
+        stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats])
+        # stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats, distance_stats])
 
         intensity_hus = self._get_hu_moments(intensity_frame, intensity_sub_volumes, max_radius)
         frangi_hus = self._get_hu_moments(frangi_frame, frangi_sub_volumes, max_radius)
-        distance_hus = self._get_hu_moments(distance_frame, distance_sub_volumes, max_radius)
-        hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus, distance_hus])
+        # distance_hus = self._get_hu_moments(distance_frame, distance_sub_volumes, max_radius)
+        hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus])
+        # hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus, distance_hus])
         log_hu_feature_matrix = -1*xp.copysign(1.0, hu_feature_matrix)*xp.log10(xp.abs(hu_feature_matrix))
         log_hu_feature_matrix[xp.isinf(log_hu_feature_matrix)] = xp.nan
 
-        # feature_matrix = frangi_hus
-
-        # z_score_normalized_features = (log_feature_matrix - xp.nanmean(log_feature_matrix, axis=0)) / xp.nanstd(log_feature_matrix, axis=0)
-
-        # # can visualize some stuff:
-        # from sklearn.decomposition import PCA
-        # from sklearn.cluster import KMeans
-        # from sklearn.preprocessing import StandardScaler
-        # import napari
-        #
-        # scaler = StandardScaler()
-        # scaled_features = scaler.fit_transform(feature_matrix.get())
-        #
-        # # Assuming features is a 2D array of shape (num_points, 45)
-        # pca = PCA(n_components=10)  # or any number that retains enough variance
-        # reduced_features = pca.fit_transform(scaled_features)
-        # # Perform K-means on reduced data
-        # kmeans = KMeans(n_clusters=5)
-        # cluster_labels = kmeans.fit_predict(reduced_features)
-        # peak_im = xp.zeros_like(marker_frame, dtype='uint8')
-        # peak_im[tuple(marker_indices.T)] = cluster_labels + 1
-        # viewer = napari.Viewer()
-        # viewer.add_labels(peak_im.get())
-
-        # return feature_matrix
-        # return log_feature_matrix
         return stats_feature_matrix, log_hu_feature_matrix
 
     def _get_distance_mask(self, t):
@@ -239,23 +215,9 @@ class HuMomentTracking:
         marker_indices_post = np.argwhere(marker_frame_post)
         marker_indices_post_scaled = marker_indices_post * self.scaling
 
-
         distance_matrix = cdist(marker_indices_post_scaled, marker_indices_pre_scaled)
         distance_mask = xp.array(distance_matrix) < self.max_distance_um
-
-        distance_matrix[distance_matrix > self.max_distance_um] = np.inf
         distance_matrix = distance_matrix / self.max_distance_um  # normalize to furthest possible distance
-
-        # # Build KDTree for the post-frame
-        # tree = cKDTree(marker_indices_post)
-        #
-        # # Query all points within radius X
-        # indices_list = tree.query_ball_point(marker_indices_pre, 30, workers=-1)
-        # # get distances between all points from previous frame to all points in next frame
-        # mask = np.zeros((len(marker_indices_pre), len(marker_indices_post)), dtype='bool')
-        # for i, indices in enumerate(indices_list):
-        #     mask[i, indices] = True
-        # return mask
         return distance_matrix, distance_mask
 
     def _get_difference_matrix(self, m1, m2):
@@ -266,83 +228,199 @@ class HuMomentTracking:
 
     def _zscore_normalize(self, m, mask):
         depth = m.shape[2]
-        extended_mask = xp.repeat(mask[:, :, xp.newaxis], depth, axis=2)
 
-        sum_extended_mask = xp.sum(extended_mask, axis=(0, 1))
-        mean_vals = xp.sum(m * extended_mask, axis=(0, 1)) / sum_extended_mask
-        std_vals = xp.sqrt(
-            xp.sum(((m - mean_vals) ** 2) * extended_mask, axis=(0, 1)) / sum_extended_mask)
+        sum_mask = xp.sum(mask)
+        mean_vals = xp.zeros(depth)
+        std_vals = xp.zeros(depth)
 
-        normalized_diff = (m - mean_vals) / std_vals
-        normalized_diff[extended_mask == 0] = xp.inf
-        return normalized_diff
+        # Calculate mean values slice by slice
+        for d in range(depth):
+            slice_m = m[:, :, d]
+            mean_vals[d] = xp.sum(slice_m * mask) / sum_mask
+
+        # Calculate std values slice by slice
+        for d in range(depth):
+            slice_m = m[:, :, d]
+            std_vals[d] = xp.sqrt(xp.sum((slice_m - mean_vals[d]) ** 2 * mask) / sum_mask)
+
+        # Normalize and set to infinity where mask is 0
+        for d in range(depth):
+            slice_m = m[:, :, d]
+            slice_m -= mean_vals[d]
+            slice_m /= std_vals[d]
+            slice_m[mask == 0] = xp.inf
+
+        return m
+
+    def _get_cost_matrix(self, t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
+        distance_matrix, distance_mask = self._get_distance_mask(t)
+        z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis], distance_mask)
+        stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
+        z_score_stats_matrix = self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2]
+        hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
+        z_score_hu_matrix = self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2]
+
+        z_score_matrix = xp.concatenate((z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix), axis=2)
+        # z_score_matrix = xp.concatenate((z_score_stats_matrix, z_score_hu_matrix), axis=2)
+        cost_matrix = xp.nansum(z_score_matrix, axis=2)
+        # cost_matrix[distance_mask == 0] = xp.inf
+
+        return cost_matrix
+
+    def _find_best_matches(self, cost_matrix):
+        candidates = []
+        cost_cutoff = 3
+
+        # Find row-wise minimums
+        row_min_idx = xp.argmin(cost_matrix, axis=1)
+        row_min_val = xp.min(cost_matrix, axis=1)
+
+        # Find column-wise minimums
+        col_min_idx = xp.argmin(cost_matrix, axis=0)
+        col_min_val = xp.min(cost_matrix, axis=0)
+
+        row_matches = []
+        col_matches = []
+
+        # Store each row's and column's minimums as candidates for matching
+        for i, (r_idx, r_val) in enumerate(zip(row_min_idx, row_min_val)):
+            if r_val > cost_cutoff:
+                continue
+            candidates.append((int(i), int(r_idx), float(r_val)))
+            row_matches.append(int(i))
+            col_matches.append(int(r_idx))
+
+        for j, (c_idx, c_val) in enumerate(zip(col_min_idx, col_min_val)):
+            if c_val > cost_cutoff:
+                continue
+            candidates.append((int(c_idx), int(j), float(c_val)))
+            row_matches.append(int(c_idx))
+            col_matches.append(int(j))
+
+        return row_matches, col_matches
+
+    def _find_confident_matches(self, cost_matrix):
+        # Initialize lists to store most confident matches
+        row_indices = []
+        col_indices = []
+
+        # Find the minimum in each row and each column
+        row_min_values = xp.min(cost_matrix, axis=1)
+        col_min_values = xp.min(cost_matrix, axis=0)
+
+        # Find the corresponding indices for the row and column minimums
+        row_min_indices = xp.argmin(cost_matrix, axis=1)
+        col_min_indices = xp.argmin(cost_matrix, axis=0)
+
+        # Remove any indices where the minimum value is infinity
+        row_min_indices[row_min_values == xp.inf] = -1
+        col_min_indices[col_min_values == xp.inf] = -1
+
+        # Iterate over rows to find confident matches
+        for i, row_min_index in enumerate(row_min_indices):
+            if col_min_indices[row_min_index] == i:
+                # skip any -1
+                if row_min_index == -1:
+                    continue
+                row_indices.append(i)
+                col_indices.append(row_min_index)
+
+        return row_indices, col_indices
 
     def _run_pso(self):
-        stats_matrices = []
-        hu_matrices = []
-        distance_matrices = []
-        distance_masks = []
+        cost_matrices = []
+
         pre_stats_vecs = None
         pre_hu_vecs = None
         for t in range(self.num_t):
             logger.debug(f'Running hu-moment tracking for frame {t + 1} of {self.num_t}')
             stats_vecs, hu_vecs = self._get_feature_matrix(t)
-            # todo divide by number of hu moments
-            #  also divide by number of features
-            #  make distance weighting be dependent on number of seconds between frames (more uncertain with more time)
+            # todo make distance weighting be dependent on number of seconds between frames (more uncertain with more time)
+            #  could also vary with size (radius) based on diffusion coefficient. bigger = probably closer
             if pre_stats_vecs is None or pre_hu_vecs is None:
                 pre_stats_vecs = stats_vecs
                 pre_hu_vecs = hu_vecs
                 continue
+            cost_matrix = self._get_cost_matrix(t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs)
+            row_indices, col_indices = self._find_best_matches(cost_matrix)
 
-            distance_matrix, distance_mask = self._get_distance_mask(t)
-            distance_matrices.append(distance_matrix)
-            distance_masks.append(distance_mask)
+            cost_mean = xp.mean(cost_matrix[row_indices, col_indices])
+            cost_std = xp.std(cost_matrix[row_indices, col_indices])
 
-            stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
-            stats_matrices.append(self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2])
-
-            hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
-            hu_matrices.append(self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2])
-
-        cost_matrix = cdist(feature_matrices[0].get(), feature_matrices[1].get())# * distance_mask
-        valid_distance_vals = distance_matrix[distance_mask]
-        zscore_distance_matrix = distance_matrix.copy()
-        zscore_distance_matrix[distance_mask] = (valid_distance_vals - np.nanmean(valid_distance_vals)) / np.nanstd(valid_distance_vals)
-        cost_matrix += 5*zscore_distance_matrix
-        cost_matrix[np.isinf(cost_matrix)] = np.nan
-        # get indices where row is minimum
-        indices_row = np.argmin(cost_matrix, axis=1)
-        # get indices where column is minimum
-        indices_col = np.argmin(cost_matrix, axis=0)
-        # get the coordinates of the minimum value in each row
-        xy_row = np.stack((np.arange(len(indices_row)), indices_row), axis=1)
-        xy_col = np.stack((indices_col, np.arange(len(indices_col))), axis=1)
-
-        # log transform the features, handle negatives
-        # features_0_log_transformed =
-
+        pre_marker_frame = xp.array(self.im_marker_memmap[0]).astype('float')
+        pre_marker_indices = xp.argwhere(pre_marker_frame)[col_matches]
+        marker_frame = xp.array(self.im_marker_memmap[1]).astype('float')
+        marker_indices = xp.argwhere(marker_frame)[row_matches]
         import napari
         viewer = napari.Viewer()
-        # viewer.add_image(cost_matrix, colormap='turbo')
-        viewer.add_image(cost_matrix * distance_mask, colormap='turbo')
-        viewer.add_points(xy_row, size=50, face_color='blue', opacity=0.5, blending='additive')
-        viewer.add_points(xy_col, size=50, face_color='green', opacity=0.5, blending='additive')
+        viewer.add_image(self.im_memmap[:2])
+        viewer.add_points(pre_marker_indices.get(), size=1, face_color='cyan')
+        viewer.add_points(marker_indices.get(), size=1, face_color='magenta')
+        # draw lines from pre_marker_indices to marker_indices
+        lines = []
+        for pre_marker_index, marker_index in zip(pre_marker_indices, marker_indices):
+            lines.append(np.stack((pre_marker_index.get(), marker_index.get())))
+        viewer.add_shapes(lines, shape_type='path', edge_color='yellow', edge_width=0.5)
 
-        marker_frame_pre = np.array(self.im_marker_memmap[0]).astype('float')
-        marker_indices_pre = np.argwhere(marker_frame_pre)
-        test_point_num = 100
-        test_point = marker_indices_pre[test_point_num]
-        test_matches = cost_matrix[test_point_num, :]
-        test_matches[test_matches == np.inf] = 0
-        # set marker frame post at the marker indices to test_matches values
-        marker_frame_post = np.array(self.im_marker_memmap[1]).astype('float')
-        marker_indices_post = np.argwhere(marker_frame_post)
-        marker_frame_post[tuple(marker_indices_post.T)] = test_matches
-        viewer.add_image(self.im_frangi_memmap[:2])
-        viewer.add_points(test_point, size=3, face_color='green')
-        viewer.add_image(marker_frame_post, colormap='turbo', contrast_limits=[0, 100])
-        print('done')
+            # feature_matrix = xp.concatenate((pre_stats_vecs, pre_hu_vecs), axis=1)
+
+        # # can visualize some stuff:
+        # from sklearn.decomposition import PCA
+        # from sklearn.cluster import KMeans
+        # from sklearn.preprocessing import StandardScaler
+        # import napari
+        # viewer = napari.Viewer()
+        #
+        # scaler = StandardScaler()
+        # scaled_features = scaler.fit_transform(feature_matrix.get())
+        #
+        # # Assuming features is a 2D array of shape (num_points, 45)
+        # nan_mask = np.isnan(scaled_features).any(axis=1)
+        # scaled_features = scaled_features[~nan_mask]
+        # pca = PCA(n_components=10)  # or any number that retains enough variance
+        # # drop samples with nan
+        # reduced_features = pca.fit_transform(scaled_features)
+        # # Perform K-means on reduced data
+        # kmeans = KMeans(n_clusters=3)
+        # cluster_labels = kmeans.fit_predict(reduced_features)
+        # marker_frame = xp.array(self.im_marker_memmap[0]).astype('float')
+        # marker_indices = xp.argwhere(marker_frame)[~nan_mask]
+        # peak_im = xp.zeros_like(marker_frame, dtype='uint8')
+        # peak_im[tuple(marker_indices.T)] = cluster_labels + 1
+        # viewer.add_labels(peak_im.get())
+        # viewer.add_image(self.im_memmap[0])
+        #
+        # # # get indices where row is minimum
+        # # indices_row = xp.argmin(cost_matrix, axis=1)
+        # # # get indices where column is minimum
+        # # indices_col = xp.argmin(cost_matrix, axis=0)
+        # # # get the coordinates of the minimum value in each row
+        # # xy_row = xp.stack((xp.arange(len(indices_row)), indices_row), axis=1)
+        # # xy_col = xp.stack((indices_col, xp.arange(len(indices_col))), axis=1)
+        #
+        # import napari
+        # viewer = napari.Viewer()
+        # viewer.add_image(self.im_memmap[:2])
+        #
+        # marker_frame_pre = xp.array(self.im_marker_memmap[0]).astype('float')
+        # marker_indices_pre = xp.argwhere(marker_frame_pre)
+        # test_point_num = 300
+        # test_point = marker_indices_pre[test_point_num]
+        # test_matches = cost_matrix[:, test_point_num].copy()
+        # test_matches[test_matches == xp.inf] = xp.nan
+        # # set marker frame post at the marker indices to test_matches values
+        # marker_frame_post = xp.array(self.im_marker_memmap[1]).astype('float')
+        # marker_indices_post = xp.argwhere(marker_frame_post)
+        # marker_frame_post[:] = xp.nan
+        # marker_frame_post[tuple(marker_indices_post.T)] = test_matches
+        #
+        # # viewer.add_image(cost_matrix, colormap='turbo')
+        # # viewer.add_image((cost_matrix * distance_mask).get(), colormap='turbo')
+        # # viewer.add_points(xy_row.get(), size=10, face_color='blue', opacity=0.5, blending='additive')
+        # # viewer.add_points(xy_col.get(), size=10, face_color='green', opacity=0.5, blending='additive')
+        # viewer.add_points(test_point.get(), size=3, face_color='green')
+        # viewer.add_image(marker_frame_post.get(), colormap='turbo', contrast_limits=[-3, 0])
+        # print('done')
 
     def run(self):
         self._get_t()
