@@ -328,7 +328,7 @@ class HuMomentTracking:
 
         return row_indices, col_indices
 
-    def _run_pso(self):
+    def _run_hu_tracking(self):
         cost_matrices = []
 
         pre_stats_vecs = None
@@ -373,8 +373,6 @@ class HuMomentTracking:
             # Compute the average vector for each unique MLP at t0
             avg_vectors = {}
             for pre_marker, vectors in unique_vectors.items():
-                if len(vectors) == 0:
-                    break
                 avg_vectors[pre_marker] = np.mean(np.array(list(vectors)), axis=0)
 
             return avg_vectors
@@ -386,10 +384,24 @@ class HuMomentTracking:
         mask_pixels = np.argwhere(im_mask)
         # Convert avg_vectors keys to an array
         avg_vector_coords = np.array(list(avg_vectors.keys()))
-        ckdtree = cKDTree(avg_vector_coords)
-        mask_pixels_cpu = xp.asnumpy(mask_pixels)
-        distances, indices = ckdtree.query(mask_pixels_cpu, k=1)
+        avg_vector_coords_um = avg_vector_coords * self.scaling
+        ckdtree = cKDTree(avg_vector_coords_um)
+        mask_pixels_cpu = xp.asnumpy(mask_pixels) * self.scaling
+        distances, indices = ckdtree.query(mask_pixels_cpu, k=1, workers=-1)#, distance_upper_bound=self.max_distance_um)
+
+        # Remove any indices and mask pixels where the distance is greater than the max distance
+        indices = indices[distances < self.max_distance_um]
+        mask_pixels = mask_pixels[distances < self.max_distance_um]
         nearest_coords = avg_vector_coords[indices]
+
+
+        # tracks = []
+        # for track_num, avg_vector_coord in enumerate(avg_vector_coords):
+        #     v = avg_vectors[tuple(avg_vector_coord)]
+        #     tracks.append([track_num, 0, avg_vector_coord[0], avg_vector_coord[1], avg_vector_coord[2]])
+        #     tracks.append([track_num, 1, avg_vector_coord[0] + v[0], avg_vector_coord[1] + v[1],
+        #                    avg_vector_coord[2] + v[2]])
+        # viewer.add_tracks(tracks)
 
         # tracks = []
         # for track_num, mask_px in enumerate(mask_pixels):
@@ -438,17 +450,19 @@ class HuMomentTracking:
 
         vectors = np.stack((averaged_vectors_x.get(), averaged_vectors_y.get(), averaged_vectors_z.get()), axis=0)
         vectors_in_mask = vectors[:, im_mask].T
+        vectors_in_mask = vectors_in_mask[distances < self.max_distance_um]
         vector_magnitudes = np.linalg.norm(vectors_in_mask, axis=1)
         # prepend a vector of zeros to the vector_magnitudes array with the same length as the current vector
         # vector_magnitudes = np.concatenate((np.zeros(vectors_in_mask.shape[0]), vector_magnitudes))
         tracks = []
         properties = {'vector_magnitudes': []}
-        for track_num, mask_px in enumerate(mask_pixels):
-            v = vectors_in_mask[track_num]
+        vector_added = mask_pixels + vectors_in_mask
+        for track_num, (start_px, end_px) in enumerate(zip(mask_pixels, vector_added)):
+            # v = vectors_in_mask[track_num]
             properties['vector_magnitudes'].append(vector_magnitudes[track_num])
             properties['vector_magnitudes'].append(vector_magnitudes[track_num])
-            tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
-            tracks.append([track_num, 1, mask_px[0] + v[0], mask_px[1] + v[1], mask_px[2] + v[2]])
+            tracks.append([track_num, 0, start_px[0], start_px[1], start_px[2]])
+            tracks.append([track_num, 1, end_px[0], end_px[1], end_px[2]])
         import napari
         viewer = napari.Viewer()
         viewer.add_image(self.im_memmap[:2])
@@ -515,7 +529,7 @@ class HuMomentTracking:
     def run(self):
         self._get_t()
         self._allocate_memory()
-        self._run_pso()
+        self._run_hu_tracking()
 
 
 if __name__ == "__main__":
