@@ -355,7 +355,6 @@ class HuMomentTracking:
         marker_indices = xp.argwhere(marker_frame)[row_indices]
 
         from collections import defaultdict
-        import numpy as np
 
         def compute_flow_vectors(pre_marker_indices, marker_indices):
             if len(pre_marker_indices) != len(marker_indices):
@@ -380,8 +379,8 @@ class HuMomentTracking:
 
         avg_vectors = average_unique_flow_vectors(pre_marker_indices, marker_indices)
 
-        im_mask_gpu = xp.array(self.label_memmap[0]>0)
-        im_mask = np.array(im_mask_gpu)
+        im_mask = np.array(self.label_memmap[0]>0)
+        im_mask_gpu = xp.array(im_mask)
         mask_pixels = np.argwhere(im_mask)
         # Convert avg_vectors keys to an array
         avg_vector_coords = np.array(list(avg_vectors.keys()))
@@ -390,18 +389,17 @@ class HuMomentTracking:
         distances, indices = ckdtree.query(mask_pixels_cpu, k=1)
         nearest_coords = avg_vector_coords[indices]
 
-        tracks = []
-        for track_num, mask_px in enumerate(mask_pixels):
-            v = avg_vectors[tuple(nearest_coords[track_num])]
-            tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
-            tracks.append([track_num, 1, mask_px[0]+v[0], mask_px[1]+v[1], mask_px[2]+v[2]])
-        viewer.add_tracks(tracks)
+        # tracks = []
+        # for track_num, mask_px in enumerate(mask_pixels):
+        #     v = avg_vectors[tuple(nearest_coords[track_num])]
+        #     tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
+        #     tracks.append([track_num, 1, mask_px[0]+v[0], mask_px[1]+v[1], mask_px[2]+v[2]])
+        # viewer.add_tracks(tracks)
 
         # Initialize empty arrays to hold x, y, and z components and counts
         x_comp = xp.zeros_like(im_mask, dtype=xp.float16)
         y_comp = xp.zeros_like(im_mask, dtype=xp.float16)
         z_comp = xp.zeros_like(im_mask, dtype=xp.float16)
-        counts = xp.zeros_like(im_mask, dtype=xp.uint16)
 
         # Populate these arrays
         for i, coord in enumerate(mask_pixels):
@@ -410,70 +408,49 @@ class HuMomentTracking:
             x_comp[coord[0], coord[1], coord[2]] += vec[0]
             y_comp[coord[0], coord[1], coord[2]] += vec[1]
             z_comp[coord[0], coord[1], coord[2]] += vec[2]
-            counts[coord[0], coord[1], coord[2]] += 1
-
-        # Normalize
-        x_comp /= counts
-        y_comp /= counts
-        z_comp /= counts
 
         # Apply Gaussian filter for smoothing
+        # Create a binary mask where flow vectors are non-zero
         sigma = 1.0  # Standard deviation for Gaussian kernel
+        gaussian_filtered_mask = ndi.gaussian_filter(im_mask_gpu.astype(np.float32), sigma=sigma)
         x_comp_smooth = ndi.gaussian_filter(x_comp, sigma) * im_mask_gpu
         y_comp_smooth = ndi.gaussian_filter(y_comp, sigma) * im_mask_gpu
         z_comp_smooth = ndi.gaussian_filter(z_comp, sigma) * im_mask_gpu
-        vectors = np.stack((x_comp_smooth.get(), y_comp_smooth.get(), z_comp_smooth.get()), axis=0)
+
+        gaussian_filtered_mask[gaussian_filtered_mask == 0] = 1
+
+        # Perform the averaging while ignoring zero vectors
+        averaged_vectors_x = x_comp_smooth / gaussian_filtered_mask
+        averaged_vectors_y = y_comp_smooth / gaussian_filtered_mask
+        averaged_vectors_z = z_comp_smooth / gaussian_filtered_mask
+
+        # Handle NaNs or infs
+        averaged_vectors_x[np.isnan(averaged_vectors_x)] = 0
+        averaged_vectors_x[np.isinf(averaged_vectors_x)] = 0
+
+        averaged_vectors_y[np.isnan(averaged_vectors_y)] = 0
+        averaged_vectors_y[np.isinf(averaged_vectors_y)] = 0
+
+        averaged_vectors_z[np.isnan(averaged_vectors_z)] = 0
+        averaged_vectors_z[np.isinf(averaged_vectors_z)] = 0
+
+        vectors = np.stack((averaged_vectors_x.get(), averaged_vectors_y.get(), averaged_vectors_z.get()), axis=0)
         vectors_in_mask = vectors[:, im_mask].T
+        vector_magnitudes = np.linalg.norm(vectors_in_mask, axis=1)
+        # prepend a vector of zeros to the vector_magnitudes array with the same length as the current vector
+        # vector_magnitudes = np.concatenate((np.zeros(vectors_in_mask.shape[0]), vector_magnitudes))
         tracks = []
+        properties = {'vector_magnitudes': []}
         for track_num, mask_px in enumerate(mask_pixels):
             v = vectors_in_mask[track_num]
+            properties['vector_magnitudes'].append(vector_magnitudes[track_num])
+            properties['vector_magnitudes'].append(vector_magnitudes[track_num])
             tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
             tracks.append([track_num, 1, mask_px[0] + v[0], mask_px[1] + v[1], mask_px[2] + v[2]])
-        viewer.add_tracks(tracks)
-
-        tracks = []
-        for track_num, (k, v) in enumerate(avg_vectors.items()):
-            tracks.append([track_num, 0, k[0], k[1], k[2]])
-            tracks.append([track_num, 1, k[0]+v[0], k[1]+v[1], k[2]+v[2]])
-
         import napari
         viewer = napari.Viewer()
         viewer.add_image(self.im_memmap[:2])
-        # viewer.add_points(pre_marker_indices.get(), size=1, face_color='cyan')
-        # viewer.add_points(marker_indices.get(), size=1, face_color='magenta')
-        # draw lines from pre_marker_indices to marker_indices
-        # lines = []
-        # for pre_marker_index, marker_index in zip(pre_marker_indices, marker_indices):
-        #     lines.append(np.stack((pre_marker_index.get(), marker_index.get())))
-        # viewer.add_shapes(lines, shape_type='path', edge_color='yellow', edge_width=0.5)
-
-        test_tracks = [[0, 0, 0, 0, 0], [0, 1, 0, 0, 4.5], [1, 0, 0, 8, 0], [1, 1, 0, 0, 5]]
-        viewer.add_tracks(test_tracks)
-        cost_matrix_cpu = cost_matrix.get()
-        tracks = []
-        properties = {'travel_angles': [], 'travel_magnitudes': [], 'travel_costs': []}
-        phi = {}
-        for track_num, (pre_marker_index, marker_index) in enumerate(zip(pre_marker_indices, marker_indices)):
-            pre_track_cpu = pre_marker_index.get()
-            track_cpu = marker_index.get()
-            travel_angle = np.arctan2(track_cpu[1] - pre_track_cpu[1], track_cpu[2] - pre_track_cpu[2]) * 180 / np.pi
-            travel_magnitude = np.sqrt((track_cpu[1] - pre_track_cpu[1])**2 + (track_cpu[2] - pre_track_cpu[2])**2)
-            travel_cost = cost_matrix_cpu[row_indices[track_num], col_indices[track_num]]
-            properties['travel_angles'].append(travel_angle)
-            properties['travel_angles'].append(travel_angle)
-            properties['travel_magnitudes'].append(travel_magnitude)
-            properties['travel_magnitudes'].append(travel_magnitude)
-            properties['travel_costs'].append(travel_cost)
-            properties['travel_costs'].append(travel_cost)
-            phi_current = np.arctan2(track_cpu[1] - pre_track_cpu[1], track_cpu[2] - pre_track_cpu[2]) * 180 / np.pi
-            theta_current =
-
-            tracks.append([track_num, 0, pre_track_cpu[0], pre_track_cpu[1], pre_track_cpu[2]])
-            tracks.append([track_num, 1, track_cpu[0], track_cpu[1], track_cpu[2]])
-
-        # tracks = tracks[:200]
         viewer.add_tracks(tracks, properties=properties)
-            # feature_matrix = xp.concatenate((pre_stats_vecs, pre_hu_vecs), axis=1)
 
         # # can visualize some stuff:
         # from sklearn.decomposition import PCA
@@ -555,7 +532,7 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     hu_files = []
-    for im_info in im_infos[:1]:
+    for im_info in im_infos[-1:]:
         hu = HuMomentTracking(im_info, num_t=2)
         hu.run()
         hu_files.append(hu)
