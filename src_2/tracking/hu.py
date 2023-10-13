@@ -373,6 +373,8 @@ class HuMomentTracking:
             # Compute the average vector for each unique MLP at t0
             avg_vectors = {}
             for pre_marker, vectors in unique_vectors.items():
+                if len(vectors) == 0:
+                    break
                 avg_vectors[pre_marker] = np.mean(np.array(list(vectors)), axis=0)
 
             return avg_vectors
@@ -532,7 +534,7 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     hu_files = []
-    for im_info in im_infos[-1:]:
+    for im_info in im_infos[:1]:
         hu = HuMomentTracking(im_info, num_t=2)
         hu.run()
         hu_files.append(hu)

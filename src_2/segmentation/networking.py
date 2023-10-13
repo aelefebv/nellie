@@ -93,11 +93,12 @@ class Network:
         gpu_frame = xp.array(label_frame)
 
         skel = xp.array(morph.skeletonize(cpu_frame > 0).astype('bool'))
-        masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=1) * skel
+        # masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=0.5) * skel
+        masked_frangi = ndi.median_filter(frangi_frame, size=3) * (gpu_frame>0)# * skel
         # thresh, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
         thresh = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
         thresh = 10**thresh
-        cleaned_skel = masked_frangi > thresh
+        cleaned_skel = (masked_frangi > thresh) * skel
         # skel = morph.skeletonize(test > 0).astype('bool')
 
         skel_labels = gpu_frame * cleaned_skel
@@ -144,7 +145,6 @@ class Network:
         _, nearest_skel_indices = skel_tree.query(label_coords, k=1)
         nearest_skel_labels = skel_frame[tuple(skel_coords[nearest_skel_indices].T)]
         label_frame[tuple(np.transpose(label_coords))] = nearest_skel_labels
-
 
     def _local_max_peak(self, frame, mask):
         lapofg = xp.empty(((len(self.sigmas),) + frame.shape), dtype=float)
@@ -212,6 +212,7 @@ class Network:
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
+        mask_frame = xp.array(label_frame) > 0
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
         skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
@@ -247,23 +248,23 @@ class Network:
 
 if __name__ == "__main__":
     import os
-    # test_folder = r"D:\test_files\nelly_tests"
-    test_folder = r"D:\test_files\julius_examples"
+    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
     im_infos = []
     for file in all_files:
         im_path = os.path.join(test_folder, file)
-        # im_info = ImInfo(im_path)
-        im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
+        im_info = ImInfo(im_path)
+        # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
         im_info.create_output_path('im_instance_label')
         im_info.create_output_path('im_frangi')
         im_infos.append(im_info)
 
     skeletonis = []
     for im_info in im_infos:
-        skel = Network(im_info)
-        # skel = Network(im_info, num_t=2)
+        # skel = Network(im_info)
+        skel = Network(im_info, num_t=2)
         skel.run()
         skeletonis.append(skel)
 
