@@ -378,10 +378,63 @@ class HuMomentTracking:
 
             return avg_vectors
 
+        avg_vectors = average_unique_flow_vectors(pre_marker_indices, marker_indices)
+
+        im_mask_gpu = xp.array(self.label_memmap[0]>0)
+        im_mask = np.array(im_mask_gpu)
+        mask_pixels = np.argwhere(im_mask)
+        # Convert avg_vectors keys to an array
+        avg_vector_coords = np.array(list(avg_vectors.keys()))
+        ckdtree = cKDTree(avg_vector_coords)
+        mask_pixels_cpu = xp.asnumpy(mask_pixels)
+        distances, indices = ckdtree.query(mask_pixels_cpu, k=1)
+        nearest_coords = avg_vector_coords[indices]
+
+        tracks = []
+        for track_num, mask_px in enumerate(mask_pixels):
+            v = avg_vectors[tuple(nearest_coords[track_num])]
+            tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
+            tracks.append([track_num, 1, mask_px[0]+v[0], mask_px[1]+v[1], mask_px[2]+v[2]])
+        viewer.add_tracks(tracks)
+
+        # Initialize empty arrays to hold x, y, and z components and counts
+        x_comp = xp.zeros_like(im_mask, dtype=xp.float16)
+        y_comp = xp.zeros_like(im_mask, dtype=xp.float16)
+        z_comp = xp.zeros_like(im_mask, dtype=xp.float16)
+        counts = xp.zeros_like(im_mask, dtype=xp.uint16)
+
+        # Populate these arrays
+        for i, coord in enumerate(mask_pixels):
+            nearest_coord = tuple(nearest_coords[i])
+            vec = avg_vectors[nearest_coord]
+            x_comp[coord[0], coord[1], coord[2]] += vec[0]
+            y_comp[coord[0], coord[1], coord[2]] += vec[1]
+            z_comp[coord[0], coord[1], coord[2]] += vec[2]
+            counts[coord[0], coord[1], coord[2]] += 1
+
+        # Normalize
+        x_comp /= counts
+        y_comp /= counts
+        z_comp /= counts
+
+        # Apply Gaussian filter for smoothing
+        sigma = 1.0  # Standard deviation for Gaussian kernel
+        x_comp_smooth = ndi.gaussian_filter(x_comp, sigma) * im_mask_gpu
+        y_comp_smooth = ndi.gaussian_filter(y_comp, sigma) * im_mask_gpu
+        z_comp_smooth = ndi.gaussian_filter(z_comp, sigma) * im_mask_gpu
+        vectors = np.stack((x_comp_smooth.get(), y_comp_smooth.get(), z_comp_smooth.get()), axis=0)
+        vectors_in_mask = vectors[:, im_mask].T
+        tracks = []
+        for track_num, mask_px in enumerate(mask_pixels):
+            v = vectors_in_mask[track_num]
+            tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
+            tracks.append([track_num, 1, mask_px[0] + v[0], mask_px[1] + v[1], mask_px[2] + v[2]])
+        viewer.add_tracks(tracks)
+
         tracks = []
         for track_num, (k, v) in enumerate(avg_vectors.items()):
-            tracks.append([track_num, 0, pre_track_cpu[0], pre_track_cpu[1], pre_track_cpu[2]])
-            tracks.append([track_num, 1, track_cpu[0], track_cpu[1], track_cpu[2]])
+            tracks.append([track_num, 0, k[0], k[1], k[2]])
+            tracks.append([track_num, 1, k[0]+v[0], k[1]+v[1], k[2]+v[2]])
 
         import napari
         viewer = napari.Viewer()
