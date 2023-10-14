@@ -4,6 +4,7 @@ from src_2.utils.general import get_reshaped_image
 import numpy as np
 from scipy.spatial import cKDTree
 from scipy.spatial.distance import cdist
+from collections import defaultdict
 
 
 class HuMomentTracking:
@@ -16,6 +17,10 @@ class HuMomentTracking:
         self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
         self.max_distance_um = max_distance_um
+
+        self.vector_start_coords = []
+        self.vectors = []
+        self.vector_magnitudes = []
 
         self.shape = ()
 
@@ -328,58 +333,38 @@ class HuMomentTracking:
 
         return row_indices, col_indices
 
-    def _run_hu_tracking(self):
-        cost_matrices = []
+    def _compute_flow_vectors(self, pre_marker_indices, marker_indices):
+        if len(pre_marker_indices) != len(marker_indices):
+            raise ValueError("Lists must have the same length.")
+        return np.array(marker_indices.get()) - np.array(pre_marker_indices.get())
 
-        pre_stats_vecs = None
-        pre_hu_vecs = None
-        for t in range(self.num_t):
-            logger.debug(f'Running hu-moment tracking for frame {t + 1} of {self.num_t}')
-            stats_vecs, hu_vecs = self._get_feature_matrix(t)
-            # todo make distance weighting be dependent on number of seconds between frames (more uncertain with more time)
-            #  could also vary with size (radius) based on diffusion coefficient. bigger = probably closer
-            if pre_stats_vecs is None or pre_hu_vecs is None:
-                pre_stats_vecs = stats_vecs
-                pre_hu_vecs = hu_vecs
-                continue
-            cost_matrix = self._get_cost_matrix(t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs)
-            row_indices, col_indices = self._find_best_matches(cost_matrix)
+    def _average_unique_flow_vectors(self, pre_marker_indices, marker_indices):
+        flow_vectors = self._compute_flow_vectors(pre_marker_indices, marker_indices)
+        unique_vectors = defaultdict(set)
 
-            cost_median = xp.median(cost_matrix[row_indices, col_indices])
-            cost_p25 = xp.percentile(cost_matrix[row_indices, col_indices], 25)
-            cost_p75 = xp.percentile(cost_matrix[row_indices, col_indices], 75)
+        # Group vectors by their origin (MLP at t0)
+        for i, pre_marker in enumerate(pre_marker_indices):
+            unique_vectors[tuple(pre_marker.tolist())].add(tuple(flow_vectors[i].tolist()))
 
-        pre_marker_frame = xp.array(self.im_marker_memmap[0]).astype('float')
+        # Compute the average vector for each unique MLP at t0
+        avg_vectors = {}
+        for pre_marker, vectors in unique_vectors.items():
+            avg_vectors[pre_marker] = np.mean(np.array(list(vectors)), axis=0)
+
+        return avg_vectors
+
+    def _get_average_flow_vectors(self, t, row_indices, col_indices):
+        pre_marker_frame = xp.array(self.im_marker_memmap[t-1]).astype('float')
         pre_marker_indices = xp.argwhere(pre_marker_frame)[col_indices]
-        marker_frame = xp.array(self.im_marker_memmap[1]).astype('float')
+        marker_frame = xp.array(self.im_marker_memmap[t]).astype('float')
         marker_indices = xp.argwhere(marker_frame)[row_indices]
 
-        from collections import defaultdict
+        avg_vectors = self._average_unique_flow_vectors(pre_marker_indices, marker_indices)
+        return avg_vectors
 
-        def compute_flow_vectors(pre_marker_indices, marker_indices):
-            if len(pre_marker_indices) != len(marker_indices):
-                raise ValueError("Lists must have the same length.")
-
-            return np.array(marker_indices.get()) - np.array(pre_marker_indices.get())
-
-        def average_unique_flow_vectors(pre_marker_indices, marker_indices):
-            flow_vectors = compute_flow_vectors(pre_marker_indices, marker_indices)
-            unique_vectors = defaultdict(set)
-
-            # Group vectors by their origin (MLP at t0)
-            for i, pre_marker in enumerate(pre_marker_indices):
-                unique_vectors[tuple(pre_marker.tolist())].add(tuple(flow_vectors[i].tolist()))
-
-            # Compute the average vector for each unique MLP at t0
-            avg_vectors = {}
-            for pre_marker, vectors in unique_vectors.items():
-                avg_vectors[pre_marker] = np.mean(np.array(list(vectors)), axis=0)
-
-            return avg_vectors
-
-        avg_vectors = average_unique_flow_vectors(pre_marker_indices, marker_indices)
-
-        im_mask = np.array(self.label_memmap[0]>0)
+    def _get_vectors(self, t, row_indices, col_indices):
+        avg_vectors = self._get_average_flow_vectors(t, row_indices, col_indices)
+        im_mask = self.label_memmap[t-1] > 0
         im_mask_gpu = xp.array(im_mask)
         mask_pixels = np.argwhere(im_mask)
         # Convert avg_vectors keys to an array
@@ -387,28 +372,13 @@ class HuMomentTracking:
         avg_vector_coords_um = avg_vector_coords * self.scaling
         ckdtree = cKDTree(avg_vector_coords_um)
         mask_pixels_cpu = xp.asnumpy(mask_pixels) * self.scaling
-        distances, indices = ckdtree.query(mask_pixels_cpu, k=1, workers=-1)#, distance_upper_bound=self.max_distance_um)
+        distances, indices = ckdtree.query(mask_pixels_cpu, k=1, workers=-1)
 
         # Remove any indices and mask pixels where the distance is greater than the max distance
+        # todo, this removal should be based on each mask voxel's distance im value at that voxel
         indices = indices[distances < self.max_distance_um]
         mask_pixels = mask_pixels[distances < self.max_distance_um]
         nearest_coords = avg_vector_coords[indices]
-
-
-        # tracks = []
-        # for track_num, avg_vector_coord in enumerate(avg_vector_coords):
-        #     v = avg_vectors[tuple(avg_vector_coord)]
-        #     tracks.append([track_num, 0, avg_vector_coord[0], avg_vector_coord[1], avg_vector_coord[2]])
-        #     tracks.append([track_num, 1, avg_vector_coord[0] + v[0], avg_vector_coord[1] + v[1],
-        #                    avg_vector_coord[2] + v[2]])
-        # viewer.add_tracks(tracks)
-
-        # tracks = []
-        # for track_num, mask_px in enumerate(mask_pixels):
-        #     v = avg_vectors[tuple(nearest_coords[track_num])]
-        #     tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
-        #     tracks.append([track_num, 1, mask_px[0]+v[0], mask_px[1]+v[1], mask_px[2]+v[2]])
-        # viewer.add_tracks(tracks)
 
         # Initialize empty arrays to hold x, y, and z components and counts
         x_comp = xp.zeros_like(im_mask, dtype=xp.float16)
@@ -424,6 +394,7 @@ class HuMomentTracking:
             z_comp[coord[0], coord[1], coord[2]] += vec[2]
 
         # Apply Gaussian filter for smoothing
+        # todo, this should probably be more principled than gaussian. Maybe weighted by distance?
         # Create a binary mask where flow vectors are non-zero
         sigma = 1.0  # Standard deviation for Gaussian kernel
         gaussian_filtered_mask = ndi.gaussian_filter(im_mask_gpu.astype(np.float32), sigma=sigma)
@@ -452,21 +423,67 @@ class HuMomentTracking:
         vectors_in_mask = vectors[:, im_mask].T
         vectors_in_mask = vectors_in_mask[distances < self.max_distance_um]
         vector_magnitudes = np.linalg.norm(vectors_in_mask, axis=1)
-        # prepend a vector of zeros to the vector_magnitudes array with the same length as the current vector
-        # vector_magnitudes = np.concatenate((np.zeros(vectors_in_mask.shape[0]), vector_magnitudes))
+
+        self.vector_start_coords.append(mask_pixels)
+        self.vectors.append(vectors_in_mask)
+        self.vector_magnitudes.append(vector_magnitudes)
+
+        return
+
+    def _run_hu_tracking(self):
+        pre_stats_vecs = None
+        pre_hu_vecs = None
+        for t in range(self.num_t):
+            logger.debug(f'Running hu-moment tracking for frame {t + 1} of {self.num_t}')
+            stats_vecs, hu_vecs = self._get_feature_matrix(t)
+            # todo make distance weighting be dependent on number of seconds between frames (more uncertain with more time)
+            #  could also vary with size (radius) based on diffusion coefficient. bigger = probably closer
+            if pre_stats_vecs is None or pre_hu_vecs is None:
+                pre_stats_vecs = stats_vecs
+                pre_hu_vecs = hu_vecs
+                continue
+            cost_matrix = self._get_cost_matrix(t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs)
+            row_indices, col_indices = self._find_best_matches(cost_matrix)
+
+            # cost_median = xp.median(cost_matrix[row_indices, col_indices])
+            # cost_p25 = xp.percentile(cost_matrix[row_indices, col_indices], 25)
+            # cost_p75 = xp.percentile(cost_matrix[row_indices, col_indices], 75)
+
+            self._get_vectors(t, row_indices, col_indices)
+        print('done')
+
         tracks = []
         properties = {'vector_magnitudes': []}
-        vector_added = mask_pixels + vectors_in_mask
-        for track_num, (start_px, end_px) in enumerate(zip(mask_pixels, vector_added)):
+        vector_added = self.vector_start_coords[0] + self.vectors[0]
+        for track_num, (start_px, end_px) in enumerate(zip(self.vector_start_coords[0], vector_added)):
             # v = vectors_in_mask[track_num]
-            properties['vector_magnitudes'].append(vector_magnitudes[track_num])
-            properties['vector_magnitudes'].append(vector_magnitudes[track_num])
+            properties['vector_magnitudes'].append(self.vector_magnitudes[0][track_num])
+            properties['vector_magnitudes'].append(self.vector_magnitudes[0][track_num])
             tracks.append([track_num, 0, start_px[0], start_px[1], start_px[2]])
             tracks.append([track_num, 1, end_px[0], end_px[1], end_px[2]])
         import napari
         viewer = napari.Viewer()
         viewer.add_image(self.im_memmap[:2])
         viewer.add_tracks(tracks, properties=properties)
+
+
+
+
+        # tracks = []
+        # for track_num, avg_vector_coord in enumerate(avg_vector_coords):
+        #     v = avg_vectors[tuple(avg_vector_coord)]
+        #     tracks.append([track_num, 0, avg_vector_coord[0], avg_vector_coord[1], avg_vector_coord[2]])
+        #     tracks.append([track_num, 1, avg_vector_coord[0] + v[0], avg_vector_coord[1] + v[1],
+        #                    avg_vector_coord[2] + v[2]])
+        # viewer.add_tracks(tracks)
+
+        # tracks = []
+        # for track_num, mask_px in enumerate(mask_pixels):
+        #     v = avg_vectors[tuple(nearest_coords[track_num])]
+        #     tracks.append([track_num, 0, mask_px[0], mask_px[1], mask_px[2]])
+        #     tracks.append([track_num, 1, mask_px[0]+v[0], mask_px[1]+v[1], mask_px[2]+v[2]])
+        # viewer.add_tracks(tracks)
+
 
         # # can visualize some stuff:
         # from sklearn.decomposition import PCA
