@@ -2,10 +2,7 @@ from src_2.io.im_info import ImInfo
 from src import xp, ndi, logger
 from src_2.utils.general import get_reshaped_image
 import numpy as np
-from scipy.spatial import cKDTree
 from scipy.spatial.distance import cdist
-from collections import defaultdict
-import pandas as pd
 
 
 class HuMomentTracking:
@@ -29,6 +26,7 @@ class HuMomentTracking:
         self.im_frangi_memmap = None
         self.im_distance_memmap = None
         self.im_marker_memmap = None
+        self.flow_vector_array_path = None
 
         self.debug = None
 
@@ -164,6 +162,8 @@ class HuMomentTracking:
 
         im_distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_distance_memmap = get_reshaped_image(im_distance_memmap, self.num_t, self.im_info)
+
+        self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
     def _get_hu_moments(self, sub_volumes):
         intensity_projections = self._get_orthogonal_projections(sub_volumes)
@@ -349,7 +349,7 @@ class HuMomentTracking:
                 flow_vector_array = np.concatenate((flow_vector_array, frame_vector_array), axis=0)
 
         # save the array
-        np.save(r"D:\test_files\nelly_tests\output\test_vecs.npy", flow_vector_array)
+        np.save(self.flow_vector_array_path, flow_vector_array)
 
         print('done')
 
@@ -372,6 +372,7 @@ if __name__ == "__main__":
         im_info.create_output_path('im_frangi')
         im_info.create_output_path('im_marker')
         im_info.create_output_path('im_distance')
+        im_info.create_output_path('flow_vector_array', ext='.npy')
         im_infos.append(im_info)
 
     hu_files = []
