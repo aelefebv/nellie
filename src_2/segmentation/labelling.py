@@ -221,6 +221,6 @@ if __name__ == "__main__":
     segmentations = []
     for im_info in im_infos:
         # segment_unique = Label(im_info, snr_cleaning=False)
-        segment_unique = Label(im_info, num_t=2, snr_cleaning=False)
+        segment_unique = Label(im_info, num_t=4, snr_cleaning=False)
         segment_unique.run()
         segmentations.append(segment_unique)
