@@ -194,7 +194,8 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     marker_files = []
-    for im_info in im_infos:
-        markers = Markers(im_info, num_t=4)
+    for im_info in im_infos[:1]:
+        markers = Markers(im_info)
+        # markers = Markers(im_info, num_t=4)
         markers.run()
         marker_files.append(markers)

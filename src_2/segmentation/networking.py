@@ -262,9 +262,10 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     skeletonis = []
-    for im_info in im_infos:
+    for im_info in im_infos[:1]:
         # skel = Network(im_info)
-        skel = Network(im_info, num_t=4)
+        # skel = Network(im_info, num_t=4)
+        skel = Network(im_info)
         skel.run()
         skeletonis.append(skel)
 

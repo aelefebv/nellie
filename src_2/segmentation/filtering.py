@@ -234,8 +234,9 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     frangis = []
-    for im_info in im_infos:
+    for im_info in im_infos[:1]:
         # frangi = Filter(im_info, remove_edges=False)
-        frangi = Filter(im_info, num_t=4)
+        frangi = Filter(im_info)
+        # frangi = Filter(im_info, num_t=4)
         frangi.run()
         frangis.append(frangi)

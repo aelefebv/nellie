@@ -219,8 +219,9 @@ if __name__ == "__main__":
         im_infos.append(im_info)
 
     segmentations = []
-    for im_info in im_infos:
+    for im_info in im_infos[:1]:
         # segment_unique = Label(im_info, snr_cleaning=False)
-        segment_unique = Label(im_info, num_t=4, snr_cleaning=False)
+        # segment_unique = Label(im_info, num_t=4, snr_cleaning=False)
+        segment_unique = Label(im_info, snr_cleaning=False)
         segment_unique.run()
         segmentations.append(segment_unique)

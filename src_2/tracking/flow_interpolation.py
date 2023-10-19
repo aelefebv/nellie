@@ -62,7 +62,7 @@ class FlowInterpolation:
         # get all coords and distances within the radius of the coord
         nearby_idxs = tree.query_ball_point(scaled_coord, self.max_distance_um, p=2)
         if len(nearby_idxs) == 0:
-            logger.error(f'No nearby flow vectors found for {coord} in temporal frame {t}.')
+            logger.debug(f'No nearby flow vectors found for {coord} in temporal frame {t}.')
             return None, None
         distances = tree.query(scaled_coord, k=len(nearby_idxs), p=2)[0]
         return nearby_idxs, distances
@@ -83,8 +83,8 @@ class FlowInterpolation:
         weights /= np.sum(weights)
         return weights
 
-    def _get_final_vector(self, coord, check_rows, nearby_idxs, weights):
-        vectors = check_rows[nearby_idxs, 4:7]# + check_rows[nearby_idxs, 1:4] - coord
+    def _get_final_vector(self, check_rows, nearby_idxs, weights):
+        vectors = check_rows[nearby_idxs, 4:7]
         if len(weights.shape) == 0:
             final_vector = vectors[0]
             return final_vector
@@ -109,11 +109,10 @@ class FlowInterpolation:
         nearby_idxs, distances = self._get_nearby_coords(t, coord, check_coords)
 
         if nearby_idxs is None:
-            logger.error(f'No nearby flow vectors found for {coord} in temporal frame {t}.')
             return None
 
         weights = self._get_vector_weights(check_rows, nearby_idxs, distances)
-        final_vector = self._get_final_vector(coord, check_rows, nearby_idxs, weights)
+        final_vector = self._get_final_vector(check_rows, nearby_idxs, weights)
 
         return final_vector
 
@@ -140,23 +139,37 @@ if __name__ == "__main__":
 
     flow_interpx = FlowInterpolation(im_infos[0])
     flow_interpx.run()
-    viewer.add_image(flow_interpx.im_memmap[:3])
+    viewer.add_image(flow_interpx.im_memmap)
+    num_frames = flow_interpx.im_memmap.shape[0]
 
-    test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
-    test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
+    test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
+    test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
     coords_skel = np.argwhere(test_skel[0] == 108)
-    coords_label = np.argwhere(test_label[0] == 137)
-    # coords = np.argwhere(test_im[0] > 0)
-    # # get 100 random coords
-    # np.random.seed(0)
-    # coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
+    coords_label = np.argwhere(test_label[0] == 249)
+    coords = np.argwhere(test_label[0] > 0)
+    # get 100 random coords
+    np.random.seed(0)
+    coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
 
+    tracks = []
+    track_properties = {'frame_num': []}
+    for track_num, coord in enumerate(coords):
+        tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
+        track_properties['frame_num'].append(0)
+        for t in range(num_frames):
+            final_vector = flow_interpx.interpolate_coord(coord, t, forward=True)
+            if final_vector is None:
+                break
+            track_properties['frame_num'].append(t+1)
+            coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
+            tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
+    viewer.add_tracks(tracks, properties = track_properties, name='tracks')
     tracks = []
     track_properties = {'frame_num': []}
     for track_num, coord in enumerate(coords_skel):
         tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
         track_properties['frame_num'].append(0)
-        for t in range(4):
+        for t in range(num_frames):
             final_vector = flow_interpx.interpolate_coord(coord, t, forward=True)
             if final_vector is None:
                 break
@@ -169,7 +182,7 @@ if __name__ == "__main__":
     for track_num, coord in enumerate(coords_label):
         tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
         track_properties['frame_num'].append(0)
-        for t in range(4):
+        for t in range(num_frames):
             final_vector = flow_interpx.interpolate_coord(coord, t, forward=True)
             if final_vector is None:
                 break

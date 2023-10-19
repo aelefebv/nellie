@@ -380,6 +380,7 @@ if __name__ == "__main__":
 
     hu_files = []
     for im_info in im_infos[:1]:
-        hu = HuMomentTracking(im_info, num_t=3)
+        # hu = HuMomentTracking(im_info, num_t=3)
+        hu = HuMomentTracking(im_info)
         hu.run()
         hu_files.append(hu)
