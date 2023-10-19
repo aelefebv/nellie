@@ -5,6 +5,7 @@ from src import logger
 from src_2.io.im_info import ImInfo
 from src_2.utils.general import get_reshaped_image, bbox
 from src import xp, ndi
+import numpy as np
 
 from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 
@@ -92,27 +93,36 @@ class Filter:
         gradients = xp.gradient(image)
         axes = range(image.ndim)
 
-        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)
+        # h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)
+        #            for ax0, ax1 in combinations_with_replacement(axes, 2)])
+        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1).astype('float16')
                    for ax0, ax1 in combinations_with_replacement(axes, 2)])
+
+        # h_mask = xp.zeros((len(h_elems),) + h_elems[0].shape, dtype=bool)
+        # for i in range(h_mask.shape[0]):
+        #     h_mask[i] = self._get_frob_mask(h_elems[i])
         h_mask = self._get_frob_mask(h_elems)
+        if self.remove_edges:
+            h_mask = self._remove_edges(h_mask)
+        hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
 
-        hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., xp.newaxis, xp.newaxis] for elem in h_elems[:, h_mask]]
-
-        hessian_matrices = xp.concatenate([
-            xp.concatenate([hxx, hxy, hxz], axis=-1),
-            xp.concatenate([hxy, hyy, hyz], axis=-1),
-            xp.concatenate([hxz, hyz, hzz], axis=-1)
+        hessian_matrices = np.concatenate([
+            np.concatenate([hxx, hxy, hxz], axis=-1),
+            np.concatenate([hxy, hyy, hyz], axis=-1),
+            np.concatenate([hxz, hyz, hzz], axis=-1)
         ], axis=-2)
 
         return h_mask, hessian_matrices
 
     def _get_frob_mask(self, hessian_matrices):
         frobenius_norm = xp.linalg.norm(hessian_matrices, axis=0)
+        frobenius_norm[xp.isinf(frobenius_norm)] = 0
         frobenius_threshold = triangle_threshold(frobenius_norm[frobenius_norm > 0])
         mask = frobenius_norm > frobenius_threshold
         return mask
 
     def _compute_chunkwise_eigenvalues(self, hessian_matrices, chunk_size=1E6):
+        chunk_size = int(chunk_size)
         total_voxels = len(hessian_matrices)
 
         eigenvalues_list = []
@@ -123,9 +133,8 @@ class Filter:
         # Iterate over chunks
         for start_idx in range(0, total_voxels, int(chunk_size)):
             end_idx = min(start_idx + chunk_size, total_voxels)
-            chunk_eigenvalues = xp.linalg.eigvalsh(
-                hessian_matrices[start_idx:end_idx]
-            )
+            gpu_chunk = xp.array(hessian_matrices[start_idx:end_idx])
+            chunk_eigenvalues = xp.linalg.eigvalsh(gpu_chunk)
             eigenvalues_list.append(chunk_eigenvalues)
 
         # Concatenate all the eigenvalue chunks and reshape to the original spatial structure
@@ -196,17 +205,17 @@ class Filter:
     def _remove_edges(self, frangi_frame):
         for z_idx, z_slice in enumerate(frangi_frame):
             rmin, rmax, cmin, cmax = bbox(z_slice)
-            frangi_frame[z_idx, rmin:rmin + 10, ...] = 0
-            frangi_frame[z_idx, rmax - 10:rmax + 1, ...] = 0
-            frangi_frame[z_idx, :, cmin:cmin + 10] = 0
-            frangi_frame[z_idx, :, cmax - 10:cmax + 1] = 0
+            frangi_frame[z_idx, rmin:rmin + 15, ...] = 0
+            frangi_frame[z_idx, rmax - 15:rmax + 1, ...] = 0
+            # frangi_frame[z_idx, :, cmin:cmin + 10] = 0
+            # frangi_frame[z_idx, :, cmax - 10:cmax + 1] = 0
         return frangi_frame
 
     def _run_filter(self):
         for t in range(self.num_t):
             frangi_frame = self._run_frame(t)
-            if self.remove_edges:
-                frangi_frame = self._remove_edges(frangi_frame)
+            # if self.remove_edges:
+            #     frangi_frame = self._remove_edges(frangi_frame)
             frangi_frame = self._mask_volume(frangi_frame)#.get()
             log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
             if self.im_info.no_t:
@@ -222,7 +231,8 @@ class Filter:
         self._run_filter()
 
 if __name__ == "__main__":
-    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\nelly_tests"
+    test_folder = r"D:\test_files\beading"
     # test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]

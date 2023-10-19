@@ -97,11 +97,11 @@ class FlowInterpolation:
         # For forward, simply find nearby LMPs, interpolate based on distance-weighted vectors
         # For backward, get coords from t-1 + vector, then find nearby coords from that, and interpolate based on distance-weighted vectors
         if forward:
-            # check_rows will be all rows where the self.flow_vector_array's 0th column is equal to t+1
+            # check_rows will be all rows where the self.flow_vector_array's 0th column is equal to t
             check_rows = self.flow_vector_array[np.where(self.flow_vector_array[:, 0] == t)[0], :]
             check_coords = check_rows[:, 1:4]
         else:
-            # check_rows will be all rows where the self.flow_vector_array's 0th columns is equal to t
+            # check_rows will be all rows where the self.flow_vector_array's 0th columns is equal to t-1
             check_rows = self.flow_vector_array[np.where(self.flow_vector_array[:, 0] == t-1)[0], :]
             # check coords will be the coords + vector
             check_coords = check_rows[:, 1:4] + check_rows[:, 4:7]
@@ -126,7 +126,13 @@ if __name__ == "__main__":
     import os
     import napari
     viewer = napari.Viewer()
-    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\nelly_tests"
+    # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
+    # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
+    test_folder = r"D:\test_files\beading"
+    test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
+    test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif", mode='r')
+
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
     im_infos = []
@@ -142,10 +148,33 @@ if __name__ == "__main__":
     viewer.add_image(flow_interpx.im_memmap)
     num_frames = flow_interpx.im_memmap.shape[0]
 
-    test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
-    test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
-    coords_skel = np.argwhere(test_skel[0] == 108)
-    coords_label = np.argwhere(test_label[0] == 249)
+    # going backwards
+    coords = np.argwhere(test_label[num_frames-1] > 0)
+    # get 100 random coords
+    np.random.seed(0)
+    coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
+    tracks = []
+    track_properties = {'frame_num': []}
+    frame_range = np.arange(num_frames)
+    frame_range = frame_range[::-1]
+    for track_num, coord in enumerate(coords):
+        tracks.append([track_num, frame_range[0], coord[0], coord[1], coord[2]])
+        track_properties['frame_num'].append(0)
+        for t in frame_range:
+            final_vector = flow_interpx.interpolate_coord(coord, t, forward=False)
+            if final_vector is None:
+                break
+            track_properties['frame_num'].append(t - 1)
+            coord = (coord[0] - final_vector[0], coord[1] - final_vector[1], coord[2] - final_vector[2])
+            tracks.append([track_num, t - 1, coord[0], coord[1], coord[2]])
+    # reverse tracks
+    tracks = tracks[::-1]
+    viewer.add_tracks(tracks, properties=track_properties, name='tracks')
+
+
+    # going forwards
+    coords_skel = np.argwhere(test_skel[0] == 80)
+    coords_label = np.argwhere(test_label[0] == 651)
     coords = np.argwhere(test_label[0] > 0)
     # get 100 random coords
     np.random.seed(0)
