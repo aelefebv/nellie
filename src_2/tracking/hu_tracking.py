@@ -340,9 +340,12 @@ class HuMomentTracking:
             pre_hu_vecs = hu_vecs
 
             costs = np.array(costs)
+            idx0_z, idx0_y, idx0_x = pre_marker_indices.T
             vec_z, vec_y, vec_x = vecs.T
-            frame_vector_array = np.concatenate((np.array([t]*len(vec_z))[:, np.newaxis], vec_z[:, np.newaxis], vec_y[:, np.newaxis],
-                                         vec_x[:, np.newaxis], costs[:, np.newaxis]), axis=1)
+            frame_vector_array = np.concatenate((np.array([t-1]*len(vec_z))[:, np.newaxis],
+                                                 idx0_z[:, np.newaxis], idx0_y[:, np.newaxis], idx0_x[:, np.newaxis],
+                                                 vec_z[:, np.newaxis], vec_y[:, np.newaxis], vec_x[:, np.newaxis],
+                                                 costs[:, np.newaxis]), axis=1)
             if flow_vector_array is None:
                 flow_vector_array = frame_vector_array
             else:
