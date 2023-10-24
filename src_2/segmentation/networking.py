@@ -218,7 +218,7 @@ class Network:
         skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
         final_skel, _ = ndi.label(skel > 0, structure=xp.ones((3, 3, 3)))
         final_skel = self._remove_connected_label_pixels(final_skel)
-        self._relabel_objects(label_frame, final_skel)
+        # self._relabel_objects(label_frame, final_skel)
         pixel_class = self._get_pixel_class(final_skel).get()
         return final_skel, pixel_class
 

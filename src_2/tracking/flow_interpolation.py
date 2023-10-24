@@ -7,7 +7,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 
-class FlowInterpolation:
+class FlowInterpolator:
     def __init__(self, im_info: ImInfo, num_t=None, max_distance_um=0.5):
         self.im_info = im_info
         self.num_t = num_t
@@ -24,20 +24,17 @@ class FlowInterpolation:
         self.shape = ()
 
         self.im_memmap = None
-        self.im_distance_memmap = None
         self.flow_vector_array = None
 
         self.debug = None
+        self._initialize()
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for mocap marking.')
 
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
         self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
-
-        im_distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_distance_memmap = get_reshaped_image(im_distance_memmap, self.num_t, self.im_info)
-        self.shape = self.im_distance_memmap.shape
+        self.shape = self.im_memmap.shape
 
         flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
         self.flow_vector_array = np.load(flow_vector_array_path)
@@ -116,8 +113,7 @@ class FlowInterpolation:
 
         return final_vector
 
-
-    def run(self):
+    def _initialize(self):
         self._get_t()
         self._allocate_memory()
 
@@ -139,12 +135,11 @@ if __name__ == "__main__":
     for file in all_files:
         im_path = os.path.join(test_folder, file)
         im_info = ImInfo(im_path)
-        im_info.create_output_path('im_distance')
         im_info.create_output_path('flow_vector_array', ext='.npy')
         im_infos.append(im_info)
 
-    flow_interpx = FlowInterpolation(im_infos[0])
-    flow_interpx.run()
+    flow_interpx = FlowInterpolator(im_infos[0])
+    # flow_interpx.run()
     viewer.add_image(flow_interpx.im_memmap)
     num_frames = flow_interpx.im_memmap.shape[0]
 
