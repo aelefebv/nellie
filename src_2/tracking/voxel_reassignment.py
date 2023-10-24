@@ -18,17 +18,20 @@ class VoxelReassigner:
 
         self.debug = None
 
-    def interpolate_previous_coords(self, coords, t):
-        prev_coords = []
+    def interpolate_coords(self, coords, t, forward=True):
+        new_coords = []
         kept_coords = []
         for coord in coords:
-            vector = self.flow_interpolator.interpolate_coord(coord, t, forward=False)
+            vector = self.flow_interpolator.interpolate_coord(coord, t, forward)
             if vector is None:
                 kept_coords.append(False)
                 continue
-            prev_coords.append(coord - vector)
+            if forward:
+                new_coords.append(coord + vector)
+            else:
+                new_coords.append(coord - vector)
             kept_coords.append(True)
-        return prev_coords, kept_coords
+        return new_coords, kept_coords
 
     def _match_voxels(self, coords_interpx, coords_real):
         coords_interpx = np.array(coords_interpx) * self.flow_interpolator.scaling
@@ -38,7 +41,7 @@ class VoxelReassigner:
         return dist, idx
 
     def get_previous_voxels(self, coords, t, prev_coords_real):
-        prev_coords_interpx, kept_idxs = self.interpolate_previous_coords(coords, t)
+        prev_coords_interpx, kept_idxs = self.interpolate_coords(coords, t, forward=False)
         _, matched_idx = self._match_voxels(prev_coords_interpx, prev_coords_real)
         matched_coords = prev_coords_real[matched_idx]
         distances = np.linalg.norm((coords[kept_idxs] - matched_coords) * self.flow_interpolator.scaling, axis=1)
@@ -48,9 +51,33 @@ class VoxelReassigner:
         ))
         return matches
 
+    def get_next_voxels(self, coords, t, next_coords_real):
+        next_coords_interpx, kept_idxs = self.interpolate_coords(coords, t, forward=True)
+        _, matched_idx = self._match_voxels(next_coords_interpx, next_coords_real)
+        matched_coords = next_coords_real[matched_idx]
+        distances = np.linalg.norm((coords[kept_idxs] - matched_coords) * self.flow_interpolator.scaling, axis=1)
+        matches = matched_coords[distances < self.flow_interpolator.max_distance_um]
+        return matches
+
+    def get_next_labels(self, coords, t, next_coords_real):
+        matches = self.get_next_voxels(coords, t, next_coords_real)
+        return matches
+
     def get_new_label(self, coords, t, prev_coords_real, prev_labels):
         matches = self.get_previous_voxels(coords, t, prev_coords_real)
-        new_labels = [prev_labels[tuple(match[1])] for match in matches]
+        new_labels = {tuple(match[0]): prev_labels[match[1]] for match in matches}
+        # todo, any not-kept idxs should be assigned to the closest labelled voxel's label
+        match_coords = np.array([match[0] for match in matches])
+        match_idxs = np.array([match[1] for match in matches])
+        last_frame_coords = prev_coords_real[match_idxs]
+        # coords from coords not in match_coords
+        unmatched_coords = np.array([coord for coord in coords if tuple(coord) not in new_labels.keys()])
+        # use kd tree to match unmatched coords to nearest match_coords
+        _, matched_idx = self._match_voxels(unmatched_coords, match_coords)
+        matched_coords = match_coords[matched_idx]
+        matched_labels = [new_labels[tuple(coord)] for coord in matched_coords]
+        new_labels.update({tuple(coord): label for coord, label in zip(unmatched_coords, matched_labels)})
+        return new_labels, last_frame_coords
 
 
 if __name__ == "__main__":
@@ -73,11 +100,33 @@ if __name__ == "__main__":
     flow_interpx = FlowInterpolator(im_infos[0])
     viewer.add_labels(test_label)
 
-    label_num = 115
-    t = 1
-
-    label_coords = np.argwhere(test_label[t] == label_num)
-    prev_mask_coords = np.argwhere(test_label[t-1] > 0)
+    label_num = 121
 
     voxel_reassigner = VoxelReassigner(im_infos[0], flow_interpx)
-    voxel_reassigner.get_new_label(label_coords, t, prev_mask_coords, test_label[t-1][test_label[t-1] > 0])
+    new_label_im = np.zeros_like(test_label)
+    new_label_im[0][tuple(np.argwhere(test_label[0] == label_num).T)] = label_num
+    for t in range(9):
+        label_coords = np.argwhere(new_label_im[t] == label_num)
+        next_mask_coords = np.argwhere(test_label[t+1] > 0)
+        matches = voxel_reassigner.get_next_labels(label_coords, t, next_mask_coords)
+
+        new_label_im[t+1][tuple(np.array(matches).T)] = label_num
+    viewer.add_labels(new_label_im)
+
+    # last_t = 2
+    # voxel_reassigner = VoxelReassigner(im_infos[0], flow_interpx)
+    # new_label_im = np.zeros_like(test_label)
+    # new_label_im[last_t][tuple(np.argwhere(test_label[last_t] == label_num).T)] = label_num
+    # inverted_range = np.arange(last_t+1)[::-1][:-1]
+    # wanted_coords = np.argwhere(test_label[last_t] == label_num)
+    # for t in inverted_range:
+    #     # label_coords = np.argwhere(test_label[t] == label_num)
+    #     prev_mask_coords = np.argwhere(test_label[t-1] > 0)
+    #     # all_coords = np.argwhere(test_label[t] > 0)
+    #
+    #     # new_labels = voxel_reassigner.get_new_label(label_coords, t, prev_mask_coords, test_label[t-1][test_label[t-1] > 0])
+    #     new_labels, wanted_coords = voxel_reassigner.get_new_label(wanted_coords, t, prev_mask_coords, test_label[t-1][test_label[t-1] > 0])
+    #
+    #     new_label_coords = list(new_labels.keys())
+    #     new_label_im[t][tuple(np.array(new_label_coords).T)] = list(new_labels.values())
+    # viewer.add_labels(new_label_im)
