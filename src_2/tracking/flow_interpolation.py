@@ -27,6 +27,7 @@ class FlowInterpolator:
         self.im_memmap = None
         self.flow_vector_array = None
 
+        # caching
         self.current_t = None
         self.check_rows = None
         self.check_coords = None
@@ -54,7 +55,7 @@ class FlowInterpolator:
         else:
             return
 
-    def _get_nearby_coords(self, t, coord):
+    def _get_nearby_coords(self, t, coords):
         # coord_radius = self.im_distance_memmap[t, coord[0], coord[1], coord[2]]
         # if coord_radius == 0:
         #     logger.error(f'Selected voxel {coord} is not within the mask in temporal frame {t}.')
@@ -62,41 +63,57 @@ class FlowInterpolator:
         # using a ckdtree, check for any nearby coords from coord
         if self.current_t != t:
             self.current_tree = cKDTree(self.check_coords * self.scaling)
-        scaled_coord = np.array(coord) * self.scaling
+        scaled_coords = np.array(coords) * self.scaling
         # get all coords and distances within the radius of the coord
-        nearby_idxs = self.current_tree.query_ball_point(scaled_coord, self.max_distance_um, p=2)
-        if len(nearby_idxs) == 0:
-            logger.debug(f'No nearby flow vectors found for {coord} in temporal frame {t}.')
-            return None, None
-        distances = self.current_tree.query(scaled_coord, k=len(nearby_idxs), p=2)[0]
+        nearby_idxs = self.current_tree.query_ball_point(scaled_coords, self.max_distance_um, p=2)
+        # if len(nearby_idxs) == 0:
+        #     logger.debug(f'No nearby flow vectors found for {coord} in temporal frame {t}.')
+        #     return None, None
+        k_all = [len(nearby_idxs[i]) for i in range(len(nearby_idxs))]
+        max_k = np.max(k_all)
+        distances, nearby_idxs = self.current_tree.query(scaled_coords, k=max_k, p=2, workers=-1)
+        distances = [distances[i][:k_all[i]] for i in range(len(distances))]
+        nearby_idxs = [nearby_idxs[i][:k_all[i]] for i in range(len(nearby_idxs))]
         return nearby_idxs, distances
 
-    def _get_vector_weights(self, check_rows, nearby_idxs, distances):
-        # lowest cost should be most highly weighted
-        cost_weights = -check_rows[nearby_idxs, -1]
+    def _get_vector_weights(self, nearby_idxs, distances_all):
+        weights_all = []
+        for i in range(len(nearby_idxs)):
+            # lowest cost should be most highly weighted
+            cost_weights = -self.check_rows[nearby_idxs[i], -1]
 
-        # closest distance should be most highly weighted
-        if np.min(distances) == 0:
-            distance_weights = (distances == 0) * 1.0
-        else:
-            distance_weights = 1 / distances
+            if len(distances_all[i]) == 0:
+                weights_all.append(None)
+                continue
 
-        weights = cost_weights * distance_weights
-        # weights = distance_weights#cost_weights * distance_weights
-        weights -= np.min(weights) - 1
-        weights /= np.sum(weights)
-        return weights
+            if np.min(distances_all[i]) == 0:
+                distance_weights = (distances_all[i] == 0) * 1.0
+            else:
+                distance_weights = 1 / distances_all[i]
 
-    def _get_final_vector(self, check_rows, nearby_idxs, weights):
-        vectors = check_rows[nearby_idxs, 4:7]
-        if len(weights.shape) == 0:
-            final_vector = vectors[0]
-            return final_vector
-        weighted_vectors = vectors * weights[:, None]
-        final_vector = np.sum(weighted_vectors, axis=0)  # already normalized by weights
-        return final_vector
+            weights = cost_weights * distance_weights
+            # weights = distance_weights#cost_weights * distance_weights
+            weights -= np.min(weights) - 1
+            weights /= np.sum(weights)
+            weights_all.append(weights)
+        return weights_all
 
-    def interpolate_coord(self, coord, t):
+    def _get_final_vector(self, nearby_idxs, weights_all):
+        final_vectors = np.zeros((len(nearby_idxs), 3))
+        for i in range(len(nearby_idxs)):
+            if weights_all[i] is None:
+                final_vectors[i] = np.nan
+                continue
+            vectors = self.check_rows[nearby_idxs[i], 4:7]
+            if len(weights_all[i].shape) == 0:
+                final_vectors[i] = vectors[0]
+            else:
+                weighted_vectors = vectors * weights_all[i][:, None]
+                final_vectors[i] = np.sum(weighted_vectors, axis=0)  # already normalized by weights
+        return final_vectors
+
+    def interpolate_coord(self, coords, t):
+        # todo figure out vectorized way to implement this, e.g. give a list of coords, do them all at once.
         # interpolate the flow vector at the coordinate at time t, either forward in time or backward in time.
         # For forward, simply find nearby LMPs, interpolate based on distance-weighted vectors
         # For backward, get coords from t-1 + vector, then find nearby coords from that, and interpolate based on distance-weighted vectors
@@ -111,16 +128,16 @@ class FlowInterpolator:
                 # check coords will be the coords + vector
                 self.check_coords = self.check_rows[:, 1:4] + self.check_rows[:, 4:7]
 
-        nearby_idxs, distances = self._get_nearby_coords(t, coord)
+        nearby_idxs, distances_all = self._get_nearby_coords(t, coords)
 
-        if nearby_idxs is None:
-            return None
+        # if nearby_idxs is None:
+        #     return None
 
-        weights = self._get_vector_weights(self.check_rows, nearby_idxs, distances)
-        final_vector = self._get_final_vector(self.check_rows, nearby_idxs, weights)
+        weights_all = self._get_vector_weights(nearby_idxs, distances_all)
+        final_vectors = self._get_final_vector(nearby_idxs, weights_all)
 
         self.current_t = t
-        return final_vector
+        return final_vectors
 
     def _initialize(self):
         self._get_t()
@@ -147,82 +164,86 @@ if __name__ == "__main__":
         im_info.create_output_path('flow_vector_array', ext='.npy')
         im_infos.append(im_info)
 
-    flow_interpx = FlowInterpolator(im_infos[0], forward=False)
+    flow_interpx = FlowInterpolator(im_infos[0], forward=True)
     # flow_interpx.run()
-    viewer.add_image(flow_interpx.im_memmap)
     num_frames = flow_interpx.im_memmap.shape[0]
 
     # going backwards
     coords = np.argwhere(test_label[num_frames-1] > 0)
     # get 100 random coords
     np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
+    coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
     tracks = []
     track_properties = {'frame_num': []}
-    frame_range = np.arange(num_frames)
-    frame_range = frame_range[::-1]
-    for track_num, coord in enumerate(coords):
-        tracks.append([track_num, frame_range[0], coord[0], coord[1], coord[2]])
-        track_properties['frame_num'].append(0)
-        for t in frame_range:
-            final_vector = flow_interpx.interpolate_coord(coord, t)
-            if final_vector is None:
-                break
-            track_properties['frame_num'].append(t - 1)
-            coord = (coord[0] - final_vector[0], coord[1] - final_vector[1], coord[2] - final_vector[2])
-            tracks.append([track_num, t - 1, coord[0], coord[1], coord[2]])
-    # reverse tracks
-    tracks = tracks[::-1]
+    frame_range = np.arange(num_frames)[:-1]
+    for t in frame_range:
+        print(f'Interpolating frame {t} of {num_frames-1}')
+        final_vector = flow_interpx.interpolate_coord(coords, t)
+        for coord_num, coord in enumerate(coords):
+            # if final_vector[coord_num] is all nan, skip
+            if np.all(np.isnan(final_vector[coord_num])):
+                coords[coord_num] = np.nan
+                continue
+            if t == frame_range[0]:
+                tracks.append([coord_num, frame_range[0], coord[0], coord[1], coord[2]])
+                track_properties['frame_num'].append(frame_range[0])
+            track_properties['frame_num'].append(t + 1)
+            coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
+                                          coord[1] + final_vector[coord_num][1],
+                                          coord[2] + final_vector[coord_num][2]])
+            tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
+
+    viewer.add_image(flow_interpx.im_memmap)
     viewer.add_tracks(tracks, properties=track_properties, name='tracks')
 
-    flow_interpx = FlowInterpolator(im_infos[0])
-    # going forwards
-    coords_skel = np.argwhere(test_skel[0] == 80)
-    coords_label = np.argwhere(test_label[0] == 651)
-    coords = np.argwhere(test_label[0] > 0)
-    # get 100 random coords
-    np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
-
-    tracks = []
-    track_properties = {'frame_num': []}
-    for track_num, coord in enumerate(coords):
-        tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-        track_properties['frame_num'].append(0)
-        for t in range(num_frames):
-            final_vector = flow_interpx.interpolate_coord(coord, t)
-            if final_vector is None:
-                break
-            track_properties['frame_num'].append(t+1)
-            coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
-            tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
-    viewer.add_tracks(tracks, properties = track_properties, name='tracks')
-    tracks = []
-    track_properties = {'frame_num': []}
-    for track_num, coord in enumerate(coords_skel):
-        tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-        track_properties['frame_num'].append(0)
-        for t in range(num_frames):
-            final_vector = flow_interpx.interpolate_coord(coord, t)
-            if final_vector is None:
-                break
-            track_properties['frame_num'].append(t+1)
-            coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
-            tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
-    viewer.add_tracks(tracks, properties = track_properties, name='tracks')
-    tracks = []
-    track_properties = {'frame_num': []}
-    for track_num, coord in enumerate(coords_label):
-        tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-        track_properties['frame_num'].append(0)
-        for t in range(num_frames):
-            final_vector = flow_interpx.interpolate_coord(coord, t)
-            if final_vector is None:
-                break
-            track_properties['frame_num'].append(t+1)
-            coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
-            tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
-    viewer.add_tracks(tracks, properties = track_properties, name='tracks')
-
-    print('done')
+    # flow_interpx = FlowInterpolator(im_infos[0])
+    # # going forwards
+    # coords_skel = np.argwhere(test_skel[0] == 80)
+    # coords_label = np.argwhere(test_label[0] == 651)
+    # coords = np.argwhere(test_label[0] > 0)
+    # # get 100 random coords
+    # np.random.seed(0)
+    # coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
+    #
+    # tracks = []
+    # track_properties = {'frame_num': []}
+    # for track_num, coord in enumerate(coords):
+    #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
+    #     track_properties['frame_num'].append(0)
+    #     for t in range(num_frames):
+    #         final_vector = flow_interpx.interpolate_coord(coord, t)
+    #         if final_vector is None:
+    #             break
+    #         track_properties['frame_num'].append(t+1)
+    #         coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
+    #         tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
+    # viewer.add_tracks(tracks, properties = track_properties, name='tracks')
+    # tracks = []
+    # track_properties = {'frame_num': []}
+    # for track_num, coord in enumerate(coords_skel):
+    #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
+    #     track_properties['frame_num'].append(0)
+    #     for t in range(num_frames):
+    #         final_vector = flow_interpx.interpolate_coord(coord, t)
+    #         if final_vector is None:
+    #             break
+    #         track_properties['frame_num'].append(t+1)
+    #         coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
+    #         tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
+    # viewer.add_tracks(tracks, properties = track_properties, name='tracks')
+    # tracks = []
+    # track_properties = {'frame_num': []}
+    # for track_num, coord in enumerate(coords_label):
+    #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
+    #     track_properties['frame_num'].append(0)
+    #     for t in range(num_frames):
+    #         final_vector = flow_interpx.interpolate_coord(coord, t)
+    #         if final_vector is None:
+    #             break
+    #         track_properties['frame_num'].append(t+1)
+    #         coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
+    #         tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
+    # viewer.add_tracks(tracks, properties = track_properties, name='tracks')
+    #
+    # print('done')
 

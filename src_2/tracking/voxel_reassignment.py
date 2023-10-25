@@ -69,12 +69,12 @@ if __name__ == "__main__":
     flow_interpx = FlowInterpolator(im_infos[0])
     viewer.add_labels(test_label)
 
-    label_num = 121
+    label_num = 100
 
     voxel_reassigner = VoxelReassigner(im_infos[0], flow_interpx)
     new_label_im = np.zeros_like(test_label)
     new_label_im[0][tuple(np.argwhere(test_label[0] == label_num).T)] = label_num
-    for t in range(9):
+    for t in range(1):
         label_coords = np.argwhere(new_label_im[t] == label_num)
         next_mask_coords = np.argwhere(test_label[t+1] > 0)
         matches = voxel_reassigner.get_next_voxels(label_coords, t, next_mask_coords)
