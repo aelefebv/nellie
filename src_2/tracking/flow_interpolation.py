@@ -71,6 +71,8 @@ class FlowInterpolator:
         #     return None, None
         k_all = [len(nearby_idxs[i]) for i in range(len(nearby_idxs))]
         max_k = np.max(k_all)
+        if max_k == 0:
+            return None, None
         distances, nearby_idxs = self.current_tree.query(scaled_coords, k=max_k, p=2, workers=-1)
         distances = [distances[i][:k_all[i]] for i in range(len(distances))]
         nearby_idxs = [nearby_idxs[i][:k_all[i]] for i in range(len(nearby_idxs))]
@@ -113,7 +115,6 @@ class FlowInterpolator:
         return final_vectors
 
     def interpolate_coord(self, coords, t):
-        # todo figure out vectorized way to implement this, e.g. give a list of coords, do them all at once.
         # interpolate the flow vector at the coordinate at time t, either forward in time or backward in time.
         # For forward, simply find nearby LMPs, interpolate based on distance-weighted vectors
         # For backward, get coords from t-1 + vector, then find nearby coords from that, and interpolate based on distance-weighted vectors
@@ -129,14 +130,14 @@ class FlowInterpolator:
                 self.check_coords = self.check_rows[:, 1:4] + self.check_rows[:, 4:7]
 
         nearby_idxs, distances_all = self._get_nearby_coords(t, coords)
+        self.current_t = t
 
-        # if nearby_idxs is None:
-        #     return None
+        if nearby_idxs is None:
+            return None
 
         weights_all = self._get_vector_weights(nearby_idxs, distances_all)
         final_vectors = self._get_final_vector(nearby_idxs, weights_all)
 
-        self.current_t = t
         return final_vectors
 
     def _initialize(self):
