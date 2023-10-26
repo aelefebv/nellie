@@ -41,10 +41,10 @@ class VoxelReassigner:
         # then link those t1 voxels back to the t0 voxels
         # now we have linked t0 voxels (vox_prev_kept) to t1 voxels (vox_matched_to_centroids)
         # but we have to make sure the link is within a distance constraint.
-        vox_next_matched_valid, vox_prev_matched_valid, distances_valid = self._distance_threshold(
+        vox_prev_matched_valid, vox_next_matched_valid, distances_valid = self._distance_threshold(
             vox_prev_kept, vox_matched_to_centroids
         )
-        return vox_next_matched_valid, vox_prev_matched_valid, distances_valid
+        return vox_prev_matched_valid, vox_next_matched_valid, distances_valid
 
     def _match_backward(self, flow_interpolator, vox_next, vox_prev, t):
         # interpolate flow vectors to all voxels in t1 from centroids derived from t0 centroids + t0 flow vectors
@@ -64,10 +64,10 @@ class VoxelReassigner:
         vox_matched_to_centroids = vox_prev[matched_idx.tolist()]
         # then link those t1 voxels (vox_next_kept) back to the t0 voxels (vox_matched_to_centroids).
         # but we have to make sure the link is within a distance constraint.
-        vox_next_matched_valid, vox_prev_matched_valid, distances_valid = self._distance_threshold(
+        vox_prev_matched_valid, vox_next_matched_valid, distances_valid = self._distance_threshold(
             vox_matched_to_centroids, vox_next_kept
         )
-        return vox_next_matched_valid, vox_prev_matched_valid, distances_valid
+        return vox_prev_matched_valid, vox_next_matched_valid, distances_valid
 
     def _match_voxels_to_centroids(self, coords_real, coords_interpx):
         coords_interpx = np.array(coords_interpx) * self.flow_interpolator_fw.scaling
@@ -76,41 +76,42 @@ class VoxelReassigner:
         dist, idx = tree.query(coords_interpx, k=1, workers=-1)
         return dist, idx
 
-    def _assign_unique_matches(self, matches, distances, kept_coords):
-        match_dict = {}
-        for idx, match in enumerate(matches):
-            match_tuple = tuple(match)
-            if match_tuple not in match_dict.keys():
-                match_dict[match_tuple] = [[], []]
-            match_dict[match_tuple][0].append(distances[idx])
-            match_dict[match_tuple][1].append(kept_coords[idx])
-        vox_prev_matches = []
-        vox_next_matches = []
-        # final_matches = []
-        for match_tuple, (distance_matches, coord_matches) in match_dict.items():
-            if len(distance_matches) == 1:
-                vox_prev_matches.append(coord_matches[0])
-                vox_next_matches.append(match_tuple)
-                # final_matches.append((tuple(coord_matches[0]), match_tuple))
+    def _assign_unique_matches(self, vox_prev_matches, vox_next_matches, distances):
+        # create a dict where the key is a voxel in t1, and the value is a list of distances and t0 voxels matched to it
+        vox_next_dict = {}
+        for match_idx, match_next in enumerate(vox_next_matches):
+            match_next_tuple = tuple(match_next)
+            if match_next_tuple not in vox_next_dict.keys():
+                vox_next_dict[match_next_tuple] = [[], []]
+            vox_next_dict[match_next_tuple][0].append(distances[match_idx])
+            vox_next_dict[match_next_tuple][1].append(vox_prev_matches[match_idx])
+
+        # now assign matches based on the t1 voxel's closest (in distance) matched t0 voxel
+        vox_prev_matches_final = []
+        vox_next_matches_final = []
+        for match_next_tuple, (distance_match_list, vox_prev_match_list) in vox_next_dict.items():
+            if len(distance_match_list) == 1:
+                vox_prev_matches_final.append(vox_prev_match_list[0])
+                vox_next_matches_final.append(match_next_tuple)
                 continue
-            min_idx = np.argmin(distance_matches)
-            vox_prev_matches.append(coord_matches[min_idx])
-            vox_next_matches.append(match_tuple)
-            # final_matches.append((tuple(coord_matches[min_idx]), match_tuple))
-        return vox_prev_matches, vox_next_matches
+            min_idx = np.argmin(distance_match_list)
+            vox_prev_matches_final.append(vox_prev_match_list[min_idx])
+            vox_next_matches_final.append(match_next_tuple)
+        return vox_prev_matches_final, vox_next_matches_final
 
     def _distance_threshold(self, vox_prev_matched, vox_next_matched):
         distances = np.linalg.norm((vox_prev_matched - vox_next_matched) * self.flow_interpolator_fw.scaling, axis=1)
         distance_mask = distances < self.flow_interpolator_fw.max_distance_um
-        vox_next_matched_valid = vox_next_matched[distance_mask]
         vox_prev_matched_valid = vox_prev_matched[distance_mask]
+        vox_next_matched_valid = vox_next_matched[distance_mask]
         distances_valid = distances[distance_mask]
-        return vox_next_matched_valid, vox_prev_matched_valid, distances_valid
+        return vox_prev_matched_valid, vox_next_matched_valid, distances_valid
 
     def match_voxels(self, vox_prev, vox_next, t):
         # forward interpolation:
         # from t0 voxels and interpolated flow, get t1 centroids.
         #  match nearby t1 voxels to t1 centroids, which are linked to t0 voxels.
+        logger.debug(f'Forward voxel matching for t: {t}')
         vox_prev_matches_fw, vox_next_matches_fw, distances_fw = self._match_forward(
             self.flow_interpolator_fw, vox_prev, vox_next, t
         )
@@ -119,44 +120,39 @@ class VoxelReassigner:
         # from t0 centroids and real flow, get t1 centroids.
         #  interpolate flow at nearby t1 voxels. subtract flow from voxels to get t0 centroids.
         #  match nearby t0 voxels to t0 centroids, which are linked to t1 voxels.
+        logger.debug(f'Backward voxel matching for t: {t}')
         vox_prev_matches_bw, vox_next_matches_bw, distances_bw = self._match_backward(
             self.flow_interpolator_bw, vox_next, vox_prev, t + 1
         )
+
+        logger.debug(f'Assigning unique matches for t: {t}')
         vox_prev_matches = np.concatenate([vox_prev_matches_fw, vox_prev_matches_bw])
         vox_next_matches = np.concatenate([vox_next_matches_fw, vox_next_matches_bw])
         distances = np.concatenate([distances_fw, distances_bw])
 
-        vox_prev_matches, vox_next_matches = self._assign_unique_matches(*match_tuple)
-
-        # if len(centroids_next_interpx) == 0:
-        #     return []
-        # match_dist, matched_idx = self._match_voxels(centroids_next_interpx, vox_next)
-        # matched_coords = vox_next[matched_idx.tolist()]
-        # match_tuple, kept_idxs = self._distance_threshold(vox_prev, matched_coords, kept_idxs)
-        # final_matches = self._assign_unique_matches(*match_tuple)
-        # prev_coords_matched = np.array([match[0] for match in final_matches])
-        # next_coords_matched = np.array([match[1] for match in final_matches])
-        # unmatched coords are coords in next_coords_real not in next_coords_matched
-        tuple_next_matched = set([tuple(coord) for coord in next_coords_matched])
-        unmatched_coords = np.array([coord for coord in vox_next if tuple(coord) not in tuple_next_matched])
-        unmatched_diff = 1
+        vox_prev_matches_unique, vox_next_matches_unique = self._assign_unique_matches(vox_prev_matches, vox_next_matches, distances)
+        vox_next_matches_unique = np.array(vox_next_matches_unique)
+        vox_next_matched_tuples = set([tuple(coord) for coord in vox_next_matches_unique])
+        vox_next_unmatched = np.array([coord for coord in vox_next if tuple(coord) not in vox_next_matched_tuples])
+        unmatched_diff = np.inf
         while unmatched_diff:
-            logger.debug(f'unmatched diff: {unmatched_diff}')
-            num_unmatched = len(unmatched_coords)
-            tree = cKDTree(next_coords_matched * self.flow_interpolator_fw.scaling)
-            dists, idxs = tree.query(unmatched_coords * self.flow_interpolator_fw.scaling, k=1, workers=-1)
-            unmatched_matches = np.array([[prev_coords_matched[idx], unmatched_coords[i]] for i, idx in enumerate(idxs) if dists[i] < self.flow_interpolator_fw.max_distance_um])
+            num_unmatched = len(vox_next_unmatched)
+            logger.debug(f'Assign unassigned voxels. Number of unassigned: {num_unmatched}')
+            tree = cKDTree(vox_next_matches_unique * self.flow_interpolator_fw.scaling)
+            dists, idxs = tree.query(vox_next_unmatched * self.flow_interpolator_fw.scaling, k=1, workers=-1)
+            unmatched_matches = np.array([
+                [vox_prev_matches_unique[idx], vox_next_unmatched[i]]
+                for i, idx in enumerate(idxs) if dists[i] < self.flow_interpolator_fw.max_distance_um
+            ])
             if len(unmatched_matches) == 0:
                 break
             # add unmatched matches to coords_matched
-            prev_coords_matched = np.concatenate([prev_coords_matched, unmatched_matches[:, 0]])
-            next_coords_matched = np.concatenate([next_coords_matched, unmatched_matches[:, 1]])
-            tuple_next_matched = set([tuple(coord) for coord in next_coords_matched])
-            unmatched_coords = np.array([coord for coord in vox_next if tuple(coord) not in tuple_next_matched])
-            unmatched_diff = num_unmatched - len(unmatched_coords)
-        # todo deal with unmatched coords. after matching, find all nearby coords with dist less than max val, assign those to closest label
-        #  do this while there are still unmatched coords, or constant number of unmatched coords between two iterations.
-        return prev_coords_matched, next_coords_matched
+            vox_prev_matches_unique = np.concatenate([vox_prev_matches_unique, unmatched_matches[:, 0]])
+            vox_next_matches_unique = np.concatenate([vox_next_matches_unique, unmatched_matches[:, 1]])
+            vox_next_matched_tuples = set([tuple(coord) for coord in vox_next_matches_unique])
+            vox_next_unmatched = np.array([coord for coord in vox_next if tuple(coord) not in vox_next_matched_tuples])
+            unmatched_diff = num_unmatched - len(vox_next_unmatched)
+        return vox_prev_matches_unique, vox_next_matches_unique
 
 
 if __name__ == "__main__":
@@ -211,7 +207,7 @@ if __name__ == "__main__":
         # label_coords = np.array([match[1] for match in matches])
         new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
         vox_prev = matched_next
-    viewer.add_image(flow_interpx.im_memmap)
+    viewer.add_image(flow_interpx_fw.im_memmap)
     viewer.add_labels(new_label_im)
     # napari.run()
     # print('hi')
