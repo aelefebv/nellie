@@ -30,7 +30,8 @@ class VoxelReassigner:
         # only keep vectors where the voxel is not nan
         vectors_interpx_prev = vectors_interpx_prev[kept_prev_vox_idxs]
         # get centroids in t1 from voxels in t0 + interpolated flow at that voxel
-        centroids_next_interpx = vox_prev[kept_prev_vox_idxs] + vectors_interpx_prev
+        vox_prev_kept = vox_prev[kept_prev_vox_idxs]
+        centroids_next_interpx = vox_prev_kept + vectors_interpx_prev
         if len(centroids_next_interpx) == 0:
             return []
         # now we have estimated centroids in t1 (centroids_next_interpx) and linked voxels in t0 (vox_prev[kept_prev_vox_idxs]).
@@ -38,7 +39,6 @@ class VoxelReassigner:
         match_dist, matched_idx = self._match_voxels_to_centroids(vox_next, centroids_next_interpx)
         vox_matched_to_centroids = vox_next[matched_idx.tolist()]
         # then link those t1 voxels back to the t0 voxels
-        vox_prev_kept = vox_prev[kept_prev_vox_idxs]
         # now we have linked t0 voxels (vox_prev_kept) to t1 voxels (vox_matched_to_centroids)
         # but we have to make sure the link is within a distance constraint.
         vox_next_matched_valid, vox_prev_matched_valid, distances_valid = self._distance_threshold(
@@ -47,20 +47,27 @@ class VoxelReassigner:
         return vox_next_matched_valid, vox_prev_matched_valid, distances_valid
 
     def _match_backward(self, flow_interpolator, vox_next, vox_prev, t):
-        vectors = flow_interpolator.interpolate_coord(vox_next, t)
-        if vectors is None:
+        # interpolate flow vectors to all voxels in t1 from centroids derived from t0 centroids + t0 flow vectors
+        vectors_interpx_prev = flow_interpolator.interpolate_coord(vox_next, t)
+        if vectors_interpx_prev is None:
             return [], []
-        kept_next_vox_idxs = ~np.isnan(vectors).any(axis=1)
-        vectors = vectors[kept_next_vox_idxs]
-        centroids_prev_interpx = vox_next[kept_next_vox_idxs] - vectors
-        # now we have estimated centroids in t0 and linked voxels in t1.
-        # we then have to match t0 voxels to estimated t0 centroids
+        # only keep voxels that are not nan
+        kept_next_vox_idxs = ~np.isnan(vectors_interpx_prev).any(axis=1)
+        # only keep vectors where the voxel is not nan
+        vectors_interpx_prev = vectors_interpx_prev[kept_next_vox_idxs]
+        # get centroids in t0 from voxels in t1 - interpolated flow (from t0 to t1) at that voxel
+        vox_next_kept = vox_next[kept_next_vox_idxs]
+        centroids_prev_interpx = vox_next_kept - vectors_interpx_prev
+        # now we have estimated centroids in t0 (centroids_prev_interpx) and linked voxels in t1 (vox_next[kept_next_vox_idxs]).
+        # we then have to match t0 voxels (vox_prev) to estimated t0 centroids (centroids_prev_interpx)
         match_dist, matched_idx = self._match_voxels_to_centroids(vox_prev, centroids_prev_interpx)
-        # then link those t0 voxels back to the t1 voxels
-        matched_coords = vox_prev[matched_idx.tolist()]
-        match_tuple, kept_next_vox_idxs = self._distance_threshold(vox_next, matched_coords, kept_next_vox_idxs)
-        vox_next_matches, vox_prev_matches = self._assign_unique_matches(*match_tuple)
-        return vox_prev_matches, vox_next_matches
+        vox_matched_to_centroids = vox_prev[matched_idx.tolist()]
+        # then link those t1 voxels (vox_next_kept) back to the t0 voxels (vox_matched_to_centroids).
+        # but we have to make sure the link is within a distance constraint.
+        vox_next_matched_valid, vox_prev_matched_valid, distances_valid = self._distance_threshold(
+            vox_matched_to_centroids, vox_next_kept
+        )
+        return vox_next_matched_valid, vox_prev_matched_valid, distances_valid
 
     def _match_voxels_to_centroids(self, coords_real, coords_interpx):
         coords_interpx = np.array(coords_interpx) * self.flow_interpolator_fw.scaling
@@ -103,20 +110,21 @@ class VoxelReassigner:
     def match_voxels(self, vox_prev, vox_next, t):
         # forward interpolation:
         # from t0 voxels and interpolated flow, get t1 centroids.
+        #  match nearby t1 voxels to t1 centroids, which are linked to t0 voxels.
         vox_prev_matches_fw, vox_next_matches_fw, distances_fw = self._match_forward(
             self.flow_interpolator_fw, vox_prev, vox_next, t
         )
-        #  match nearby t1 voxels to t1 centroids, which are linked to t0 voxels.
 
         # backward interpolation:
         # from t0 centroids and real flow, get t1 centroids.
+        #  interpolate flow at nearby t1 voxels. subtract flow from voxels to get t0 centroids.
+        #  match nearby t0 voxels to t0 centroids, which are linked to t1 voxels.
         vox_prev_matches_bw, vox_next_matches_bw, distances_bw = self._match_backward(
             self.flow_interpolator_bw, vox_next, vox_prev, t + 1
         )
-        #  interpolate flow at nearby t1 voxels. subtract flow from voxels to get t0 centroids.
-        #  match nearby t0 voxels to t0 centroids, which are linked to t1 voxels.
         vox_prev_matches = np.concatenate([vox_prev_matches_fw, vox_prev_matches_bw])
         vox_next_matches = np.concatenate([vox_next_matches_fw, vox_next_matches_bw])
+        distances = np.concatenate([distances_fw, distances_bw])
 
         vox_prev_matches, vox_next_matches = self._assign_unique_matches(*match_tuple)
 
