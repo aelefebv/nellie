@@ -206,8 +206,8 @@ class Label:
 
 if __name__ == "__main__":
     import os
-    test_folder = r"D:\test_files\nelly_tests"
-    # test_folder = r"D:\test_files\beading"
+    # test_folder = r"D:\test_files\nelly_tests"
+    test_folder = r"D:\test_files\beading"
     # test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
