@@ -137,7 +137,6 @@ class VoxelReassigner:
         unmatched_diff = np.inf
         while unmatched_diff:
             num_unmatched = len(vox_next_unmatched)
-            logger.debug(f'Assign unassigned voxels. Number of unassigned: {num_unmatched}')
             tree = cKDTree(vox_next_matches_unique * self.flow_interpolator_fw.scaling)
             dists, idxs = tree.query(vox_next_unmatched * self.flow_interpolator_fw.scaling, k=1, workers=-1)
             unmatched_matches = np.array([
@@ -151,7 +150,10 @@ class VoxelReassigner:
             vox_next_matches_unique = np.concatenate([vox_next_matches_unique, unmatched_matches[:, 1]])
             vox_next_matched_tuples = set([tuple(coord) for coord in vox_next_matches_unique])
             vox_next_unmatched = np.array([coord for coord in vox_next if tuple(coord) not in vox_next_matched_tuples])
-            unmatched_diff = num_unmatched - len(vox_next_unmatched)
+            new_num_unmatched = len(vox_next_unmatched)
+            unmatched_diff = num_unmatched - new_num_unmatched
+            logger.debug(f'Reassigned {unmatched_diff} voxels out of {num_unmatched} unassigned voxels. '
+                         f'{new_num_unmatched} voxels remain.')
         return vox_prev_matches_unique, vox_next_matches_unique
 
 
@@ -159,14 +161,14 @@ if __name__ == "__main__":
     import os
     import napari
     viewer = napari.Viewer()
-    # test_folder = r"D:\test_files\nelly_tests"
-    # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
-    # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
+    test_folder = r"D:\test_files\nelly_tests"
+    test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
+    test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
 
-    test_folder = r"D:\test_files\beading"
-    test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
-    test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif",
-                                 mode='r')
+    # test_folder = r"D:\test_files\beading"
+    # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
+    # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif",
+    #                              mode='r')
 
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
