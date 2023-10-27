@@ -6,8 +6,10 @@ from scipy.spatial import cKDTree
 from tifffile import tifffile
 
 from src import logger
-from src_2.io.im_info import ImInfo
+from src_2.im_info.im_info import ImInfo
 from src_2.tracking.flow_interpolation import FlowInterpolator
+from src_2.utils.general import get_reshaped_image
+
 
 class VoxelReassigner:
     def __init__(self, im_info: ImInfo,
@@ -214,45 +216,51 @@ if __name__ == "__main__":
     import os
     import napari
     viewer = napari.Viewer()
-    test_folder = r"D:\test_files\nelly_tests"
-    test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
-    test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
+    # test_folder = r"D:\test_files\nelly_tests"
+    # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
+    # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
 
+    im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
     # test_folder = r"D:\test_files\beading"
     # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
     # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif",
     #                              mode='r')
 
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files[:1]:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        im_info.create_output_path('flow_vector_array', ext='.npy')
-        im_infos.append(im_info)
 
-    flow_interpx_fw = FlowInterpolator(im_infos[0])
-    flow_interpx_bw = FlowInterpolator(im_infos[0], forward=False)
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files[:1]:
+    #     im_path = os.path.join(test_folder, file)
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('flow_vector_array', ext='.npy')
+    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
+    label_memmap = get_reshaped_image(label_memmap, im_info = im_info)
+    # im_infos.append(im_info)
+
+    flow_interpx_fw = FlowInterpolator(im_info)
+    flow_interpx_bw = FlowInterpolator(im_info, forward=False)
     # viewer.add_labels(test_label)
 
-    label_nums = list(range(1, np.max(test_label[0])))
-    # get 100 random coords
-    np.random.seed(0)
-    labels = np.random.choice(len(label_nums), 10, replace=False)
-    # label_num = 100
-    all_mask_coords = [np.argwhere(test_label[t] > 0) for t in range(im_info.shape[0])]
+    # label_nums = list(range(1, np.max(im_info)))
+    # # get 100 random coords
+    # np.random.seed(0)
+    # labels = np.random.choice(len(label_nums), 10, replace=False)
+    # # label_num = 100
+    all_mask_coords = [np.argwhere(label_memmap[t] > 0) for t in range(im_info.shape[0])]
 
-    voxel_reassigner = VoxelReassigner(im_infos[0], flow_interpx_fw, flow_interpx_bw)
-    new_label_im = np.zeros_like(test_label)
+    voxel_reassigner = VoxelReassigner(im_info, flow_interpx_fw, flow_interpx_bw)
+    new_label_im = np.zeros_like(label_memmap)
     # where test_label == any number in labels
     # label_coords = np.argwhere(np.isin(test_label[0], labels))
-    vox_prev = np.argwhere(test_label[0] > 0)
-    new_label_im[0][tuple(vox_prev.T)] = test_label[0][tuple(vox_prev.T)]
+    vox_prev = np.argwhere(label_memmap[0] > 0)
+    new_label_im[0][tuple(vox_prev.T)] = label_memmap[0][tuple(vox_prev.T)]
     matches = {}
     reversed_matches = {}
     # for t in range(2):
     for t in range(im_info.shape[0]-1):
+    # for t in range(2):
         print(f't: {t} / {im_info.shape[0]-1}')
         matches[t] = {}
         vox_prev = all_mask_coords[t]

@@ -1,4 +1,4 @@
-from src_2.io.im_info import ImInfo
+from src_2.im_info.im_info import ImInfo
 from src import xp, ndi, logger
 from src_2.utils.general import get_reshaped_image
 import numpy as np
@@ -192,7 +192,7 @@ class HuMomentTracking:
         marker_indices = xp.argwhere(marker_frame)
 
         region_bounds = self._get_im_bounds(marker_indices, distance_max_frame)
-        max_radius = int(xp.ceil(xp.max(distance_frame[marker_frame])))*4+1
+        max_radius = int(xp.ceil(xp.max(distance_max_frame[marker_frame])))*2+1
 
         intensity_sub_volumes = self._get_sub_volumes(intensity_frame, region_bounds, max_radius)
         frangi_sub_volumes = self._get_sub_volumes(frangi_frame, region_bounds, max_radius)

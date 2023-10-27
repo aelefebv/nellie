@@ -2,7 +2,7 @@ import os
 from itertools import combinations_with_replacement
 
 from src import logger
-from src_2.io.im_info import ImInfo
+from src_2.im_info.im_info import ImInfo
 from src_2.utils.general import get_reshaped_image, bbox
 from src import xp, ndi
 import numpy as np

@@ -126,34 +126,58 @@ class ImInfo:
             self.metadata = {}
             self.dim_sizes = {}
 
+    def _load_tif(self):
+        with tifffile.TiffFile(self.im_path) as tif:
+            if tif.is_imagej:
+                self.metadata = tif.imagej_metadata
+                self.metadata_type = 'imagej'
+            elif tif.is_ome:
+                ome_xml = tifffile.tiffcomment(self.im_path)
+                ome = ome_types.from_xml(ome_xml, parser="lxml")
+                self.metadata = ome
+                self.metadata_type = 'ome'
+            else:
+                self.metadata = tif.pages[0].tags._dict
+                self.metadata_type = None
+                if 'C' in self.axes:
+                    logger.error('Multichannel TIFF files must have ImageJ or OME metadata. Resubmit the'
+                                 'file either with correct metadata or the single channel of interest.')
+            if self.axes == '':
+                self.axes = tif.series[0].axes
+            self.shape = tif.series[0].shape
+            if len(self.axes) != len(self.shape):
+                logger.error(f"Dimension order {self.axes} does not match the number of dimensions in the image "
+                             f"({len(self.shape)}).")
+                # raise error
+                raise ValueError
+
+    def _load_nd2(self):
+        import nd2
+        with nd2.ND2File(self.im_path) as nd2_file:
+            self.metadata = nd2_file.metadata
+            self.metadata_type = 'nd2'
+
+            if self.axes == '':
+                self.axes = ''.join(nd2_file.sizes.keys())
+            self.shape = tuple(nd2_file.sizes.values())
+            if len(self.axes) != len(self.shape):
+                logger.error(f"Dimension order {self.axes} does not match the number of dimensions in the image "
+                             f"({len(self.shape)}).")
+                # raise error
+                raise ValueError
+
     def _load_metadata(self):
         logger.debug('Getting metadata.')
         try:
-            with tifffile.TiffFile(self.im_path) as tif:
-                if tif.is_imagej:
-                    self.metadata = tif.imagej_metadata
-                    self.metadata_type = 'imagej'
-                elif tif.is_ome:
-                    ome_xml = tifffile.tiffcomment(self.im_path)
-                    ome = ome_types.from_xml(ome_xml, parser="lxml")
-                    self.metadata = ome
-                    self.metadata_type = 'ome'
-                else:
-                    self.metadata = tif.pages[0].tags._dict
-                    self.metadata_type = None
-                    if 'C' in self.axes:
-                        logger.error('Multichannel TIFF files must have ImageJ or OME metadata. Resubmit the'
-                                     'file either with correct metadata or the single channel of interest.')
-                if self.axes == '':
-                    self.axes = tif.series[0].axes
-                self.shape = tif.series[0].shape
-                if len(self.axes) != len(self.shape):
-                    logger.error(f"Dimension order {self.axes} does not match the number of dimensions in the image "
-                                 f"({len(self.shape)}).")
-                    exit(1)
+            if self.im_path.endswith('.tif'):
+                self._load_tif()
+            elif self.im_path.endswith('.nd2'):
+                self._load_nd2()
+
         except Exception as e:
-            logger.error(f"Error loading file {self.im_path}: {str(e)}")
-            exit(1)
+            logger.error(f"Error loading file {self.im_path}")
+            raise e
+
         accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
         if self.axes not in accepted_axes:
             # todo, have user optionally specify axes
@@ -221,7 +245,8 @@ class ImInfo:
 
 
 if __name__ == "__main__":
-    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\nelly_gav_tests"
+    test_folder = r"D:\test_files\nelly_gav_tests"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
     im_infos = []

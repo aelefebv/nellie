@@ -1,5 +1,5 @@
 from src import xp, ndi, logger
-from src_2.io.im_info import ImInfo
+from src_2.im_info.im_info import ImInfo
 from src_2.utils.general import get_reshaped_image
 import skimage.morphology as morph
 import numpy as np

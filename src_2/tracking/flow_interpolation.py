@@ -1,6 +1,6 @@
 import tifffile
 
-from src_2.io.im_info import ImInfo
+from src_2.im_info.im_info import ImInfo
 from src import xp, ndi, logger
 from src_2.utils.general import get_reshaped_image
 import numpy as np
@@ -152,28 +152,35 @@ if __name__ == "__main__":
     # test_folder = r"D:\test_files\nelly_tests"
     # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
     # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
-    test_folder = r"D:\test_files\beading"
-    test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
-    test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif", mode='r')
+    # test_folder = r"D:\test_files\beading"
+    # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
+    # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif", mode='r')
 
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        im_info.create_output_path('flow_vector_array', ext='.npy')
-        im_infos.append(im_info)
+    im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('flow_vector_array', ext='.npy')
+    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
+    label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
 
-    flow_interpx = FlowInterpolator(im_infos[0], forward=True)
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files:
+    #     im_path = os.path.join(test_folder, file)
+    #     im_info = ImInfo(im_path)
+    #     im_info.create_output_path('flow_vector_array', ext='.npy')
+    #     im_infos.append(im_info)
+
+    flow_interpx = FlowInterpolator(im_info, forward=True)
     # flow_interpx.run()
     num_frames = flow_interpx.im_memmap.shape[0]
 
     # going backwards
-    coords = np.argwhere(test_label[num_frames-1] > 0)
+    coords = np.argwhere(label_memmap[num_frames-1] > 0).astype(float)
     # get 100 random coords
-    np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
+    # np.random.seed(0)
+    # coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
     tracks = []
     track_properties = {'frame_num': []}
     frame_range = np.arange(num_frames)[:-1]
