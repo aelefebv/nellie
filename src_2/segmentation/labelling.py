@@ -10,7 +10,7 @@ class Label:
                  threshold: float = 0,
                  min_radius_um: float = 0.2,
                  max_radius_um=xp.inf,
-                 snr_cleaning=True):
+                 snr_cleaning=False):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
@@ -141,8 +141,6 @@ class Label:
         return subtraction_mask
 
     def _get_object_snrs(self, original_frame, labels_frame):
-        if not self.snr_cleaning:
-            return labels_frame
         logger.debug('Calculating object SNRs.')
         subtraction_mask = self._get_subtraction_mask(original_frame, labels_frame)
         unique_labels = xp.unique(labels_frame)
@@ -187,7 +185,8 @@ class Label:
         # threshold_mask, threshold_labels = self._remove_bad_sized_objects(frame_in_mem)
         # trimmed_labels = self._trim_labels(frame_in_mem, threshold_labels)
         _, cleaned_labels = self._remove_bad_sized_objects(labels)
-        cleaned_labels = self._get_object_snrs(original_in_mem, cleaned_labels)
+        if self.snr_cleaning:
+            cleaned_labels = self._get_object_snrs(original_in_mem, cleaned_labels)
         cleaned_labels[cleaned_labels>0] += self.max_label_num
         self.max_label_num = xp.max(cleaned_labels)
         return cleaned_labels

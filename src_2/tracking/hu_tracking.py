@@ -163,6 +163,7 @@ class HuMomentTracking:
         im_distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_distance_memmap = get_reshaped_image(im_distance_memmap, self.num_t, self.im_info)
 
+        self.im_info.create_output_path('flow_vector_array', ext='.npy')
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
     def _get_hu_moments(self, sub_volumes):
@@ -353,8 +354,6 @@ class HuMomentTracking:
 
         # save the array
         np.save(self.flow_vector_array_path, flow_vector_array)
-
-        print('done')
 
     def run(self):
         self._get_t()

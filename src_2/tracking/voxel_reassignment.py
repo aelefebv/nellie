@@ -1,3 +1,6 @@
+import heapq
+from collections import defaultdict
+
 import numpy as np
 from scipy.spatial import cKDTree
 from tifffile import tifffile
@@ -85,7 +88,7 @@ class VoxelReassigner:
             match_next_tuple = tuple(match_next)
             if match_next_tuple not in vox_next_dict.keys():
                 vox_next_dict[match_next_tuple] = [[], []]
-            vox_next_dict[match_next_tuple][0].append(distances[match_idx])
+            vox_next_dict[match_next_tuple] [0].append(distances[match_idx])
             vox_next_dict[match_next_tuple][1].append(vox_prev_matches[match_idx])
 
         # now assign matches based on the t1 voxel's closest (in distance) matched t0 voxel
@@ -99,7 +102,51 @@ class VoxelReassigner:
             min_idx = np.argmin(distance_match_list)
             vox_prev_matches_final.append(vox_prev_match_list[min_idx])
             vox_next_matches_final.append(match_next_tuple)
+        #
+        # vox_prev_dict = {}
+        # for match_idx, match_prev in enumerate(vox_prev_matches):
+        #     match_prev_tuple = tuple(match_prev)
+        #     if match_prev_tuple not in vox_prev_dict.keys():
+        #         vox_prev_dict[match_prev_tuple] = [[], []]
+        #     vox_prev_dict[match_prev_tuple][0].append(distances[match_idx])
+        #     vox_prev_dict[match_prev_tuple][1].append(vox_next_matches[match_idx])
+        #
+        # vox_prev_matches_final_2 = []
+        # vox_next_matches_final_2 = []
+        # for match_prev_tuple, (distance_match_list, vox_next_match_list) in vox_prev_dict.items():
+        #     if len(distance_match_list) == 1:
+        #         vox_prev_matches_final_2.append(match_prev_tuple)
+        #         vox_next_matches_final_2.append(vox_next_match_list[0])
+        #         continue
+        #     min_idx = np.argmin(distance_match_list)
+        #     vox_prev_matches_final_2.append(match_prev_tuple)
+        #     vox_next_matches_final_2.append(vox_next_match_list[min_idx])
+
+        # Create a priority queue with (distance, prev_voxel, next_voxel) tuples
+        priority_queue = [(distances[i], tuple(vox_prev_matches[i]), tuple(vox_next_matches[i]))
+                          for i in range(len(distances))]
+        heapq.heapify(priority_queue)  # Convert list to a heap in-place
+
+        assigned_prev = set()
+        assigned_next = set()
+        vox_prev_matches_final = []
+        vox_next_matches_final = []
+
+        while priority_queue:
+            # Pop the smallest distance tuple from the heap
+            distance, prev_voxel, next_voxel = heapq.heappop(priority_queue)
+
+            if prev_voxel not in assigned_prev or next_voxel not in assigned_next:
+                # If neither of the voxels has been assigned, then assign them
+                vox_prev_matches_final.append(prev_voxel)
+                vox_next_matches_final.append(next_voxel)
+                assigned_prev.add(prev_voxel)
+                assigned_next.add(next_voxel)
+
         return vox_prev_matches_final, vox_next_matches_final
+
+
+        # return vox_prev_matches_final_1, vox_next_matches_final_1
 
     def _distance_threshold(self, vox_prev_matched, vox_next_matched):
         distances = np.linalg.norm((vox_prev_matched - vox_next_matched) * self.flow_interpolator_fw.scaling, axis=1)
@@ -133,6 +180,10 @@ class VoxelReassigner:
         distances = np.concatenate([distances_fw, distances_bw])
 
         vox_prev_matches_unique, vox_next_matches_unique = self._assign_unique_matches(vox_prev_matches, vox_next_matches, distances)
+
+        # return vox_prev_matches_unique, vox_next_matches_unique
+
+
         vox_next_matches_unique = np.array(vox_next_matches_unique)
         vox_next_matched_tuples = set([tuple(coord) for coord in vox_next_matches_unique])
         vox_next_unmatched = np.array([coord for coord in vox_next if tuple(coord) not in vox_next_matched_tuples])
@@ -156,7 +207,7 @@ class VoxelReassigner:
             unmatched_diff = num_unmatched - new_num_unmatched
             logger.debug(f'Reassigned {unmatched_diff}/{num_unmatched} unassigned voxels. '
                          f'{new_num_unmatched} remain.')
-        return vox_prev_matches_unique, vox_next_matches_unique
+        return np.array(vox_prev_matches_unique), np.array(vox_next_matches_unique)
 
 
 if __name__ == "__main__":
@@ -199,8 +250,9 @@ if __name__ == "__main__":
     vox_prev = np.argwhere(test_label[0] > 0)
     new_label_im[0][tuple(vox_prev.T)] = test_label[0][tuple(vox_prev.T)]
     matches = {}
-    for t in range(2):
-    # for t in range(im_info.shape[0]-1):
+    reversed_matches = {}
+    # for t in range(2):
+    for t in range(im_info.shape[0]-1):
         print(f't: {t} / {im_info.shape[0]-1}')
         matches[t] = {}
         vox_prev = all_mask_coords[t]
@@ -209,11 +261,61 @@ if __name__ == "__main__":
             break
         matched_prev, matched_next = voxel_reassigner.match_voxels(vox_prev, vox_next, t)
         matches[t] = {tuple(matched_next[i]): tuple(matched_prev[i]) for i in range(len(matched_prev))}
+        reversed_matches[t] = {tuple(matched_prev[i]): tuple(matched_next[i]) for i in range(len(matched_prev))}
         if len(matched_prev) == 0:
             break
-        # new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
+        new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
     viewer.add_image(flow_interpx_fw.im_memmap)
-    # viewer.add_labels(new_label_im)
+    viewer.add_labels(new_label_im)
+
+    # def extend_tracks(matches):
+    #     # Initialize tracks with voxels from the first timeframe
+    #     tracks = [[prev_coord, next_coord] for next_coord, prev_coord in matches[0].items()]
+
+    def extend_tracks(reversed_matches):
+        # Reverse the matches for faster lookups
+        # reversed_matches = [{v: k for k, v in match.items()} for match in matches]
+
+        # Initialize tracks with the coordinates from the first timeframe
+        tracks = [[coord_prev, coord_next] for coord_prev, coord_next in reversed_matches[0].items()]
+        tracks_t = [[0, 1] for _ in range(len(tracks))]
+
+        # Loop over timeframes to extend the tracks
+        for t in range(1, len(reversed_matches)):
+            new_tracks = []
+            new_tracks_t = []
+            for track_num, track in enumerate(tracks):
+                last_coord = track[-1]  # Latest appended coordinate of the track
+
+                # If this coordinate is found in the keys of the current timeframe's reversed matches
+                if last_coord in reversed_matches[t]:
+                    # Extend the track and add to the new_tracks list
+                    new_tracks.append(track + [reversed_matches[t][last_coord]])
+                    tracks_t[track_num].append(t+1)
+                else:
+                    # If the track can't be extended for the current timeframe, keep it as is
+                    new_tracks.append(track)
+                    # tracks_t[track_num].append(t)
+
+            tracks = new_tracks
+
+        return tracks, tracks_t
+
+
+    tracks, tracks_t = extend_tracks(reversed_matches)
+
+    napari_tracks = []
+    napari_props = {'frame_num': []}
+    skip_num = 100
+    track_skipped = tracks[::skip_num]
+    track_skipped_t = tracks_t[::skip_num]
+    for track_num, track in enumerate(track_skipped):
+        for track_idx, coord in enumerate(track):
+            napari_tracks.append([track_num, track_skipped_t[track_num][track_idx], coord[0], coord[1], coord[2]])
+            napari_props['frame_num'].append(track_skipped_t[track_num][track_idx])
+
+    viewer.add_tracks(napari_tracks, name='tracks', properties=napari_props)
+
 
     solo_tracks = {}
     solo_properties = {}
@@ -221,55 +323,54 @@ if __name__ == "__main__":
     for t in sorted(matches.keys()):
         solo_tracks[t] = []
         solo_properties[t] = {'frame_num': []}
-        for next_voxel, prev_voxel in matches[0].items():
+        # select 100 random match keys
+        # np.random.seed(0)
+        # matches_t = np.random.choice(len(matches[t]), 10000, replace=False).tolist()
+        # match_keys = list(matches[t].keys())
+        # for match_idx in matches_t:
+        #     next_voxel = match_keys[match_idx]
+        #     prev_voxel = matches[t][next_voxel]
+        #     solo_tracks[t].append([track_num, t, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
+        #     solo_properties[t]['frame_num'].append(t)
+        #     solo_tracks[t].append([track_num, t+1, next_voxel[0], next_voxel[1], next_voxel[2]])
+        #     solo_properties[t]['frame_num'].append(t+1)
+        #     track_num += 1
+        for next_voxel, prev_voxel in matches[t].items():
             solo_tracks[t].append([track_num, 0, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
             solo_properties[t]['frame_num'].append(t)
             solo_tracks[t].append([track_num, 1, next_voxel[0], next_voxel[1], next_voxel[2]])
             solo_properties[t]['frame_num'].append(t+1)
             track_num += 1
 
-    viewer.add_tracks(solo_tracks[0], name='solo_tracks', properties=solo_properties[0])
+    viewer.add_tracks(solo_tracks[0][:10000], name='solo_tracks')
     viewer.add_tracks(solo_tracks[1], name='solo_tracks', properties=solo_properties[1])
 
-    # tracks2 = {}
-    # last_voxel_to_track_id = {}  # Maps the last voxel of a track to its track ID
-    # track_id = 0
-    #
-    # for t in sorted(matches.keys()):
-    #     new_last_voxel_to_track_id = {}  # Will replace 'last_voxel_to_track_id' after this iteration
-    #
-    #     for next_voxel, prev_voxel in matches[t].items():
-    #         track_id_for_prev_voxel = last_voxel_to_track_id.get(prev_voxel)
-    #
-    #         if track_id_for_prev_voxel is not None:
-    #             tracks2[track_id_for_prev_voxel].append(next_voxel)
-    #             new_last_voxel_to_track_id[next_voxel] = track_id_for_prev_voxel
-    #         else:
-    #             tracks2[track_id] = [prev_voxel, next_voxel]
-    #             new_last_voxel_to_track_id[next_voxel] = track_id
-    #             track_id += 1
-    #
-    #     last_voxel_to_track_id = new_last_voxel_to_track_id
+    tracks2 = {}
+    last_voxel_to_track_id = {}  # Maps the last voxel of a track to its track ID
+    track_id = 0
+    track_t = {}
 
-    # At this point, 'tracks' contains the sequences of voxel coordinates over time
+    for t in sorted(matches.keys()):
+        new_last_voxel_to_track_id = {}  # Will replace 'last_voxel_to_track_id' after this iteration
 
-    # napari.run()
-    # print('hi')
+        for next_voxel, prev_voxel in matches[t].items():
+            track_id_for_prev_voxel = last_voxel_to_track_id.get(prev_voxel)
 
-    # last_t = 2
-    # voxel_reassigner = VoxelReassigner(im_infos[0], flow_interpx)
-    # new_label_im = np.zeros_like(test_label)
-    # new_label_im[last_t][tuple(np.argwhere(test_label[last_t] == label_num).T)] = label_num
-    # inverted_range = np.arange(last_t+1)[::-1][:-1]
-    # wanted_coords = np.argwhere(test_label[last_t] == label_num)
-    # for t in inverted_range:
-    #     # label_coords = np.argwhere(test_label[t] == label_num)
-    #     prev_mask_coords = np.argwhere(test_label[t-1] > 0)
-    #     # all_coords = np.argwhere(test_label[t] > 0)
-    #
-    #     # new_labels = voxel_reassigner.get_new_label(label_coords, t, prev_mask_coords, test_label[t-1][test_label[t-1] > 0])
-    #     new_labels, wanted_coords = voxel_reassigner.get_new_label(wanted_coords, t, prev_mask_coords, test_label[t-1][test_label[t-1] > 0])
-    #
-    #     new_label_coords = list(new_labels.keys())
-    #     new_label_im[t][tuple(np.array(new_label_coords).T)] = list(new_labels.values())
-    # viewer.add_labels(new_label_im)
+            if track_id_for_prev_voxel is not None:
+                tracks2[track_id_for_prev_voxel].append(next_voxel)
+                new_last_voxel_to_track_id[next_voxel] = track_id_for_prev_voxel
+                track_t[track_id_for_prev_voxel].append(t+1)
+            else:
+                tracks2[track_id] = [prev_voxel, next_voxel]
+                new_last_voxel_to_track_id[next_voxel] = track_id
+                track_t[track_id] = [t, t+1]
+                track_id += 1
+
+        last_voxel_to_track_id = new_last_voxel_to_track_id
+
+    napari_tracks2 = []
+    for track_num, track in tracks2.items():
+        for coord_idx, coord in enumerate(track):
+            napari_tracks2.append([track_num, track_t[track_num][coord_idx], coord[0], coord[1], coord[2]])
+
+    viewer.add_tracks(napari_tracks2[:10000], name='tracks')
