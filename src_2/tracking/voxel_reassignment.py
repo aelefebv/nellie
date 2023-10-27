@@ -24,7 +24,7 @@ class VoxelReassigner:
     def _match_forward(self, flow_interpolator, vox_prev, vox_next, t):
         vectors_interpx_prev = flow_interpolator.interpolate_coord(vox_prev, t)
         if vectors_interpx_prev is None:
-            return [], []
+            return [], [], []
         # only keep voxels that are not nan
         kept_prev_vox_idxs = ~np.isnan(vectors_interpx_prev).any(axis=1)
         # only keep vectors where the voxel is not nan
@@ -33,7 +33,7 @@ class VoxelReassigner:
         vox_prev_kept = vox_prev[kept_prev_vox_idxs]
         centroids_next_interpx = vox_prev_kept + vectors_interpx_prev
         if len(centroids_next_interpx) == 0:
-            return []
+            return [], [], []
         # now we have estimated centroids in t1 (centroids_next_interpx) and linked voxels in t0 (vox_prev[kept_prev_vox_idxs]).
         # we then have to match t1 voxels (vox_next) to estimated t1 centroids (centroids_next_interpx)
         match_dist, matched_idx = self._match_voxels_to_centroids(vox_next, centroids_next_interpx)
@@ -50,7 +50,7 @@ class VoxelReassigner:
         # interpolate flow vectors to all voxels in t1 from centroids derived from t0 centroids + t0 flow vectors
         vectors_interpx_prev = flow_interpolator.interpolate_coord(vox_next, t)
         if vectors_interpx_prev is None:
-            return [], []
+            return [], [], []
         # only keep voxels that are not nan
         kept_next_vox_idxs = ~np.isnan(vectors_interpx_prev).any(axis=1)
         # only keep vectors where the voxel is not nan
@@ -58,6 +58,8 @@ class VoxelReassigner:
         # get centroids in t0 from voxels in t1 - interpolated flow (from t0 to t1) at that voxel
         vox_next_kept = vox_next[kept_next_vox_idxs]
         centroids_prev_interpx = vox_next_kept - vectors_interpx_prev
+        if len(centroids_prev_interpx) == 0:
+            return [], [], []
         # now we have estimated centroids in t0 (centroids_prev_interpx) and linked voxels in t1 (vox_next[kept_next_vox_idxs]).
         # we then have to match t0 voxels (vox_prev) to estimated t0 centroids (centroids_prev_interpx)
         match_dist, matched_idx = self._match_voxels_to_centroids(vox_prev, centroids_prev_interpx)
@@ -152,8 +154,8 @@ class VoxelReassigner:
             vox_next_unmatched = np.array([coord for coord in vox_next if tuple(coord) not in vox_next_matched_tuples])
             new_num_unmatched = len(vox_next_unmatched)
             unmatched_diff = num_unmatched - new_num_unmatched
-            logger.debug(f'Reassigned {unmatched_diff} voxels out of {num_unmatched} unassigned voxels. '
-                         f'{new_num_unmatched} voxels remain.')
+            logger.debug(f'Reassigned {unmatched_diff}/{num_unmatched} unassigned voxels. '
+                         f'{new_num_unmatched} remain.')
         return vox_prev_matches_unique, vox_next_matches_unique
 
 
@@ -196,21 +198,61 @@ if __name__ == "__main__":
     # label_coords = np.argwhere(np.isin(test_label[0], labels))
     vox_prev = np.argwhere(test_label[0] > 0)
     new_label_im[0][tuple(vox_prev.T)] = test_label[0][tuple(vox_prev.T)]
-    # for t in range(1):
-    for t in range(im_info.shape[0]-1):
+    matches = {}
+    for t in range(2):
+    # for t in range(im_info.shape[0]-1):
         print(f't: {t} / {im_info.shape[0]-1}')
+        matches[t] = {}
+        vox_prev = all_mask_coords[t]
         vox_next = all_mask_coords[t + 1]
         if len(vox_prev) == 0:
             break
         matched_prev, matched_next = voxel_reassigner.match_voxels(vox_prev, vox_next, t)
+        matches[t] = {tuple(matched_next[i]): tuple(matched_prev[i]) for i in range(len(matched_prev))}
         if len(matched_prev) == 0:
             break
-        # old_label_coords = np.array([match[0] for match in matches])
-        # label_coords = np.array([match[1] for match in matches])
-        new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
-        vox_prev = matched_next
+        # new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
     viewer.add_image(flow_interpx_fw.im_memmap)
-    viewer.add_labels(new_label_im)
+    # viewer.add_labels(new_label_im)
+
+    solo_tracks = {}
+    solo_properties = {}
+    track_num = 0
+    for t in sorted(matches.keys()):
+        solo_tracks[t] = []
+        solo_properties[t] = {'frame_num': []}
+        for next_voxel, prev_voxel in matches[0].items():
+            solo_tracks[t].append([track_num, 0, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
+            solo_properties[t]['frame_num'].append(t)
+            solo_tracks[t].append([track_num, 1, next_voxel[0], next_voxel[1], next_voxel[2]])
+            solo_properties[t]['frame_num'].append(t+1)
+            track_num += 1
+
+    viewer.add_tracks(solo_tracks[0], name='solo_tracks', properties=solo_properties[0])
+    viewer.add_tracks(solo_tracks[1], name='solo_tracks', properties=solo_properties[1])
+
+    # tracks2 = {}
+    # last_voxel_to_track_id = {}  # Maps the last voxel of a track to its track ID
+    # track_id = 0
+    #
+    # for t in sorted(matches.keys()):
+    #     new_last_voxel_to_track_id = {}  # Will replace 'last_voxel_to_track_id' after this iteration
+    #
+    #     for next_voxel, prev_voxel in matches[t].items():
+    #         track_id_for_prev_voxel = last_voxel_to_track_id.get(prev_voxel)
+    #
+    #         if track_id_for_prev_voxel is not None:
+    #             tracks2[track_id_for_prev_voxel].append(next_voxel)
+    #             new_last_voxel_to_track_id[next_voxel] = track_id_for_prev_voxel
+    #         else:
+    #             tracks2[track_id] = [prev_voxel, next_voxel]
+    #             new_last_voxel_to_track_id[next_voxel] = track_id
+    #             track_id += 1
+    #
+    #     last_voxel_to_track_id = new_last_voxel_to_track_id
+
+    # At this point, 'tracks' contains the sequences of voxel coordinates over time
+
     # napari.run()
     # print('hi')
 

@@ -28,6 +28,8 @@ class Label:
         self.max_size_threshold_px = xp.inf
 
         self.remove_in_2d = False
+
+        self.max_label_num = 0
         # if any(xp.array(
         #         [self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']]
         # ) > (self.min_radius_um*2)):
@@ -83,7 +85,7 @@ class Label:
         #                                                          return_memmap=True)
 
         im_instance_label_path = self.im_info.create_output_path('im_instance_label')
-        self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path, shape=self.shape, dtype='int16',
+        self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path, shape=self.shape, dtype='int32',
                                                                   description='instance segmentation',
                                                                   return_memmap=True)
 
@@ -186,6 +188,8 @@ class Label:
         # trimmed_labels = self._trim_labels(frame_in_mem, threshold_labels)
         _, cleaned_labels = self._remove_bad_sized_objects(labels)
         cleaned_labels = self._get_object_snrs(original_in_mem, cleaned_labels)
+        cleaned_labels[cleaned_labels>0] += self.max_label_num
+        self.max_label_num = xp.max(cleaned_labels)
         return cleaned_labels
         # return labels
 
@@ -206,8 +210,8 @@ class Label:
 
 if __name__ == "__main__":
     import os
-    # test_folder = r"D:\test_files\nelly_tests"
-    test_folder = r"D:\test_files\beading"
+    test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\beading"
     # test_folder = r"D:\test_files\julius_examples"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
