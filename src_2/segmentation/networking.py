@@ -37,26 +37,47 @@ class Network:
 
     def _remove_connected_label_pixels(self, skel_labels):
         skel_labels = skel_labels.get()
-        depth, height, width = skel_labels.shape
+        if self.im_info.no_z:
+            height, width = skel_labels.shape
+        else:
+            depth, height, width = skel_labels.shape
 
         true_coords = np.argwhere(skel_labels>0)
 
         pixels_to_delete = []
-        for z, y, x in true_coords:
-            if z == 0 or z == depth - 1 or y == 0 or y == height - 1 or x == 0 or x == width - 1:
+        for coord in true_coords:
+            if self.im_info.no_z:
+                y, x = coord
+            else:
+                z, y, x = coord
+
+            if not self.im_info.no_z:
+                if z == 0 or z == depth - 1:
+                    continue
+            if y == 0 or y == height - 1 or x == 0 or x == width - 1:
                 continue  # Skip boundary voxels
 
             # Extract 3x3x3 neighborhood
-            label_neighborhood = skel_labels[z - 1:z + 2, y - 1:y + 2, x - 1:x + 2]
+            if self.im_info.no_z:
+                label_neighborhood = skel_labels[y - 1:y + 2, x - 1:x + 2]
+            else:
+                label_neighborhood = skel_labels[z - 1:z + 2, y - 1:y + 2, x - 1:x + 2]
 
             # Get labels of set voxels in the neighborhood
             labels_in_neighborhood = label_neighborhood[label_neighborhood > 0]
 
             if len(set(labels_in_neighborhood.tolist())) > 1:
-                pixels_to_delete.append((z, y, x))
+                if self.im_info.no_z:
+                    pixels_to_delete.append((y, x))
+                else:
+                    pixels_to_delete.append((z, y, x))
 
-        for z, y, x in pixels_to_delete:
-            skel_labels[z, y, x] = 0
+        if self.im_info.no_z:
+            for y, x in pixels_to_delete:
+                skel_labels[y, x] = 0
+        else:
+            for z, y, x in pixels_to_delete:
+                skel_labels[z, y, x] = 0
 
         return skel_labels
 
@@ -172,7 +193,11 @@ class Network:
 
     def _get_pixel_class(self, skel):
         skel_mask = xp.array(skel > 0).astype('uint8')
-        skel_mask_sum = ndi.convolve(skel_mask, weights=xp.ones((3, 3, 3)), mode='constant', cval=0) * skel_mask
+        if self.im_info.no_z:
+            weights = xp.ones((3, 3))
+        else:
+            weights = xp.ones((3, 3, 3))
+        skel_mask_sum = ndi.convolve(skel_mask, weights=weights, mode='constant', cval=0) * skel_mask
         skel_mask_sum[skel_mask_sum > 4] = 4
         return skel_mask_sum
 
@@ -216,7 +241,11 @@ class Network:
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
         skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
-        final_skel, _ = ndi.label(skel > 0, structure=xp.ones((3, 3, 3)))
+        if im_info.no_z:
+            structure = xp.ones((3, 3))
+        else:
+            structure = xp.ones((3, 3, 3))
+        final_skel, _ = ndi.label(skel > 0, structure=structure)
         final_skel = self._remove_connected_label_pixels(final_skel)
         # self._relabel_objects(label_frame, final_skel)
         pixel_class = self._get_pixel_class(final_skel).get()
@@ -247,28 +276,35 @@ class Network:
 
 
 if __name__ == "__main__":
-    import os
-    test_folder = r"D:\test_files\beading"
-    # test_folder = r"D:\test_files\nelly_tests"
-    # test_folder = r"D:\test_files\julius_examples"
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
-        im_info.create_output_path('im_instance_label')
-        im_info.create_output_path('im_frangi')
-        im_infos.append(im_info)
+    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('im_frangi')
+    skel = Network(im_info, num_t=2)
+    skel.run()
 
-    skeletonis = []
-    for im_info in im_infos[:1]:
-        # skel = Network(im_info)
-        # skel = Network(im_info, num_t=4)
-        skel = Network(im_info)
-        skel.run()
-        skeletonis.append(skel)
+    # import os
+    # test_folder = r"D:\test_files\beading"
+    # # test_folder = r"D:\test_files\nelly_tests"
+    # # test_folder = r"D:\test_files\julius_examples"
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files:
+    #     im_path = os.path.join(test_folder, file)
+    #     im_info = ImInfo(im_path)
+    #     # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
+    #     im_info.create_output_path('im_instance_label')
+    #     im_info.create_output_path('im_frangi')
+    #     im_infos.append(im_info)
+    #
+    # skeletonis = []
+    # for im_info in im_infos[:1]:
+    #     # skel = Network(im_info)
+    #     # skel = Network(im_info, num_t=4)
+    #     skel = Network(im_info)
+    #     skel.run()
+    #     skeletonis.append(skel)
 
     # # check if viewer exists as a variable
     # if 'viewer' not in locals():

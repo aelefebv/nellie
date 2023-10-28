@@ -8,22 +8,21 @@ class Label:
     def __init__(self, im_info: ImInfo,
                  num_t=None,
                  threshold: float = 0,
-                 min_radius_um: float = 0.2,
-                 max_radius_um=xp.inf,
+                 # min_radius_um: float = 0.2,
+                 # max_radius_um=xp.inf,
                  snr_cleaning=False):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.threshold = threshold
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
-        self.max_radius_um = max_radius_um
+        # self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
+        # self.max_radius_um = max_radius_um
         self.snr_cleaning = snr_cleaning
 
         self.im_memmap = None
         self.frangi_memmap = None
-        # remove objects less than 9 voxels
-        self.min_size_threshold_px = 4
+
         self.min_size_threshold_px = 0
         self.max_size_threshold_px = xp.inf
 
@@ -90,27 +89,30 @@ class Label:
                                                                   return_memmap=True)
 
     def _get_labels(self, frame):
-        ndim = 2 if self.remove_in_2d else 3
+        ndim = 2 if self.remove_in_2d or self.im_info.no_z else 3
         footprint = ndi.generate_binary_structure(ndim, 1)
 
         # thresh, _ = otsu_threshold(xp.log10(frame[frame > 0]))
         # thresh = 10**thresh
-        thresh = 10**triangle_threshold(xp.log10(frame[frame > 0]))
+        if self.im_info.no_z:
+            thresh = 0
+        else:
+            thresh = 10**triangle_threshold(xp.log10(frame[frame > 0]))
         # print(thresh, triangle_thresh)
 
         mask = frame > thresh
-        mask = ndi.binary_fill_holes(mask)
-        if self.im_info.no_z:
-            structure = xp.ones((2, 2))
-        else:
+        if not self.im_info.no_z:
+            mask = ndi.binary_fill_holes(mask)
             structure = xp.ones((2, 2, 2))
-        mask = ndi.binary_opening(mask, structure=structure)
+            mask = ndi.binary_opening(mask, structure=structure)
+        # else:
+        #     structure = xp.ones((2, 2))
 
         labels, _ = ndi.label(mask, structure=footprint)
         return mask, labels
 
     def _remove_bad_sized_objects(self, labels):
-        ndim = 2 if self.remove_in_2d else 3
+        ndim = 2 if self.remove_in_2d or self.im_info.no_z else 3
         footprint = ndi.generate_binary_structure(ndim, 1)
 
         label_sizes = xp.bincount(labels.ravel())
@@ -186,12 +188,12 @@ class Label:
         original_in_mem = xp.asarray(self.im_memmap[t, ...])
         frangi_in_mem = xp.asarray(self.frangi_memmap[t, ...])
         _, labels = self._get_labels(frangi_in_mem)
-        _, cleaned_labels = self._remove_bad_sized_objects(labels)
+        # _, labels = self._remove_bad_sized_objects(labels)
         if self.snr_cleaning:
-            cleaned_labels = self._get_object_snrs(original_in_mem, cleaned_labels)
-        cleaned_labels[cleaned_labels>0] += self.max_label_num
-        self.max_label_num = xp.max(cleaned_labels)
-        return cleaned_labels
+            labels = self._get_object_snrs(original_in_mem, labels)
+        labels[labels>0] += self.max_label_num
+        self.max_label_num = xp.max(labels)
+        return labels
 
     def _run_segmentation(self):
         for t in range(self.num_t):
@@ -212,7 +214,7 @@ if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
     im_info = ImInfo(im_path)
     im_info.create_output_path('im_frangi')
-    segment_unique = Label(im_info)
+    segment_unique = Label(im_info, num_t=2)
     segment_unique.run()
 
     # import os

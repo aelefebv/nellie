@@ -95,7 +95,10 @@ class Markers:
         border_tree = cKDTree(border_mask_coords)
         dist, _ = border_tree.query(mask_coords, k=1, distance_upper_bound=self.max_radius_px*2)
         distances_im_frame = xp.zeros_like(mask, dtype='float32')
-        distances_im_frame[mask_coords[:, 0], mask_coords[:, 1], mask_coords[:, 2]] = dist
+        if self.im_info.no_z:
+            distances_im_frame[mask_coords[:, 0], mask_coords[:, 1]] = dist
+        else:
+            distances_im_frame[mask_coords[:, 0], mask_coords[:, 1], mask_coords[:, 2]] = dist
         return distances_im_frame
 
     def _remove_close_peaks(self, coord, check_im):
@@ -165,7 +168,10 @@ class Markers:
         peak_im[tuple(peak_coords.T)] = 1
         # peak_im[tuple(cleaned_coords.T)] = 1
         # marker_frame = self._local_max_peak(distance_im)
-        xp.ix_(peak_coords[:, 0], peak_coords[:, 1], peak_coords[:, 2])
+        # if self.im_info.no_z:
+        #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1])
+        # else:
+        #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1], peak_coords[:, 2])
         return peak_im.get(), distance_im.get()
 
     def _run_mocap_marking(self):
@@ -181,22 +187,28 @@ class Markers:
 
 
 if __name__ == "__main__":
-    import os
-    test_folder = r"D:\test_files\beading"
-    # test_folder = r"D:\test_files\nelly_tests"
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        im_info.create_output_path('im_instance_label')
-        im_info.create_output_path('im_frangi')
-        im_infos.append(im_info)
-
-    marker_files = []
-    for im_info in im_infos[:1]:
-        markers = Markers(im_info)
-        # markers = Markers(im_info, num_t=4)
-        markers.run()
-        marker_files.append(markers)
+    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('im_frangi')
+    markers = Markers(im_info, num_t=2)
+    markers.run()
+    # import os
+    # test_folder = r"D:\test_files\beading"
+    # # test_folder = r"D:\test_files\nelly_tests"
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files:
+    #     im_path = os.path.join(test_folder, file)
+    #     im_info = ImInfo(im_path)
+    #     im_info.create_output_path('im_instance_label')
+    #     im_info.create_output_path('im_frangi')
+    #     im_infos.append(im_info)
+    #
+    # marker_files = []
+    # for im_info in im_infos[:1]:
+    #     markers = Markers(im_info)
+    #     # markers = Markers(im_info, num_t=4)
+    #     markers.run()
+    #     marker_files.append(markers)

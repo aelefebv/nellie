@@ -104,10 +104,19 @@ class HuMomentTracking:
         return features
 
     def _get_im_bounds(self, markers, distance_frame):
-        radii = distance_frame[markers[:, 0], markers[:, 1], markers[:, 2]]
+        if not self.im_info.no_z:
+            radii = distance_frame[markers[:, 0], markers[:, 1], markers[:, 2]]
+            idx_y = 1
+            idx_x = 2
+        else:
+            radii = distance_frame[markers[:, 0], markers[:, 1]]
+            idx_y = 0
+            idx_x = 1
         marker_radii = xp.ceil(radii)
-        z_low = xp.clip(markers[:, 0] - marker_radii, 0, self.shape[1])
-        z_high = xp.clip(markers[:, 0] + (marker_radii + 1), 0, self.shape[1])
+        if self.im_info.no_z:
+            z_low = xp.clip(markers[:, 0] - marker_radii, 0, self.shape[1])
+            z_high = xp.clip(markers[:, 0] + (marker_radii + 1), 0, self.shape[1])
+        # todo
         y_low = xp.clip(markers[:, 1] - marker_radii, 0, self.shape[2])
         y_high = xp.clip(markers[:, 1] + (marker_radii + 1), 0, self.shape[2])
         x_low = xp.clip(markers[:, 2] - marker_radii, 0, self.shape[3])
@@ -362,25 +371,33 @@ class HuMomentTracking:
 
 
 if __name__ == "__main__":
-    import os
-    # test_folder = r"D:\test_files\nelly_tests"
-    test_folder = r"D:\test_files\beading"
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        im_info.create_output_path('im_instance_label')
-        im_info.create_output_path('im_frangi')
-        im_info.create_output_path('im_marker')
-        im_info.create_output_path('im_distance')
-        im_info.create_output_path('flow_vector_array', ext='.npy')
-        im_infos.append(im_info)
-
-    hu_files = []
-    for im_info in im_infos[:1]:
-        # hu = HuMomentTracking(im_info, num_t=3)
-        hu = HuMomentTracking(im_info)
-        hu.run()
-        hu_files.append(hu)
+    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('im_frangi')
+    im_info.create_output_path('im_marker')
+    im_info.create_output_path('im_distance')
+    hu = HuMomentTracking(im_info, num_t=2)
+    hu.run()
+    # import os
+    # # test_folder = r"D:\test_files\nelly_tests"
+    # test_folder = r"D:\test_files\beading"
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files:
+    #     im_path = os.path.join(test_folder, file)
+    #     im_info = ImInfo(im_path)
+    #     im_info.create_output_path('im_instance_label')
+    #     im_info.create_output_path('im_frangi')
+    #     im_info.create_output_path('im_marker')
+    #     im_info.create_output_path('im_distance')
+    #     im_info.create_output_path('flow_vector_array', ext='.npy')
+    #     im_infos.append(im_info)
+    #
+    # hu_files = []
+    # for im_info in im_infos[:1]:
+    #     # hu = HuMomentTracking(im_info, num_t=3)
+    #     hu = HuMomentTracking(im_info)
+    #     hu.run()
+    #     hu_files.append(hu)
