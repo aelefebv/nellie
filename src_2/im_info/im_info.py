@@ -1,6 +1,7 @@
 import os
 
 import tifffile
+import nd2
 import ome_types
 from src import logger
 import numpy as np
@@ -45,10 +46,37 @@ class ImInfo:
 
         self.pipeline_paths = {}
 
+        self._check_memmappable()
+
     def _create_output_dir(self):
         logger.debug('Creating output directory.')
         if not os.path.isdir(self.output_dir):
             os.mkdir(self.output_dir)
+
+    def _check_memmappable(self):
+        try:
+            tifffile.memmap(self.im_path, mode='r')
+        except (ValueError, tifffile.tifffile.TiffFileError):
+            self._get_ome_tif()
+            self.im_path = self.pipeline_paths['ome']
+            self.extension = '.ome.tif'
+
+    def _get_ome_tif(self):
+        logger.info(f'Found extension {self.extension}. Getting ome.tif.')
+        ome_path = self.create_output_path('ome')
+        if os.path.isfile(ome_path):
+            return
+        if self.extension == '.nd2':
+            data = nd2.imread(self.im_path)
+        elif self.extension == '.tif':
+            # get only self.ch
+            data = tifffile.imread(self.im_path)
+        else:
+            logger.error(f'Filetype {self.extension} not supported. Please convert to .nd2 or .tif.')
+            raise ValueError
+        if not self.no_c:
+            data = np.take(data, self.ch, axis=self.axes.index('C'))
+        self.allocate_memory(ome_path, data=data)
 
     def _check_axes(self):
         if 'Z' in self.axes and self.shape[self.axes.index('Z')] > 1:
@@ -115,12 +143,20 @@ class ImInfo:
                     logger.warning('No FrameRate tag found, assuming T dimension is 1 second.')
                     self.dim_sizes['T'] = 1
                 logger.warning(f'File is not an ImageJ or OME type, estimated dimension sizes: {self.dim_sizes}')
+            elif self.metadata_type == 'nd2':
+                try:
+                    timestamps = self.metadata.recorded_data['Time [s]']
+                    self.dim_sizes['T'] = timestamps[-1] / len(timestamps)
+                except KeyError:
+                    logger.warning('No time data found in ND2 file, assuming 1 second per frame.')
+                    self.dim_sizes['T'] = 1
+                self.dim_sizes['X'] = self.metadata.volume.axesCalibration[0]
+                self.dim_sizes['Y'] = self.metadata.volume.axesCalibration[1]
+                self.dim_sizes['Z'] = self.metadata.volume.axesCalibration[2]
             self.metadata = None
             if self.dim_sizes['X'] != self.dim_sizes['Y']:
                 logger.warning('X and Y dimensions do not match. Rectangular pixels not supported, '
                                'so unexpected results and wrong measurements will occur.')
-
-
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}
@@ -152,11 +188,10 @@ class ImInfo:
                 raise ValueError
 
     def _load_nd2(self):
-        import nd2
         with nd2.ND2File(self.im_path) as nd2_file:
-            self.metadata = nd2_file.metadata
+            self.metadata = nd2_file.metadata.channels[self.ch]
+            self.metadata.recorded_data = nd2_file.recorded_data
             self.metadata_type = 'nd2'
-
             if self.axes == '':
                 self.axes = ''.join(nd2_file.sizes.keys())
             self.shape = tuple(nd2_file.sizes.values())
