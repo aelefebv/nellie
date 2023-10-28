@@ -6,10 +6,10 @@ from src_2.segmentation.networking import Network
 from src_2.tracking.hu_tracking import HuMomentTracking
 
 
-def run(im_path, num_t=None):
+def run(im_path, num_t=None, remove_edges=True):
     im_info = ImInfo(im_path)
 
-    preprocessing = Filter(im_info, num_t)
+    preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
     preprocessing.run()
 
     segmenting = Label(im_info, num_t)
@@ -36,6 +36,6 @@ if __name__ == "__main__":
     all_files = [os.path.join(top_dir, file) for file in os.listdir(top_dir)]
     # tif_files = [os.path.join(top_dir, file) for file in os.listdir(top_dir) if file.endswith('.tif')]
     # print(tif_files)
-    for file_num, tif_file in enumerate(all_files):
+    for file_num, tif_file in enumerate(all_files[:1]):
         print(f'Processing file {file_num + 1} of {len(all_files)}')
-        im_info = run(tif_file)
+        im_info = run(tif_file, remove_edges=False)

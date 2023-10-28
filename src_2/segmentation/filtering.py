@@ -92,30 +92,32 @@ class Filter:
     def _compute_hessian(self, image):
         gradients = xp.gradient(image)
         axes = range(image.ndim)
-
-        # h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)
-        #            for ax0, ax1 in combinations_with_replacement(axes, 2)])
         h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1).astype('float16')
                    for ax0, ax1 in combinations_with_replacement(axes, 2)])
-
-        # h_mask = xp.zeros((len(h_elems),) + h_elems[0].shape, dtype=bool)
-        # for i in range(h_mask.shape[0]):
-        #     h_mask[i] = self._get_frob_mask(h_elems[i])
         h_mask = self._get_frob_mask(h_elems)
         if self.remove_edges:
             h_mask = self._remove_edges(h_mask)
-        hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
 
-        hessian_matrices = np.concatenate([
-            np.concatenate([hxx, hxy, hxz], axis=-1),
-            np.concatenate([hxy, hyy, hyz], axis=-1),
-            np.concatenate([hxz, hyz, hzz], axis=-1)
-        ], axis=-2)
+        if self.im_info.no_z:
+            hxx, hxy, hyy = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
+            hessian_matrices = np.concatenate([
+                np.concatenate([hxx, hxy], axis=-1),
+                np.concatenate([hxy, hyy], axis=-1)
+            ], axis=-2)
+        else:
+            hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
+            hessian_matrices = np.concatenate([
+                np.concatenate([hxx, hxy, hxz], axis=-1),
+                np.concatenate([hxy, hyy, hyz], axis=-1),
+                np.concatenate([hxz, hyz, hzz], axis=-1)
+            ], axis=-2)
 
         return h_mask, hessian_matrices
 
     def _get_frob_mask(self, hessian_matrices):
-        frobenius_norm = xp.linalg.norm(hessian_matrices, axis=0)
+        # todo, can we avoid rescaling? slowing down..
+        rescaled_hessian = hessian_matrices / xp.max(xp.abs(hessian_matrices))
+        frobenius_norm = xp.linalg.norm(rescaled_hessian, axis=0)
         frobenius_norm[xp.isinf(frobenius_norm)] = 0
         frobenius_threshold = triangle_threshold(frobenius_norm[frobenius_norm > 0])
         mask = frobenius_norm > frobenius_threshold
@@ -147,14 +149,25 @@ class Filter:
     def _filter_hessian(self, eigenvalues, gamma_sq):
         alpha_sq = 0.5
         beta_sq = 0.5
-
-        ra_sq = (xp.abs(eigenvalues[:, 1]) / xp.abs(eigenvalues[:, 2])) ** 2
-        rb_sq = (xp.abs(eigenvalues[:, 1]) / xp.sqrt(xp.abs(eigenvalues[:, 1] * eigenvalues[:, 2]))) ** 2
-        s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2) + (eigenvalues[:, 2] ** 2))) ** 2
+        if self.im_info.no_z:
+            # todo showing accentuation of round objects. need to adjust..
+            ra_sq = (xp.abs(eigenvalues[:, 0]) / xp.abs(eigenvalues[:, 1])) ** 2
+            # rb_sq = (xp.abs(eigenvalues[:, 0])) ** 2 / (xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))
+            rb_sq = (xp.abs(eigenvalues[:, 0]) / xp.sqrt(xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))) ** 2
+            # rb_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2))) ** 2
+            s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2))) ** 2
+            # s_sq = rb_sq
+        else:
+            ra_sq = (xp.abs(eigenvalues[:, 1]) / xp.abs(eigenvalues[:, 2])) ** 2
+            rb_sq = (xp.abs(eigenvalues[:, 1]) / xp.sqrt(xp.abs(eigenvalues[:, 1] * eigenvalues[:, 2]))) ** 2
+            s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2) + (eigenvalues[:, 2] ** 2))) ** 2
 
         filtered_im = (1 - xp.exp(-(ra_sq / alpha_sq))) * (xp.exp(-(rb_sq / beta_sq))) * \
                       (1 - xp.exp(-(s_sq / gamma_sq)))
-        filtered_im[eigenvalues[:, 2] > 0] = 0
+        # if self.im_info.no_z:
+        #     filtered_im[eigenvalues[:, 0] > 0] = 0
+        if not self.im_info.no_z:
+            filtered_im[eigenvalues[:, 2] > 0] = 0
         filtered_im[eigenvalues[:, 1] > 0] = 0
         filtered_im = xp.nan_to_num(filtered_im, False, 1)
         return filtered_im
@@ -165,7 +178,7 @@ class Filter:
             sigma_vec = self._get_sigma_vec(s)
             current_lapofg = -ndi.gaussian_laplace(frame, sigma_vec) * xp.mean(s) ** 2
             current_lapofg = current_lapofg * mask
-            current_lapofg[current_lapofg < 0] = 0
+            # current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
         lapofg_min_proj = xp.min(lapofg, axis=0)
         return lapofg_min_proj
@@ -203,8 +216,15 @@ class Filter:
         return frangi_frame
 
     def _remove_edges(self, frangi_frame):
-        for z_idx, z_slice in enumerate(frangi_frame):
-            rmin, rmax, cmin, cmax = bbox(z_slice)
+        if self.im_info.no_z:
+            num_z = 1
+        else:
+            num_z = self.im_info.shape[self.im_info.axes.index('Z')]
+        for z_idx in range(num_z):
+            if self.im_info.no_z:
+                rmin, rmax, cmin, cmax = bbox(frangi_frame)
+            else:
+                rmin, rmax, cmin, cmax = bbox(frangi_frame[z_idx, ...])
             frangi_frame[z_idx, rmin:rmin + 15, ...] = 0
             frangi_frame[z_idx, rmax - 15:rmax + 1, ...] = 0
             # frangi_frame[z_idx, :, cmin:cmin + 10] = 0
@@ -246,7 +266,7 @@ if __name__ == "__main__":
     frangis = []
     for im_info in im_infos[:1]:
         # frangi = Filter(im_info, remove_edges=False)
-        frangi = Filter(im_info)
+        frangi = Filter(im_info, num_t=2)
         # frangi = Filter(im_info, num_t=4)
         frangi.run()
         frangis.append(frangi)
