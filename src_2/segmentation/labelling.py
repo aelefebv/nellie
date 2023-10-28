@@ -100,7 +100,11 @@ class Label:
 
         mask = frame > thresh
         mask = ndi.binary_fill_holes(mask)
-        mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
+        if self.im_info.no_z:
+            structure = xp.ones((2, 2))
+        else:
+            structure = xp.ones((2, 2, 2))
+        mask = ndi.binary_opening(mask, structure=structure)
 
         labels, _ = ndi.label(mask, structure=footprint)
         return mask, labels
@@ -182,15 +186,12 @@ class Label:
         original_in_mem = xp.asarray(self.im_memmap[t, ...])
         frangi_in_mem = xp.asarray(self.frangi_memmap[t, ...])
         _, labels = self._get_labels(frangi_in_mem)
-        # threshold_mask, threshold_labels = self._remove_bad_sized_objects(frame_in_mem)
-        # trimmed_labels = self._trim_labels(frame_in_mem, threshold_labels)
         _, cleaned_labels = self._remove_bad_sized_objects(labels)
         if self.snr_cleaning:
             cleaned_labels = self._get_object_snrs(original_in_mem, cleaned_labels)
         cleaned_labels[cleaned_labels>0] += self.max_label_num
         self.max_label_num = xp.max(cleaned_labels)
         return cleaned_labels
-        # return labels
 
     def _run_segmentation(self):
         for t in range(self.num_t):
@@ -208,24 +209,30 @@ class Label:
 
 
 if __name__ == "__main__":
-    import os
-    test_folder = r"D:\test_files\nelly_tests"
-    # test_folder = r"D:\test_files\beading"
-    # test_folder = r"D:\test_files\julius_examples"
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
-        im_info.create_output_path('im_frangi')
-        im_infos.append(im_info)
+    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_frangi')
+    segment_unique = Label(im_info)
+    segment_unique.run()
 
-    segmentations = []
-    for im_info in im_infos[:1]:
-        # segment_unique = Label(im_info, snr_cleaning=False)
-        # segment_unique = Label(im_info, num_t=4, snr_cleaning=False)
-        segment_unique = Label(im_info, snr_cleaning=False)
-        segment_unique.run()
-        segmentations.append(segment_unique)
+    # import os
+    # test_folder = r"D:\test_files\nelly_tests"
+    # # test_folder = r"D:\test_files\beading"
+    # # test_folder = r"D:\test_files\julius_examples"
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files:
+    #     im_path = os.path.join(test_folder, file)
+    #     im_info = ImInfo(im_path)
+    #     # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
+    #     im_info.create_output_path('im_frangi')
+    #     im_infos.append(im_info)
+    #
+    # segmentations = []
+    # for im_info in im_infos[:1]:
+    #     # segment_unique = Label(im_info, snr_cleaning=False)
+    #     # segment_unique = Label(im_info, num_t=4, snr_cleaning=False)
+    #     segment_unique = Label(im_info, snr_cleaning=False)
+    #     segment_unique.run()
+    #     segmentations.append(segment_unique)

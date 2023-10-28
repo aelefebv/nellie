@@ -151,19 +151,20 @@ class Filter:
         beta_sq = 0.5
         if self.im_info.no_z:
             # todo showing accentuation of round objects. need to adjust..
+            alpha_sq = 0.1
             ra_sq = (xp.abs(eigenvalues[:, 0]) / xp.abs(eigenvalues[:, 1])) ** 2
             # rb_sq = (xp.abs(eigenvalues[:, 0])) ** 2 / (xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))
             rb_sq = (xp.abs(eigenvalues[:, 0]) / xp.sqrt(xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))) ** 2
             # rb_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2))) ** 2
             s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2))) ** 2
             # s_sq = rb_sq
+            filtered_im = (xp.exp(-(rb_sq / beta_sq))) * (1 - xp.exp(-(s_sq / gamma_sq)))
         else:
             ra_sq = (xp.abs(eigenvalues[:, 1]) / xp.abs(eigenvalues[:, 2])) ** 2
             rb_sq = (xp.abs(eigenvalues[:, 1]) / xp.sqrt(xp.abs(eigenvalues[:, 1] * eigenvalues[:, 2]))) ** 2
             s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2) + (eigenvalues[:, 2] ** 2))) ** 2
-
-        filtered_im = (1 - xp.exp(-(ra_sq / alpha_sq))) * (xp.exp(-(rb_sq / beta_sq))) * \
-                      (1 - xp.exp(-(s_sq / gamma_sq)))
+            filtered_im = (1 - xp.exp(-(ra_sq / alpha_sq))) * (xp.exp(-(rb_sq / beta_sq))) * \
+                          (1 - xp.exp(-(s_sq / gamma_sq)))
         # if self.im_info.no_z:
         #     filtered_im[eigenvalues[:, 0] > 0] = 0
         if not self.im_info.no_z:
@@ -238,6 +239,7 @@ class Filter:
             #     frangi_frame = self._remove_edges(frangi_frame)
             frangi_frame = self._mask_volume(frangi_frame)#.get()
             log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
+            log_frame[log_frame < 0] = 0
             if self.im_info.no_t:
                 self.frangi_memmap[:] = log_frame.get()[:]
             else:
