@@ -94,19 +94,24 @@ class Label:
 
         # thresh, _ = otsu_threshold(xp.log10(frame[frame > 0]))
         # thresh = 10**thresh
-        if self.im_info.no_z:
-            thresh = 0
-        else:
-            thresh = 10**triangle_threshold(xp.log10(frame[frame > 0]))
-        # print(thresh, triangle_thresh)
+        # if self.im_info.no_z:
+        # thresh = 0
+        # else:
+        triangle = 10**triangle_threshold(xp.log10(frame[frame > 0]))
+        # triangle = triangle_threshold(frame[frame > 0])
+        otsu, _ = otsu_threshold(xp.log10(frame[frame > 0]))
+        otsu = 10**otsu
+        min_thresh = min([triangle, otsu])
+        # otsu, _ = otsu_threshold(frame[frame > 0])
+        print(triangle, otsu)
+        mask = frame > min_thresh
 
-        mask = frame > thresh
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
             structure = xp.ones((2, 2, 2))
-            mask = ndi.binary_opening(mask, structure=structure)
-        # else:
-        #     structure = xp.ones((2, 2))
+        else:
+            structure = xp.ones((2, 2))
+        mask = ndi.binary_opening(mask, structure=structure)
 
         labels, _ = ndi.label(mask, structure=footprint)
         return mask, labels
@@ -211,7 +216,8 @@ class Label:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    # im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(im_path)
     im_info.create_output_path('im_frangi')
     segment_unique = Label(im_info, num_t=2)

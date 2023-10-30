@@ -4,7 +4,11 @@ from src import logger, xp
 def get_reshaped_image(im, num_t = None, im_info = None):
     logger.debug('Reshaping image.')
     im_to_return = im
-    if 'T' not in im_info.axes or (len(im_info.axes) > 3 and len(im_to_return.shape) == 3):
+    if im_info.no_z:
+        ndim = 2
+    else:
+        ndim = 3
+    if 'T' not in im_info.axes or (len(im_info.axes) > ndim and len(im_to_return.shape) == ndim):
         im_to_return = im_to_return[None, ...]
         logger.debug(f'Adding time dimension to image, shape is now {im_to_return.shape}.')
     elif num_t is not None:

@@ -1,7 +1,7 @@
 from src_2.im_info.im_info import ImInfo
 from src import xp, ndi, logger
 from src_2.utils.general import get_reshaped_image
-from src_2.utils.gpu_functions import triangle_threshold
+from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 from scipy.spatial import cKDTree, distance
 import numpy as np
 
@@ -13,8 +13,8 @@ class Markers:
         self.num_t = num_t
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
-        self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
-
+        if not self.im_info.no_z:
+            self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
         self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
         self.max_radius_um = max_radius_um
 
@@ -146,9 +146,10 @@ class Markers:
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
         peaks = xp.empty(lapofg.shape, dtype=bool)
         for filt_slice, max_filt_slice in enumerate(max_filt):
-            thresh = triangle_threshold(max_filt_slice[max_filt_slice > 0])
-            max_filt_mask = xp.asarray(max_filt_slice > thresh)
-            peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
+            # thresh = triangle_threshold(max_filt_slice[max_filt_slice > 0])
+            # max_filt_mask = xp.asarray(max_filt_slice > thresh)
+            # peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
+            peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice))# * max_filt_mask
         peaks = peaks * mask
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)

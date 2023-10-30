@@ -33,9 +33,9 @@ if __name__ == "__main__":
     import os
     # top_dir = r"D:\test_files\stress_granules"
     top_dir = r"D:\test_files\nelly_gav_tests"
-    all_files = [os.path.join(top_dir, file) for file in os.listdir(top_dir)]
-    # tif_files = [os.path.join(top_dir, file) for file in os.listdir(top_dir) if file.endswith('.tif')]
-    # print(tif_files)
-    for file_num, tif_file in enumerate(all_files[:1]):
+    # get all non-folder files
+    all_files = os.listdir(top_dir)
+    all_files = [file for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
+    for file_num, tif_file in enumerate(all_files):
         print(f'Processing file {file_num + 1} of {len(all_files)}')
-        im_info = run(tif_file, remove_edges=False)
+        im_info = run(tif_file, remove_edges=False, num_t=2)

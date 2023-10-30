@@ -15,7 +15,8 @@ class Network:
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
-        self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
+        if not self.im_info.no_z:
+            self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
         # either (roughly) diffraction limit, or pixel size, whichever is larger
         self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
         self.max_radius_um = max_radius_um
@@ -241,7 +242,7 @@ class Network:
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
         skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
-        if im_info.no_z:
+        if self.im_info.no_z:
             structure = xp.ones((3, 3))
         else:
             structure = xp.ones((3, 3, 3))

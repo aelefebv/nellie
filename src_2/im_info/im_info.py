@@ -154,6 +154,9 @@ class ImInfo:
                 self.dim_sizes['Y'] = self.metadata.volume.axesCalibration[1]
                 self.dim_sizes['Z'] = self.metadata.volume.axesCalibration[2]
             self.metadata = None
+            if self.dim_sizes['X'] is None:
+                logger.error('No X dimension found.')
+                raise ValueError
             if self.dim_sizes['X'] != self.dim_sizes['Y']:
                 logger.warning('X and Y dimensions do not match. Rectangular pixels not supported, '
                                'so unexpected results and wrong measurements will occur.')
@@ -161,17 +164,18 @@ class ImInfo:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}
             self.dim_sizes = {}
+            raise e
 
     def _load_tif(self):
         with tifffile.TiffFile(self.im_path) as tif:
-            if tif.is_imagej:
-                self.metadata = tif.imagej_metadata
-                self.metadata_type = 'imagej'
-            elif tif.is_ome:
+            if tif.is_ome or tif.ome_metadata is not None:
                 ome_xml = tifffile.tiffcomment(self.im_path)
                 ome = ome_types.from_xml(ome_xml, parser="lxml")
                 self.metadata = ome
                 self.metadata_type = 'ome'
+            elif tif.is_imagej:
+                self.metadata = tif.imagej_metadata
+                self.metadata_type = 'imagej'
             else:
                 self.metadata = tif.pages[0].tags._dict
                 self.metadata_type = None
@@ -219,7 +223,7 @@ class ImInfo:
             logger.warning(f"File dimension order is in unknown order {self.axes} with {len(self.shape)} dimensions. \n"
                            f"Please specify the order of the dimensions in the run. \n"
                            f"Accepted dimensions are: {accepted_axes}.")
-            exit(1)
+            raise ValueError
 
     def allocate_memory(
             self,

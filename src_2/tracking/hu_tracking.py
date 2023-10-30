@@ -12,7 +12,11 @@ class HuMomentTracking:
         self.num_t = num_t
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
-        self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+
+        if self.im_info.no_z:
+            self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+        else:
+            self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
         self.max_distance_um = max_distance_um
 
@@ -92,9 +96,13 @@ class HuMomentTracking:
         features = xp.zeros((num_images, 2))
         mask = images != 0
 
-        count_nonzero = xp.sum(mask, axis=(1, 2, 3))
-        sum_nonzero = xp.sum(images * mask, axis=(1, 2, 3))
-        sumsq_nonzero = xp.sum((images * mask) ** 2, axis=(1, 2, 3))
+        if self.im_info.no_z:
+            axis = (1, 2)
+        else:
+            axis = (1, 2, 3)
+        count_nonzero = xp.sum(mask, axis=axis)
+        sum_nonzero = xp.sum(images * mask, axis=axis)
+        sumsq_nonzero = xp.sum((images * mask) ** 2, axis=axis)
 
         mean = sum_nonzero / count_nonzero
         variance = (sumsq_nonzero - (sum_nonzero ** 2) / count_nonzero) / count_nonzero
@@ -106,33 +114,39 @@ class HuMomentTracking:
     def _get_im_bounds(self, markers, distance_frame):
         if not self.im_info.no_z:
             radii = distance_frame[markers[:, 0], markers[:, 1], markers[:, 2]]
-            idx_y = 1
-            idx_x = 2
         else:
             radii = distance_frame[markers[:, 0], markers[:, 1]]
-            idx_y = 0
-            idx_x = 1
         marker_radii = xp.ceil(radii)
-        if self.im_info.no_z:
-            z_low = xp.clip(markers[:, 0] - marker_radii, 0, self.shape[1])
-            z_high = xp.clip(markers[:, 0] + (marker_radii + 1), 0, self.shape[1])
-        # todo
-        y_low = xp.clip(markers[:, 1] - marker_radii, 0, self.shape[2])
-        y_high = xp.clip(markers[:, 1] + (marker_radii + 1), 0, self.shape[2])
-        x_low = xp.clip(markers[:, 2] - marker_radii, 0, self.shape[3])
-        x_high = xp.clip(markers[:, 2] + (marker_radii + 1), 0, self.shape[3])
-        return z_low, z_high, y_low, y_high, x_low, x_high
+        low_0 = xp.clip(markers[:, 0] - marker_radii, 0, self.shape[1])
+        high_0 = xp.clip(markers[:, 0] + (marker_radii + 1), 0, self.shape[1])
+        low_1 = xp.clip(markers[:, 1] - marker_radii, 0, self.shape[2])
+        high_1 = xp.clip(markers[:, 1] + (marker_radii + 1), 0, self.shape[2])
+        if not self.im_info.no_z:
+            low_2 = xp.clip(markers[:, 2] - marker_radii, 0, self.shape[3])
+            high_2 = xp.clip(markers[:, 2] + (marker_radii + 1), 0, self.shape[3])
+            return low_0, high_0, low_1, high_1, low_2, high_2
+        return low_0, high_0, low_1, high_1
 
     def _get_sub_volumes(self, im_frame, im_bounds, max_radius):
-        z_low, z_high, y_low, y_high, x_low, x_high = im_bounds
+        if self.im_info.no_z:
+            y_low, y_high, x_low, x_high = im_bounds
+        else:
+            z_low, z_high, y_low, y_high, x_low, x_high = im_bounds
 
         # Preallocate arrays
-        sub_volumes = xp.zeros((len(z_low), max_radius, max_radius, max_radius))  # Change dtype if necessary
+        if self.im_info.no_z:
+            sub_volumes = xp.zeros((len(y_low), max_radius, max_radius))
+        else:
+            sub_volumes = xp.zeros((len(y_low), max_radius, max_radius, max_radius))  # Change dtype if necessary
 
         # Extract sub-volumes
-        for i in range(len(z_low)):
-            zl, zh, yl, yh, xl, xh = z_low[i], z_high[i], y_low[i], y_high[i], x_low[i], x_high[i]
-            sub_volumes[i, :zh - zl, :yh - yl, :xh - xl] = im_frame[zl:zh, yl:yh, xl:xh]
+        for i in range(len(y_low)):
+            if self.im_info.no_z:
+                yl, yh, xl, xh = y_low[i], y_high[i], x_low[i], x_high[i]
+                sub_volumes[i, :yh - yl, :xh - xl] = im_frame[yl:yh, xl:xh]
+            else:
+                zl, zh, yl, yh, xl, xh = z_low[i], z_high[i], y_low[i], y_high[i], x_low[i], x_high[i]
+                sub_volumes[i, :zh - zl, :yh - yl, :xh - xl] = im_frame[zl:zh, yl:yh, xl:xh]
 
         return sub_volumes
 
@@ -176,6 +190,10 @@ class HuMomentTracking:
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
     def _get_hu_moments(self, sub_volumes):
+        if self.im_info.no_z:
+            etas = self._calculate_normalized_moments(sub_volumes)
+            hu_moments = self._calculate_hu_moments(etas)
+            return hu_moments
         intensity_projections = self._get_orthogonal_projections(sub_volumes)
         etas_z = self._calculate_normalized_moments(intensity_projections[0])
         etas_y = self._calculate_normalized_moments(intensity_projections[1])
@@ -350,12 +368,20 @@ class HuMomentTracking:
             pre_hu_vecs = hu_vecs
 
             costs = np.array(costs)
-            idx0_z, idx0_y, idx0_x = pre_marker_indices.T
-            vec_z, vec_y, vec_x = vecs.T
-            frame_vector_array = np.concatenate((np.array([t-1]*len(vec_z))[:, np.newaxis],
-                                                 idx0_z[:, np.newaxis], idx0_y[:, np.newaxis], idx0_x[:, np.newaxis],
-                                                 vec_z[:, np.newaxis], vec_y[:, np.newaxis], vec_x[:, np.newaxis],
-                                                 costs[:, np.newaxis]), axis=1)
+            if self.im_info.no_z:
+                idx0_y, idx0_x = pre_marker_indices.T
+                vec_y, vec_x = vecs.T
+                frame_vector_array = np.concatenate((np.array([t-1]*len(vec_y))[:, np.newaxis],
+                                                     idx0_y[:, np.newaxis], idx0_x[:, np.newaxis],
+                                                     vec_y[:, np.newaxis], vec_x[:, np.newaxis],
+                                                     costs[:, np.newaxis]), axis=1)
+            else:
+                idx0_z, idx0_y, idx0_x = pre_marker_indices.T
+                vec_z, vec_y, vec_x = vecs.T
+                frame_vector_array = np.concatenate((np.array([t-1]*len(vec_z))[:, np.newaxis],
+                                                     idx0_z[:, np.newaxis], idx0_y[:, np.newaxis], idx0_x[:, np.newaxis],
+                                                     vec_z[:, np.newaxis], vec_y[:, np.newaxis], vec_x[:, np.newaxis],
+                                                     costs[:, np.newaxis]), axis=1)
             if flow_vector_array is None:
                 flow_vector_array = frame_vector_array
             else:

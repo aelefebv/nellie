@@ -13,7 +13,11 @@ class FlowInterpolator:
         self.num_t = num_t
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
-        self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+
+        if self.im_info.no_z:
+            self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+        else:
+            self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
         self.max_distance_um = max_distance_um
         self.forward = forward
@@ -101,12 +105,18 @@ class FlowInterpolator:
         return weights_all
 
     def _get_final_vector(self, nearby_idxs, weights_all):
-        final_vectors = np.zeros((len(nearby_idxs), 3))
+        if self.im_info.no_z:
+            final_vectors = np.zeros((len(nearby_idxs), 2))
+        else:
+            final_vectors = np.zeros((len(nearby_idxs), 3))
         for i in range(len(nearby_idxs)):
             if weights_all[i] is None:
                 final_vectors[i] = np.nan
                 continue
-            vectors = self.check_rows[nearby_idxs[i], 4:7]
+            if self.im_info.no_z:
+                vectors = self.check_rows[nearby_idxs[i], 3:5]
+            else:
+                vectors = self.check_rows[nearby_idxs[i], 4:7]
             if len(weights_all[i].shape) == 0:
                 final_vectors[i] = vectors[0]
             else:
@@ -122,12 +132,18 @@ class FlowInterpolator:
             if self.forward:
                 # check_rows will be all rows where the self.flow_vector_array's 0th column is equal to t
                 self.check_rows = self.flow_vector_array[np.where(self.flow_vector_array[:, 0] == t)[0], :]
-                self.check_coords = self.check_rows[:, 1:4]
+                if self.im_info.no_z:
+                    self.check_coords = self.check_rows[:, 1:3]
+                else:
+                    self.check_coords = self.check_rows[:, 1:4]
             else:
                 # check_rows will be all rows where the self.flow_vector_array's 0th columns is equal to t-1
                 self.check_rows = self.flow_vector_array[np.where(self.flow_vector_array[:, 0] == t-1)[0], :]
                 # check coords will be the coords + vector
-                self.check_coords = self.check_rows[:, 1:4] + self.check_rows[:, 4:7]
+                if self.im_info.no_z:
+                    self.check_coords = self.check_rows[:, 1:3] + self.check_rows[:, 3:5]
+                else:
+                    self.check_coords = self.check_rows[:, 1:4] + self.check_rows[:, 4:7]
 
         nearby_idxs, distances_all = self._get_nearby_coords(t, coords)
         self.current_t = t
@@ -146,6 +162,13 @@ class FlowInterpolator:
 
 
 if __name__ == "__main__":
+    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('flow_vector_array', ext='.npy')
+    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
+    label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
+
     import os
     import napari
     viewer = napari.Viewer()
@@ -156,12 +179,12 @@ if __name__ == "__main__":
     # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
     # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif", mode='r')
 
-    im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
-    im_info = ImInfo(im_path)
-    im_info.create_output_path('im_instance_label')
-    im_info.create_output_path('flow_vector_array', ext='.npy')
-    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
-    label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
+    # im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
+    # im_info = ImInfo(im_path)
+    # im_info.create_output_path('im_instance_label')
+    # im_info.create_output_path('flow_vector_array', ext='.npy')
+    # label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
+    # label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
 
     # all_files = os.listdir(test_folder)
     # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
@@ -175,6 +198,7 @@ if __name__ == "__main__":
     flow_interpx = FlowInterpolator(im_info, forward=True)
     # flow_interpx.run()
     num_frames = flow_interpx.im_memmap.shape[0]
+    num_frames = 2
 
     # going backwards
     coords = np.argwhere(label_memmap[num_frames-1] > 0).astype(float)
@@ -193,17 +217,25 @@ if __name__ == "__main__":
                 coords[coord_num] = np.nan
                 continue
             if t == frame_range[0]:
-                tracks.append([coord_num, frame_range[0], coord[0], coord[1], coord[2]])
+                if im_info.no_z:
+                    tracks.append([coord_num, frame_range[0], coord[0], coord[1]])
+                else:
+                    tracks.append([coord_num, frame_range[0], coord[0], coord[1], coord[2]])
                 track_properties['frame_num'].append(frame_range[0])
             track_properties['frame_num'].append(t + 1)
-            coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
-                                          coord[1] + final_vector[coord_num][1],
-                                          coord[2] + final_vector[coord_num][2]])
-            tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
+            if im_info.no_z:
+                coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
+                                              coord[1] + final_vector[coord_num][1]])
+                tracks.append([coord_num, t + 1, coord[0], coord[1]])
+            else:
+                coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
+                                              coord[1] + final_vector[coord_num][1],
+                                              coord[2] + final_vector[coord_num][2]])
+                tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
 
     viewer.add_image(flow_interpx.im_memmap)
     viewer.add_tracks(tracks, properties=track_properties, name='tracks')
-
+    viewer.add_labels(label_memmap)
     # flow_interpx = FlowInterpolator(im_infos[0])
     # # going forwards
     # coords_skel = np.argwhere(test_skel[0] == 80)
