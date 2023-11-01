@@ -169,7 +169,7 @@ class HuMomentTracking:
             return
 
     def _allocate_memory(self):
-        logger.debug('Allocating memory for mocap marking.')
+        logger.debug('Allocating memory for hu-based tracking.')
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 

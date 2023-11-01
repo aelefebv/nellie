@@ -13,16 +13,17 @@ from src_2.utils.general import get_reshaped_image
 
 class VoxelReassigner:
     def __init__(self, im_info: ImInfo,
-                 flow_interpolator_fw: FlowInterpolator,
-                 flow_interpolator_bw: FlowInterpolator,
                  num_t=None, ):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
+        self.flow_interpolator_fw = FlowInterpolator(im_info)
+        self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
 
-        self.flow_interpolator_fw = flow_interpolator_fw
-        self.flow_interpolator_bw = flow_interpolator_bw
+        self.flow_vector_array_path = None
+        self.label_memmap = None
+        self.reassigned_memmap = None
 
         self.debug = None
 
@@ -211,174 +212,234 @@ class VoxelReassigner:
                          f'{new_num_unmatched} remain.')
         return np.array(vox_prev_matches_unique), np.array(vox_next_matches_unique)
 
+    def _get_t(self):
+        if self.num_t is None:
+            if self.im_info.no_t:
+                self.num_t = 1
+            else:
+                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
+        else:
+            return
 
-if __name__ == "__main__":
-    import os
-    import napari
-    viewer = napari.Viewer()
-    # test_folder = r"D:\test_files\nelly_tests"
-    # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
-    # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
+    def _allocate_memory(self):
+        logger.debug('Allocating memory for voxel reassignment.')
+        self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
-    im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
-    # test_folder = r"D:\test_files\beading"
-    # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
-    # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif",
-    #                              mode='r')
+        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
+        self.shape = self.label_memmap.shape
 
+        reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
+        self.reassigned_memmap = self.im_info.allocate_memory(reassigned_label_path, shape=self.shape,
+                                                              dtype='int32',
+                                                              description='instance segmentation',
+                                                              return_memmap=True)
 
-    # all_files = os.listdir(test_folder)
-    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    # im_infos = []
-    # for file in all_files[:1]:
-    #     im_path = os.path.join(test_folder, file)
-    im_info = ImInfo(im_path)
-    im_info.create_output_path('im_instance_label')
-    im_info.create_output_path('flow_vector_array', ext='.npy')
-    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
-    label_memmap = get_reshaped_image(label_memmap, im_info = im_info)
-    # im_infos.append(im_info)
+    def _run_frame(self, t, all_mask_coords):
+        logger.info(f'Reassigning pixels in frame {t+1} of {self.num_t - 1}')
 
-    flow_interpx_fw = FlowInterpolator(im_info)
-    flow_interpx_bw = FlowInterpolator(im_info, forward=False)
-    # viewer.add_labels(test_label)
-
-    # label_nums = list(range(1, np.max(im_info)))
-    # # get 100 random coords
-    # np.random.seed(0)
-    # labels = np.random.choice(len(label_nums), 10, replace=False)
-    # # label_num = 100
-    all_mask_coords = [np.argwhere(label_memmap[t] > 0) for t in range(im_info.shape[0])]
-
-    voxel_reassigner = VoxelReassigner(im_info, flow_interpx_fw, flow_interpx_bw)
-    new_label_im = np.zeros_like(label_memmap)
-    # where test_label == any number in labels
-    # label_coords = np.argwhere(np.isin(test_label[0], labels))
-    vox_prev = np.argwhere(label_memmap[0] > 0)
-    new_label_im[0][tuple(vox_prev.T)] = label_memmap[0][tuple(vox_prev.T)]
-    matches = {}
-    reversed_matches = {}
-    # for t in range(2):
-    for t in range(im_info.shape[0]-1):
-    # for t in range(2):
-        print(f't: {t} / {im_info.shape[0]-1}')
-        matches[t] = {}
         vox_prev = all_mask_coords[t]
         vox_next = all_mask_coords[t + 1]
         if len(vox_prev) == 0:
-            break
-        matched_prev, matched_next = voxel_reassigner.match_voxels(vox_prev, vox_next, t)
-        matches[t] = {tuple(matched_next[i]): tuple(matched_prev[i]) for i in range(len(matched_prev))}
-        reversed_matches[t] = {tuple(matched_prev[i]): tuple(matched_next[i]) for i in range(len(matched_prev))}
+            return True
+
+        matched_prev, matched_next = self.match_voxels(vox_prev, vox_next, t)
         if len(matched_prev) == 0:
-            break
-        new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
-    viewer.add_image(flow_interpx_fw.im_memmap)
-    viewer.add_labels(new_label_im)
+            return True
 
-    # def extend_tracks(matches):
-    #     # Initialize tracks with voxels from the first timeframe
-    #     tracks = [[prev_coord, next_coord] for next_coord, prev_coord in matches[0].items()]
+        self.reassigned_memmap[t + 1][tuple(matched_next.T)] = self.reassigned_memmap[t][tuple(matched_prev.T)]
 
-    def extend_tracks(reversed_matches):
-        # Reverse the matches for faster lookups
-        # reversed_matches = [{v: k for k, v in match.items()} for match in matches]
+        return False
 
-        # Initialize tracks with the coordinates from the first timeframe
-        tracks = [[coord_prev, coord_next] for coord_prev, coord_next in reversed_matches[0].items()]
-        tracks_t = [[0, 1] for _ in range(len(tracks))]
+    def _run_reassignment(self):
+        vox_prev = np.argwhere(self.label_memmap[0] > 0)
+        self.reassigned_memmap[0][tuple(vox_prev.T)] = self.label_memmap[0][tuple(vox_prev.T)]
+        all_mask_coords = [np.argwhere(self.label_memmap[t] > 0) for t in range(self.num_t)]
 
-        # Loop over timeframes to extend the tracks
-        for t in range(1, len(reversed_matches)):
-            new_tracks = []
-            new_tracks_t = []
-            for track_num, track in enumerate(tracks):
-                last_coord = track[-1]  # Latest appended coordinate of the track
+        for t in range(self.num_t - 1):
+            no_matches = self._run_frame(t, all_mask_coords)
 
-                # If this coordinate is found in the keys of the current timeframe's reversed matches
-                if last_coord in reversed_matches[t]:
-                    # Extend the track and add to the new_tracks list
-                    new_tracks.append(track + [reversed_matches[t][last_coord]])
-                    tracks_t[track_num].append(t+1)
-                else:
-                    # If the track can't be extended for the current timeframe, keep it as is
-                    new_tracks.append(track)
-                    # tracks_t[track_num].append(t)
+            if no_matches:
+                break
 
-            tracks = new_tracks
-
-        return tracks, tracks_t
+    def run(self):
+        self._get_t()
+        self._allocate_memory()
+        self._run_reassignment()
 
 
-    tracks, tracks_t = extend_tracks(reversed_matches)
+if __name__ == "__main__":
+    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_info = ImInfo(im_path)
+    im_info.create_output_path('im_instance_label')
+    im_info.create_output_path('flow_vector_array', ext='.npy')
+    run_obj = VoxelReassigner(im_info)
+    run_obj.run()
 
-    napari_tracks = []
-    napari_props = {'frame_num': []}
-    skip_num = 100
-    track_skipped = tracks[::skip_num]
-    track_skipped_t = tracks_t[::skip_num]
-    for track_num, track in enumerate(track_skipped):
-        for track_idx, coord in enumerate(track):
-            napari_tracks.append([track_num, track_skipped_t[track_num][track_idx], coord[0], coord[1], coord[2]])
-            napari_props['frame_num'].append(track_skipped_t[track_num][track_idx])
-
-    viewer.add_tracks(napari_tracks, name='tracks', properties=napari_props)
-
-
-    solo_tracks = {}
-    solo_properties = {}
-    track_num = 0
-    for t in sorted(matches.keys()):
-        solo_tracks[t] = []
-        solo_properties[t] = {'frame_num': []}
-        # select 100 random match keys
-        # np.random.seed(0)
-        # matches_t = np.random.choice(len(matches[t]), 10000, replace=False).tolist()
-        # match_keys = list(matches[t].keys())
-        # for match_idx in matches_t:
-        #     next_voxel = match_keys[match_idx]
-        #     prev_voxel = matches[t][next_voxel]
-        #     solo_tracks[t].append([track_num, t, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
-        #     solo_properties[t]['frame_num'].append(t)
-        #     solo_tracks[t].append([track_num, t+1, next_voxel[0], next_voxel[1], next_voxel[2]])
-        #     solo_properties[t]['frame_num'].append(t+1)
-        #     track_num += 1
-        for next_voxel, prev_voxel in matches[t].items():
-            solo_tracks[t].append([track_num, 0, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
-            solo_properties[t]['frame_num'].append(t)
-            solo_tracks[t].append([track_num, 1, next_voxel[0], next_voxel[1], next_voxel[2]])
-            solo_properties[t]['frame_num'].append(t+1)
-            track_num += 1
-
-    viewer.add_tracks(solo_tracks[0][:10000], name='solo_tracks')
-    viewer.add_tracks(solo_tracks[1], name='solo_tracks', properties=solo_properties[1])
-
-    tracks2 = {}
-    last_voxel_to_track_id = {}  # Maps the last voxel of a track to its track ID
-    track_id = 0
-    track_t = {}
-
-    for t in sorted(matches.keys()):
-        new_last_voxel_to_track_id = {}  # Will replace 'last_voxel_to_track_id' after this iteration
-
-        for next_voxel, prev_voxel in matches[t].items():
-            track_id_for_prev_voxel = last_voxel_to_track_id.get(prev_voxel)
-
-            if track_id_for_prev_voxel is not None:
-                tracks2[track_id_for_prev_voxel].append(next_voxel)
-                new_last_voxel_to_track_id[next_voxel] = track_id_for_prev_voxel
-                track_t[track_id_for_prev_voxel].append(t+1)
-            else:
-                tracks2[track_id] = [prev_voxel, next_voxel]
-                new_last_voxel_to_track_id[next_voxel] = track_id
-                track_t[track_id] = [t, t+1]
-                track_id += 1
-
-        last_voxel_to_track_id = new_last_voxel_to_track_id
-
-    napari_tracks2 = []
-    for track_num, track in tracks2.items():
-        for coord_idx, coord in enumerate(track):
-            napari_tracks2.append([track_num, track_t[track_num][coord_idx], coord[0], coord[1], coord[2]])
-
-    viewer.add_tracks(napari_tracks2[:10000], name='tracks')
+    # import os
+    # import napari
+    # viewer = napari.Viewer()
+    # # test_folder = r"D:\test_files\nelly_tests"
+    # # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
+    # # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
+    #
+    # im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
+    # # test_folder = r"D:\test_files\beading"
+    # # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
+    # # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif",
+    # #                              mode='r')
+    #
+    #
+    # # all_files = os.listdir(test_folder)
+    # # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # # im_infos = []
+    # # for file in all_files[:1]:
+    # #     im_path = os.path.join(test_folder, file)
+    # im_info = ImInfo(im_path)
+    # im_info.create_output_path('im_instance_label')
+    # im_info.create_output_path('flow_vector_array', ext='.npy')
+    # label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
+    # label_memmap = get_reshaped_image(label_memmap, im_info = im_info)
+    # # im_infos.append(im_info)
+    #
+    # # viewer.add_labels(test_label)
+    #
+    # # label_nums = list(range(1, np.max(im_info)))
+    # # # get 100 random coords
+    # # np.random.seed(0)
+    # # labels = np.random.choice(len(label_nums), 10, replace=False)
+    # # # label_num = 100
+    # all_mask_coords = [np.argwhere(label_memmap[t] > 0) for t in range(im_info.shape[0])]
+    #
+    # voxel_reassigner = VoxelReassigner(im_info)
+    # new_label_im = np.zeros_like(label_memmap)
+    # # where test_label == any number in labels
+    # # label_coords = np.argwhere(np.isin(test_label[0], labels))
+    # vox_prev = np.argwhere(label_memmap[0] > 0)
+    # new_label_im[0][tuple(vox_prev.T)] = label_memmap[0][tuple(vox_prev.T)]
+    # matches = {}
+    # reversed_matches = {}
+    # # for t in range(2):
+    # for t in range(im_info.shape[0]-1):
+    # # for t in range(2):
+    #     print(f't: {t} / {im_info.shape[0]-1}')
+    #     matches[t] = {}
+    #     vox_prev = all_mask_coords[t]
+    #     vox_next = all_mask_coords[t + 1]
+    #     if len(vox_prev) == 0:
+    #         break
+    #     matched_prev, matched_next = voxel_reassigner.match_voxels(vox_prev, vox_next, t)
+    #     matches[t] = {tuple(matched_next[i]): tuple(matched_prev[i]) for i in range(len(matched_prev))}
+    #     reversed_matches[t] = {tuple(matched_prev[i]): tuple(matched_next[i]) for i in range(len(matched_prev))}
+    #     if len(matched_prev) == 0:
+    #         break
+    #     new_label_im[t+1][tuple(matched_next.T)] = new_label_im[t][tuple(matched_prev.T)]
+    # viewer.add_image(flow_interpx_fw.im_memmap)
+    # viewer.add_labels(new_label_im)
+    #
+    # # def extend_tracks(matches):
+    # #     # Initialize tracks with voxels from the first timeframe
+    # #     tracks = [[prev_coord, next_coord] for next_coord, prev_coord in matches[0].items()]
+    #
+    # def extend_tracks(reversed_matches):
+    #     # Reverse the matches for faster lookups
+    #     # reversed_matches = [{v: k for k, v in match.items()} for match in matches]
+    #
+    #     # Initialize tracks with the coordinates from the first timeframe
+    #     tracks = [[coord_prev, coord_next] for coord_prev, coord_next in reversed_matches[0].items()]
+    #     tracks_t = [[0, 1] for _ in range(len(tracks))]
+    #
+    #     # Loop over timeframes to extend the tracks
+    #     for t in range(1, len(reversed_matches)):
+    #         new_tracks = []
+    #         new_tracks_t = []
+    #         for track_num, track in enumerate(tracks):
+    #             last_coord = track[-1]  # Latest appended coordinate of the track
+    #
+    #             # If this coordinate is found in the keys of the current timeframe's reversed matches
+    #             if last_coord in reversed_matches[t]:
+    #                 # Extend the track and add to the new_tracks list
+    #                 new_tracks.append(track + [reversed_matches[t][last_coord]])
+    #                 tracks_t[track_num].append(t+1)
+    #             else:
+    #                 # If the track can't be extended for the current timeframe, keep it as is
+    #                 new_tracks.append(track)
+    #                 # tracks_t[track_num].append(t)
+    #
+    #         tracks = new_tracks
+    #
+    #     return tracks, tracks_t
+    #
+    #
+    # tracks, tracks_t = extend_tracks(reversed_matches)
+    #
+    # napari_tracks = []
+    # napari_props = {'frame_num': []}
+    # skip_num = 100
+    # track_skipped = tracks[::skip_num]
+    # track_skipped_t = tracks_t[::skip_num]
+    # for track_num, track in enumerate(track_skipped):
+    #     for track_idx, coord in enumerate(track):
+    #         napari_tracks.append([track_num, track_skipped_t[track_num][track_idx], coord[0], coord[1], coord[2]])
+    #         napari_props['frame_num'].append(track_skipped_t[track_num][track_idx])
+    #
+    # viewer.add_tracks(napari_tracks, name='tracks', properties=napari_props)
+    #
+    #
+    # solo_tracks = {}
+    # solo_properties = {}
+    # track_num = 0
+    # for t in sorted(matches.keys()):
+    #     solo_tracks[t] = []
+    #     solo_properties[t] = {'frame_num': []}
+    #     # select 100 random match keys
+    #     # np.random.seed(0)
+    #     # matches_t = np.random.choice(len(matches[t]), 10000, replace=False).tolist()
+    #     # match_keys = list(matches[t].keys())
+    #     # for match_idx in matches_t:
+    #     #     next_voxel = match_keys[match_idx]
+    #     #     prev_voxel = matches[t][next_voxel]
+    #     #     solo_tracks[t].append([track_num, t, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
+    #     #     solo_properties[t]['frame_num'].append(t)
+    #     #     solo_tracks[t].append([track_num, t+1, next_voxel[0], next_voxel[1], next_voxel[2]])
+    #     #     solo_properties[t]['frame_num'].append(t+1)
+    #     #     track_num += 1
+    #     for next_voxel, prev_voxel in matches[t].items():
+    #         solo_tracks[t].append([track_num, 0, prev_voxel[0], prev_voxel[1], prev_voxel[2]])
+    #         solo_properties[t]['frame_num'].append(t)
+    #         solo_tracks[t].append([track_num, 1, next_voxel[0], next_voxel[1], next_voxel[2]])
+    #         solo_properties[t]['frame_num'].append(t+1)
+    #         track_num += 1
+    #
+    # viewer.add_tracks(solo_tracks[0][:10000], name='solo_tracks')
+    # viewer.add_tracks(solo_tracks[1], name='solo_tracks', properties=solo_properties[1])
+    #
+    # tracks2 = {}
+    # last_voxel_to_track_id = {}  # Maps the last voxel of a track to its track ID
+    # track_id = 0
+    # track_t = {}
+    #
+    # for t in sorted(matches.keys()):
+    #     new_last_voxel_to_track_id = {}  # Will replace 'last_voxel_to_track_id' after this iteration
+    #
+    #     for next_voxel, prev_voxel in matches[t].items():
+    #         track_id_for_prev_voxel = last_voxel_to_track_id.get(prev_voxel)
+    #
+    #         if track_id_for_prev_voxel is not None:
+    #             tracks2[track_id_for_prev_voxel].append(next_voxel)
+    #             new_last_voxel_to_track_id[next_voxel] = track_id_for_prev_voxel
+    #             track_t[track_id_for_prev_voxel].append(t+1)
+    #         else:
+    #             tracks2[track_id] = [prev_voxel, next_voxel]
+    #             new_last_voxel_to_track_id[next_voxel] = track_id
+    #             track_t[track_id] = [t, t+1]
+    #             track_id += 1
+    #
+    #     last_voxel_to_track_id = new_last_voxel_to_track_id
+    #
+    # napari_tracks2 = []
+    # for track_num, track in tracks2.items():
+    #     for coord_idx, coord in enumerate(track):
+    #         napari_tracks2.append([track_num, track_t[track_num][coord_idx], coord[0], coord[1], coord[2]])
+    #
+    # viewer.add_tracks(napari_tracks2[:10000], name='tracks')

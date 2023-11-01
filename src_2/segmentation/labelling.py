@@ -92,18 +92,11 @@ class Label:
         ndim = 2 if self.remove_in_2d or self.im_info.no_z else 3
         footprint = ndi.generate_binary_structure(ndim, 1)
 
-        # thresh, _ = otsu_threshold(xp.log10(frame[frame > 0]))
-        # thresh = 10**thresh
-        # if self.im_info.no_z:
-        # thresh = 0
-        # else:
         triangle = 10**triangle_threshold(xp.log10(frame[frame > 0]))
-        # triangle = triangle_threshold(frame[frame > 0])
         otsu, _ = otsu_threshold(xp.log10(frame[frame > 0]))
         otsu = 10**otsu
         min_thresh = min([triangle, otsu])
-        # otsu, _ = otsu_threshold(frame[frame > 0])
-        print(triangle, otsu)
+
         mask = frame > min_thresh
 
         if not self.im_info.no_z:

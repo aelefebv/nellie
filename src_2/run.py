@@ -35,7 +35,7 @@ if __name__ == "__main__":
     top_dir = r"D:\test_files\nelly_gav_tests"
     # get all non-folder files
     all_files = os.listdir(top_dir)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
+    all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
     for file_num, tif_file in enumerate(all_files):
         print(f'Processing file {file_num + 1} of {len(all_files)}')
-        im_info = run(tif_file, remove_edges=False, num_t=2)
+        im_info = run(tif_file, remove_edges=False)
