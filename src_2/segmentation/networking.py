@@ -32,6 +32,7 @@ class Network:
         self.network_memmap = None
         self.pixel_class_memmap = None
 
+
         self.sigmas = None
 
         self.debug = None
@@ -238,7 +239,7 @@ class Network:
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
-        mask_frame = xp.array(label_frame) > 0
+        # mask_frame = xp.array(label_frame) > 0
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
         skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
@@ -246,9 +247,10 @@ class Network:
             structure = xp.ones((3, 3))
         else:
             structure = xp.ones((3, 3, 3))
-        final_skel, _ = ndi.label(skel > 0, structure=structure)
-        final_skel = self._remove_connected_label_pixels(final_skel)
+        # final_skel, _ = ndi.label(skel > 0, structure=structure)
+        # final_skel = self._remove_connected_label_pixels(final_skel)
         # self._relabel_objects(label_frame, final_skel)
+        final_skel = (skel.get() > 0) * label_frame
         pixel_class = self._get_pixel_class(final_skel).get()
         return final_skel, pixel_class
 
@@ -272,12 +274,12 @@ class Network:
     def run(self):
         self._get_t()
         self._allocate_memory()
-        self._set_default_sigmas()
+        # self._set_default_sigmas()
         self._run_networking()
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(im_path)
     im_info.create_output_path('im_instance_label')
     im_info.create_output_path('im_frangi')

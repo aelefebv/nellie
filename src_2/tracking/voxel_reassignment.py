@@ -193,6 +193,8 @@ class VoxelReassigner:
         unmatched_diff = np.inf
         while unmatched_diff:
             num_unmatched = len(vox_next_unmatched)
+            if num_unmatched == 0:
+                break
             tree = cKDTree(vox_next_matches_unique * self.flow_interpolator_fw.scaling)
             dists, idxs = tree.query(vox_next_unmatched * self.flow_interpolator_fw.scaling, k=1, workers=-1)
             unmatched_matches = np.array([
@@ -240,7 +242,7 @@ class VoxelReassigner:
 
         vox_prev = all_mask_coords[t]
         vox_next = all_mask_coords[t + 1]
-        if len(vox_prev) == 0:
+        if len(vox_prev) == 0 or len(vox_next) == 0:
             return True
 
         matched_prev, matched_next = self.match_voxels(vox_prev, vox_next, t)
@@ -269,12 +271,27 @@ class VoxelReassigner:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(im_path)
-    im_info.create_output_path('im_instance_label')
-    im_info.create_output_path('flow_vector_array', ext='.npy')
-    run_obj = VoxelReassigner(im_info)
-    run_obj.run()
+    import os
+
+    # top_dir = r"D:\test_files\stress_granules"
+    top_dir = r"D:\test_files\nelly_gav_tests"
+    # get all non-folder files
+    all_files = os.listdir(top_dir)
+    all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
+    for file_num, tif_file in enumerate(all_files):
+        im_info = ImInfo(tif_file)
+        print(f'Processing file {file_num + 1} of {len(all_files)}')
+        im_info.create_output_path('im_instance_label')
+        im_info.create_output_path('flow_vector_array', ext='.npy')
+        run_obj = VoxelReassigner(im_info)
+        run_obj.run()
+
+    # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    # im_info = ImInfo(im_path)
+    # im_info.create_output_path('im_instance_label')
+    # im_info.create_output_path('flow_vector_array', ext='.npy')
+    # run_obj = VoxelReassigner(im_info)
+    # run_obj.run()
 
     # import os
     # import napari
