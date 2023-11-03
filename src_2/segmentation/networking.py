@@ -82,7 +82,7 @@ class Network:
             for z, y, x in pixels_to_delete:
                 skel_labels[z, y, x] = 0
 
-        return skel_labels
+        return xp.array(skel_labels)
 
     def _add_missing_skeleton_labels(self, skel_frame, label_frame, frangi_frame, thresh):
         logger.debug('Adding missing skeleton labels.')
@@ -243,13 +243,13 @@ class Network:
         # mask_frame = xp.array(label_frame) > 0
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
-        skel = self._add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)
+        skel = self._remove_connected_label_pixels(skel_frame)
+        skel = self._add_missing_skeleton_labels(skel, label_frame, frangi_frame, thresh)
         if self.im_info.no_z:
             structure = xp.ones((3, 3))
         else:
             structure = xp.ones((3, 3, 3))
         # final_skel, _ = ndi.label(skel > 0, structure=structure)
-        # final_skel = self._remove_connected_label_pixels(final_skel)
         # self._relabel_objects(label_frame, final_skel)
         final_skel = (skel.get() > 0) * label_frame
         pixel_class = self._get_pixel_class(final_skel).get()

@@ -61,8 +61,6 @@ class MorphologySkeletonFeatures:
         branch_labels, _ = ndi.label(branch_mask, structure=structure)
 
         branch_px = xp.where(branch_mask)
-        px_class = branch_pixel_class[branch_px]
-        px_branch_label = branch_labels[branch_px]
         px_main_label = network_gpu[branch_px]
 
         # distance matrix between all branch_px, vectorized
@@ -70,9 +68,23 @@ class MorphologySkeletonFeatures:
         coord_array_2 = xp.array(branch_px).T[:, None, :]
         dist = xp.linalg.norm(coord_array_1 - coord_array_2, axis=-1)
         dist[dist >= 2] = 0
+        dist = xp.tril(dist)
+        # get an array where the row and columns have the same main labels
+        label_array_1 = px_main_label[:, None]
+        label_array_2 = px_main_label[None, :]
+        label_array = label_array_1 == label_array_2
+        valid_dist = dist > 0
+        # coords that are both valid and not in the same label should be set to 0 in the branch_mask
+
+        bad_coords_matrix = valid_dist * ~label_array
+        bad_idxs = np.argwhere(bad_coords_matrix).flatten()
+
+        branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs], branch_px[2][bad_idxs]] = 0
+        px_class = branch_pixel_class[branch_px]
+        px_branch_label = branch_labels[branch_px]
+        dist = dist * label_array
 
         # only keep lower diagonal
-        dist = xp.tril(dist)
         pixel_neighbors = xp.where(dist > 0)
         valid_branch_labels = px_branch_label[pixel_neighbors[0]]
 
@@ -111,18 +123,28 @@ class MorphologySkeletonFeatures:
             else:
                 branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / tip_coord_distances[label]).get())
 
-        lone_tip_radii = self._distance_check(xp.array(self.label_memmap[0])>0, lone_tip_coords) * 2
+        lone_tip_radii = self._distance_check(xp.array(self.label_memmap[0])>0, lone_tip_coords)
         tip_radii = self._distance_check(xp.array(self.label_memmap[0])>0, tip_coords)
 
         lone_tip_labels = branch_labels[tuple(lone_tip_coords.T)]
         tip_labels = branch_labels[tuple(tip_coords.T)]
-
+        checked_labels = set(xp.concatenate((lone_tip_labels, tip_labels)).tolist())
+        all_labels = set(xp.unique(px_branch_label).tolist())
+        unchecked_labels = all_labels - checked_labels
+        # check for branches that don't have a tip, and add three random coords in the branch to be checked for a radius
+        for label in unchecked_labels:
+            branch_coords = xp.argwhere(branch_labels == label)
+            random_coords = branch_coords[xp.random.choice(len(branch_coords), 3)]
+            random_radii = self._distance_check(xp.array(self.label_memmap[0])>0, random_coords)
+            tip_radii = np.concatenate((tip_radii, random_radii))
+            tip_labels = xp.concatenate((tip_labels, xp.ones(3) * label))
 
         for label, radius in zip(lone_tip_labels.tolist(), lone_tip_radii):
-            branch_length_list[label].append(radius)
+            branch_length_list[label].append(radius*2)
 
         for label, radius in zip(tip_labels.tolist(), tip_radii):
             branch_length_list[label].append(radius)
+
 
         self.branch_features['label'] = [label for label in xp.unique(px_branch_label).tolist()]
         main_labels = {}
@@ -137,21 +159,63 @@ class MorphologySkeletonFeatures:
         self.features['label'] = [label for label in xp.unique(px_main_label).tolist()]
         lengths = {label: [] for label in xp.unique(px_main_label).tolist()}
         for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
-            lengths[main_label].append(self.branch_features['branch_lengths'][branch_label])
+            lengths[main_label].append(np.sum(branch_length_list[branch_label]))
+        main_label_lengths = {label: [] for label in xp.unique(px_main_label).tolist()}
+        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+            main_label_lengths[main_label].append(np.sum(branch_length_list[branch_label]))
         self.features['length'] = [np.sum(np.array(length_list)) for length_list in lengths.values()]
         # tortuosity weighted by length
+        branch_weights = {label: [] for label in xp.unique(px_branch_label).tolist()}
+        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+            branch_weights[branch_label] = self.branch_features['branch_lengths'][branch_label]/np.sum(main_label_lengths[main_label])
         tortuosity_weighted = {label: [] for label in xp.unique(px_main_label).tolist()}
         for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
-            tortuosity_weighted[main_label].append(self.branch_features['branch_tortuosities'][branch_label] * self.branch_features['branch_lengths'][branch_label])
-        self.features['tortuosity_weighted'] = [np.sum(np.array(length_list)) for length_list in tortuosity_weighted.values()]
-        # divide by length
-        self.features['tortuosity_weighted'] = float(np.array(self.features['tortuosity_weighted']) / np.array(self.features['length']))
-        # todo, some lengths are 0? and some weighted torts are <1?
+            tortuosity_weighted[main_label].append(self.branch_features['branch_tortuosities'][branch_label] * branch_weights[branch_label])
+        self.features['tortuosity_weighted'] = [np.sum(tortuosity_list) for tortuosity_list in tortuosity_weighted.values()]
+
+        # convert self.branch_features['branch_lengths'] and ['branch_tortuosities'] from dict to list
+        self.branch_features['branch_lengths'] = [self.branch_features['branch_lengths'][label] for label in self.branch_features['label']]
+        self.branch_features['branch_tortuosities'] = [self.branch_features['branch_tortuosities'][label] for label in self.branch_features['label']]
+
+        branch_mean_radii = {label: [] for label in xp.unique(px_branch_label).tolist()}
+        for label, radius in zip(lone_tip_labels.tolist(), lone_tip_radii):
+            branch_mean_radii[label].append(radius)
+        for label, radius in zip(tip_labels.tolist(), tip_radii):
+            branch_mean_radii[label].append(radius)
+        branch_mean_radii = {label: np.mean(np.array(radius_list)) for label, radius_list in branch_mean_radii.items()}
+        branch_aspect_ratios = {label: [] for label in xp.unique(px_branch_label).tolist()}
+        for branch_idx, (branch_label, branch_mean_radius) in enumerate(branch_mean_radii.items()):
+            branch_aspect_ratios[branch_label] = self.branch_features['branch_lengths'][branch_idx]/branch_mean_radius
+
+        self.branch_features['branch_radius'] = [branch_mean_radii[label] for label in xp.unique(px_branch_label).tolist()]
+        self.branch_features['branch_aspect_ratio'] = [branch_aspect_ratios[label] for label in xp.unique(px_branch_label).tolist()]
+
+        main_label_radii = {label: [] for label in xp.unique(px_main_label).tolist()}
+        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+            main_label_radii[main_label].append(branch_mean_radii[branch_label] * branch_weights[branch_label])
+        self.features['radius_weighted'] = [np.sum(radius_list) for radius_list in main_label_radii.values()]
+        #todo why are some 0? I think it's because they are closed loops, so no points to check for radius.. Pick first coord in skeleton? actually should go back to the branch itself and get a point
+        #  eg 66, 73
+
+        aspect_ratio_weighted = {label: [] for label in xp.unique(px_main_label).tolist()}
+        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+            aspect_ratio_weighted[main_label].append(branch_aspect_ratios[branch_label] * branch_weights[branch_label])
+        self.features['aspect_ratio_weighted'] = [np.sum(aspect_ratio_list) for aspect_ratio_list in aspect_ratio_weighted.values()]
+
+        for idx, length in enumerate(self.features['length']):
+            if length >= 1.74:
+                continue
+            # self.features['length'][idx] = 2*self.im_info.dim_sizes['X']
+            # self.features['radius_weighted'][idx] = self.im_info.dim_sizes['X']
+            # self.features['tortuosity_weighted'][idx] = 1.0
+            # self.features['aspect_ratio_weighted'][idx] = 1.0
+            self.features['length'][idx] = np.nan
+            self.features['radius_weighted'][idx] = np.nan
+            self.features['tortuosity_weighted'][idx] = np.nan
+            self.features['aspect_ratio_weighted'][idx] = np.nan
 
     def _skeleton_morphology(self):
         self._get_branches()
-        self.skel_objects_intensity = skimage.measure.regionprops(self.network_memmap[0], self.im_memmap[0], spacing=self.spacing)
-        # get branches -> pixel class with edge, remove rest, label, then get features
 
     def _get_memmaps(self):
         logger.debug('Allocating memory for spatial feature extraction.')
