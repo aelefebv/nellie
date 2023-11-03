@@ -117,6 +117,7 @@ class MorphologySkeletonFeatures:
         lone_tip_labels = branch_labels[tuple(lone_tip_coords.T)]
         tip_labels = branch_labels[tuple(tip_coords.T)]
 
+
         for label, radius in zip(lone_tip_labels.tolist(), lone_tip_radii):
             branch_length_list[label].append(radius)
 
@@ -124,11 +125,28 @@ class MorphologySkeletonFeatures:
             branch_length_list[label].append(radius)
 
         self.branch_features['label'] = [label for label in xp.unique(px_branch_label).tolist()]
+        main_labels = {}
+        # self.branch_features['main_label'] =
+        for idx, label in enumerate(px_branch_label.tolist()):
+            if label not in main_labels:
+                main_labels[label] = int(px_main_label[idx].get())
+        self.branch_features['main_label'] = [main_labels[label] for label in xp.unique(px_branch_label).tolist()]
         self.branch_features['branch_lengths'] = {label: np.sum(np.array(length_list)) for label, length_list in branch_length_list.items()}
         self.branch_features['branch_tortuosities'] = branch_tortuosities
 
         self.features['label'] = [label for label in xp.unique(px_main_label).tolist()]
-        self.features['length'] = [np.sum(np.array(length_list)) for label, length_list in branch_length_list.items()]
+        lengths = {label: [] for label in xp.unique(px_main_label).tolist()}
+        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+            lengths[main_label].append(self.branch_features['branch_lengths'][branch_label])
+        self.features['length'] = [np.sum(np.array(length_list)) for length_list in lengths.values()]
+        # tortuosity weighted by length
+        tortuosity_weighted = {label: [] for label in xp.unique(px_main_label).tolist()}
+        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+            tortuosity_weighted[main_label].append(self.branch_features['branch_tortuosities'][branch_label] * self.branch_features['branch_lengths'][branch_label])
+        self.features['tortuosity_weighted'] = [np.sum(np.array(length_list)) for length_list in tortuosity_weighted.values()]
+        # divide by length
+        self.features['tortuosity_weighted'] = float(np.array(self.features['tortuosity_weighted']) / np.array(self.features['length']))
+        # todo, some lengths are 0? and some weighted torts are <1?
 
     def _skeleton_morphology(self):
         self._get_branches()
