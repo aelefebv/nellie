@@ -3,9 +3,10 @@ from src_2.im_info.im_info import ImInfo
 from src_2.utils.general import get_reshaped_image
 import skimage.measure
 import numpy as np
+import pandas as pd
 
 
-class SpatialFeatures:
+class MorphologyLabelFeatures:
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
         if self.im_info.no_z:
@@ -16,9 +17,7 @@ class SpatialFeatures:
         self.im_memmap = None
         self.im_frangi_memmap = None
         self.label_memmap = None
-        self.network_memmap = None
-        self.pixel_class_memmap = None
-        self.distance_memmap = None
+        self.morphology_label_features_path = None
 
         self.label_objects_intensity = None
 
@@ -29,6 +28,8 @@ class SpatialFeatures:
         log10_frangi = np.log10(self.im_frangi_memmap[0])
         log10_frangi[np.isinf(log10_frangi)] = 0
         self.label_objects_frangi = skimage.measure.regionprops(self.label_memmap[0], log10_frangi, spacing=self.spacing)
+
+        self.features['label'] = [label_object.label for label_object in self.label_objects_intensity]
 
         self.features['area'] = [label_object.area for label_object in self.label_objects_intensity]
 
@@ -44,12 +45,12 @@ class SpatialFeatures:
 
         self.features['intensity_mean'] = [label_object.mean_intensity for label_object in self.label_objects_intensity]
         self.features['intensity_range'] = [label_object.max_intensity - label_object.min_intensity for label_object in self.label_objects_intensity]
+        self.features['intensity_std'] = [np.std(label_object.image_intensity[label_object.image_intensity>0]) for label_object in self.label_objects_intensity]
 
         # frangi image
         self.features['frangi_mean'] = [label_object.mean_intensity for label_object in self.label_objects_frangi]
         self.features['frangi_range'] = [label_object.max_intensity - label_object.min_intensity for label_object in self.label_objects_frangi]
-
-
+        self.features['frangi_std'] = [np.nanstd(label_object.image_intensity[label_object.image_intensity!=0]) for label_object in self.label_objects_frangi]
 
     def _get_memmaps(self):
         logger.debug('Allocating memory for spatial feature extraction.')
@@ -62,20 +63,20 @@ class SpatialFeatures:
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, 1, self.im_info)
 
-        network_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
-        self.network_memmap = get_reshaped_image(network_memmap, 1, self.im_info)
-
-        pixel_class_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
-        self.pixel_class_memmap = get_reshaped_image(pixel_class_memmap, 1, self.im_info)
-
-        distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.distance_memmap = get_reshaped_image(distance_memmap, 1, self.im_info)
+        self.im_info.create_output_path('morphology_label_features', ext='.csv')
+        self.morphology_label_features_path = self.im_info.pipeline_paths['morphology_label_features']
 
         self.shape = self.label_memmap.shape
+
+    def _save_features(self):
+        logger.debug('Saving spatial features.')
+        features_df = pd.DataFrame.from_dict(self.features)
+        features_df.to_csv(self.morphology_label_features_path, index=False)
 
     def run(self):
         self._get_memmaps()
         self._label_morphology()
+        self._save_features()
 
 
 
@@ -84,9 +85,7 @@ if __name__ == "__main__":
     im_info = ImInfo(im_path)
     im_info.create_output_path('im_instance_label')
     im_info.create_output_path('im_frangi')
-    im_info.create_output_path('im_skel')
-    im_info.create_output_path('im_pixel_class')
     im_info.create_output_path('im_distance')
 
-    spatial_features = SpatialFeatures(im_info)
-    spatial_features.run()
+    morphology_label_features = MorphologyLabelFeatures(im_info)
+    morphology_label_features.run()

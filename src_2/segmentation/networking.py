@@ -4,6 +4,7 @@ from src_2.utils.general import get_reshaped_image
 import skimage.morphology as morph
 import numpy as np
 from scipy.spatial import cKDTree
+import skimage.measure
 
 from src_2.utils.gpu_functions import triangle_threshold, otsu_threshold
 
@@ -254,9 +255,27 @@ class Network:
         pixel_class = self._get_pixel_class(final_skel).get()
         return final_skel, pixel_class
 
+    def _clean_junctions(self, pixel_class):
+        junctions = pixel_class == 4
+        junction_labels = skimage.measure.label(junctions)
+        junction_objects = skimage.measure.regionprops(junction_labels)
+        junction_centroids = [obj.centroid for obj in junction_objects]
+        for junction_num, junction in enumerate(junction_objects):
+            # use ckd tree to find closest junction coord to junction centroid
+            if len(junction.coords) < 2:
+                continue
+            junction_tree = cKDTree(junction.coords)
+            _, nearest_junction_indices = junction_tree.query(junction_centroids[junction_num], k=1, workers=-1)
+            # remove the nearest junction coord from the junction
+            junction_coords = junction.coords.tolist()
+            junction_coords.pop(nearest_junction_indices)
+            pixel_class[tuple(np.array(junction_coords).T)] = 3
+        return pixel_class
+
     def _run_networking(self):
         for t in range(self.num_t):
             skel, pixel_class = self._run_frame(t)
+            # pixel_class = self._clean_junctions(pixel_class)
             if self.im_info.no_t:
                 self.skel_memmap[:] = skel[:]
                 self.pixel_class_memmap[:] = pixel_class[:]
