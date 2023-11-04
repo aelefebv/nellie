@@ -203,7 +203,7 @@ class MorphologySkeletonFeatures:
         self.features['aspect_ratio_weighted'] = [np.sum(aspect_ratio_list) for aspect_ratio_list in aspect_ratio_weighted.values()]
 
         for idx, length in enumerate(self.features['length']):
-            if length >= 1.74:
+            if length >= 1.74:  # sqrt(3)
                 continue
             # self.features['length'][idx] = 2*self.im_info.dim_sizes['X']
             # self.features['radius_weighted'][idx] = self.im_info.dim_sizes['X']
