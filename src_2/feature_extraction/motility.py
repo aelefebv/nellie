@@ -11,22 +11,20 @@ class LabelFeatures:
         self.flow_vectors = {}
         self.label_values = {}
 
-    def set_coords(self, coords, frame_num):
+        self.features = {}
+
+    def set_values(self, coords, flow_vectors, label_values, frame_num):
         self.coords[frame_num] = coords
-
-    def set_flow(self, flow_vectors, frame_num):
         self.flow_vectors[frame_num] = flow_vectors
-
-    def set_label_values(self, label_values, frame_num):
         self.label_values[frame_num] = label_values
 
 class MotilityFeatures:
     def __init__(self, im_info: ImInfo):
         self.im_info = im_info
         if self.im_info.no_z:
-            self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+            self.spacing = xp.array((self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']))
         else:
-            self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+            self.spacing = xp.array((self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']))
 
         self.im_memmap = None
         self.label_memmap = None
@@ -35,7 +33,6 @@ class MotilityFeatures:
         self.flow_interpolator = FlowInterpolator(im_info, forward=True)
 
         self.features = {}
-
 
     def _get_memmaps(self):
         logger.debug('Allocating memory for spatial feature extraction.')
@@ -54,7 +51,8 @@ class MotilityFeatures:
         self.shape = self.label_memmap.shape
 
     def _get_label_coords(self):
-        for frame_num in range(len(self.relabelled_memmap)-1):
+        # for frame_num in range(len(self.relabelled_memmap)-1):
+        for frame_num in range(2):
             logger.debug(f'Getting label coords for frame {frame_num}.')
             relabelled_frame_gpu = xp.array(self.relabelled_memmap[frame_num])
             label_frame_gpu = xp.array(self.label_memmap[frame_num])
@@ -70,19 +68,35 @@ class MotilityFeatures:
                 self.unique_labels = {label: LabelFeatures(label) for label in unique_labels.tolist()}
             for unique_label, label_obj in self.unique_labels.items():
                 label_idxs = relabelled_values == unique_label
-                label_obj.set_coords(labels_coords[label_idxs], frame_num)
-                label_obj.set_flow(flow_interpolation[label_idxs], frame_num)
-                label_obj.set_label_values(labelled_values[label_idxs], frame_num)
+                label_obj.set_values(
+                    labels_coords[label_idxs], flow_interpolation[label_idxs], labelled_values[label_idxs],
+                    frame_num
+                )
 
-            print('hi')
+    def _get_label_motility_features(self, label_obj):
+        for frame, flow_vector in label_obj.flow_vectors.items():
+            if len(flow_vector) == 0:
+                continue
+            sum_flow = xp.nansum(flow_vector, axis=0) * self.spacing
+            mean_flow = xp.nanmean(flow_vector, axis=0) * self.spacing
+            # todo how to describe rotation? differential motion? directionality?
+            if frame == 0:
+                label_obj.features['sum_flow_vector'] = [sum_flow]
+                label_obj.features['mean_flow_vector'] = [mean_flow]
+            else:
+                label_obj.features['sum_flow_vector'].append(sum_flow)
+                label_obj.features['mean_flow_vector'].append(mean_flow)
 
-
-    # def _get_flow_vectors(self):
-    #     for frame_num, frame in enumerate
+    def _get_all_motility_features(self):
+        for label_num, label_obj in self.unique_labels.items():
+            logger.debug(f'Getting motility features for label {label_num}.')
+            self._get_label_motility_features(label_obj)
+            # todo, could get multi-object features for each label
 
 
     def _get_frame_motility(self):
         self._get_label_coords()
+        self._get_all_motility_features()
         print('hi')
 
     def run(self):
