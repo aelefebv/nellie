@@ -50,9 +50,16 @@ class MotilityFeatures:
 
         self.shape = self.label_memmap.shape
 
+    def _get_label_centroids(self):
+        pass
+
+    def _get_centroid_motion(self):
+        # centroid should probably be the object with the largest amount of that object's label?
+        pass
+
     def _get_label_coords(self):
         # for frame_num in range(len(self.relabelled_memmap)-1):
-        for frame_num in range(2):
+        for frame_num in range(2):  # todo for testing
             logger.debug(f'Getting label coords for frame {frame_num}.')
             relabelled_frame_gpu = xp.array(self.relabelled_memmap[frame_num])
             label_frame_gpu = xp.array(self.label_memmap[frame_num])

@@ -162,7 +162,7 @@ class FlowInterpolator:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
+    im_path = r"D:\test_files\nelly_gav_tests\fibro_7.nd2"
     im_info = ImInfo(im_path)
     im_info.create_output_path('im_instance_label')
     im_info.create_output_path('flow_vector_array', ext='.npy')
@@ -198,16 +198,16 @@ if __name__ == "__main__":
     flow_interpx = FlowInterpolator(im_info, forward=True)
     # flow_interpx.run()
     num_frames = flow_interpx.im_memmap.shape[0]
-    num_frames = 2
+    num_frames = 100
 
     # going backwards
-    coords = np.argwhere(label_memmap[num_frames-1] > 0).astype(float)
+    coords = np.argwhere(label_memmap[1] > 0).astype(float)
     # get 100 random coords
-    # np.random.seed(0)
-    # coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
+    np.random.seed(0)
+    coords = coords[np.random.choice(coords.shape[0], 5000, replace=False), :].astype(float)
     tracks = []
     track_properties = {'frame_num': []}
-    frame_range = np.arange(num_frames)[:-1]
+    frame_range = np.arange(num_frames)[1:-1]
     for t in frame_range:
         print(f'Interpolating frame {t} of {num_frames-1}')
         final_vector = flow_interpx.interpolate_coord(coords, t)
@@ -233,9 +233,9 @@ if __name__ == "__main__":
                                               coord[2] + final_vector[coord_num][2]])
                 tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
 
-    viewer.add_image(flow_interpx.im_memmap)
+    viewer.add_image(flow_interpx.im_memmap[1:])
     viewer.add_tracks(tracks, properties=track_properties, name='tracks')
-    viewer.add_labels(label_memmap)
+    viewer.add_labels(label_memmap[1:])
     # flow_interpx = FlowInterpolator(im_infos[0])
     # # going forwards
     # coords_skel = np.argwhere(test_skel[0] == 80)
