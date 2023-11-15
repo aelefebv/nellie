@@ -264,23 +264,3 @@ if __name__ == "__main__":
     im_info.create_output_path('im_frangi')
     filter = Filter(im_info, num_t=2)
     filter.run()
-
-    # # test_folder = r"D:\test_files\nelly_tests"
-    # test_folder = r"D:\test_files\beading"
-    # # test_folder = r"D:\test_files\julius_examples"
-    # all_files = os.listdir(test_folder)
-    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    # im_infos = []
-    # for file in all_files:
-    #     im_path = os.path.join(test_folder, file)
-    #     im_info = ImInfo(im_path)
-    #     # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
-    #     im_infos.append(im_info)
-    #
-    # frangis = []
-    # for im_info in im_infos[:1]:
-    #     # frangi = Filter(im_info, remove_edges=False)
-    #     frangi = Filter(im_info, num_t=2)
-    #     # frangi = Filter(im_info, num_t=4)
-    #     frangi.run()
-    #     frangis.append(frangi)

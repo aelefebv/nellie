@@ -172,28 +172,6 @@ if __name__ == "__main__":
     import os
     import napari
     viewer = napari.Viewer()
-    # test_folder = r"D:\test_files\nelly_tests"
-    # test_skel = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_skel.ome.tif", mode='r')
-    # test_label = tifffile.memmap(r"D:\test_files\nelly_tests\output\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome-ch0-im_instance_label.ome.tif", mode='r')
-    # test_folder = r"D:\test_files\beading"
-    # test_skel = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_skel.ome.tif", mode='r')
-    # test_label = tifffile.memmap(r"D:\test_files\beading\output\deskewed-single.ome-ch0-im_instance_label.ome.tif", mode='r')
-
-    # im_path = r"D:\test_files\stress_granules\deskewed-2023-04-13_17-34-08_000_AELxES-stress_granules-dmr_perk-activate_deactivate-1nM-activate.ome.tif"
-    # im_info = ImInfo(im_path)
-    # im_info.create_output_path('im_instance_label')
-    # im_info.create_output_path('flow_vector_array', ext='.npy')
-    # label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
-    # label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
-
-    # all_files = os.listdir(test_folder)
-    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    # im_infos = []
-    # for file in all_files:
-    #     im_path = os.path.join(test_folder, file)
-    #     im_info = ImInfo(im_path)
-    #     im_info.create_output_path('flow_vector_array', ext='.npy')
-    #     im_infos.append(im_info)
 
     flow_interpx = FlowInterpolator(im_info, forward=True)
     # flow_interpx.run()
@@ -236,54 +214,3 @@ if __name__ == "__main__":
     viewer.add_image(flow_interpx.im_memmap[1:])
     viewer.add_tracks(tracks, properties=track_properties, name='tracks')
     viewer.add_labels(label_memmap[1:])
-    # flow_interpx = FlowInterpolator(im_infos[0])
-    # # going forwards
-    # coords_skel = np.argwhere(test_skel[0] == 80)
-    # coords_label = np.argwhere(test_label[0] == 651)
-    # coords = np.argwhere(test_label[0] > 0)
-    # # get 100 random coords
-    # np.random.seed(0)
-    # coords = coords[np.random.choice(coords.shape[0], 100, replace=False), :]
-    #
-    # tracks = []
-    # track_properties = {'frame_num': []}
-    # for track_num, coord in enumerate(coords):
-    #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-    #     track_properties['frame_num'].append(0)
-    #     for t in range(num_frames):
-    #         final_vector = flow_interpx.interpolate_coord(coord, t)
-    #         if final_vector is None:
-    #             break
-    #         track_properties['frame_num'].append(t+1)
-    #         coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
-    #         tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
-    # viewer.add_tracks(tracks, properties = track_properties, name='tracks')
-    # tracks = []
-    # track_properties = {'frame_num': []}
-    # for track_num, coord in enumerate(coords_skel):
-    #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-    #     track_properties['frame_num'].append(0)
-    #     for t in range(num_frames):
-    #         final_vector = flow_interpx.interpolate_coord(coord, t)
-    #         if final_vector is None:
-    #             break
-    #         track_properties['frame_num'].append(t+1)
-    #         coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
-    #         tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
-    # viewer.add_tracks(tracks, properties = track_properties, name='tracks')
-    # tracks = []
-    # track_properties = {'frame_num': []}
-    # for track_num, coord in enumerate(coords_label):
-    #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-    #     track_properties['frame_num'].append(0)
-    #     for t in range(num_frames):
-    #         final_vector = flow_interpx.interpolate_coord(coord, t)
-    #         if final_vector is None:
-    #             break
-    #         track_properties['frame_num'].append(t+1)
-    #         coord = (coord[0] + final_vector[0], coord[1] + final_vector[1], coord[2] + final_vector[2])
-    #         tracks.append([track_num, t+1, coord[0], coord[1], coord[2]])
-    # viewer.add_tracks(tracks, properties = track_properties, name='tracks')
-    #
-    # print('done')
-

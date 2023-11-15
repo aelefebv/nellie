@@ -194,22 +194,3 @@ if __name__ == "__main__":
     im_info.create_output_path('im_frangi')
     markers = Markers(im_info, num_t=2)
     markers.run()
-    # import os
-    # test_folder = r"D:\test_files\beading"
-    # # test_folder = r"D:\test_files\nelly_tests"
-    # all_files = os.listdir(test_folder)
-    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    # im_infos = []
-    # for file in all_files:
-    #     im_path = os.path.join(test_folder, file)
-    #     im_info = ImInfo(im_path)
-    #     im_info.create_output_path('im_instance_label')
-    #     im_info.create_output_path('im_frangi')
-    #     im_infos.append(im_info)
-    #
-    # marker_files = []
-    # for im_info in im_infos[:1]:
-    #     markers = Markers(im_info)
-    #     # markers = Markers(im_info, num_t=4)
-    #     markers.run()
-    #     marker_files.append(markers)

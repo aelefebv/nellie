@@ -215,25 +215,3 @@ if __name__ == "__main__":
     im_info.create_output_path('im_frangi')
     segment_unique = Label(im_info, num_t=2)
     segment_unique.run()
-
-    # import os
-    # test_folder = r"D:\test_files\nelly_tests"
-    # # test_folder = r"D:\test_files\beading"
-    # # test_folder = r"D:\test_files\julius_examples"
-    # all_files = os.listdir(test_folder)
-    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    # im_infos = []
-    # for file in all_files:
-    #     im_path = os.path.join(test_folder, file)
-    #     im_info = ImInfo(im_path)
-    #     # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
-    #     im_info.create_output_path('im_frangi')
-    #     im_infos.append(im_info)
-    #
-    # segmentations = []
-    # for im_info in im_infos[:1]:
-    #     # segment_unique = Label(im_info, snr_cleaning=False)
-    #     # segment_unique = Label(im_info, num_t=4, snr_cleaning=False)
-    #     segment_unique = Label(im_info, snr_cleaning=False)
-    #     segment_unique.run()
-    #     segmentations.append(segment_unique)
