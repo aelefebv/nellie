@@ -178,22 +178,16 @@ class Filter:
     def _filter_log(self, frame, mask):
         #todo figure this out...
         lapofg = xp.zeros_like(frame, dtype='double')
-        # masks = xp.ones_like(frame)
-        # lapofg = xp.empty(((len(self.sigmas),) + frame.shape), dtype=float)
-        # hold_mask = xp.ones_like(frame)
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
             current_lapofg = -ndi.gaussian_laplace(frame, sigma_vec) * xp.mean(s) ** 2
             current_lapofg = current_lapofg * mask
-            # current_lapofg[current_lapofg < 0] = 0
-            # lapofg[i] = current_lapofg
-            # mask = current_lapofg > 0
-            max_indices = current_lapofg > lapofg
-            lapofg[max_indices] = current_lapofg[max_indices]
-            # masks = xp.where(~mask, 0, masks)
-        # lapofg_min_proj = xp.max(lapofg, axis=0)
-        lapofg_max_proj = lapofg#* masks
-        return lapofg_max_proj
+            min_indices = current_lapofg < lapofg
+            lapofg[min_indices] = current_lapofg[min_indices]
+            if i == 0:
+                lapofg = current_lapofg
+        lapofg_min_proj = lapofg
+        return lapofg_min_proj
 
     def _run_frame(self, t):
         logger.info(f'Running frangi filter on {t=}.')
@@ -249,12 +243,12 @@ class Filter:
             # if self.remove_edges:
             #     frangi_frame = self._remove_edges(frangi_frame)
             frangi_frame = self._mask_volume(frangi_frame)#.get()
-            # if not self.im_info.no_z:
-            log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
-            log_frame[log_frame < 0] = 0
-            filtered_im = log_frame
-            # else:
-            #     filtered_im = frangi_frame
+            if not self.im_info.no_z:  # helps with z anisotropy
+                log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
+                log_frame[log_frame < 0] = 0
+                filtered_im = log_frame
+            else:
+                filtered_im = frangi_frame
             if self.im_info.no_t:
                 self.frangi_memmap[:] = filtered_im.get()[:]
             else:
