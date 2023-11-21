@@ -74,13 +74,15 @@ class Markers:
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
         self.shape = self.label_memmap.shape
 
-        im_marker_path = self.im_info.create_output_path('im_marker')
+        # im_marker_path = self.im_info.create_output_path('im_marker')
+        im_marker_path = self.im_info.pipeline_paths['im_marker']
         self.im_marker_memmap = self.im_info.allocate_memory(im_marker_path, shape=self.shape,
                                                             dtype='uint8',
                                                             description='mocap marker image',
                                                             return_memmap=True)
 
-        im_distance_path = self.im_info.create_output_path('im_distance')
+        # im_distance_path = self.im_info.create_output_path('im_distance')
+        im_distance_path = self.im_info.pipeline_paths['im_distance']
         self.im_distance_memmap = self.im_info.allocate_memory(im_distance_path, shape=self.shape,
                                                              dtype='float',
                                                              description='distance transform image',

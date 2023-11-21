@@ -83,7 +83,8 @@ class Label:
         #                                                          description='semantic segmentation',
         #                                                          return_memmap=True)
 
-        im_instance_label_path = self.im_info.create_output_path('im_instance_label')
+        # im_instance_label_path = self.im_info.create_output_path('im_instance_label')
+        im_instance_label_path = self.im_info.pipeline_paths['im_instance_label']
         self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path, shape=self.shape, dtype='int32',
                                                                   description='instance segmentation',
                                                                   return_memmap=True)

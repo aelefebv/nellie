@@ -1,10 +1,6 @@
 import heapq
-from collections import defaultdict
-
 import numpy as np
 from scipy.spatial import cKDTree
-from tifffile import tifffile
-
 from src import logger
 from src_2.im_info.im_info import ImInfo
 from src_2.tracking.flow_interpolation import FlowInterpolator
@@ -231,7 +227,8 @@ class VoxelReassigner:
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
         self.shape = self.label_memmap.shape
 
-        reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
+        # reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
+        reassigned_label_path = self.im_info.pipeline_paths['im_instance_label_reassigned']
         self.reassigned_memmap = self.im_info.allocate_memory(reassigned_label_path, shape=self.shape,
                                                               dtype='int32',
                                                               description='instance segmentation',

@@ -3,7 +3,7 @@ try:
     import cupy as xp
     import cupy_backends as xp_bk
     import cupyx.scipy.ndimage as ndi
-    from cucim.skimage import filters, morphology, measure
+    # from cucim.skimage import filters, morphology, measure
     is_gpu = True
     logger.info('GPU packages detected, running via GPU.')
 except ModuleNotFoundError:

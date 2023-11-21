@@ -45,7 +45,7 @@ class MotilityFeatures:
         relabelled_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label_reassigned'])
         self.relabelled_memmap = get_reshaped_image(relabelled_memmap, None, self.im_info)
 
-        self.im_info.create_output_path('motility_features', ext='.csv')
+        # self.im_info.create_output_path('motility_features', ext='.csv')
         self.motility_features_path = self.im_info.pipeline_paths['motility_features']
 
         self.shape = self.label_memmap.shape

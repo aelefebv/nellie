@@ -225,13 +225,15 @@ class Network:
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
         self.shape = self.label_memmap.shape
 
-        im_skel_path = self.im_info.create_output_path('im_skel')
+        # im_skel_path = self.im_info.create_output_path('im_skel')
+        im_skel_path = self.im_info.pipeline_paths['im_skel']
         self.skel_memmap = self.im_info.allocate_memory(im_skel_path, shape=self.shape,
                                                                   dtype='uint16',
                                                                   description='skeleton image',
                                                                   return_memmap=True)
 
-        im_pixel_class = self.im_info.create_output_path('im_pixel_class')
+        # im_pixel_class = self.im_info.create_output_path('im_pixel_class')
+        im_pixel_class = self.im_info.pipeline_paths['im_pixel_class']
         self.pixel_class_memmap = self.im_info.allocate_memory(im_pixel_class, shape=self.shape,
                                                                 dtype='uint8',
                                                                 description='pixel class image',

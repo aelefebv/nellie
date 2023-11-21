@@ -48,7 +48,8 @@ class Filter:
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
         self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
         self.shape = self.im_memmap.shape
-        im_frangi_path = self.im_info.create_output_path('im_frangi')
+        # im_frangi_path = self.im_info.create_output_path('im_frangi')
+        im_frangi_path = self.im_info.pipeline_paths['im_frangi']
         self.frangi_memmap = self.im_info.allocate_memory(im_frangi_path, shape=self.shape, dtype='double',
                                                           description='frangi filtered im',
                                                           return_memmap=True)

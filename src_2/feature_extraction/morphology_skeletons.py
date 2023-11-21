@@ -228,7 +228,7 @@ class MorphologySkeletonFeatures:
         pixel_class_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
         self.pixel_class_memmap = get_reshaped_image(pixel_class_memmap, 1, self.im_info)
 
-        self.im_info.create_output_path('morphology_skeleton_features', ext='.csv')
+        # self.im_info.create_output_path('morphology_skeleton_features', ext='.csv')
         self.morphology_skeleton_features_path = self.im_info.pipeline_paths['morphology_skeleton_features']
 
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])

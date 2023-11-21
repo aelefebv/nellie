@@ -45,8 +45,23 @@ class ImInfo:
         self._create_output_dir()
 
         self.pipeline_paths = {}
+        self._create_output_paths()
 
         self._check_memmappable()
+
+    def _create_output_paths(self):
+        logger.debug('Creating output paths.')
+        self.create_output_path('im_frangi')
+        self.create_output_path('im_instance_label')
+        self.create_output_path('im_skel')
+        self.create_output_path('im_pixel_class')
+        self.create_output_path('im_marker')
+        self.create_output_path('im_distance')
+        self.create_output_path('flow_vector_array', ext='.npy')
+        self.create_output_path('im_instance_label_reassigned')
+        self.create_output_path('morphology_label_features', ext='.csv')
+        self.create_output_path('morphology_skeleton_features', ext='.csv')
+        self.create_output_path('motility_features', ext='.csv')
 
     def _create_output_dir(self):
         logger.debug('Creating output directory.')

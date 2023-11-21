@@ -63,7 +63,7 @@ class MorphologyLabelFeatures:
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, 1, self.im_info)
 
-        self.im_info.create_output_path('morphology_label_features', ext='.csv')
+        # self.im_info.create_output_path('morphology_label_features', ext='.csv')
         self.morphology_label_features_path = self.im_info.pipeline_paths['morphology_label_features']
 
         self.shape = self.label_memmap.shape
