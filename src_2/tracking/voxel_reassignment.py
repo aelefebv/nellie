@@ -1,7 +1,7 @@
 import heapq
 import numpy as np
 from scipy.spatial import cKDTree
-from src import logger
+from src import logger, ndi, xp
 from src_2.im_info.im_info import ImInfo
 from src_2.tracking.flow_interpolation import FlowInterpolator
 from src_2.utils.general import get_reshaped_image
@@ -9,7 +9,7 @@ from src_2.utils.general import get_reshaped_image
 
 class VoxelReassigner:
     def __init__(self, im_info: ImInfo,
-                 num_t=None, ):
+                 num_t=None, skeleton_labels=True):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None:
@@ -17,7 +17,12 @@ class VoxelReassigner:
         self.flow_interpolator_fw = FlowInterpolator(im_info)
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
 
+        self.skeleton_labels = skeleton_labels
+
+        self.running_matches = []
+
         self.flow_vector_array_path = None
+        self.voxel_matches_path = None
         self.label_memmap = None
         self.reassigned_memmap = None
 
@@ -223,7 +228,12 @@ class VoxelReassigner:
         logger.debug('Allocating memory for voxel reassignment.')
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.voxel_matches_path = self.im_info.pipeline_paths['voxel_matches']
+
+        if self.skeleton_labels:
+            label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        else:
+            label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
         self.shape = self.label_memmap.shape
 
@@ -245,6 +255,13 @@ class VoxelReassigner:
         matched_prev, matched_next = self.match_voxels(vox_prev, vox_next, t)
         if len(matched_prev) == 0:
             return True
+        matched_prev = matched_prev.astype('uint16')
+        matched_next = matched_next.astype('uint16')
+
+        self.running_matches.append([matched_prev, matched_next])
+
+        # save the matches to a npy file
+        # np.save(self.voxel_matches_path, np.array([matched_prev, matched_next]))
 
         self.reassigned_memmap[t + 1][tuple(matched_next.T)] = self.reassigned_memmap[t][tuple(matched_prev.T)]
 
@@ -265,18 +282,25 @@ class VoxelReassigner:
         self._get_t()
         self._allocate_memory()
         self._run_reassignment()
+        # save running matches to npy
+        np.save(self.voxel_matches_path, np.array(self.running_matches, dtype=object))
 
 
 if __name__ == "__main__":
-    import os
-    top_dir = r"D:\test_files\nelly_gav_tests"
-    # get all non-folder files
-    all_files = os.listdir(top_dir)
-    all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
-    for file_num, tif_file in enumerate(all_files):
-        im_info = ImInfo(tif_file)
-        print(f'Processing file {file_num + 1} of {len(all_files)}')
-        im_info.create_output_path('im_instance_label')
-        im_info.create_output_path('flow_vector_array', ext='.npy')
-        run_obj = VoxelReassigner(im_info)
-        run_obj.run()
+    tif_file = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_info = ImInfo(tif_file)
+    run_obj = VoxelReassigner(im_info, num_t=3)
+    run_obj.run()
+
+    # import os
+    # top_dir = r"D:\test_files\nelly_gav_tests"
+    # # get all non-folder files
+    # all_files = os.listdir(top_dir)
+    # all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
+    # for file_num, tif_file in enumerate(all_files):
+    #     im_info = ImInfo(tif_file)
+    #     print(f'Processing file {file_num + 1} of {len(all_files)}')
+    #     im_info.create_output_path('im_instance_label')
+    #     im_info.create_output_path('flow_vector_array', ext='.npy')
+    #     run_obj = VoxelReassigner(im_info)
+    #     run_obj.run()

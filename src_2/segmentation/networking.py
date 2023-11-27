@@ -25,6 +25,11 @@ class Network:
         self.min_radius_px = self.min_radius_um / self.im_info.dim_sizes['X']
         self.max_radius_px = self.max_radius_um / self.im_info.dim_sizes['X']
 
+        if self.im_info.no_z:
+            self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+        else:
+            self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+
         self.shape = ()
 
         self.im_memmap = None
@@ -32,6 +37,8 @@ class Network:
         self.label_memmap = None
         self.network_memmap = None
         self.pixel_class_memmap = None
+        self.skel_memmap = None
+        self.skel_relabelled_memmap = None
 
 
         self.sigmas = None
@@ -161,14 +168,52 @@ class Network:
         self.sigmas = list(xp.arange(self.sigma_min, self.sigma_max, sigma_step_size))
         logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
-    def _relabel_objects(self, label_frame, skel_frame):
-        # the non-0 pixels in label_frame will be relabelled based on the nearest skeleton pixel's label
-        skel_coords = np.argwhere(skel_frame > 0)
-        skel_tree = cKDTree(skel_coords)
-        label_coords = np.argwhere(label_frame > 0)
-        _, nearest_skel_indices = skel_tree.query(label_coords, k=1)
-        nearest_skel_labels = skel_frame[tuple(skel_coords[nearest_skel_indices].T)]
-        label_frame[tuple(np.transpose(label_coords))] = nearest_skel_labels
+    # def _relabel_objects(self, label_frame, skel_frame):
+    #     # the non-0 pixels in label_frame will be relabelled based on the nearest skeleton pixel's label
+    #     skel_coords = np.argwhere(skel_frame > 0)
+    #     skel_tree = cKDTree(skel_coords)
+    #     label_coords = np.argwhere(label_frame > 0)
+    #     _, nearest_skel_indices = skel_tree.query(label_coords, k=1)
+    #     nearest_skel_labels = skel_frame[tuple(skel_coords[nearest_skel_indices].T)]
+    #     label_frame[tuple(np.transpose(label_coords))] = nearest_skel_labels
+
+    def _relabel_objects(self, branch_skel_labels, label_frame):
+        if self.im_info.no_z:
+            structure = xp.ones((3, 3))
+        else:
+            structure = xp.ones((3, 3, 3))
+        # here, skel frame should be the branch labeled frame
+        relabelled_labels = branch_skel_labels.copy()
+        skel_mask = xp.array(branch_skel_labels > 0).astype('uint8')
+        label_mask = xp.array(label_frame > 0).astype('uint8')
+        skel_border = (ndi.binary_dilation(skel_mask, iterations=1, structure=structure) ^ skel_mask) * label_mask
+        vox_matched = np.argwhere((branch_skel_labels > 0).get())
+        vox_next_unmatched = np.argwhere(skel_border.get())
+        unmatched_diff = np.inf
+        while unmatched_diff:
+            num_unmatched = len(vox_next_unmatched)
+            if num_unmatched == 0:
+                break
+            tree = cKDTree(vox_matched * self.scaling)
+            dists, idxs = tree.query(vox_next_unmatched * self.scaling, k=1, workers=-1)
+            unmatched_matches = np.array([[vox_matched[idx], vox_next_unmatched[i]] for i, idx in enumerate(idxs)])
+            if len(unmatched_matches) == 0:
+                break
+            matched_labels = branch_skel_labels[tuple(np.transpose(unmatched_matches[:, 0]))]
+            relabelled_labels[tuple(np.transpose(unmatched_matches[:, 1]))] = matched_labels
+            relabelled_mask = xp.array(relabelled_labels > 0).astype('uint8')
+            # add unmatched matches to coords_matched
+            skel_border = (ndi.binary_dilation(skel_border, iterations=1, structure=structure) ^ relabelled_mask) * label_mask
+            vox_next_unmatched = np.argwhere(skel_border.get())
+            new_num_unmatched = len(vox_next_unmatched)
+            unmatched_diff_temp = abs(num_unmatched - new_num_unmatched)
+            if unmatched_diff_temp == unmatched_diff:
+                break
+            unmatched_diff = unmatched_diff_temp
+            logger.debug(f'Reassigned {unmatched_diff}/{num_unmatched} unassigned voxels. '
+                         f'{new_num_unmatched} remain.')
+
+        return relabelled_labels
 
     def _local_max_peak(self, frame, mask):
         lapofg = xp.empty(((len(self.sigmas),) + frame.shape), dtype=float)
@@ -239,6 +284,23 @@ class Network:
                                                                 description='pixel class image',
                                                                 return_memmap=True)
 
+        im_skel_relabelled = self.im_info.pipeline_paths['im_skel_relabelled']
+        self.skel_relabelled_memmap = self.im_info.allocate_memory(im_skel_relabelled, shape=self.shape,
+                                                               dtype='uint32',
+                                                               description='skeleton relabelled image',
+                                                               return_memmap=True)
+
+    def _get_branch_skel_labels(self, pixel_class):
+        # get the labels of the skeleton pixels that are not junctions or background
+        non_junctions = pixel_class > 0
+        non_junctions = non_junctions * (pixel_class != 4)
+        if self.im_info.no_z:
+            structure = xp.ones((3, 3))
+        else:
+            structure = xp.ones((3, 3, 3))
+        non_junction_labels, _ = ndi.label(non_junctions, structure=structure)
+        return non_junction_labels
+
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
@@ -247,15 +309,16 @@ class Network:
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
         skel = self._remove_connected_label_pixels(skel_frame)
         skel = self._add_missing_skeleton_labels(skel, label_frame, frangi_frame, thresh)
-        if self.im_info.no_z:
-            structure = xp.ones((3, 3))
-        else:
-            structure = xp.ones((3, 3, 3))
+        # if self.im_info.no_z:
+        #     structure = xp.ones((3, 3))
+        # else:
+        #     structure = xp.ones((3, 3, 3))
         # final_skel, _ = ndi.label(skel > 0, structure=structure)
-        # self._relabel_objects(label_frame, final_skel)
         final_skel = (skel.get() > 0) * label_frame
-        pixel_class = self._get_pixel_class(final_skel).get()
-        return final_skel, pixel_class
+        pixel_class = self._get_pixel_class(final_skel)
+        branch_skel_labels = self._get_branch_skel_labels(pixel_class)
+        branch_labels = self._relabel_objects(branch_skel_labels, label_frame)
+        return final_skel, pixel_class.get(), branch_labels.get()
 
     def _clean_junctions(self, pixel_class):
         junctions = pixel_class == 4
@@ -276,14 +339,16 @@ class Network:
 
     def _run_networking(self):
         for t in range(self.num_t):
-            skel, pixel_class = self._run_frame(t)
+            skel, pixel_class, skel_relabelled_memmap = self._run_frame(t)
             # pixel_class = self._clean_junctions(pixel_class)
             if self.im_info.no_t:
                 self.skel_memmap[:] = skel[:]
                 self.pixel_class_memmap[:] = pixel_class[:]
+                self.skel_relabelled_memmap[:] = skel_relabelled_memmap[:]
             else:
                 self.skel_memmap[t] = skel
                 self.pixel_class_memmap[t] = pixel_class
+                self.skel_relabelled_memmap[t] = skel_relabelled_memmap
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
             # label_frame = xp.asarray(self.label_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])
@@ -302,9 +367,7 @@ class Network:
 if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(im_path)
-    im_info.create_output_path('im_instance_label')
-    im_info.create_output_path('im_frangi')
-    skel = Network(im_info, num_t=2)
+    skel = Network(im_info, num_t=3)
     skel.run()
 
     # import os

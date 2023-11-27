@@ -24,12 +24,11 @@ def run(im_path, num_t=None, remove_edges=True):
     hu_tracking = HuMomentTracking(im_info, num_t)
     hu_tracking.run()
 
-    print('done')
     return im_info
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_tests\test_2\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = run(im_path, num_t=2, remove_edges=True)
+    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_info = run(im_path, remove_edges=True, num_t=3)
     # import os
     # # top_dir = r"D:\test_files\stress_granules"
     # top_dir = r"D:\test_files\nelly_gav_tests"

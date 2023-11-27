@@ -161,34 +161,17 @@ class FlowInterpolator:
         self._allocate_memory()
 
 
-if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_gav_tests\fibro_7.nd2"
-    im_info = ImInfo(im_path)
-    im_info.create_output_path('im_instance_label')
-    im_info.create_output_path('flow_vector_array', ext='.npy')
-    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
-    label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
-
-    import os
-    import napari
-    viewer = napari.Viewer()
-
+def interpolate_all_forward(coords, start_t, end_t, im_info):
     flow_interpx = FlowInterpolator(im_info, forward=True)
-    # flow_interpx.run()
-    num_frames = flow_interpx.im_memmap.shape[0]
-    num_frames = 100
-
-    # going backwards
-    coords = np.argwhere(label_memmap[1] > 0).astype(float)
-    # get 100 random coords
-    np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 5000, replace=False), :].astype(float)
     tracks = []
     track_properties = {'frame_num': []}
-    frame_range = np.arange(num_frames)[1:-1]
+    frame_range = np.arange(start_t, end_t)
+    num_frames = len(frame_range)
     for t in frame_range:
-        print(f'Interpolating frame {t} of {num_frames-1}')
+        print(f'Interpolating frame {t} of {num_frames - 1}')
         final_vector = flow_interpx.interpolate_coord(coords, t)
+        if final_vector is None:
+            continue
         for coord_num, coord in enumerate(coords):
             # if final_vector[coord_num] is all nan, skip
             if np.all(np.isnan(final_vector[coord_num])):
@@ -210,7 +193,94 @@ if __name__ == "__main__":
                                               coord[1] + final_vector[coord_num][1],
                                               coord[2] + final_vector[coord_num][2]])
                 tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
+    return tracks, track_properties
 
-    viewer.add_image(flow_interpx.im_memmap[1:])
+def interpolate_all_backward(coords, start_t, end_t, im_info):
+    flow_interpx = FlowInterpolator(im_info, forward=False)
+    tracks = []
+    track_properties = {'frame_num': []}
+    frame_range = np.arange(end_t, start_t+1)[::-1]
+    print(frame_range)
+    num_frames = len(frame_range)
+    for t in frame_range:
+        print(f'Interpolating frame {t} of {num_frames - 1}')
+        final_vector = flow_interpx.interpolate_coord(coords, t)
+        if final_vector is None:
+            continue
+        for coord_num, coord in enumerate(coords):
+            # if final_vector[coord_num] is all nan, skip
+            if np.all(np.isnan(final_vector[coord_num])):
+                coords[coord_num] = np.nan
+                continue
+            if t == frame_range[0]:
+                if im_info.no_z:
+                    tracks.append([coord_num, frame_range[0], coord[0], coord[1]])
+                else:
+                    tracks.append([coord_num, frame_range[0], coord[0], coord[1], coord[2]])
+                track_properties['frame_num'].append(frame_range[0])
+            track_properties['frame_num'].append(t-1)
+            if im_info.no_z:
+                coords[coord_num] = np.array([coord[0] - final_vector[coord_num][0],
+                                              coord[1] - final_vector[coord_num][1]])
+                tracks.append([coord_num, t-1, coord[0], coord[1]])
+            else:
+                coords[coord_num] = np.array([coord[0] - final_vector[coord_num][0],
+                                              coord[1] - final_vector[coord_num][1],
+                                              coord[2] - final_vector[coord_num][2]])
+                tracks.append([coord_num, t-1, coord[0], coord[1], coord[2]])
+    return tracks, track_properties
+
+
+if __name__ == "__main__":
+    # im_path = r"D:\test_files\nelly_gav_tests\fibro_7.nd2"
+    im_path = r"D:\test_files\nelly_tests\test_2\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_info = ImInfo(im_path)
+    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
+    label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
+
+    import napari
+    viewer = napari.Viewer()
+
+    start_frame = 5
+
+    # going backwards
+    coords = np.argwhere(label_memmap[0] > 0).astype(float)
+    # get 100 random coords
+    np.random.seed(0)
+    coords = coords[np.random.choice(coords.shape[0], 1000, replace=False), :].astype(float)
+
+    tracks, track_properties = interpolate_all_forward(coords, start_frame, 9, im_info)
+    # flip tracks_back
+    tracks_back, track_properties_back = interpolate_all_backward(coords, start_frame, 1, im_info)
+
+    # tracks = []
+    # track_properties = {'frame_num': []}
+    # frame_range = np.arange(num_frames)[1:-1]
+    # for t in frame_range:
+    #     print(f'Interpolating frame {t} of {num_frames-1}')
+    #     final_vector = flow_interpx.interpolate_coord(coords, t)
+    #     for coord_num, coord in enumerate(coords):
+    #         # if final_vector[coord_num] is all nan, skip
+    #         if np.all(np.isnan(final_vector[coord_num])):
+    #             coords[coord_num] = np.nan
+    #             continue
+    #         if t == frame_range[0]:
+    #             if im_info.no_z:
+    #                 tracks.append([coord_num, frame_range[0], coord[0], coord[1]])
+    #             else:
+    #                 tracks.append([coord_num, frame_range[0], coord[0], coord[1], coord[2]])
+    #             track_properties['frame_num'].append(frame_range[0])
+    #         track_properties['frame_num'].append(t + 1)
+    #         if im_info.no_z:
+    #             coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
+    #                                           coord[1] + final_vector[coord_num][1]])
+    #             tracks.append([coord_num, t + 1, coord[0], coord[1]])
+    #         else:
+    #             coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
+    #                                           coord[1] + final_vector[coord_num][1],
+    #                                           coord[2] + final_vector[coord_num][2]])
+    #             tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
+
     viewer.add_tracks(tracks, properties=track_properties, name='tracks')
-    viewer.add_labels(label_memmap[1:])
+    viewer.add_tracks(tracks_back, properties=track_properties_back, name='tracks')
+    viewer.add_labels(label_memmap)
