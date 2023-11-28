@@ -21,7 +21,6 @@ class VoxelReassigner:
 
         self.running_matches = []
 
-        self.flow_vector_array_path = None
         self.voxel_matches_path = None
         self.label_memmap = None
         self.reassigned_memmap = None
@@ -226,8 +225,6 @@ class VoxelReassigner:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for voxel reassignment.')
-        self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
-
         self.voxel_matches_path = self.im_info.pipeline_paths['voxel_matches']
 
         if self.skeleton_labels:
@@ -301,6 +298,5 @@ if __name__ == "__main__":
     #     im_info = ImInfo(tif_file)
     #     print(f'Processing file {file_num + 1} of {len(all_files)}')
     #     im_info.create_output_path('im_instance_label')
-    #     im_info.create_output_path('flow_vector_array', ext='.npy')
     #     run_obj = VoxelReassigner(im_info)
     #     run_obj.run()
