@@ -89,15 +89,6 @@ class CoordMovement:
         df[['t0_z', 't0_y', 't0_x']] = pd.DataFrame(coords_0)
         df[['t2_z', 't2_y', 't2_x']] = pd.DataFrame(coords_2)
 
-        # # tracks are backward coords, label coords, and forward coords
-        # match = np.stack([coords_0, coords_1, coords_2], axis=1)
-        # tracks = []
-        # for track_num, track in enumerate(match[::5]):
-        #     if np.any(np.isnan(track)):
-        #         continue
-        #     tracks.append([track_num, 0, *track[0]])
-        #     tracks.append([track_num, 1, *track[1]])
-        #     tracks.append([track_num, 2, *track[2]])
         vec12_scaled = vec12 * self.scaling
         vec01_scaled = vec01 * self.scaling
         df[['vec12_z', 'vec12_y', 'vec12_x']] = pd.DataFrame(vec12_scaled)
@@ -109,21 +100,52 @@ class CoordMovement:
         match_01 = np.stack([coords_0, coords_1], axis=1)
         match_12 = np.stack([coords_1, coords_2], axis=1)
 
-        ref_vecs_01, ref_points_01 = self._get_reference_vector(match_01, idxmin_01, vec12_scaled, label_vals)
-        ref_vecs_12, ref_points_12 = self._get_reference_vector(match_12, idxmin_12, match_vec, labels)
+        ref_vecs_01, ref_points_01 = self._get_reference_vector(match_01, idxmin_01, vec01_scaled, label_vals)
+        ref_vecs_12, ref_points_12 = self._get_reference_vector(match_12, idxmin_12, vec12_scaled, label_vals)
 
-        ref_vec_subtracted_vecs = match_vec - ref_vecs
-        ref_point_subtracted_points_0 = (match[0].astype('float32') - ref_points) * self.scaling
-        ref_point_subtracted_points_1 = (match[1].astype('float32') - ref_points) * self.scaling
-        magnitude = np.linalg.norm(ref_vec_subtracted_vecs, axis=1)
-        angle = np.arctan2(ref_vec_subtracted_vecs[:, 1], ref_vec_subtracted_vecs[:, 0])
+        ref_vec_subtracted_vecs_01 = vec01_scaled - ref_vecs_01
+        ref_vec_subtracted_vecs_12 = vec12_scaled - ref_vecs_12
+
+        # ref_point_subtracted_points_01_0 = (match_01[:, 0] - ref_points_01) * self.scaling
+        # ref_point_subtracted_points_01_1 = (match_01[:, 1] - ref_points_01) * self.scaling
+        #
+        # ref_point_subtracted_points_12_0 = (match_12[:, 0] - ref_points_12) * self.scaling
+        # ref_point_subtracted_points_12_1 = (match_12[:, 1] - ref_points_12) * self.scaling
+
+        magnitude_01 = np.linalg.norm(ref_vec_subtracted_vecs_01, axis=1)
+        angle_01 = np.arctan2(ref_vec_subtracted_vecs_01[:, 1], ref_vec_subtracted_vecs_01[:, 0])
         # get angle in degrees between 0 and 180
-        angle = np.abs(angle) * 180 / np.pi
-        angle = np.where(angle > 180, 360 - angle, angle)
+        angle_01 = np.abs(angle_01) * 180 / np.pi
+        angle_01 = np.where(angle_01 > 180, 360 - angle_01, angle_01)
 
+        magnitude_12 = np.linalg.norm(ref_vec_subtracted_vecs_12, axis=1)
+        angle_12 = np.arctan2(ref_vec_subtracted_vecs_12[:, 1], ref_vec_subtracted_vecs_12[:, 0])
+        # get angle in degrees between 0 and 180
+        angle_12 = np.abs(angle_12) * 180 / np.pi
+        angle_12 = np.where(angle_12 > 180, 360 - angle_12, angle_12)
 
-        # viewer.add_points(match[0][idxmin], size=1, face_color='red')
-        # viewer.add_points(match[1][idxmin], size=1, face_color='blue')
+        # todo now can extract other features
+
+        # # # tracks are backward coords, label coords, and forward coords
+        # match = np.stack([coords_0, coords_1, coords_2], axis=1)
+        # properties = {'magnitude': [], 'angle': []}
+        # tracks = []
+        # skip_num = 10
+        # for track_num, track in enumerate(match[::skip_num]):
+        #     if np.any(np.isnan(track)):
+        #         continue
+        #     tracks.append([track_num, 0, *track[0]])
+        #     tracks.append([track_num, 1, *track[1]])
+        #     tracks.append([track_num, 2, *track[2]])
+        #     properties['magnitude'].append(0)
+        #     properties['magnitude'].append(magnitude_01[track_num*skip_num])
+        #     properties['magnitude'].append(magnitude_12[track_num*skip_num])
+        #     properties['angle'].append(0)
+        #     properties['angle'].append(angle_01[track_num*skip_num])
+        #     properties['angle'].append(angle_12[track_num*skip_num])
+        # viewer.add_tracks(tracks, properties=properties)
+        # viewer.add_points(match_01[:, 0][idxmin_01], size=1, face_color='red')
+        # viewer.add_points(match_01[:, 1][idxmin_01], size=1, face_color='blue')
 
     def _run_coord_movement_analysis(self):
         for t in range(1, self.num_t-1):
