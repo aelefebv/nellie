@@ -186,7 +186,7 @@ class CoordMovement:
 
         ang_vel_magnitude = np.linalg.norm(ang_vel_um_s, axis=1)
 
-        ang_vel_orientation = ang_vel_um_s / ang_vel_magnitude
+        ang_vel_orientation = (ang_vel_um_s.T / ang_vel_magnitude).T
         ang_vel_orientation = np.where(np.isnan(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
         ang_vel_orientation = np.where(np.isinf(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
 
@@ -199,7 +199,7 @@ class CoordMovement:
 
         lin_vel_magnitude = np.linalg.norm(lin_vel_um_s, axis=1)
 
-        lin_vel_orientation = lin_vel_um_s / lin_vel_magnitude
+        lin_vel_orientation = (lin_vel_um_s.T / lin_vel_magnitude).T
         lin_vel_orientation = np.where(np.isnan(lin_vel_orientation), lin_vel_um_s, lin_vel_orientation)
         lin_vel_orientation = np.where(np.isinf(lin_vel_orientation), lin_vel_um_s, lin_vel_orientation)
 
@@ -225,35 +225,92 @@ class CoordMovement:
         pos_coords_um_1 = coords_1 * self.scaling
         pos_coords_um_2 = coords_2 * self.scaling
 
+        com_coords_um_0 = np.nanmean(pos_coords_um_0, axis=0)
+        com_coords_um_1 = np.nanmean(pos_coords_um_1, axis=0)
+        com_coords_um_2 = np.nanmean(pos_coords_um_2, axis=0)
+
+        r0_com_rel = pos_coords_um_0 - com_coords_um_0
+        r1_com_rel = pos_coords_um_1 - com_coords_um_1
+        r2_com_rel = pos_coords_um_2 - com_coords_um_2
+
+        com_ang_vel_vec_01, com_ang_vel_mag_01, com_ang_vel_ori_01 = self._get_angular_velocity(r0_com_rel, r1_com_rel)
+        com_ang_vel_vec_12, com_ang_vel_mag_12, com_ang_vel_ori_12 = self._get_angular_velocity(r1_com_rel, r2_com_rel)
+
+        com_ang_acc_vec = (com_ang_vel_vec_12 - com_ang_vel_vec_01) / self.im_info.dim_sizes['T']
+        com_ang_acc_mag = np.linalg.norm(com_ang_acc_vec, axis=1)
+        com_ang_ori_change = (com_ang_vel_ori_12 - com_ang_vel_ori_01) / self.im_info.dim_sizes['T']
+        com_ang_acc_ori = com_ang_acc_vec / com_ang_acc_mag[:, None]
+
+        com_lin_vel_vec_01, com_lin_vel_mag_01, com_lin_vel_ori_01 = self._get_linear_velocity(r0_com_rel, r1_com_rel)
+        com_lin_vel_vec_12, com_lin_vel_mag_12, com_lin_vel_ori_12 = self._get_linear_velocity(r1_com_rel, r2_com_rel)
+
+        com_lin_acc_vec = (com_lin_vel_vec_12 - com_lin_vel_vec_01) / self.im_info.dim_sizes['T']
+        com_lin_acc_mag = np.linalg.norm(com_lin_acc_vec, axis=1)
+        com_lin_ori_change = (com_lin_vel_ori_12 - com_lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        com_lin_acc_ori = com_lin_acc_vec / com_lin_acc_mag[:, None]
+
+        r0_com_rel_mag = np.linalg.norm(r0_com_rel, axis=1)
+        r1_com_rel_mag = np.linalg.norm(r1_com_rel, axis=1)
+        r2_com_rel_mag = np.linalg.norm(r2_com_rel, axis=1)
+
+        com_directionality_01 = (r1_com_rel_mag - r0_com_rel_mag) / self.im_info.dim_sizes['T']
+        com_directionality_12 = (r2_com_rel_mag - r1_com_rel_mag) / self.im_info.dim_sizes['T']
+
+        com_directionality_acceleration = (com_directionality_12 - com_directionality_01) / self.im_info.dim_sizes['T']
+
+        # com_unit_vec_01 = r0_com_rel / np.linalg.norm(r0_com_rel, axis=1)[:, None]
+        # com_unit_vec_01[np.isnan(com_unit_vec_01)] = 0
+        #
+        # com_unit_vec_12 = r1_com_rel / np.linalg.norm(r1_com_rel, axis=1)[:, None]
+        # com_unit_vec_12[np.isnan(com_unit_vec_12)] = 0
+        #
+        # com_directionality_01 = np.dot(com_lin_vel_vec_01, com_unit_vec_01, axis=1)  # pos is antero, neg is retro
+        # com_directionality_12 = np.dot(com_lin_vel_vec_12, com_unit_vec_12, axis=1)
+        #
+        # com_directionality_acceleration = com_directionality_12 - com_directionality_01
+
+        com_lin_acc_vec = (com_lin_vel_vec_12 - com_lin_vel_vec_01) / self.im_info.dim_sizes['T']
+        com_lin_acc_mag = np.linalg.norm(com_lin_acc_vec, axis=1)
+        com_lin_acc_ori = com_lin_acc_vec / com_lin_acc_mag[:, None]
+
         r0_rel_01 = pos_coords_um_0 - ref_coords_um_01[0]
         r1_rel_01 = pos_coords_um_1 - ref_coords_um_01[1]
 
         r1_rel_12 = pos_coords_um_1 - ref_coords_um_12[0]
         r2_rel_12 = pos_coords_um_2 - ref_coords_um_12[1]
 
-        ang_rel_vel_vec_01, ang_rel_vel_mag_01, ang_rel_vel_ori_01 = self._get_angular_velocity(r0_rel_01, r1_rel_01)
-        ang_rel_vel_vec_12, ang_rel_vel_mag_12, ang_rel_vel_ori_12 = self._get_angular_velocity(r1_rel_12, r2_rel_12)
+        rel_ang_vel_vec_01, rel_ang_vel_mag_01, rel_ang_vel_ori_01 = self._get_angular_velocity(r0_rel_01, r1_rel_01)
+        rel_ang_vel_vec_12, rel_ang_vel_mag_12, rel_ang_vel_ori_12 = self._get_angular_velocity(r1_rel_12, r2_rel_12)
 
-        ang_rel_acc_vec = (ang_rel_vel_vec_12 - ang_rel_vel_vec_01) / self.im_info.dim_sizes['T']
-        ang_rel_acc_mag = np.linalg.norm(ang_rel_acc_vec, axis=1)
-        ang_rel_acc_ori = ang_rel_acc_vec / ang_rel_acc_mag[:, None]
+        rel_ang_acc_vec = (rel_ang_vel_vec_12 - rel_ang_vel_vec_01) / self.im_info.dim_sizes['T']
+        rel_ang_acc_mag = np.linalg.norm(rel_ang_acc_vec, axis=1)
+        rel_ang_ori_change = (rel_ang_vel_ori_12 - rel_ang_vel_ori_01) / self.im_info.dim_sizes['T']
+        rel_ang_acc_ori = rel_ang_acc_vec / rel_ang_acc_mag[:, None]
 
-        lin_rel_vel_vec_01, lin_rel_vel_mag_01, lin_rel_vel_ori_01 = self._get_linear_velocity(r0_rel_01, r1_rel_01)
-        lin_rel_vel_vec_12, lin_rel_vel_mag_12, lin_rel_vel_ori_12 = self._get_linear_velocity(r1_rel_12, r2_rel_12)
+        rel_lin_vel_vec_01, rel_lin_vel_mag_01, rel_lin_vel_ori_01 = self._get_linear_velocity(r0_rel_01, r1_rel_01)
+        rel_lin_vel_vec_12, rel_lin_vel_mag_12, rel_lin_vel_ori_12 = self._get_linear_velocity(r1_rel_12, r2_rel_12)
 
-        lin_rel_acc_vec = (lin_rel_vel_vec_12 - lin_rel_vel_vec_01) / self.im_info.dim_sizes['T']
-        lin_rel_acc_mag = np.linalg.norm(lin_rel_acc_vec, axis=1)
-        lin_rel_acc_ori = lin_rel_acc_vec / lin_rel_acc_mag[:, None]
+        rel_lin_acc_vec = (rel_lin_vel_vec_12 - rel_lin_vel_vec_01) / self.im_info.dim_sizes['T']
+        rel_lin_acc_mag = np.linalg.norm(rel_lin_acc_vec, axis=1)
+        rel_lin_ori_change = (rel_lin_vel_ori_12 - rel_lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        rel_lin_acc_ori = rel_lin_acc_vec / rel_lin_acc_mag[:, None]
 
         lin_vel_vec_01, lin_vel_mag_01, lin_vel_ori_01 = self._get_linear_velocity(pos_coords_um_0, pos_coords_um_1)
         lin_vel_vec_12, lin_vel_mag_12, lin_vel_ori_12 = self._get_linear_velocity(pos_coords_um_1, pos_coords_um_2)
 
         lin_acc_vec = (lin_vel_vec_12 - lin_vel_vec_01) / self.im_info.dim_sizes['T']
         lin_acc_mag = np.linalg.norm(lin_acc_vec, axis=1)
+        lin_ori_change = (lin_vel_ori_12 - lin_vel_ori_01) / self.im_info.dim_sizes['T']
         lin_acc_ori = lin_acc_vec / lin_acc_mag[:, None]
 
+        ref_lin_vel_vec_01, ref_lin_vel_mag_01, ref_lin_vel_ori_01 = self._get_linear_velocity(ref_coords_um_01[0], ref_coords_um_01[1])
+        ref_lin_vel_vec_12, ref_lin_vel_mag_12, ref_lin_vel_ori_12 = self._get_linear_velocity(ref_coords_um_12[0], ref_coords_um_12[1])
 
-
+        ref_lin_acc_vec = (ref_lin_vel_vec_12 - ref_lin_vel_vec_01) / self.im_info.dim_sizes['T']
+        ref_lin_acc_mag = np.linalg.norm(ref_lin_acc_vec, axis=1)
+        ref_lin_ori_change = (ref_lin_vel_ori_12 - ref_lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        ref_lin_acc_ori = ref_lin_acc_vec / ref_lin_acc_mag[:, None]
+        print('hi')
         # todo get the average orientation of all the angular velocity vectors of a label
         #  then get the angle (using dot product) between each point's orientation and the average orientation
         #  will give the rotational alignment of the label
