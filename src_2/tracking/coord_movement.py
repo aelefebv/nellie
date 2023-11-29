@@ -74,13 +74,13 @@ class CoordMovement:
         ref_vec_idxs = idxmin_1[idxmin_0_idx].astype('int32')
         # ref_vec_idxs = np.where(np.any(np.isnan(match[:, 0]), axis=1), np.nan, ref_vec_idxs)
 
-        ref_points = match[:, 0][ref_vec_idxs]
+        ref_points = match[ref_vec_idxs]
         ref_vecs = match_vec[ref_vec_idxs]
         # anywhere where match[:, 0] is nan, ref_vecs and ref_points is nan
-        ref_vecs[np.isnan(match[:, 0])] = np.nan
-        ref_points[np.isnan(match[:, 0])] = np.nan
-        ref_vecs[np.isnan(match[:, 1])] = np.nan
-        ref_points[np.isnan(match[:, 1])] = np.nan
+        ref_vecs[np.any(np.isnan(match[:, 0]), axis=1)] = np.nan
+        ref_points[np.any(np.isnan(match[:, 0]), axis=1), ...] = np.nan
+        ref_vecs[np.any(np.isnan(match[:, 1]), axis=1)] = np.nan
+        ref_points[np.any(np.isnan(match[:, 1]), axis=1), ...] = np.nan
 
         return ref_vecs, ref_points
 
@@ -135,78 +135,74 @@ class CoordMovement:
 
         # here, speed is the magnitude of the reference point vector
         dif_vec = ref_coords_all_12[0] - ref_coords_all_01[1]
-        c = np.linalg.norm((ref_coords_all_01[1] - ref_coords_all_01[0]) * self.scaling, axis=1)
+        reference_point_speed_01 = np.linalg.norm((ref_coords_all_01[1] - ref_coords_all_01[0]) * self.scaling, axis=1)
         new_12 = (ref_coords_all_12[0] - dif_vec, ref_coords_all_12[1] - dif_vec)
-        a = np.linalg.norm((new_12[1] - new_12[0]) * self.scaling, axis=1)
+        reference_point_speed_12 = np.linalg.norm((new_12[1] - new_12[0]) * self.scaling, axis=1)
         b = np.linalg.norm((new_12[1] - ref_coords_all_01[0]) * self.scaling, axis=1)
 
         # law of cosines to find angle for B
         # cos(B) = (a^2 + c^2 - b^2) / 2ac
         # B = arccos((a^2 + c^2 - b^2) / 2ac)
-        angular_momentum_ref = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
+        angular_momentum_ref = np.arccos((reference_point_speed_12**2 + reference_point_speed_01**2 - b**2) /
+                                         (2 * reference_point_speed_12 * reference_point_speed_01))
         # replace nan with 0
         angular_momentum_ref[np.isnan(angular_momentum_ref)] = 0
 
         # in degrees between 0 and 180
-        # angular_momentum_ref = np.abs(angular_momentum_ref) * 180 / np.pi
-        # angular_momentum_ref = np.where(angular_momentum_ref > 180, 360 - angular_momentum_ref, angular_momentum_ref)
-
-        reference_point_speed_01 = np.linalg.norm(ref_coords_all_01[0] * self.scaling -
-                                                      ref_coords_all_01[1] * self.scaling, axis=1)
-        reference_point_speed_12 = np.linalg.norm(ref_coords_all_12[0] * self.scaling -
-                                                      ref_coords_all_12[1] * self.scaling, axis=1)
-
-        reference_point_angle_01 = np.arctan2(ref_coords_all_01[0][:, 1] - ref_coords_all_01[1][:, 1],
-                                                  ref_coords_all_01[0][:, 0] - ref_coords_all_01[1][:, 0])
-        reference_point_angle_12 = np.arctan2(ref_coords_all_12[0][:, 1] - ref_coords_all_12[1][:, 1],
-                                                  ref_coords_all_12[0][:, 0] - ref_coords_all_12[1][:, 0])
+        angular_momentum_ref = np.abs(angular_momentum_ref) * 180 / np.pi
+        angular_momentum_ref = np.where(angular_momentum_ref > 180, 360 - angular_momentum_ref, angular_momentum_ref)
 
         ref_vecs_01, ref_points_01 = self._get_reference_vector(match_01, idxmin_01, vec01_scaled, label_vals)
         ref_vecs_12, ref_points_12 = self._get_reference_vector(match_12, idxmin_12, vec12_scaled, label_vals)
 
         ref_vec_subtracted_vecs_01 = vec01_scaled - ref_vecs_01
         ref_vec_subtracted_vecs_12 = vec12_scaled - ref_vecs_12
-        # ref_vec_subtracted_vecs_12 = vec12_scaled - ref_vecs_01
 
-        # ref_point_subtracted_points_01_0 = (match_01[:, 0] - ref_points_01) * self.scaling
-        # ref_point_subtracted_points_01_1 = (match_01[:, 1] - ref_points_01) * self.scaling
-        #
-        # ref_point_subtracted_points_12_0 = (match_12[:, 0] - ref_points_12) * self.scaling
-        # ref_point_subtracted_points_12_1 = (match_12[:, 1] - ref_points_12) * self.scaling
+        v_01 = (match_01 - ref_points_01) * self.scaling
 
-        # speed here is the magnitude of the vector minus the reference vector, to subtract out local movement
-        speed_01 = np.linalg.norm(ref_vec_subtracted_vecs_01, axis=1)
-        angle_01 = np.arctan2(ref_vec_subtracted_vecs_01[:, 1], ref_vec_subtracted_vecs_01[:, 0])
-        # get angle in degrees between 0 and 180
-        angle_01 = np.abs(angle_01) * 180 / np.pi
-        angle_01 = np.where(angle_01 > 180, 360 - angle_01, angle_01)
+        a = np.linalg.norm(v_01[:, 0], axis=1)
+        c = np.linalg.norm(v_01[:, 1], axis=1)
+        b = np.linalg.norm(v_01[:, 1] - v_01[:, 0], axis=1)
+        # law of cosines to find angle for B
+        B = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
+        # replace nan with 0
+        B[np.isnan(B)] = 0
+        B = np.abs(B) * 180 / np.pi
+        # convert to degrees between 0 and 180
+        travel_angles_01 = np.where(B > 180, 360 - B, B)
 
-        speed_12 = np.linalg.norm(ref_vec_subtracted_vecs_12, axis=1)
-        angle_12 = np.arctan2(ref_vec_subtracted_vecs_12[:, 1], ref_vec_subtracted_vecs_12[:, 0])
-        # get angle in degrees between 0 and 180
-        angle_12 = np.abs(angle_12) * 180 / np.pi
-        angle_12 = np.where(angle_12 > 180, 360 - angle_12, angle_12)
+        v_12 = (match_12 - ref_points_12) * self.scaling
+
+        a = np.linalg.norm(v_12[:, 0], axis=1)
+        c = np.linalg.norm(v_12[:, 1], axis=1)
+        b = np.linalg.norm(v_12[:, 1] - v_12[:, 0], axis=1)
+        # law of cosines to find angle for B
+        B = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
+        # replace nan with 0
+        B[np.isnan(B)] = 0
+        B = np.abs(B) * 180 / np.pi
+        # convert to degrees between 0 and 180
+        travel_angles_12 = np.where(B > 180, 360 - B, B)
+
+        travel_angle_diff = np.abs(travel_angles_12 - travel_angles_01)
+
+        points_2_no_ref = coords_2 * self.scaling - ref_vecs_12 - ref_vecs_01
+        points_1_no_ref = coords_1 * self.scaling - ref_vecs_01
+        points_0_no_ref = coords_0 * self.scaling
+
+        a = np.linalg.norm(points_1_no_ref - points_0_no_ref, axis=1)
+        c = np.linalg.norm(points_2_no_ref - points_1_no_ref, axis=1)
+        b = np.linalg.norm(points_2_no_ref - points_0_no_ref, axis=1)
+        # law of cosines to find angle for B
+        # cos(B) = (a^2 + c^2 - b^2) / 2ac
+        angular_momentum = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
+        # replace nan with 0
+        angular_momentum[np.isnan(angular_momentum)] = 0
+        # convert to degrees between 0 and 180
+        angular_momentum = np.abs(angular_momentum) * 180 / np.pi
+        angular_momentum = np.where(angular_momentum > 180, 360 - angular_momentum, angular_momentum)
 
         reference_acceleration = reference_point_speed_12 - reference_point_speed_01
-        reference_angular_momentum = np.abs(reference_point_angle_12 - reference_point_angle_01)
-        # degrees between 0 and 180
-        reference_angular_momentum = np.abs(reference_angular_momentum) * 180 / np.pi
-        reference_angular_momentum = np.where(reference_angular_momentum > 180, 360 - reference_angular_momentum,
-                                                reference_angular_momentum)
-
-
-        acceleration = speed_12 - speed_01
-        angular_momentum = np.abs(angle_12 - angle_01)
-
-        ref_point_matches = np.stack([ref_points_01, ref_points_12], axis=1)
-        # only keep unique matches
-        ref_point_matches = np.unique(ref_point_matches, axis=0)
-        ref_point_magnitude = np.linalg.norm(ref_point_matches[:, 1] - ref_point_matches[:, 0], axis=1)
-        ref_point_angle = np.arctan2(ref_point_matches[:, 1, 1] - ref_point_matches[:, 0, 1],
-                                        ref_point_matches[:, 1, 0] - ref_point_matches[:, 0, 0])
-        # get angle in degrees between 0 and 180
-        ref_point_angle = np.abs(ref_point_angle) * 180 / np.pi
-        ref_point_angle = np.where(ref_point_angle > 180, 360 - ref_point_angle, ref_point_angle)
 
         # todo now can extract other features
 
