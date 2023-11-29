@@ -101,29 +101,22 @@ class CoordMovement:
         coords_1_all[np.isnan(match[:, 1])] = np.nan
         return coords_0_all, coords_1_all
 
+    def _get_degrees_law_of_cos(self, a, b, c, deg=True):
+        # to get the angle of b
+        # cos(B) = (a^2 + c^2 - b^2) / 2ac
+        B = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
+        # replace nan with 0
+        B[np.isnan(B)] = 0
+        if not deg:
+            return B
+        # convert to degrees between 0 and 180
+        B = np.abs(B) * 180 / np.pi
+        B = np.where(B > 180, 360 - B, B)
+        return B
 
-    def _run_frame(self, t):
-        label_vals = self.label_memmap[t][self.label_memmap[t]>0]
-        df = pd.DataFrame(label_vals, columns=['label_vals'])
-        coords_1 = np.argwhere(self.label_memmap[t]>0).astype('float32')
-        df[['t1_z', 't1_y', 't1_x']] = pd.DataFrame(coords_1)
-
-        vec12 = self.flow_interpolator_fw.interpolate_coord(coords_1, t)
-        vec01 = self.flow_interpolator_bw.interpolate_coord(coords_1, t)
-
-        coords_0 = coords_1 - vec01
-        coords_2 = coords_1 + vec12
-        df[['t0_z', 't0_y', 't0_x']] = pd.DataFrame(coords_0)
-        df[['t2_z', 't2_y', 't2_x']] = pd.DataFrame(coords_2)
-
-        vec12_scaled = vec12 * self.scaling
-        vec01_scaled = vec01 * self.scaling
-        df[['vec12_z', 'vec12_y', 'vec12_x']] = pd.DataFrame(vec12_scaled)
-        df[['vec01_z', 'vec01_y', 'vec01_x']] = pd.DataFrame(vec01_scaled)
-
+    def _get_ref_based_features(self, label_vals, coords_0, coords_1, coords_2, vec01_scaled, vec12_scaled):
         idxmin_01 = self._get_min_euc_dist(label_vals, vec01_scaled)
         idxmin_12 = self._get_min_euc_dist(label_vals, vec12_scaled)
-
 
         match_01 = np.stack([coords_0, coords_1], axis=1)
         match_12 = np.stack([coords_1, coords_2], axis=1)
@@ -140,135 +133,213 @@ class CoordMovement:
         reference_point_speed_12 = np.linalg.norm((new_12[1] - new_12[0]) * self.scaling, axis=1)
         b = np.linalg.norm((new_12[1] - ref_coords_all_01[0]) * self.scaling, axis=1)
 
-        # law of cosines to find angle for B
-        # cos(B) = (a^2 + c^2 - b^2) / 2ac
-        # B = arccos((a^2 + c^2 - b^2) / 2ac)
-        angular_momentum_ref = np.arccos((reference_point_speed_12**2 + reference_point_speed_01**2 - b**2) /
-                                         (2 * reference_point_speed_12 * reference_point_speed_01))
-        # replace nan with 0
-        angular_momentum_ref[np.isnan(angular_momentum_ref)] = 0
-
-        # in degrees between 0 and 180
-        angular_momentum_ref = np.abs(angular_momentum_ref) * 180 / np.pi
-        angular_momentum_ref = np.where(angular_momentum_ref > 180, 360 - angular_momentum_ref, angular_momentum_ref)
+        ref_travel_angle_change = self._get_degrees_law_of_cos(reference_point_speed_12, b, reference_point_speed_01)
 
         ref_vecs_01, ref_points_01 = self._get_reference_vector(match_01, idxmin_01, vec01_scaled, label_vals)
         ref_vecs_12, ref_points_12 = self._get_reference_vector(match_12, idxmin_12, vec12_scaled, label_vals)
 
-        ref_vec_subtracted_vecs_01 = vec01_scaled - ref_vecs_01
-        ref_vec_subtracted_vecs_12 = vec12_scaled - ref_vecs_12
+        dereffed_vec01 = vec01_scaled - ref_vecs_01
+        dereffed_vec12 = vec12_scaled - ref_vecs_12
 
-        v_01 = (match_01 - ref_points_01) * self.scaling
-
-        a = np.linalg.norm(v_01[:, 0], axis=1)
-        c = np.linalg.norm(v_01[:, 1], axis=1)
-        b = np.linalg.norm(v_01[:, 1] - v_01[:, 0], axis=1)
-        # law of cosines to find angle for B
-        B = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
-        # replace nan with 0
-        B[np.isnan(B)] = 0
-        B = np.abs(B) * 180 / np.pi
-        # convert to degrees between 0 and 180
-        travel_angles_01 = np.where(B > 180, 360 - B, B)
-
-        v_12 = (match_12 - ref_points_12) * self.scaling
-
-        a = np.linalg.norm(v_12[:, 0], axis=1)
-        c = np.linalg.norm(v_12[:, 1], axis=1)
-        b = np.linalg.norm(v_12[:, 1] - v_12[:, 0], axis=1)
-        # law of cosines to find angle for B
-        B = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
-        # replace nan with 0
-        B[np.isnan(B)] = 0
-        B = np.abs(B) * 180 / np.pi
-        # convert to degrees between 0 and 180
-        travel_angles_12 = np.where(B > 180, 360 - B, B)
-
-        travel_angle_diff = np.abs(travel_angles_12 - travel_angles_01)
+        coord_speed_01 = np.linalg.norm(dereffed_vec01, axis=1)
+        coord_speed_12 = np.linalg.norm(dereffed_vec12, axis=1)
+        coord_acceleration = coord_speed_12 - coord_speed_01
 
         points_2_no_ref = coords_2 * self.scaling - ref_vecs_12 - ref_vecs_01
         points_1_no_ref = coords_1 * self.scaling - ref_vecs_01
         points_0_no_ref = coords_0 * self.scaling
 
-        a = np.linalg.norm(points_1_no_ref - points_0_no_ref, axis=1)
-        c = np.linalg.norm(points_2_no_ref - points_1_no_ref, axis=1)
-        b = np.linalg.norm(points_2_no_ref - points_0_no_ref, axis=1)
-        # law of cosines to find angle for B
-        # cos(B) = (a^2 + c^2 - b^2) / 2ac
-        angular_momentum = np.arccos((a**2 + c**2 - b**2) / (2 * a * c))
-        # replace nan with 0
-        angular_momentum[np.isnan(angular_momentum)] = 0
-        # convert to degrees between 0 and 180
-        angular_momentum = np.abs(angular_momentum) * 180 / np.pi
-        angular_momentum = np.where(angular_momentum > 180, 360 - angular_momentum, angular_momentum)
+        coord_travel_angle_change = self._get_degrees_law_of_cos(np.linalg.norm(points_1_no_ref - points_0_no_ref, axis=1),
+                                                              np.linalg.norm(points_2_no_ref - points_0_no_ref, axis=1),
+                                                              np.linalg.norm(points_2_no_ref - points_1_no_ref, axis=1))
 
-        reference_acceleration = reference_point_speed_12 - reference_point_speed_01
+        ref_acceleration = reference_point_speed_12 - reference_point_speed_01
+
+        # a = (coords_0 - ref_points_01[:, 0]) * self.scaling
+        # c = (coords_1 - coords_0) * self.scaling - ref_vecs_01
+        # b = (coords_1 - ref_points_01[:, 1]) * self.scaling - ref_vecs_01
+        # momentum_angle = self._get_degrees_law_of_cos(
+        #     np.linalg.norm(a, axis=1),
+        #     np.linalg.norm(b, axis=1),
+        #     np.linalg.norm(c, axis=1),
+        #     deg=False
+        # )
+        # p = np.linalg.norm(ref_vecs_01, axis=1) * np.cos(momentum_angle)
+        # r_vec = (coords_0 - ref_points_01[:, 0]) * self.scaling
+        # angular_momentum = np.cross(r_vec, p)
+
+    def _get_nonref_features(self, label_vals, coords_0, coords_1, coords_2, vec01_scaled, vec12_scaled):
+        coord_speed_01 = np.linalg.norm(vec01_scaled, axis=1)
+        coord_speed_12 = np.linalg.norm(vec12_scaled, axis=1)
+        coord_acceleration = coord_speed_12 - coord_speed_01
+
+        a = np.linalg.norm(vec01_scaled, axis=1)
+        c = np.linalg.norm(vec12_scaled, axis=1)
+        b = np.linalg.norm((coords_2 - coords_0) * self.scaling, axis=1)
+
+        coord_travel_angle_change = self._get_degrees_law_of_cos(a, b, c)
+
+    def _get_angular_velocity(self, r0, r1):
+        ang_disp_um = np.divide(np.cross(r0, r1, axis=1).T, (np.linalg.norm(r0, axis=1) * np.linalg.norm(r1, axis=1))).T
+
+        ang_vel_um_s = ang_disp_um / self.im_info.dim_sizes['T']
+
+        ang_vel_magnitude = np.linalg.norm(ang_vel_um_s, axis=1)
+
+        ang_vel_orientation = ang_vel_um_s / ang_vel_magnitude
+        ang_vel_orientation = np.where(np.isnan(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
+        ang_vel_orientation = np.where(np.isinf(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
+
+        return ang_vel_um_s, ang_vel_magnitude, ang_vel_orientation
+
+    def _get_linear_velocity(self, r0, r1):
+        lin_disp_um = r1 - r0
+
+        lin_vel_um_s = lin_disp_um / self.im_info.dim_sizes['T']
+
+        lin_vel_magnitude = np.linalg.norm(lin_vel_um_s, axis=1)
+
+        lin_vel_orientation = lin_vel_um_s / lin_vel_magnitude
+        lin_vel_orientation = np.where(np.isnan(lin_vel_orientation), lin_vel_um_s, lin_vel_orientation)
+        lin_vel_orientation = np.where(np.isinf(lin_vel_orientation), lin_vel_um_s, lin_vel_orientation)
+
+        return lin_vel_um_s, lin_vel_magnitude, lin_vel_orientation
+
+    def _get_features(self, label_vals, coords_0, coords_1, coords_2):
+        # todo, should also include a way to specify a reference point
+        vec01 = coords_1 - coords_0
+        vec12 = coords_2 - coords_1
+        vec01_scaled = vec01 * self.scaling
+        vec12_scaled = vec12 * self.scaling
+
+        idxmin_01 = self._get_min_euc_dist(label_vals, vec01_scaled)
+        idxmin_12 = self._get_min_euc_dist(label_vals, vec12_scaled)
+
+        ref_coords_all_01 = self._get_ref_coords(np.stack([coords_0, coords_1], axis=1), idxmin_01, label_vals)
+        ref_coords_all_12 = self._get_ref_coords(np.stack([coords_1, coords_2], axis=1), idxmin_12, label_vals)
+
+        ref_coords_um_01 = (ref_coords_all_01[0] * self.scaling, ref_coords_all_01[1] * self.scaling)
+        ref_coords_um_12 = (ref_coords_all_12[0] * self.scaling, ref_coords_all_12[1] * self.scaling)
+
+        pos_coords_um_0 = coords_0 * self.scaling
+        pos_coords_um_1 = coords_1 * self.scaling
+        pos_coords_um_2 = coords_2 * self.scaling
+
+        r0_rel_01 = pos_coords_um_0 - ref_coords_um_01[0]
+        r1_rel_01 = pos_coords_um_1 - ref_coords_um_01[1]
+
+        r1_rel_12 = pos_coords_um_1 - ref_coords_um_12[0]
+        r2_rel_12 = pos_coords_um_2 - ref_coords_um_12[1]
+
+        ang_rel_vel_vec_01, ang_rel_vel_mag_01, ang_rel_vel_ori_01 = self._get_angular_velocity(r0_rel_01, r1_rel_01)
+        ang_rel_vel_vec_12, ang_rel_vel_mag_12, ang_rel_vel_ori_12 = self._get_angular_velocity(r1_rel_12, r2_rel_12)
+
+        ang_rel_acc_vec = (ang_rel_vel_vec_12 - ang_rel_vel_vec_01) / self.im_info.dim_sizes['T']
+        ang_rel_acc_mag = np.linalg.norm(ang_rel_acc_vec, axis=1)
+        ang_rel_acc_ori = ang_rel_acc_vec / ang_rel_acc_mag[:, None]
+
+        lin_rel_vel_vec_01, lin_rel_vel_mag_01, lin_rel_vel_ori_01 = self._get_linear_velocity(r0_rel_01, r1_rel_01)
+        lin_rel_vel_vec_12, lin_rel_vel_mag_12, lin_rel_vel_ori_12 = self._get_linear_velocity(r1_rel_12, r2_rel_12)
+
+        lin_rel_acc_vec = (lin_rel_vel_vec_12 - lin_rel_vel_vec_01) / self.im_info.dim_sizes['T']
+        lin_rel_acc_mag = np.linalg.norm(lin_rel_acc_vec, axis=1)
+        lin_rel_acc_ori = lin_rel_acc_vec / lin_rel_acc_mag[:, None]
+
+        lin_vel_vec_01, lin_vel_mag_01, lin_vel_ori_01 = self._get_linear_velocity(pos_coords_um_0, pos_coords_um_1)
+        lin_vel_vec_12, lin_vel_mag_12, lin_vel_ori_12 = self._get_linear_velocity(pos_coords_um_1, pos_coords_um_2)
+
+        lin_acc_vec = (lin_vel_vec_12 - lin_vel_vec_01) / self.im_info.dim_sizes['T']
+        lin_acc_mag = np.linalg.norm(lin_acc_vec, axis=1)
+        lin_acc_ori = lin_acc_vec / lin_acc_mag[:, None]
+
+
+
+        # todo get the average orientation of all the angular velocity vectors of a label
+        #  then get the angle (using dot product) between each point's orientation and the average orientation
+        #  will give the rotational alignment of the label
+        # todo do the same for linear velocity
+
+    def _run_frame(self, t):
+        label_vals = self.label_memmap[t][self.label_memmap[t]>0]
+        coords_1 = np.argwhere(self.label_memmap[t]>0).astype('float32')
+
+        vec12 = self.flow_interpolator_fw.interpolate_coord(coords_1, t)
+        vec01 = self.flow_interpolator_bw.interpolate_coord(coords_1, t)
+
+        coords_0 = coords_1 - vec01
+        coords_2 = coords_1 + vec12
+        self._get_features(label_vals, coords_0, coords_1, coords_2)
+
+        # vec12_scaled = vec12 * self.scaling
+        # vec01_scaled = vec01 * self.scaling
+        #
+        # self._get_ref_based_features(label_vals, coords_0, coords_1, coords_2, vec01_scaled, vec12_scaled)
 
         # todo now can extract other features
 
-        # # # tracks are backward coords, label coords, and forward coords
-        import napari
-        viewer = napari.Viewer()
-        viewer.add_image(self.label_memmap)
-
-        tracks_ref = []
-        running_track_num = 0
-        skip_num = 1
-        for track_num, (label, track) in enumerate(ref_coords_01[::skip_num]):
-            if np.any(np.isnan(track)):
-                continue
-            tracks_ref.append([running_track_num, 0, *track[0]])
-            tracks_ref.append([running_track_num, 1, *track[1]])
-            running_track_num += 1
+        # # tracks are backward coords, label coords, and forward coords
+        # import napari
+        # viewer = napari.Viewer()
+        # viewer.add_image(self.label_memmap)
+        #
+        # tracks_ref = []
+        # running_track_num = 0
+        # skip_num = 1
+        # for track_num, (label, track) in enumerate(ref_coords_01[::skip_num]):
+        #     if np.any(np.isnan(track)):
+        #         continue
+        #     tracks_ref.append([running_track_num, 0, *track[0]])
+        #     tracks_ref.append([running_track_num, 1, *track[1]])
+        #     running_track_num += 1
+        # # viewer.add_tracks(tracks_ref)
+        # for track_num, (label, track) in enumerate(ref_coords_12[::skip_num]):
+        #     if np.any(np.isnan(track)):
+        #         continue
+        #     tracks_ref.append([running_track_num, 1, *track[0]])
+        #     tracks_ref.append([running_track_num, 2, *track[1]])
+        #     running_track_num += 1
         # viewer.add_tracks(tracks_ref)
-        for track_num, (label, track) in enumerate(ref_coords_12[::skip_num]):
-            if np.any(np.isnan(track)):
-                continue
-            tracks_ref.append([running_track_num, 1, *track[0]])
-            tracks_ref.append([running_track_num, 2, *track[1]])
-            running_track_num += 1
-        viewer.add_tracks(tracks_ref)
-        print('hi')
-
-        # idx where idxmin_01 index is 2056
-        # idx_test = np.argwhere(idxmin_01.index.values == 2056)
-
-        match = np.stack([coords_0, coords_1, coords_2], axis=1)
-        properties = {'speed': [], 'angle': [], 'acceleration': [], 'angular_momentum': [], 'speed_ref': [],
-                        'angle_ref': [], 'acceleration_ref': [], 'angular_momentum_ref': []}
-        tracks = []
-        skip_num = 1
-        for track_num, track in enumerate(match[:10000]):#[::skip_num]):
-            if np.any(np.isnan(track)):
-                continue
-            tracks.append([track_num, 0, *track[0]])
-            tracks.append([track_num, 1, *track[1]])
-            tracks.append([track_num, 2, *track[2]])
-            properties['speed'].append(0)
-            properties['speed'].append(speed_01[track_num*skip_num])
-            properties['speed'].append(speed_12[track_num*skip_num])
-            properties['angle'].append(0)
-            properties['angle'].append(angle_01[track_num*skip_num])
-            properties['angle'].append(angle_12[track_num*skip_num])
-            properties['acceleration'].append(acceleration[track_num*skip_num])
-            properties['acceleration'].append(acceleration[track_num*skip_num])
-            properties['acceleration'].append(acceleration[track_num*skip_num])
-            properties['angular_momentum'].append(angular_momentum[track_num*skip_num])
-            properties['angular_momentum'].append(angular_momentum[track_num*skip_num])
-            properties['angular_momentum'].append(angular_momentum[track_num*skip_num])
-            properties['speed_ref'].append(0)
-            properties['speed_ref'].append(reference_point_speed_01[track_num*skip_num])
-            properties['speed_ref'].append(reference_point_speed_12[track_num*skip_num])
-            properties['angle_ref'].append(0)
-            properties['angle_ref'].append(reference_point_angle_01[track_num*skip_num])
-            properties['angle_ref'].append(reference_point_angle_12[track_num*skip_num])
-            properties['acceleration_ref'].append(reference_acceleration[track_num*skip_num])
-            properties['acceleration_ref'].append(reference_acceleration[track_num*skip_num])
-            properties['acceleration_ref'].append(reference_acceleration[track_num*skip_num])
-            properties['angular_momentum_ref'].append(angular_momentum_ref[track_num*skip_num])
-            properties['angular_momentum_ref'].append(angular_momentum_ref[track_num*skip_num])
-            properties['angular_momentum_ref'].append(angular_momentum_ref[track_num*skip_num])
-        viewer.add_tracks(tracks, properties=properties)
+        # print('hi')
+        #
+        # # idx where idxmin_01 index is 2056
+        # # idx_test = np.argwhere(idxmin_01.index.values == 2056)
+        #
+        # match = np.stack([coords_0, coords_1, coords_2], axis=1)
+        # properties = {'speed': [], 'angle': [], 'acceleration': [], 'angular_momentum': [], 'travel_angle_diff': [],
+        #               'speed_ref': [], 'acceleration_ref': [], 'angular_momentum_ref': []}
+        # tracks = []
+        # skip_num = 20
+        # for track_num, track in enumerate(match[::skip_num]):
+        #     if np.any(np.isnan(track)):
+        #         continue
+        #     tracks.append([track_num, 0, *track[0]])
+        #     tracks.append([track_num, 1, *track[1]])
+        #     tracks.append([track_num, 2, *track[2]])
+        #     properties['speed'].append(0)
+        #     properties['speed'].append(speed_01[track_num*skip_num])
+        #     properties['speed'].append(speed_12[track_num*skip_num])
+        #     properties['angle'].append(0)
+        #     properties['angle'].append(travel_angles_01[track_num*skip_num])
+        #     properties['angle'].append(travel_angles_12[track_num*skip_num])
+        #     properties['acceleration'].append(acceleration[track_num*skip_num])
+        #     properties['acceleration'].append(acceleration[track_num*skip_num])
+        #     properties['acceleration'].append(acceleration[track_num*skip_num])
+        #     properties['angular_momentum'].append(angular_momentum[track_num*skip_num])
+        #     properties['angular_momentum'].append(angular_momentum[track_num*skip_num])
+        #     properties['angular_momentum'].append(angular_momentum[track_num*skip_num])
+        #     properties['travel_angle_diff'].append(travel_angle_diff[track_num*skip_num])
+        #     properties['travel_angle_diff'].append(travel_angle_diff[track_num*skip_num])
+        #     properties['travel_angle_diff'].append(travel_angle_diff[track_num*skip_num])
+        #     properties['speed_ref'].append(0)
+        #     properties['speed_ref'].append(reference_point_speed_01[track_num*skip_num])
+        #     properties['speed_ref'].append(reference_point_speed_12[track_num*skip_num])
+        #     properties['acceleration_ref'].append(reference_acceleration[track_num*skip_num])
+        #     properties['acceleration_ref'].append(reference_acceleration[track_num*skip_num])
+        #     properties['acceleration_ref'].append(reference_acceleration[track_num*skip_num])
+        #     properties['angular_momentum_ref'].append(angular_momentum_ref[track_num*skip_num])
+        #     properties['angular_momentum_ref'].append(angular_momentum_ref[track_num*skip_num])
+        #     properties['angular_momentum_ref'].append(angular_momentum_ref[track_num*skip_num])
+        # viewer.add_tracks(tracks, properties=properties)
         # viewer.add_points(match_01[:, 0][idxmin_01], size=1, face_color='red')
         # viewer.add_points(match_01[:, 1][idxmin_01], size=1, face_color='blue')
 
