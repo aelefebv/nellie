@@ -61,8 +61,10 @@ class ImInfo:
         self.create_output_path('flow_vector_array', ext='.npy')
         self.create_output_path('voxel_matches', ext='.npy')
         self.create_output_path('im_instance_label_reassigned')
-        self.create_output_path('morphology_label_features', ext='.csv')
-        self.create_output_path('morphology_skeleton_features', ext='.csv')
+        self.create_output_path('organelle_label_features', ext='.csv')
+        self.create_output_path('branch_label_features', ext='.csv')
+        self.create_output_path('organelle_skeleton_features', ext='.csv')
+        self.create_output_path('branch_skeleton_features', ext='.csv')
         self.create_output_path('motility_features', ext='.csv')
 
     def _create_output_dir(self):

@@ -190,20 +190,26 @@ class Network:
         vox_matched = np.argwhere((branch_skel_labels > 0).get())
         vox_next_unmatched = np.argwhere(skel_border.get())
         unmatched_diff = np.inf
-        while unmatched_diff:
+        while True:
             num_unmatched = len(vox_next_unmatched)
             if num_unmatched == 0:
                 break
             tree = cKDTree(vox_matched * self.scaling)
             dists, idxs = tree.query(vox_next_unmatched * self.scaling, k=1, workers=-1)
-            unmatched_matches = np.array([[vox_matched[idx], vox_next_unmatched[i]] for i, idx in enumerate(idxs)])
+            # remove any matches that are too far away
+            max_dist = 2 * np.min(self.scaling)  # sqrt 3 * max scaling
+            unmatched_matches = np.array(
+                [[vox_matched[idx], vox_next_unmatched[i]] for i, idx in enumerate(idxs) if dists[i] < max_dist]
+            )
             if len(unmatched_matches) == 0:
                 break
             matched_labels = branch_skel_labels[tuple(np.transpose(unmatched_matches[:, 0]))]
             relabelled_labels[tuple(np.transpose(unmatched_matches[:, 1]))] = matched_labels
+            branch_skel_labels = relabelled_labels.copy()
+            vox_matched = np.argwhere((relabelled_labels > 0).get())
             relabelled_mask = xp.array(relabelled_labels > 0).astype('uint8')
             # add unmatched matches to coords_matched
-            skel_border = (ndi.binary_dilation(skel_border, iterations=1, structure=structure) ^ relabelled_mask) * label_mask
+            skel_border = (ndi.binary_dilation(relabelled_mask, iterations=1, structure=structure) - relabelled_mask) * label_mask
             vox_next_unmatched = np.argwhere(skel_border.get())
             new_num_unmatched = len(vox_next_unmatched)
             unmatched_diff_temp = abs(num_unmatched - new_num_unmatched)

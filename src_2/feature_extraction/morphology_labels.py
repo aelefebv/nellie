@@ -17,17 +17,17 @@ class MorphologyLabelFeatures:
         self.im_memmap = None
         self.im_frangi_memmap = None
         self.label_memmap = None
-        self.morphology_label_features_path = None
+        self.organelle_label_features_path = None
 
         self.label_objects_intensity = None
 
         self.features = {}
 
     def _label_morphology(self):
-        self.label_objects_intensity = skimage.measure.regionprops(self.label_memmap[0], self.im_memmap[0], spacing=self.spacing)
-        log10_frangi = np.log10(self.im_frangi_memmap[0])
+        self.label_objects_intensity = skimage.measure.regionprops(self.label_memmap, self.im_memmap, spacing=self.spacing)
+        log10_frangi = np.log10(self.im_frangi_memmap)
         log10_frangi[np.isinf(log10_frangi)] = 0
-        self.label_objects_frangi = skimage.measure.regionprops(self.label_memmap[0], log10_frangi, spacing=self.spacing)
+        self.label_objects_frangi = skimage.measure.regionprops(self.label_memmap, log10_frangi, spacing=self.spacing)
 
         self.features['main_label'] = [label_object.label for label_object in self.label_objects_intensity]
 
@@ -54,30 +54,39 @@ class MorphologyLabelFeatures:
 
     def _get_memmaps(self):
         logger.debug('Allocating memory for spatial feature extraction.')
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, 1, self.im_info)
 
         num_t = self.im_info.shape[self.im_info.axes.index('T')]
         if num_t == 1:
             self.t = 0
 
+        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
+        self.im_memmap = get_reshaped_image(im_memmap, num_t, self.im_info)
+
         im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, num_t, self.im_info)
+
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, num_t, self.im_info)
+
+        branch_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.branch_label_memmap = get_reshaped_image(branch_label_memmap, num_t, self.im_info)
+
         if not self.im_info.no_t:
+            self.im_memmap = self.im_memmap[self.t]
             self.im_frangi_memmap = self.im_frangi_memmap[self.t]
             self.label_memmap = self.label_memmap[self.t]
+            self.branch_label_memmap = self.branch_label_memmap[self.t]
 
         # self.im_info.create_output_path('morphology_label_features', ext='.csv')
-        self.morphology_label_features_path = self.im_info.pipeline_paths['morphology_label_features']
+        self.organelle_label_features_path = self.im_info.pipeline_paths['organelle_label_features']
+        self.branch_label_features_path = self.im_info.pipeline_paths['branch_label_features']
 
         self.shape = self.label_memmap.shape
 
     def _save_features(self):
         logger.debug('Saving spatial features.')
         features_df = pd.DataFrame.from_dict(self.features)
-        features_df.to_csv(self.morphology_label_features_path, index=False)
+        features_df.to_csv(self.organelle_label_features_path, index=False)
 
     def run(self):
         self._get_memmaps()

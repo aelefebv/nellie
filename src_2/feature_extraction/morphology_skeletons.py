@@ -9,22 +9,19 @@ from scipy.spatial import cKDTree
 
 class MorphologySkeletonFeatures:
     def __init__(self, im_info: ImInfo,
-                 max_radius_um=1):
+                 t=1):
         self.im_info = im_info
+        self.t = t
         if self.im_info.no_z:
             self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
         else:
             self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
 
         self.im_memmap = None
+        self.label_memmap = None
         self.network_memmap = None
         self.pixel_class_memmap = None
-        self.morphology_skeleton_features_path = None
-
-        self.max_radius_um = max_radius_um
-        self.max_radius_px = self.max_radius_um / self.im_info.dim_sizes['X']
-
-        self.label_objects_intensity = None
+        self.organelle_skeleton_features_path = None
 
         self.features = {}
         self.branch_features = {}
@@ -53,7 +50,7 @@ class MorphologySkeletonFeatures:
             structure = xp.ones((3, 3))
         else:
             structure = xp.ones((3, 3, 3))
-        network_gpu = xp.array(self.network_memmap[0])
+        network_gpu = xp.array(self.network_memmap)
         pixel_class = self._get_pixel_class(network_gpu)
         # everywhere where the image does not equal 0 or 4
         branch_mask = (pixel_class != 0) * (pixel_class != 4)
@@ -123,8 +120,8 @@ class MorphologySkeletonFeatures:
             else:
                 branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / tip_coord_distances[label]).get())
 
-        lone_tip_radii = self._distance_check(xp.array(self.label_memmap[0])>0, lone_tip_coords)
-        tip_radii = self._distance_check(xp.array(self.label_memmap[0])>0, tip_coords)
+        lone_tip_radii = self._distance_check(xp.array(self.label_memmap)>0, lone_tip_coords)
+        tip_radii = self._distance_check(xp.array(self.label_memmap)>0, tip_coords)
 
         lone_tip_labels = branch_labels[tuple(lone_tip_coords.T)]
         tip_labels = branch_labels[tuple(tip_coords.T)]
@@ -135,7 +132,7 @@ class MorphologySkeletonFeatures:
         for label in unchecked_labels:
             branch_coords = xp.argwhere(branch_labels == label)
             random_coords = branch_coords[xp.random.choice(len(branch_coords), 3)]
-            random_radii = self._distance_check(xp.array(self.label_memmap[0])>0, random_coords)
+            random_radii = self._distance_check(xp.array(self.label_memmap)>0, random_coords)
             tip_radii = np.concatenate((tip_radii, random_radii))
             tip_labels = xp.concatenate((tip_labels, xp.ones(3) * label))
 
@@ -144,7 +141,6 @@ class MorphologySkeletonFeatures:
 
         for label, radius in zip(tip_labels.tolist(), tip_radii):
             branch_length_list[label].append(radius)
-
 
         self.branch_features['label'] = [label for label in xp.unique(px_branch_label).tolist()]
         main_labels = {}
@@ -156,7 +152,7 @@ class MorphologySkeletonFeatures:
         self.branch_features['branch_lengths'] = {label: np.sum(np.array(length_list)) for label, length_list in branch_length_list.items()}
         self.branch_features['branch_tortuosities'] = branch_tortuosities
 
-        self.features['label'] = [label for label in xp.unique(px_main_label).tolist()]
+        self.features['main_label'] = [label for label in xp.unique(px_main_label).tolist()]
         lengths = {label: [] for label in xp.unique(px_main_label).tolist()}
         for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
             lengths[main_label].append(np.sum(branch_length_list[branch_label]))
@@ -202,44 +198,59 @@ class MorphologySkeletonFeatures:
             aspect_ratio_weighted[main_label].append(branch_aspect_ratios[branch_label] * branch_weights[branch_label])
         self.features['aspect_ratio_weighted'] = [np.sum(aspect_ratio_list) for aspect_ratio_list in aspect_ratio_weighted.values()]
 
-        for idx, length in enumerate(self.features['length']):
-            if length >= 1.74:  # sqrt(3)
-                continue
-            # self.features['length'][idx] = 2*self.im_info.dim_sizes['X']
-            # self.features['radius_weighted'][idx] = self.im_info.dim_sizes['X']
-            # self.features['tortuosity_weighted'][idx] = 1.0
-            # self.features['aspect_ratio_weighted'][idx] = 1.0
-            self.features['length'][idx] = np.nan
-            self.features['radius_weighted'][idx] = np.nan
-            self.features['tortuosity_weighted'][idx] = np.nan
-            self.features['aspect_ratio_weighted'][idx] = np.nan
+        # for idx, length in enumerate(self.features['length']):
+        #     if length >= 1.74:  # sqrt(3)
+        #         continue
+        #     # self.features['length'][idx] = 2*self.im_info.dim_sizes['X']
+        #     # self.features['radius_weighted'][idx] = self.im_info.dim_sizes['X']
+        #     # self.features['tortuosity_weighted'][idx] = 1.0
+        #     # self.features['aspect_ratio_weighted'][idx] = 1.0
+        #     self.features['length'][idx] = np.nan
+        #     self.features['radius_weighted'][idx] = np.nan
+        #     self.features['tortuosity_weighted'][idx] = np.nan
+        #     self.features['aspect_ratio_weighted'][idx] = np.nan
 
     def _skeleton_morphology(self):
         self._get_branches()
 
     def _get_memmaps(self):
         logger.debug('Allocating memory for spatial feature extraction.')
+
+        num_t = self.im_info.shape[self.im_info.axes.index('T')]
+        if num_t == 1:
+            self.t = 0
+
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, 1, self.im_info)
+        self.im_memmap = get_reshaped_image(im_memmap, num_t, self.im_info)
 
         network_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
-        self.network_memmap = get_reshaped_image(network_memmap, 1, self.im_info)
+        self.network_memmap = get_reshaped_image(network_memmap, num_t, self.im_info)
 
         pixel_class_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
-        self.pixel_class_memmap = get_reshaped_image(pixel_class_memmap, 1, self.im_info)
+        self.pixel_class_memmap = get_reshaped_image(pixel_class_memmap, num_t, self.im_info)
 
         # self.im_info.create_output_path('morphology_skeleton_features', ext='.csv')
-        self.morphology_skeleton_features_path = self.im_info.pipeline_paths['morphology_skeleton_features']
+        self.organelle_skeleton_features_path = self.im_info.pipeline_paths['organelle_skeleton_features']
+
+        self.branch_skeleton_features_path = self.im_info.pipeline_paths['branch_skeleton_features']
 
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, 1, self.im_info)
+        self.label_memmap = get_reshaped_image(label_memmap, num_t, self.im_info)
+
+        if not self.im_info.no_t:
+            self.im_memmap = self.im_memmap[self.t]
+            self.network_memmap = self.network_memmap[self.t]
+            self.pixel_class_memmap = self.pixel_class_memmap[self.t]
+            self.label_memmap = self.label_memmap[self.t]
 
         self.shape = self.network_memmap.shape
 
     def _save_features(self):
         logger.debug('Saving spatial features.')
         features_df = pd.DataFrame.from_dict(self.features)
-        features_df.to_csv(self.morphology_skeleton_features_path, index=False)
+        features_df.to_csv(self.organelle_skeleton_features_path, index=False)
+        branch_features_df = pd.DataFrame.from_dict(self.branch_features)
+        branch_features_df.to_csv(self.branch_skeleton_features_path, index=False)
 
     def run(self):
         self._get_memmaps()

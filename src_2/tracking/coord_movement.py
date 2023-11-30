@@ -111,7 +111,7 @@ class CoordMovement:
 
         return lin_vel_um_s, lin_vel_magnitude, lin_vel_orientation
 
-    def _get_features(self, label_vals, coords_0, coords_1, coords_2):
+    def _get_voxel_features(self, label_vals, coords_0, coords_1, coords_2):
         # todo, should also include a way to specify a reference point
         vec01 = coords_1 - coords_0
         vec12 = coords_2 - coords_1
@@ -142,10 +142,15 @@ class CoordMovement:
         com_ang_vel_vec_01, com_ang_vel_mag_01, com_ang_vel_ori_01 = self._get_angular_velocity(r0_com_rel, r1_com_rel)
         com_ang_vel_vec_12, com_ang_vel_mag_12, com_ang_vel_ori_12 = self._get_angular_velocity(r1_com_rel, r2_com_rel)
 
+
         com_ang_acc_vec = (com_ang_vel_vec_12 - com_ang_vel_vec_01) / self.im_info.dim_sizes['T']
         com_ang_acc_mag = np.linalg.norm(com_ang_acc_vec, axis=1)
         com_ang_ori_change = (com_ang_vel_ori_12 - com_ang_vel_ori_01) / self.im_info.dim_sizes['T']
         com_ang_acc_ori = com_ang_acc_vec / com_ang_acc_mag[:, None]
+
+        self.feature_df['com_ang_vel_mag_01'] = com_ang_vel_mag_01
+        self.feature_df['com_ang_vel_mag_12'] = com_ang_vel_mag_12
+        self.feature_df['com_ang_acc_mag'] = com_ang_acc_mag
 
         com_lin_vel_vec_01, com_lin_vel_mag_01, com_lin_vel_ori_01 = self._get_linear_velocity(r0_com_rel, r1_com_rel)
         com_lin_vel_vec_12, com_lin_vel_mag_12, com_lin_vel_ori_12 = self._get_linear_velocity(r1_com_rel, r2_com_rel)
@@ -154,6 +159,10 @@ class CoordMovement:
         com_lin_acc_mag = np.linalg.norm(com_lin_acc_vec, axis=1)
         com_lin_ori_change = (com_lin_vel_ori_12 - com_lin_vel_ori_01) / self.im_info.dim_sizes['T']
         com_lin_acc_ori = com_lin_acc_vec / com_lin_acc_mag[:, None]
+
+        self.feature_df['com_lin_vel_mag_01'] = com_lin_vel_mag_01
+        self.feature_df['com_lin_vel_mag_12'] = com_lin_vel_mag_12
+        self.feature_df['com_lin_acc_mag'] = com_lin_acc_mag
 
         r0_com_rel_mag = np.linalg.norm(r0_com_rel, axis=1)
         r1_com_rel_mag = np.linalg.norm(r1_com_rel, axis=1)
@@ -164,9 +173,9 @@ class CoordMovement:
 
         com_directionality_acceleration = (com_directionality_12 - com_directionality_01) / self.im_info.dim_sizes['T']
 
-        com_lin_acc_vec = (com_lin_vel_vec_12 - com_lin_vel_vec_01) / self.im_info.dim_sizes['T']
-        com_lin_acc_mag = np.linalg.norm(com_lin_acc_vec, axis=1)
-        com_lin_acc_ori = com_lin_acc_vec / com_lin_acc_mag[:, None]
+        self.feature_df['com_directionality_01'] = com_directionality_01
+        self.feature_df['com_directionality_12'] = com_directionality_12
+        self.feature_df['com_directionality_acceleration'] = com_directionality_acceleration
 
         r0_rel_01 = pos_coords_um_0 - ref_coords_um_01[0]
         r1_rel_01 = pos_coords_um_1 - ref_coords_um_01[1]
@@ -182,6 +191,10 @@ class CoordMovement:
         rel_ang_ori_change = (rel_ang_vel_ori_12 - rel_ang_vel_ori_01) / self.im_info.dim_sizes['T']
         rel_ang_acc_ori = rel_ang_acc_vec / rel_ang_acc_mag[:, None]
 
+        self.feature_df['rel_ang_vel_mag_01'] = rel_ang_vel_mag_01
+        self.feature_df['rel_ang_vel_mag_12'] = rel_ang_vel_mag_12
+        self.feature_df['rel_ang_acc_mag'] = rel_ang_acc_mag
+
         rel_lin_vel_vec_01, rel_lin_vel_mag_01, rel_lin_vel_ori_01 = self._get_linear_velocity(r0_rel_01, r1_rel_01)
         rel_lin_vel_vec_12, rel_lin_vel_mag_12, rel_lin_vel_ori_12 = self._get_linear_velocity(r1_rel_12, r2_rel_12)
 
@@ -189,6 +202,10 @@ class CoordMovement:
         rel_lin_acc_mag = np.linalg.norm(rel_lin_acc_vec, axis=1)
         rel_lin_ori_change = (rel_lin_vel_ori_12 - rel_lin_vel_ori_01) / self.im_info.dim_sizes['T']
         rel_lin_acc_ori = rel_lin_acc_vec / rel_lin_acc_mag[:, None]
+
+        self.feature_df['rel_lin_vel_mag_01'] = rel_lin_vel_mag_01
+        self.feature_df['rel_lin_vel_mag_12'] = rel_lin_vel_mag_12
+        self.feature_df['rel_lin_acc_mag'] = rel_lin_acc_mag
 
         lin_vel_vec_01, lin_vel_mag_01, lin_vel_ori_01 = self._get_linear_velocity(pos_coords_um_0, pos_coords_um_1)
         lin_vel_vec_12, lin_vel_mag_12, lin_vel_ori_12 = self._get_linear_velocity(pos_coords_um_1, pos_coords_um_2)
@@ -198,6 +215,10 @@ class CoordMovement:
         lin_ori_change = (lin_vel_ori_12 - lin_vel_ori_01) / self.im_info.dim_sizes['T']
         lin_acc_ori = lin_acc_vec / lin_acc_mag[:, None]
 
+        self.feature_df['lin_vel_mag_01'] = lin_vel_mag_01
+        self.feature_df['lin_vel_mag_12'] = lin_vel_mag_12
+        self.feature_df['lin_acc_mag'] = lin_acc_mag
+
         ref_lin_vel_vec_01, ref_lin_vel_mag_01, ref_lin_vel_ori_01 = self._get_linear_velocity(ref_coords_um_01[0], ref_coords_um_01[1])
         ref_lin_vel_vec_12, ref_lin_vel_mag_12, ref_lin_vel_ori_12 = self._get_linear_velocity(ref_coords_um_12[0], ref_coords_um_12[1])
 
@@ -205,6 +226,11 @@ class CoordMovement:
         ref_lin_acc_mag = np.linalg.norm(ref_lin_acc_vec, axis=1)
         ref_lin_ori_change = (ref_lin_vel_ori_12 - ref_lin_vel_ori_01) / self.im_info.dim_sizes['T']
         ref_lin_acc_ori = ref_lin_acc_vec / ref_lin_acc_mag[:, None]
+
+        self.feature_df['ref_lin_vel_mag_01'] = ref_lin_vel_mag_01
+        self.feature_df['ref_lin_vel_mag_12'] = ref_lin_vel_mag_12
+        self.feature_df['ref_lin_acc_mag'] = ref_lin_acc_mag
+
         print('hi')
         # todo get the average orientation of all the angular velocity vectors of a label
         #  then get the angle (using dot product) between each point's orientation and the average orientation
@@ -217,13 +243,56 @@ class CoordMovement:
         #  or alignment of vectors in its vicinity, to look at turbidity
         #  other useful metrics? vorticity?
 
+    def _get_df_stats(self, group_df):
+        mean_df = group_df.mean()
+        mean_df.columns = [f'{col}_mean' for col in mean_df.columns]
+        std_df = group_df.std()
+        std_df.columns = [f'{col}_std' for col in std_df.columns]
+        max_df = group_df.max()
+        max_df.columns = [f'{col}_max' for col in max_df.columns]
+        min_df = group_df.min()
+        min_df.columns = [f'{col}_min' for col in min_df.columns]
+        median_df = group_df.median()
+        median_df.columns = [f'{col}_median' for col in median_df.columns]
+        q_25_df = group_df.quantile(0.25)
+        q_25_df.columns = [f'{col}_q_25' for col in q_25_df.columns]
+        q_75_df = group_df.quantile(0.75)
+        q_75_df.columns = [f'{col}_q_75' for col in q_75_df.columns]
+
+        main_label_df = pd.concat([mean_df, std_df, max_df, min_df, median_df, q_25_df, q_75_df], axis=1)
+        main_label_df = main_label_df.reset_index()
+
+        return main_label_df
+
+    def _get_label_features(self, t):
+        # drop na
+        copy_df = self.feature_df.copy()
+
+        # remove the label and t columns
+        main_copy_df = copy_df.dropna()
+        main_copy_df = copy_df.drop(columns=['label', 't'])
+        # group self.df_features by 'main_label'
+        group_df_main = main_copy_df.groupby('main_label')
+        # drop 'label' column from group_df_main
+
+        main_label_df = self._get_df_stats(group_df_main)
+        main_label_df['t'] = t
+
+        skel_copy_df = copy_df.copy()
+        skel_copy_df = skel_copy_df.drop(columns=['main_label', 't'])
+        group_df_skel = skel_copy_df.groupby('label')
+
+        skel_label_df = self._get_df_stats(group_df_skel)
+        skel_label_df['t'] = t
+
+
     def _run_frame(self, t):
         valid_pxs = self.skel_label_memmap[t] > 0
         skel_label_vals = self.skel_label_memmap[t][valid_pxs]
         obj_label_vals = self.label_memmap[t][valid_pxs]
-        df = pd.DataFrame({'t': t}, index=range(len(skel_label_vals)))
-        df['label'] = skel_label_vals
-        df['main_label'] = obj_label_vals
+        self.feature_df = pd.DataFrame({'t': t}, index=range(len(skel_label_vals)))
+        self.feature_df['label'] = skel_label_vals
+        self.feature_df['main_label'] = obj_label_vals
         coords_1 = np.argwhere(self.skel_label_memmap[t] > 0).astype('float32')
 
         vec12 = self.flow_interpolator_fw.interpolate_coord(coords_1, t)
@@ -231,7 +300,8 @@ class CoordMovement:
 
         coords_0 = coords_1 - vec01
         coords_2 = coords_1 + vec12
-        self._get_features(skel_label_vals, coords_0, coords_1, coords_2)
+        self._get_voxel_features(skel_label_vals, coords_0, coords_1, coords_2)
+        self._get_label_features()
 
         # vec12_scaled = vec12 * self.scaling
         # vec01_scaled = vec01 * self.scaling
