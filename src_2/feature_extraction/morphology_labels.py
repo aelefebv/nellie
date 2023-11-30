@@ -7,13 +7,13 @@ import pandas as pd
 
 
 class MorphologyLabelFeatures:
-    def __init__(self, im_info: ImInfo):
+    def __init__(self, im_info: ImInfo, t=1):
         self.im_info = im_info
+        self.t = t
         if self.im_info.no_z:
             self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
         else:
             self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
-
         self.im_memmap = None
         self.im_frangi_memmap = None
         self.label_memmap = None
@@ -29,7 +29,7 @@ class MorphologyLabelFeatures:
         log10_frangi[np.isinf(log10_frangi)] = 0
         self.label_objects_frangi = skimage.measure.regionprops(self.label_memmap[0], log10_frangi, spacing=self.spacing)
 
-        self.features['label'] = [label_object.label for label_object in self.label_objects_intensity]
+        self.features['main_label'] = [label_object.label for label_object in self.label_objects_intensity]
 
         self.features['area'] = [label_object.area for label_object in self.label_objects_intensity]
 
@@ -57,11 +57,17 @@ class MorphologyLabelFeatures:
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
         self.im_memmap = get_reshaped_image(im_memmap, 1, self.im_info)
 
-        im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, 1, self.im_info)
+        num_t = self.im_info.shape[self.im_info.axes.index('T')]
+        if num_t == 1:
+            self.t = 0
 
+        im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, num_t, self.im_info)
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, 1, self.im_info)
+        self.label_memmap = get_reshaped_image(label_memmap, num_t, self.im_info)
+        if not self.im_info.no_t:
+            self.im_frangi_memmap = self.im_frangi_memmap[self.t]
+            self.label_memmap = self.label_memmap[self.t]
 
         # self.im_info.create_output_path('morphology_label_features', ext='.csv')
         self.morphology_label_features_path = self.im_info.pipeline_paths['morphology_label_features']
