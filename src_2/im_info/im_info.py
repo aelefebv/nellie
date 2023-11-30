@@ -65,7 +65,8 @@ class ImInfo:
         self.create_output_path('branch_label_features', ext='.csv')
         self.create_output_path('organelle_skeleton_features', ext='.csv')
         self.create_output_path('branch_skeleton_features', ext='.csv')
-        self.create_output_path('motility_features', ext='.csv')
+        self.create_output_path('organelle_motility_features', ext='.csv')
+        self.create_output_path('branch_motility_features', ext='.csv')
 
     def _create_output_dir(self):
         logger.debug('Creating output directory.')

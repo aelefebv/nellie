@@ -28,7 +28,8 @@ class CoordMovement:
         self.skel_label_memmap = None
         self.label_memmap = None
 
-        self.feature_df = None
+        self.organelle_feature_df = None
+        self.branch_feature_df = None
 
         self.debug = None
 
@@ -50,6 +51,9 @@ class CoordMovement:
 
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
+
+        self.organelle_features_path = self.im_info.pipeline_paths['organelle_motility_features']
+        self.branch_features_path = self.im_info.pipeline_paths['branch_motility_features']
 
         self.shape = self.skel_label_memmap.shape
 
@@ -275,16 +279,20 @@ class CoordMovement:
         group_df_main = main_copy_df.groupby('main_label')
         # drop 'label' column from group_df_main
 
-        main_label_df = self._get_df_stats(group_df_main)
-        main_label_df['t'] = t
+        self.organelle_feature_df = self._get_df_stats(group_df_main)
+        self.organelle_feature_df['t'] = t
 
         skel_copy_df = copy_df.copy()
         skel_copy_df = skel_copy_df.drop(columns=['main_label', 't'])
         group_df_skel = skel_copy_df.groupby('label')
 
-        skel_label_df = self._get_df_stats(group_df_skel)
-        skel_label_df['t'] = t
+        self.branch_feature_df = self._get_df_stats(group_df_skel)
+        self.branch_feature_df['t'] = t
 
+    def _save_features(self):
+        logger.debug('Saving spatial features.')
+        self.organelle_feature_df.to_csv(self.organelle_features_path, index=False)
+        self.branch_feature_df.to_csv(self.branch_features_path, index=False)
 
     def _run_frame(self, t):
         valid_pxs = self.skel_label_memmap[t] > 0
@@ -301,7 +309,8 @@ class CoordMovement:
         coords_0 = coords_1 - vec01
         coords_2 = coords_1 + vec12
         self._get_voxel_features(skel_label_vals, coords_0, coords_1, coords_2)
-        self._get_label_features()
+        self._get_label_features(t)
+        self._save_features()
 
         # vec12_scaled = vec12 * self.scaling
         # vec01_scaled = vec01 * self.scaling
@@ -311,9 +320,9 @@ class CoordMovement:
         # todo now can extract other features
 
         # # tracks are backward coords, label coords, and forward coords
-        import napari
-        viewer = napari.Viewer()
-        viewer.add_image(self.skel_label_memmap)
+        # import napari
+        # viewer = napari.Viewer()
+        # viewer.add_image(self.skel_label_memmap)
         #
         # tracks_ref = []
         # running_track_num = 0
