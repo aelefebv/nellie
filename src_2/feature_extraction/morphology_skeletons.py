@@ -50,15 +50,16 @@ class MorphologySkeletonFeatures:
             structure = xp.ones((3, 3))
         else:
             structure = xp.ones((3, 3, 3))
-        network_gpu = xp.array(self.network_memmap)
-        pixel_class = self._get_pixel_class(network_gpu)
+        skel_labels_gpu = xp.array(self.network_memmap)
+        main_labels_gpu = xp.array(self.label_memmap) * (skel_labels_gpu>0)
+        pixel_class = self._get_pixel_class(skel_labels_gpu)
         # everywhere where the image does not equal 0 or 4
         branch_mask = (pixel_class != 0) * (pixel_class != 4)
         branch_pixel_class = self._get_pixel_class(branch_mask)
         branch_labels, _ = ndi.label(branch_mask, structure=structure)
 
         branch_px = xp.where(branch_mask)
-        px_main_label = network_gpu[branch_px]
+        px_main_label = main_labels_gpu[branch_px]
 
         # distance matrix between all branch_px, vectorized
         coord_array_1 = xp.array(branch_px).T
@@ -259,11 +260,8 @@ class MorphologySkeletonFeatures:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-peroxisome.ome.tif"
     im_info = ImInfo(im_path)
-    im_info.create_output_path('im_skel')
-    im_info.create_output_path('im_pixel_class')
-    im_info.create_output_path('im_instance_label')
 
     morphology_skeleton_features = MorphologySkeletonFeatures(im_info)
     morphology_skeleton_features.run()

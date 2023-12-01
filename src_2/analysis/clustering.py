@@ -21,9 +21,12 @@ from sklearn.cluster import HDBSCAN
 
 
 class Clustering:
-    def __init__(self, im_info: ImInfo):
+    def __init__(self, im_info: ImInfo, t=1):
         self.im_info = im_info
+        self.t = t
         self.spatial_features = None
+        self.temporal_features = None
+        self.all_features = None
         self.embedding = None
         self.standardized_features = None
 
@@ -33,35 +36,83 @@ class Clustering:
         self.feature_rf_importances = None
         self.feature_perm_importances = None
 
+        self.df_of_interest = None
+
         self.cluster_labels = None
 
         self.label_memmap = None
+        self.branch_label_memmap = None
+        self.use_memmap = None
 
-    def _get_spatial_features(self):
+        self.label_type = None
+        self.label_name = None
+
+    def get_features_dfs(self, label_type='organelle'):
         logger.debug('Importing CSV.')
+        if label_type == 'organelle':
+            label_path = self.im_info.pipeline_paths['organelle_label_features']
+            skeleton_path = self.im_info.pipeline_paths['organelle_skeleton_features']
+            motility_path = self.im_info.pipeline_paths['organelle_motility_features']
+            self.use_memmap = self.label_memmap
+            self.label_name = 'main_label'
+        elif label_type == 'branch':
+            label_path = self.im_info.pipeline_paths['branch_label_features']
+            skeleton_path = self.im_info.pipeline_paths['branch_skeleton_features']
+            motility_path = self.im_info.pipeline_paths['branch_motility_features']
+            self.use_memmap = self.branch_label_memmap
+            self.label_name = 'label'
+        else:
+            raise ValueError(f'Unknown label type: {label_type}')
+
         self.spatial_features = pd.DataFrame()
-        self.morphology_label_features = pd.read_csv(self.im_info.pipeline_paths['morphology_label_features'])
-        self.morphology_skeleton_features = pd.read_csv(self.im_info.pipeline_paths['morphology_skeleton_features'])
+        self.morphology_label_features = pd.read_csv(label_path)
+        self.morphology_skeleton_features = pd.read_csv(skeleton_path)
         # merge morphology label and skeleton dataframes based on "label" column
-        self.morphology_features = pd.merge(self.morphology_label_features, self.morphology_skeleton_features, on='label')
-        self.morphology_features = self.morphology_features.dropna()
+        self.morphology_features = pd.merge(self.morphology_label_features, self.morphology_skeleton_features, on=self.label_name)
+        self.motility_label_features = pd.read_csv(motility_path)
+
+        self.all_features = pd.merge(self.morphology_features, self.motility_label_features, on=self.label_name)
+
         self.spatial_features = pd.concat([self.spatial_features, self.morphology_features], axis=1)
-        self.labels = self.spatial_features['label']
-        self.spatial_features = self.spatial_features.drop(columns=['label'])
-        remove_cols = [
+        self.labels = self.spatial_features[self.label_name]
+        # self.spatial_features = self.spatial_features.drop(columns=[self.label_name])
+        remove_cols_spatial = [
             'extent', 'solidity',
             'intensity_mean', 'intensity_std', 'intensity_range',
             # 'frangi_mean', 'frangi_std', 'frangi_range',
         ]
-        self.spatial_features = self.spatial_features.drop(columns=remove_cols)
+        self.spatial_features = self.spatial_features.drop(columns=remove_cols_spatial)
+        keep_cols_temporal = [
+            self.label_name,
+            'rel_ang_vel_mag_12_mean', 'rel_ang_vel_mag_12_max',
+            'rel_ang_acc_mag_mean', 'rel_ang_acc_mag_max',
+            'rel_lin_vel_mag_12_mean', 'rel_lin_vel_mag_12_max',
+            'rel_lin_acc_mag_mean', 'rel_lin_acc_mag_max',
+            'ref_lin_vel_mag_12_mean', 'ref_lin_vel_mag_12_max',
+            'ref_lin_acc_mag_mean', 'ref_lin_acc_mag_max',
+            'lin_vel_mag_12_mean', 'lin_vel_mag_12_max',
+        ]
+        remove_cols_temporal = [col for col in self.motility_label_features.columns if col not in keep_cols_temporal]
+        # self.temporal_features = self.motility_label_features[keep_cols_temporal]
+        self.temporal_features = self.motility_label_features.drop(columns=remove_cols_temporal)
+
+        remove_cols_both = remove_cols_spatial + remove_cols_temporal
+        self.all_features = self.all_features.drop(columns=remove_cols_both)
+
+        self.spatial_features = self.spatial_features.dropna()
+        self.temporal_features = self.temporal_features.dropna()
+        self.all_features = self.all_features.dropna()
+
 
     def _standardize_features(self):
         logger.debug('Standardizing features.')
         scaler = StandardScaler()
         # log transform first
         # self.spatial_features = np.log(self.spatial_features)
-        self.standardized_features = scaler.fit_transform(self.spatial_features)
-        self.standardized_features = pd.DataFrame(self.standardized_features, columns=self.spatial_features.columns)
+        temp_df = self.df_of_interest.copy()
+        temp_df = temp_df.drop(columns=[self.label_name])
+        self.standardized_features = scaler.fit_transform(temp_df)
+        self.standardized_features = pd.DataFrame(self.standardized_features, columns=temp_df.columns)
 
     def reduce_dimensions(self, method="tsne", **kwargs):
         if self.standardized_features is None:
@@ -97,8 +148,10 @@ class Clustering:
 
     def feature_importance(self):
         logger.debug('Calculating feature importance.')
+        temp_df = self.df_of_interest.copy()
+        temp_df = temp_df.drop(columns=[self.label_name])
         rf = RandomForestClassifier(n_estimators=100)
-        X = self.spatial_features[self.cluster_labels > 0]
+        X = temp_df[self.cluster_labels > 0]
         y = self.cluster_labels[self.cluster_labels > 0]
         rf.fit(X, y)
         self.feature_rf_importances = rf.feature_importances_
@@ -112,8 +165,9 @@ class Clustering:
 
     def recolor_im_labels(self):
         # label idxs and values
-        label_idxs = np.argwhere(self.label_memmap[0] > 0)
-        label_values = self.label_memmap[0][self.label_memmap[0] > 0]
+        valid_labels = self.df_of_interest[self.label_name].values
+        label_idxs = np.argwhere(self.use_memmap > 0)
+        label_values = self.use_memmap[self.use_memmap > 0]
         unique_labels = np.unique(label_values)
         # if a unique label is not included in self.cluster_labels, add it as 0
         temp_cluster_labels = self.cluster_labels.copy()
@@ -122,12 +176,18 @@ class Clustering:
             if unique_label not in cluster_label_mapping:
                 temp_cluster_labels = np.append(temp_cluster_labels, 0)
                 cluster_label_mapping = np.append(cluster_label_mapping, unique_label)
+            elif unique_label not in valid_labels:
+                temp_cluster_labels = np.append(temp_cluster_labels, 0)
         # get cluster labels for each label, -1 for those not in the list
         cluster_labels = np.full(len(label_values), 0)
         for i, label_value in enumerate(label_values):
+            # if the label value is not in valid labels, skip
+            # if label_value not in valid_labels:
+            #     continue
             cluster_labels[i] = temp_cluster_labels[cluster_label_mapping == label_value]
+
         # recolor labels
-        new_label_im = np.zeros(self.label_memmap[0].shape, dtype=np.int32)
+        new_label_im = np.zeros(self.use_memmap.shape, dtype=np.int32)
         for i, label_idx in enumerate(label_idxs):
             new_label_im[label_idx[0], label_idx[1], label_idx[2]] = cluster_labels[i]
         return new_label_im
@@ -138,10 +198,10 @@ class Clustering:
         self.embedding_fig.show()
 
     def plot_feature_distribution(self, feature_column):
-        if feature_column not in self.spatial_features.columns:
+        if feature_column not in self.df_of_interest.columns:
             raise ValueError(f"{feature_column} not found in DataFrame.")
 
-        features_with_cluster = self.spatial_features.copy()
+        features_with_cluster = self.df_of_interest.copy()
         features_with_cluster['cluster'] = self.cluster_labels
         features_with_cluster = features_with_cluster[features_with_cluster['cluster']>0]
 
@@ -173,33 +233,54 @@ class Clustering:
         self.feature_fig.show()
 
     def _get_memmaps(self):
+        num_t = self.im_info.shape[self.im_info.axes.index('T')]
+        if num_t == 1:
+            self.t = 0
+
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, 1, self.im_info)
+        self.label_memmap = get_reshaped_image(label_memmap, num_t, self.im_info)
+
+        branch_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.branch_label_memmap = get_reshaped_image(branch_label_memmap, num_t, self.im_info)
+
+        if not self.im_info.no_t:
+            self.label_memmap = self.label_memmap[self.t]
+            self.branch_label_memmap = self.branch_label_memmap[self.t]
+
+    def set_df_of_interest(self, df):
+        self.df_of_interest = df
 
     def run(self):
         self._get_memmaps()
-        self._get_spatial_features()
 
 
 if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(im_path)
-    im_info.create_output_path('morphology_label_features', ext='.csv')
-    im_info.create_output_path('morphology_skeleton_features', ext='.csv')
-    im_info.create_output_path('im_instance_label')
-
 
     dim_red = Clustering(im_info)
     dim_red.run()
+    dim_red.get_features_dfs('branch')
 
-    # dim_red.reduce_dimensions(method="tsne", n_components=2, perplexity=70, n_iter=1000)
-    dim_red.reduce_dimensions(method="umap", n_components=2, n_neighbors=10, min_dist=0.1)
+    dim_red.set_df_of_interest(dim_red.all_features)
+
+    # dim_red.reduce_dimensions(method="tsne", n_components=2, perplexity=10, n_iter=1000)
+    dim_red.reduce_dimensions(method="umap", n_components=2, n_neighbors=10, min_dist=0)
     dim_red.cluster(cluster_selection_epsilon=0.5)
     dim_red.create_embedding_plot(color=dim_red.cluster_labels)
     new_labels = dim_red.recolor_im_labels()
 
-    dim_red.plot_feature_distribution('length')
+    dim_red.plot_feature_distribution('rel_ang_vel_mag_12_mean')
     dim_red.feature_importance()
+
+    # plot area vs rel_ang_vel_mag_12_mean
+    feature_1 = 'area'
+    feature_2 = 'rel_lin_vel_mag_12_mean'
+    plt.figure()
+    plt.scatter(np.log10(dim_red.df_of_interest[feature_1]), dim_red.df_of_interest[feature_2], s=1)
+    plt.xlabel(feature_1)
+    plt.ylabel(feature_2)
+    plt.show()
 
     import napari
     viewer = napari.Viewer()

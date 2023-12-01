@@ -320,11 +320,11 @@ class Network:
         # else:
         #     structure = xp.ones((3, 3, 3))
         # final_skel, _ = ndi.label(skel > 0, structure=structure)
-        final_skel = (skel.get() > 0) * label_frame
-        pixel_class = self._get_pixel_class(final_skel)
+        skel_pre = (skel.get() > 0) * label_frame
+        pixel_class = self._get_pixel_class(skel_pre)
         branch_skel_labels = self._get_branch_skel_labels(pixel_class)
         branch_labels = self._relabel_objects(branch_skel_labels, label_frame)
-        return final_skel, pixel_class.get(), branch_labels.get()
+        return branch_skel_labels, pixel_class, branch_labels
 
     def _clean_junctions(self, pixel_class):
         junctions = pixel_class == 4
@@ -348,13 +348,13 @@ class Network:
             skel, pixel_class, skel_relabelled_memmap = self._run_frame(t)
             # pixel_class = self._clean_junctions(pixel_class)
             if self.im_info.no_t:
-                self.skel_memmap[:] = skel[:]
-                self.pixel_class_memmap[:] = pixel_class[:]
-                self.skel_relabelled_memmap[:] = skel_relabelled_memmap[:]
+                self.skel_memmap[:] = skel[:].get()
+                self.pixel_class_memmap[:] = pixel_class[:].get()
+                self.skel_relabelled_memmap[:] = skel_relabelled_memmap[:].get()
             else:
-                self.skel_memmap[t] = skel
-                self.pixel_class_memmap[t] = pixel_class
-                self.skel_relabelled_memmap[t] = skel_relabelled_memmap
+                self.skel_memmap[t] = skel.get()
+                self.pixel_class_memmap[t] = pixel_class.get()
+                self.skel_relabelled_memmap[t] = skel_relabelled_memmap.get()
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
             # label_frame = xp.asarray(self.label_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])

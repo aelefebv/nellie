@@ -177,7 +177,6 @@ class Filter:
         return filtered_im
 
     def _filter_log(self, frame, mask):
-        #todo figure this out...
         lapofg = xp.zeros_like(frame, dtype='double')
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)

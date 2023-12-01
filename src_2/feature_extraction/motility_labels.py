@@ -78,6 +78,8 @@ class CoordMovement:
 
         # get the index of idxmin_0 that matches each item in labels
         idxmin_0_idx = np.searchsorted(idxmin_0, labels)
+        bad_idxs = np.argwhere(idxmin_0_idx == len(idxmin_0))
+        idxmin_0_idx[bad_idxs] = 0
         ref_vec_idxs = idxmin_1[idxmin_0_idx].astype('int32')
 
         coords_0_all = match[:, 0][ref_vec_idxs]
@@ -87,6 +89,8 @@ class CoordMovement:
         coords_1_all[np.isnan(match[:, 0])] = np.nan
         coords_0_all[np.isnan(match[:, 1])] = np.nan
         coords_1_all[np.isnan(match[:, 1])] = np.nan
+        coords_0_all[bad_idxs] = np.nan
+        coords_1_all[bad_idxs] = np.nan
         return coords_0_all, coords_1_all
 
     def _get_angular_velocity(self, r0, r1):
@@ -235,7 +239,6 @@ class CoordMovement:
         self.feature_df['ref_lin_vel_mag_12'] = ref_lin_vel_mag_12
         self.feature_df['ref_lin_acc_mag'] = ref_lin_acc_mag
 
-        print('hi')
         # todo get the average orientation of all the angular velocity vectors of a label
         #  then get the angle (using dot product) between each point's orientation and the average orientation
         #  will give the rotational alignment of the label
@@ -399,7 +402,6 @@ class CoordMovement:
     def _run_coord_movement_analysis(self):
         for t in range(1, self.num_t-1):
             self._run_frame(t)
-        print('hi')
 
     def run(self):
         self._get_t()
