@@ -52,6 +52,9 @@ class CoordMovement:
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
+        raw_im = self.im_info.get_im_memmap(self.im_info.im_path)
+        self.raw_im = get_reshaped_image(raw_im, self.num_t, self.im_info)
+
         self.organelle_features_path = self.im_info.pipeline_paths['organelle_motility_features']
         self.branch_features_path = self.im_info.pipeline_paths['branch_motility_features']
 
@@ -276,7 +279,7 @@ class CoordMovement:
         copy_df = self.feature_df.copy()
 
         # remove the label and t columns
-        main_copy_df = copy_df.dropna()
+        # main_copy_df = copy_df.dropna()
         main_copy_df = copy_df.drop(columns=['label', 't'])
         # group self.df_features by 'main_label'
         group_df_main = main_copy_df.groupby('main_label')
@@ -313,7 +316,7 @@ class CoordMovement:
         coords_2 = coords_1 + vec12
         self._get_voxel_features(skel_label_vals, coords_0, coords_1, coords_2)
         self._get_label_features(t)
-        self._save_features()
+        # self._save_features()
 
         # vec12_scaled = vec12 * self.scaling
         # vec01_scaled = vec01 * self.scaling
@@ -349,53 +352,64 @@ class CoordMovement:
         # # idx where idxmin_01 index is 2056
         # # idx_test = np.argwhere(idxmin_01.index.values == 2056)
         #
-        # lin_vel_mag_01[np.isnan(lin_vel_mag_01)] = 0
-        # lin_vel_mag_12[np.isnan(lin_vel_mag_12)] = 0
-        # lin_acc_mag[np.isnan(lin_acc_mag)] = 0
-        # rel_lin_vel_mag_01[np.isnan(rel_lin_vel_mag_01)] = 0
-        # rel_lin_vel_mag_12[np.isnan(rel_lin_vel_mag_12)] = 0
-        # rel_ang_vel_mag_01[np.isnan(rel_ang_vel_mag_01)] = 0
-        # rel_ang_vel_mag_12[np.isnan(rel_ang_vel_mag_12)] = 0
-        # com_lin_vel_mag_01[np.isnan(com_lin_vel_mag_01)] = 0
-        # com_lin_vel_mag_12[np.isnan(com_lin_vel_mag_12)] = 0
-        # com_ang_vel_mag_01[np.isnan(com_ang_vel_mag_01)] = 0
-        # com_ang_vel_mag_12[np.isnan(com_ang_vel_mag_12)] = 0
-        # com_directionality_01[np.isnan(com_directionality_01)] = 0
-        # com_directionality_12[np.isnan(com_directionality_12)] = 0
-        # match = np.stack([coords_0, coords_1, coords_2], axis=1)
-        # properties = {'lin_vel': [], 'lin_acc': [],
-        #               'rel_lin_vel': [], 'rel_ang_vel': [],
-        #               'com_lin_vel': [], 'com_ang_vel': [], 'com_directionality': []}
-        # tracks = []
-        # skip_num = 20
-        # for track_num, track in enumerate(match[::skip_num]):
-        #     if np.any(np.isnan(track)):
-        #         continue
-        #     tracks.append([track_num, 0, *track[0]])
-        #     tracks.append([track_num, 1, *track[1]])
-        #     tracks.append([track_num, 2, *track[2]])
-        #     properties['lin_vel'].append(0)
-        #     properties['lin_vel'].append(lin_vel_mag_01[track_num*skip_num])
-        #     properties['lin_vel'].append(lin_vel_mag_12[track_num*skip_num])
-        #     properties['lin_acc'].append(0)
-        #     properties['lin_acc'].append(lin_acc_mag[track_num*skip_num])
-        #     properties['lin_acc'].append(lin_acc_mag[track_num*skip_num])
-        #     properties['rel_lin_vel'].append(0)
-        #     properties['rel_lin_vel'].append(rel_lin_vel_mag_01[track_num*skip_num])
-        #     properties['rel_lin_vel'].append(rel_lin_vel_mag_12[track_num*skip_num])
-        #     properties['rel_ang_vel'].append(0)
-        #     properties['rel_ang_vel'].append(rel_ang_vel_mag_01[track_num*skip_num])
-        #     properties['rel_ang_vel'].append(rel_ang_vel_mag_12[track_num*skip_num])
-        #     properties['com_lin_vel'].append(0)
-        #     properties['com_lin_vel'].append(com_lin_vel_mag_01[track_num*skip_num])
-        #     properties['com_lin_vel'].append(com_lin_vel_mag_12[track_num*skip_num])
-        #     properties['com_ang_vel'].append(0)
-        #     properties['com_ang_vel'].append(com_ang_vel_mag_01[track_num*skip_num])
-        #     properties['com_ang_vel'].append(com_ang_vel_mag_12[track_num*skip_num])
-        #     properties['com_directionality'].append(0)
-        #     properties['com_directionality'].append(com_directionality_01[track_num*skip_num])
-        #     properties['com_directionality'].append(com_directionality_12[track_num*skip_num])
-        # viewer.add_tracks(tracks, properties=properties)
+        self.feature_df.lin_vel_mag_01[np.isnan(self.feature_df.lin_vel_mag_01)] = 0
+        self.feature_df.lin_vel_mag_12[np.isnan(self.feature_df.lin_vel_mag_12)] = 0
+        self.feature_df.lin_acc_mag[np.isnan(self.feature_df.lin_acc_mag)] = 0
+        self.feature_df.rel_lin_vel_mag_01[np.isnan(self.feature_df.rel_lin_vel_mag_01)] = 0
+        self.feature_df.rel_lin_vel_mag_12[np.isnan(self.feature_df.rel_lin_vel_mag_12)] = 0
+        self.feature_df.rel_ang_vel_mag_01[np.isnan(self.feature_df.rel_ang_vel_mag_01)] = 0
+        self.feature_df.rel_ang_vel_mag_12[np.isnan(self.feature_df.rel_ang_vel_mag_12)] = 0
+        self.feature_df.com_lin_vel_mag_01[np.isnan(self.feature_df.com_lin_vel_mag_01)] = 0
+        self.feature_df.com_lin_vel_mag_12[np.isnan(self.feature_df.com_lin_vel_mag_12)] = 0
+        self.feature_df.com_ang_vel_mag_01[np.isnan(self.feature_df.com_ang_vel_mag_01)] = 0
+        self.feature_df.com_ang_vel_mag_12[np.isnan(self.feature_df.com_ang_vel_mag_12)] = 0
+        self.feature_df.com_directionality_01[np.isnan(self.feature_df.com_directionality_01)] = 0
+        self.feature_df.com_directionality_12[np.isnan(self.feature_df.com_directionality_12)] = 0
+
+        import napari
+        viewer = napari.Viewer()
+
+
+        viewer.add_image(self.raw_im, scale=[1.71, 1, 1])
+        match = np.stack([coords_0, coords_1, coords_2], axis=1)
+        properties = {'lin_vel': [], 'lin_acc': [],
+                      'rel_lin_vel': [], 'rel_ang_vel': [],
+                      'com_lin_vel': [], 'com_ang_vel': [], 'com_directionality': [],
+                      'ref_lin_vel': []}
+        tracks = []
+        skip_num = 1
+        for track_num, track in enumerate(match[::skip_num]):
+            if np.any(np.isnan(track)):
+                continue
+            tracks.append([track_num, 0, *track[0]])
+            tracks.append([track_num, 1, *track[1]])
+            tracks.append([track_num, 2, *track[2]])
+            # properties['lin_vel'].append(0)
+            # properties['lin_vel'].append(self.feature_df.lin_vel_mag_01[track_num*skip_num])
+            # properties['lin_vel'].append(self.feature_df.lin_vel_mag_12[track_num*skip_num])
+            # properties['lin_acc'].append(0)
+            # properties['lin_acc'].append(self.feature_df.lin_acc_mag[track_num*skip_num])
+            # properties['lin_acc'].append(self.feature_df.lin_acc_mag[track_num*skip_num])
+            # properties['rel_lin_vel'].append(0)
+            # properties['rel_lin_vel'].append(self.feature_df.rel_lin_vel_mag_01[track_num*skip_num])
+            # properties['rel_lin_vel'].append(self.feature_df.rel_lin_vel_mag_12[track_num*skip_num])
+            # properties['rel_ang_vel'].append(0)
+            # properties['rel_ang_vel'].append(self.feature_df.rel_ang_vel_mag_01[track_num*skip_num])
+            # properties['rel_ang_vel'].append(self.feature_df.rel_ang_vel_mag_12[track_num*skip_num])
+            # properties['com_lin_vel'].append(0)
+            # properties['com_lin_vel'].append(self.feature_df.com_lin_vel_mag_01[track_num*skip_num])
+            # properties['com_lin_vel'].append(self.feature_df.com_lin_vel_mag_12[track_num*skip_num])
+            # properties['com_ang_vel'].append(0)
+            # properties['com_ang_vel'].append(self.feature_df.com_ang_vel_mag_01[track_num*skip_num])
+            # properties['com_ang_vel'].append(self.feature_df.com_ang_vel_mag_12[track_num*skip_num])
+            # properties['com_directionality'].append(0)
+            # properties['com_directionality'].append(self.feature_df.com_directionality_01[track_num*skip_num])
+            # properties['com_directionality'].append(self.feature_df.com_directionality_12[track_num*skip_num])
+            # properties['ref_lin_vel'].append(0)
+            # properties['ref_lin_vel'].append(self.feature_df.ref_lin_vel_mag_01[track_num*skip_num])
+            # properties['ref_lin_vel'].append(self.feature_df.ref_lin_vel_mag_12[track_num*skip_num])
+        # viewer.add_tracks(tracks, properties=properties, scale=[1.71, 1, 1])
+        viewer.add_tracks(tracks, scale=[1.71, 1, 1])
         # viewer.add_points(match_01[:, 0][idxmin_01], size=1, face_color='red')
         # viewer.add_points(match_01[:, 1][idxmin_01], size=1, face_color='blue')
 
@@ -409,7 +423,7 @@ class CoordMovement:
         self._run_coord_movement_analysis()
 
 if __name__ == "__main__":
-    tif_file = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    tif_file = r"D:\test_files\nelly_smorgasbord\deskewed-iono_post.ome.tif"
     im_info = ImInfo(tif_file)
     run_obj = CoordMovement(im_info, num_t=3)
     run_obj.run()

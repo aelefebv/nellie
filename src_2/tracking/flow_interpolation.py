@@ -241,7 +241,7 @@ if __name__ == "__main__":
     import napari
     viewer = napari.Viewer()
 
-    start_frame = 5
+    start_frame = 0
 
     # going backwards
     coords = np.argwhere(label_memmap[0] > 0).astype(float)
