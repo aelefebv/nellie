@@ -1,5 +1,5 @@
-pip install torch torchvision torchaudio
-pip install torch-geometric
+# pip install torch torchvision torchaudio
+# pip install torch-geometric
 
 import torch
 from torch_geometric.nn import GCNConv, HeteroConv

@@ -88,7 +88,8 @@ class Filter:
     def _calculate_gamma(self, gauss_volume):
         gamma_tri = triangle_threshold(gauss_volume[gauss_volume > 0])
         gamma_otsu, _ = otsu_threshold(gauss_volume[gauss_volume > 0])
-        gamma = (gamma_tri + gamma_otsu) / 2
+        gamma = min(gamma_tri, gamma_otsu)
+        # gamma = (gamma_tri + gamma_otsu) / 2
         return gamma
 
     def _compute_hessian(self, image):
@@ -121,7 +122,10 @@ class Filter:
         rescaled_hessian = hessian_matrices / xp.max(xp.abs(hessian_matrices))
         frobenius_norm = xp.linalg.norm(rescaled_hessian, axis=0)
         frobenius_norm[xp.isinf(frobenius_norm)] = 0
-        frobenius_threshold = triangle_threshold(frobenius_norm[frobenius_norm > 0])
+        frob_triangle_thresh = triangle_threshold(frobenius_norm[frobenius_norm > 0])
+        frob_otsu_thresh, _ = otsu_threshold(frobenius_norm[frobenius_norm > 0])
+        frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
+        # frobenius_threshold = triangle_threshold(frobenius_norm[frobenius_norm > 0])
         mask = frobenius_norm > frobenius_threshold
         return mask
 

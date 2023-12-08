@@ -233,10 +233,12 @@ def interpolate_all_backward(coords, start_t, end_t, im_info):
 
 if __name__ == "__main__":
     # im_path = r"D:\test_files\nelly_gav_tests\fibro_7.nd2"
-    im_path = r"D:\test_files\nelly_tests\test_2\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(im_path)
     label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
     label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
+    im_memmap = im_info.get_im_memmap(im_info.im_path)
+    im_memmap = get_reshaped_image(im_memmap, im_info=im_info)
 
     import napari
     viewer = napari.Viewer()
@@ -247,11 +249,16 @@ if __name__ == "__main__":
     coords = np.argwhere(label_memmap[0] > 0).astype(float)
     # get 100 random coords
     np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 1000, replace=False), :].astype(float)
+    coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
 
-    tracks, track_properties = interpolate_all_forward(coords, start_frame, 9, im_info)
+    tracks, track_properties = interpolate_all_forward(coords, start_frame, 3, im_info)
+
+    # tracks = []
+    # for coord_num, coord in enumerate(coords):
+    #     tracks.append([coord_num, start_frame, coord[0], coord[1]])
+    #
     # flip tracks_back
-    tracks_back, track_properties_back = interpolate_all_backward(coords, start_frame, 1, im_info)
+    # tracks_back, track_properties_back = interpolate_all_backward(coords, start_frame, 1, im_info)
 
     # tracks = []
     # track_properties = {'frame_num': []}
@@ -282,5 +289,6 @@ if __name__ == "__main__":
     #             tracks.append([coord_num, t + 1, coord[0], coord[1], coord[2]])
 
     viewer.add_tracks(tracks, properties=track_properties, name='tracks')
-    viewer.add_tracks(tracks_back, properties=track_properties_back, name='tracks')
-    viewer.add_labels(label_memmap)
+    # # viewer.add_tracks(tracks_back, properties=track_properties_back, name='tracks')
+    viewer.add_image(im_memmap)
+    # # viewer.add_labels(label_memmap)

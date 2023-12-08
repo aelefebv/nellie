@@ -290,7 +290,11 @@ class ImInfo:
                 raise ValueError
 
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
-            im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
+            if self.ch == -1:
+                im_memmap = np.max(im_memmap, axis=self.axes.index('C'))
+            else:
+                im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
+            # if ch is -1, get a max projection in the C dimension
         return im_memmap
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
