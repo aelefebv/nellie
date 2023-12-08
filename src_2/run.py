@@ -55,4 +55,4 @@ if __name__ == "__main__":
     for file_num, tif_file in enumerate(all_files):
         for ch in range(2):
             print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 2')
-            im_info = run(tif_file, remove_edges=True, num_t=3, ch=-1)
+            im_info = run(tif_file, remove_edges=True, num_t=3, ch=ch)

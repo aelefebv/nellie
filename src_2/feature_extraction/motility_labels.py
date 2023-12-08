@@ -316,7 +316,7 @@ class CoordMovement:
         coords_2 = coords_1 + vec12
         self._get_voxel_features(skel_label_vals, coords_0, coords_1, coords_2)
         self._get_label_features(t)
-        # self._save_features()
+        self._save_features()
 
         # vec12_scaled = vec12 * self.scaling
         # vec01_scaled = vec01 * self.scaling
