@@ -50,7 +50,6 @@ class ImInfo:
         self._check_memmappable()
 
     def _create_output_paths(self):
-        logger.debug('Creating output paths.')
         self.create_output_path('im_frangi')
         self.create_output_path('im_instance_label')
         self.create_output_path('im_skel')
@@ -69,7 +68,6 @@ class ImInfo:
         self.create_output_path('branch_motility_features', ext='.csv')
 
     def _create_output_dir(self):
-        logger.debug('Creating output directory.')
         if not os.path.isdir(self.output_dir):
             os.mkdir(self.output_dir)
 
@@ -82,7 +80,6 @@ class ImInfo:
             self.extension = '.ome.tif'
 
     def _get_ome_tif(self):
-        logger.info(f'Found extension {self.extension}. Getting ome.tif.')
         ome_path = self.create_output_path('ome')
         if os.path.isfile(ome_path):
             return
@@ -107,7 +104,6 @@ class ImInfo:
             self.no_c = False
 
     def _set_dim_sizes(self):
-        logger.debug('Getting dimension sizes.')
         if self.dim_sizes is not None:
             return
         try:
@@ -226,7 +222,6 @@ class ImInfo:
                 raise ValueError
 
     def _load_metadata(self):
-        logger.debug('Getting metadata.')
         try:
             if self.im_path.endswith('.tif'):
                 self._load_tif()
@@ -279,7 +274,6 @@ class ImInfo:
             return tifffile.memmap(path_im, mode=read_mode)
 
     def get_im_memmap(self, path_im: str, read_type='r'):
-        logger.debug('Getting and returning read-only memmap.')
         try:
             im_memmap = tifffile.memmap(path_im, mode=read_type)
         except ValueError:
@@ -298,7 +292,6 @@ class ImInfo:
         return im_memmap
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
-        logger.debug('Creating output path.')
         if pipeline_path not in self.pipeline_paths:
             self.pipeline_paths[pipeline_path] = os.path.join(self.output_dir,
                                                               f'{self.basename_no_ext}-'

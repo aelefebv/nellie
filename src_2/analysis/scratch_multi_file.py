@@ -188,44 +188,44 @@ plt.show()
 print(f'ROC AUC: {roc_auc}')
 # plt.savefig(os.path.join(top_dir, 'roc_curve.png'), dpi=500)
 
-# import numpy as np
-# import matplotlib.pyplot as plt
-# import seaborn as sns
-# from scipy.stats import ttest_ind
-#
-# # Example: Assuming you have two groups "group1" and "group2"
-# # Replace these with your actual group columns or logic
-# group1 = df_to_use[og_df['file'] == 'deskewed-iono_post.ome-ch0-organelle_motility_features.csv']
-# group2 = df_to_use[og_df['file'] == 'deskewed-iono_pre.ome-ch0-organelle_motility_features.csv']
-#
-# # Compute fold change and p-values
-# features = df_to_use.columns.difference(['file'])  # Adjust as needed
-# fold_changes = group1[features].mean() / group2[features].mean()
-# p_values = ttest_ind(group1[features], group2[features], axis=0).pvalue
-#
-# # Prepare DataFrame for volcano plot
-# volcano_df = pd.DataFrame({
-#     'Feature': features,
-#     'Log2FoldChange': np.log2(fold_changes),
-#     '-Log10PValue': -np.log10(p_values)
-# })
-#
-# # Plotting the Volcano Plot with Annotations
-# plt.figure(figsize=(12, 8))
-# plt.title('Volcano Plot')
-# plt.xlabel('Log2 Fold Change')
-# plt.ylabel('-Log10 P-Value')
-# sns.scatterplot(data=volcano_df, x='Log2FoldChange', y='-Log10PValue', edgecolor=None)
-#
-# # Annotating significant features
-# # Define your criteria for significance
-# significant = volcano_df[(abs(volcano_df['Log2FoldChange']) > np.log2(0.2)) &
-#                          (volcano_df['-Log10PValue'] > -np.log10(0.05))]
-# for index, row in significant.iterrows():
-#     plt.text(row['Log2FoldChange'], row['-Log10PValue'], row['Feature'], horizontalalignment='left', size='small', color='black', weight='semibold')
-#
-# sns.scatterplot(data=significant, x='Log2FoldChange', y='-Log10PValue', color='red', edgecolor=None)
-# plt.savefig(os.path.join(top_dir, 'volcano_plot.png'), dpi=500)
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import ttest_ind
+
+# Example: Assuming you have two groups "group1" and "group2"
+# Replace these with your actual group columns or logic
+group1 = df_to_use[og_df['file'] == 'deskewed-iono_post.ome-ch0-organelle_motility_features.csv']
+group2 = df_to_use[og_df['file'] == 'deskewed-iono_pre.ome-ch0-organelle_motility_features.csv']
+
+# Compute fold change and p-values
+features = df_to_use.columns.difference(['file'])  # Adjust as needed
+fold_changes = group1[features].mean() / group2[features].mean()
+p_values = ttest_ind(group1[features], group2[features], axis=0).pvalue
+
+# Prepare DataFrame for volcano plot
+volcano_df = pd.DataFrame({
+    'Feature': features,
+    'Log2FoldChange': np.log2(fold_changes),
+    '-Log10PValue': -np.log10(p_values)
+})
+
+# Plotting the Volcano Plot with Annotations
+plt.figure(figsize=(12, 8))
+plt.title('Volcano Plot')
+plt.xlabel('Log2 Fold Change')
+plt.ylabel('-Log10 P-Value')
+sns.scatterplot(data=volcano_df, x='Log2FoldChange', y='-Log10PValue', edgecolor=None)
+
+# Annotating significant features
+# Define your criteria for significance
+significant = volcano_df[(abs(volcano_df['Log2FoldChange']) > np.log2(0.2)) &
+                         (volcano_df['-Log10PValue'] > -np.log10(0.05))]
+for index, row in significant.iterrows():
+    plt.text(row['Log2FoldChange'], row['-Log10PValue'], row['Feature'], horizontalalignment='left', size='small', color='black', weight='semibold')
+
+sns.scatterplot(data=significant, x='Log2FoldChange', y='-Log10PValue', color='red', edgecolor=None)
+plt.savefig(os.path.join(top_dir, 'volcano_plot.png'), dpi=500)
 # # plt.show()
 
 
