@@ -1,29 +1,24 @@
-import numpy as xp  # could use cupy, but I think overhead typically takes more time...
+from src import logger, xp
+
 
 def get_reshaped_image(im, num_t = None, im_info = None):
+    logger.debug('Reshaping image.')
     im_to_return = im
-    if 'T' not in im_info.axes or (len(im_info.axes) > 3 and len(im_to_return.shape) == 3):
+    if im_info.no_z:
+        ndim = 2
+    else:
+        ndim = 3
+    if 'T' not in im_info.axes or (len(im_info.axes) > ndim and len(im_to_return.shape) == ndim):
         im_to_return = im_to_return[None, ...]
+        logger.debug(f'Adding time dimension to image, shape is now {im_to_return.shape}.')
     elif num_t is not None:
         num_t = min(num_t, im_to_return.shape[0])
         im_to_return = im_to_return[:num_t, ...]
+        logger.debug(f'{num_t} timepoints found, shape is now {im_to_return.shape}.')
     return im_to_return
 
+
 def bbox(im):
-    """
-    Computes the bounding box coordinates for a 2D or 3D image.
-
-    Args:
-    im (numpy.ndarray): The input image, as a NumPy array.
-
-    Returns:
-    A tuple containing the bounding box coordinates, as integers. For a 2D image, the tuple contains
-    four elements: rmin, rmax, cmin, and cmax, where rmin and rmax are the minimum and maximum row
-    indices that contain non-zero pixels, and cmin and cmax are the minimum and maximum column indices.
-    For a 3D image, the tuple contains six elements: rmin, rmax, cmin, cmax, zmin, and zmax, where
-    zmin and zmax are the minimum and maximum depth indices.
-    If the image is not 2D or 3D, the function returns a bounding box with zero coordinates.
-    """
     if len(im.shape) == 2:
         rows = xp.any(im, axis=1)
         cols = xp.any(im, axis=0)

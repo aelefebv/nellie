@@ -9,7 +9,7 @@ if platform.system() == 'Darwin':
         import torch
         # For Mac GPUs with MPS support
         if torch.backends.mps.is_available():
-            import src_2.utils.torch_xp as xp
+            import src.utils.torch_xp as xp
             device_type = 'mps'
         else:
             import numpy as xp

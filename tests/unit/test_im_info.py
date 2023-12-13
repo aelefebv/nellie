@@ -1,7 +1,7 @@
 import os
 import shutil
 import tempfile
-from src.io.im_info import ImInfo
+from src import ImInfo
 # todo tests for different filetypes or input types... Think of others
 
 def test_iminfo_get_metadata_5d():
