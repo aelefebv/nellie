@@ -17,14 +17,12 @@ class InitialEmbedding(nn.Module):
         super(InitialEmbedding, self).__init__()
         self.embedding_mlp = nn.Sequential(
             nn.Linear(input_dim, embedding_dim),
-            nn.ReLU(),
-            nn.Linear(embedding_dim, embedding_dim)
+            nn.SiLU(),
         )
         self.layer_norm = nn.LayerNorm(embedding_dim)
 
     def forward(self, x):
         x = self.embedding_mlp(x)
-        x = x * torch.sigmoid(x)  # Swish activation
         x = self.layer_norm(x)  # Layer normalization
         return x
 
@@ -34,16 +32,12 @@ class GNNLayer(MessagePassing):
         super(GNNLayer, self).__init__(aggr='mean')  # 'mean' aggregation.
         self.mlp = nn.Sequential(
             nn.Linear(in_channels, out_channels),
-            nn.ReLU(),
-            nn.Linear(out_channels, out_channels)
+            nn.SiLU(),
         )
         self.layer_norm = nn.LayerNorm(out_channels)
 
     def forward(self, x, edge_index):
-        assert x.device == self.layer_norm.weight.device, "x and layer_norm are on different devices"
-
         x = self.mlp(x)
-        x = x * torch.sigmoid(x)  # Swish activation
         x = self.layer_norm(x)  # Layer normalization
         return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x)
 
@@ -58,17 +52,11 @@ class GNNEncoder(nn.Module):
     def __init__(self, input_dim, embedding_dim, hidden_dim, num_layers):
         super(GNNEncoder, self).__init__()
         self.initial_embedding = InitialEmbedding(input_dim, hidden_dim)
-
-        # Setup GNN layers
         self.layers = nn.ModuleList()
-        current_dim = hidden_dim
 
         # Intermediate layers
         for _ in range(num_layers - 1):
-            self.layers.append(GNNLayer(current_dim, hidden_dim))
-
-        # Final layer to produce embeddings
-        self.layers.append(GNNLayer(current_dim, embedding_dim))
+            self.layers.append(GNNLayer(hidden_dim, hidden_dim))
 
     def forward(self, x, edge_index):
         x = self.initial_embedding(x)
@@ -82,13 +70,9 @@ class GNNDecoder(nn.Module):
         super(GNNDecoder, self).__init__()
         self.layers = nn.ModuleList()
 
-        # Start with the embedding dimension
-        current_dim = embedding_dim
-
         # Intermediate layers
         for _ in range(num_layers - 1):
-            self.layers.append(GNNLayer(current_dim, hidden_dim))
-            current_dim = hidden_dim
+            self.layers.append(GNNLayer(hidden_dim, hidden_dim))
 
         # Final layer to output original feature size
         self.layers.append(GNNLayer(hidden_dim, output_dim))
@@ -240,9 +224,8 @@ def test_and_train():
     similar_dataset2 = create_dataset(num_nodes, num_node_features, feature_range=(0, 0.5))
     # replace the first 90 items with the same values
     similar_dataset2.x[:90] = similar_dataset1.x[:90]
-    similar_dataset2.edge_index[:90] = similar_dataset1.edge_index[:90]
+    similar_dataset2.edge_index[:290] = similar_dataset1.edge_index[:290]
     #randomly remove 20 edges
-    similar_dataset2.edge_index = similar_dataset2.edge_index[:, np.random.choice(100, 80, replace=False)]
 
     different_dataset = create_dataset(num_nodes, num_node_features, feature_range=(20, 30))
 
@@ -262,7 +245,7 @@ def test_and_train():
     num_layers = 16  # Number of GNN layers
     autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
 
-    num_epochs = 200
+    num_epochs = 300
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.01)
     loss_values = []
     for epoch in range(num_epochs):
