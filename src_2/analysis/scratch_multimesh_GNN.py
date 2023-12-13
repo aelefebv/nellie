@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import MessagePassing
+from torch_geometric.nn import MessagePassing, GATConv
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import matplotlib.pyplot as plt
@@ -24,6 +24,19 @@ class InitialEmbedding(nn.Module):
     def forward(self, x):
         x = self.embedding_mlp(x)
         x = self.layer_norm(x)  # Layer normalization
+        return x
+
+
+class GATLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, heads=8):
+        super(GATLayer, self).__init__()
+        self.gat_conv = GATConv(in_channels, out_channels // heads, heads=heads, dropout=0.2)
+        self.layer_norm = nn.LayerNorm(out_channels)
+
+    def forward(self, x, edge_index):
+        x = self.gat_conv(x, edge_index)
+        x = F.silu(x)  # Using SiLU activation function
+        x = self.layer_norm(x)
         return x
 
 
@@ -56,7 +69,8 @@ class GNNEncoder(nn.Module):
 
         # Intermediate layers
         for _ in range(num_layers - 1):
-            self.layers.append(GNNLayer(hidden_dim, hidden_dim))
+            # self.layers.append(GNNLayer(hidden_dim, hidden_dim))
+            self.layers.append(GATLayer(hidden_dim, hidden_dim))
 
     def forward(self, x, edge_index):
         x = self.initial_embedding(x)
@@ -72,10 +86,12 @@ class GNNDecoder(nn.Module):
 
         # Intermediate layers
         for _ in range(num_layers - 1):
-            self.layers.append(GNNLayer(hidden_dim, hidden_dim))
+            # self.layers.append(GNNLayer(hidden_dim, hidden_dim))
+            self.layers.append(GATLayer(hidden_dim, hidden_dim))
 
         # Final layer to output original feature size
-        self.layers.append(GNNLayer(hidden_dim, output_dim))
+        # self.layers.append(GNNLayer(hidden_dim, output_dim))
+        self.layers.append(GATLayer(hidden_dim, output_dim))
 
     def forward(self, x, edge_index):
         for layer in self.layers[:-1]:
@@ -101,112 +117,8 @@ def normalize_features(features):
     std = features.std(dim=0, keepdim=True)
     return (features - mean) / std
 
-
-def generate_random_data(num_node_features):
-    num_nodes = torch.randint(10000, 20000, (1,)).item()
-    num_edges = torch.randint(20000, 30000, (1,)).item()
-    nodes = torch.rand((num_nodes, num_node_features))
-    nodes = normalize_features(nodes)
-    edge_index = torch.randint(num_nodes, (2, num_edges))
-    return Data(x=nodes, edge_index=edge_index)
-
-
 def import_data():
     pass
-
-
-def test_mesh_gnn():
-    # Parameters
-    num_datasets = 1  # Number of different datasets
-    num_node_features = 16
-
-    # Generate multiple datasets
-    datasets = [generate_random_data(num_node_features) for _ in range(num_datasets)]
-
-    # DataLoader
-    dataloader = DataLoader(datasets, batch_size=3, shuffle=True)
-    # batch size of 1, because graph data is not the same size between sets
-
-    # Initialize the autoencoder
-    embedding_dim = 512  # Dimensionality of the node embeddings
-    hidden_dim = 512  # Hidden dimension size
-    num_layers = 16  # Number of GNN layers
-    autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
-
-    num_epochs = 200
-    optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.01)
-    loss_values = []
-    for epoch in range(num_epochs):
-        total_loss = 0
-        for n, data in enumerate(dataloader):
-            data = data.to(device)
-            optimizer.zero_grad()
-            reconstructed = autoencoder(data.x, data.edge_index)
-            loss = F.mse_loss(reconstructed, data.x)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        avg_loss = total_loss / len(dataloader)
-        loss_values.append(avg_loss)
-        print(f'Epoch {epoch + 1}, Avg Loss: {avg_loss}')
-
-    plt.plot(loss_values)
-    plt.xlabel('Epoch')
-    plt.ylabel('Average Loss')
-    plt.title('Training Loss Over Epochs')
-    plt.show()
-
-    all_embeddings = []
-    dataset_labels = []
-    og_data = []
-    for n, data in enumerate(datasets):
-        data = data.to(device)
-        embeddings = autoencoder.encoder(data.x, data.edge_index).detach().cpu().numpy()
-        all_embeddings.append(embeddings)
-        dataset_labels.append(n * np.ones(embeddings.shape[0]))
-        og_data.append(data.x.detach().cpu().numpy())
-
-    # Concatenate all embeddings and labels
-    all_embeddings = np.concatenate(all_embeddings, axis=0)[::30]
-    dataset_labels = np.concatenate(dataset_labels, axis=0)[::30]
-    og_data = np.concatenate(og_data, axis=0)[::30]
-
-    # t-SNE for dimensionality reduction
-    tsne = TSNE(n_components=2, random_state=42, n_jobs=-1)
-    reduced_embeddings = tsne.fit_transform(all_embeddings)
-    reduced_og_data = tsne.fit_transform(og_data)
-
-    # Plot t-SNE colored by dataset
-    plt.figure(figsize=(8, 6))
-    for n in range(num_datasets):
-        indices = dataset_labels == n
-        plt.scatter(reduced_embeddings[indices, 0], reduced_embeddings[indices, 1], label=f'Dataset {n + 1}')
-
-    plt.xlabel('t-SNE Feature 1')
-    plt.ylabel('t-SNE Feature 2')
-    plt.title('t-SNE Visualization of Node Embeddings Colored by Dataset')
-    plt.legend()
-    plt.show()
-
-    # Plot t-SNE colored by dataset
-    plt.figure(figsize=(8, 6))
-    for n in range(num_datasets):
-        indices = dataset_labels == n
-        plt.scatter(reduced_og_data[indices, 0], reduced_og_data[indices, 1], label=f'Dataset {n + 1}')
-
-    plt.xlabel('t-SNE Feature 1')
-    plt.ylabel('t-SNE Feature 2')
-    plt.title('t-SNE Visualization of Original Node Features Colored by Dataset')
-    plt.legend()
-    plt.show()
-
-    # todo:
-    #  in our real case scenario, nodes would be every skeleton voxel and its features, the edges would be every
-    #  adjacent voxel, but then also connections to every 2, 4, 8, etc neighbors away (the multi-mesh), and the
-    #  edge_index would be a list of all these edges
-
-    return reconstructed
-
 
 def test_and_train():
     def create_dataset(num_nodes, num_features, feature_range=(0, 1)):
@@ -237,7 +149,7 @@ def test_and_train():
     # Combine the similar datasets for training
     train_datasets = [similar_dataset1, different_dataset]
 
-    dataloader = DataLoader(train_datasets, batch_size=1, shuffle=True)
+    dataloader = DataLoader(train_datasets, batch_size=2, shuffle=True)
 
     # Initialize the autoencoder
     embedding_dim = 512  # Dimensionality of the node embeddings
