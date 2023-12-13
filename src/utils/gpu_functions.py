@@ -48,6 +48,10 @@ def triangle_threshold(matrix, nbins=256):
     if flip:
         if device_type == 'mps':
             hist = xp.flip(hist, dims=[0])
+        else:
+            hist = xp.flip(hist, axis=0)
+
+            # todo check this
         arg_low_level = nbins - arg_high_level - 1
         arg_peak_height = nbins - arg_peak_height - 1
     del(arg_high_level)

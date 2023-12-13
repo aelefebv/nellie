@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import MessagePassing, GATConv
+from torch_geometric.nn import MessagePassing, GATv2Conv
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import matplotlib.pyplot as plt
@@ -30,7 +30,7 @@ class InitialEmbedding(nn.Module):
 class GATLayer(nn.Module):
     def __init__(self, in_channels, out_channels, heads=8):
         super(GATLayer, self).__init__()
-        self.gat_conv = GATConv(in_channels, out_channels // heads, heads=heads, dropout=0.2)
+        self.gat_conv = GATv2Conv(in_channels, out_channels // heads, heads=heads, dropout=0.2)
         self.layer_norm = nn.LayerNorm(out_channels)
 
     def forward(self, x, edge_index):
@@ -69,8 +69,8 @@ class GNNEncoder(nn.Module):
 
         # Intermediate layers
         for _ in range(num_layers - 1):
-            # self.layers.append(GNNLayer(hidden_dim, hidden_dim))
-            self.layers.append(GATLayer(hidden_dim, hidden_dim))
+            self.layers.append(GNNLayer(hidden_dim, hidden_dim))
+            # self.layers.append(GATLayer(hidden_dim, hidden_dim))
 
     def forward(self, x, edge_index):
         x = self.initial_embedding(x)
@@ -157,7 +157,7 @@ def test_and_train():
     num_layers = 16  # Number of GNN layers
     autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
 
-    num_epochs = 300
+    num_epochs = 5000
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.01)
     loss_values = []
     for epoch in range(num_epochs):
@@ -236,5 +236,4 @@ def test_and_train():
 
 
 if __name__ == '__main__':
-    test_output_embeddings = test_mesh_gnn()
-    print(test_output_embeddings.shape)
+    test_and_train()
