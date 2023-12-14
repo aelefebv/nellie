@@ -66,6 +66,11 @@ class ImInfo:
         self.create_output_path('branch_skeleton_features', ext='.csv')
         self.create_output_path('organelle_motility_features', ext='.csv')
         self.create_output_path('branch_motility_features', ext='.csv')
+        self.create_output_path('rel_ang_vel_mag_12')
+        self.create_output_path('rel_lin_vel_mag_12')
+        self.create_output_path('rel_ang_acc_mag')
+        self.create_output_path('rel_lin_acc_mag')
+
 
     def _create_output_dir(self):
         if not os.path.isdir(self.output_dir):

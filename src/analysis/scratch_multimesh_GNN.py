@@ -140,6 +140,9 @@ def test_and_train():
     #randomly remove 20 edges
 
     different_dataset = create_dataset(num_nodes, num_node_features, feature_range=(20, 30))
+    # different_dataset2 = create_dataset(num_nodes, num_node_features, feature_range=(20, 30))
+    # different_dataset2.x[:90] = different_dataset.x[:90]
+    # different_dataset2.edge_index[:290] = different_dataset.edge_index[:290]
 
     # Normalize features
     similar_dataset1.x = normalize_features(similar_dataset1.x)

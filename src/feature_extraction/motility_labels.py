@@ -55,10 +55,31 @@ class CoordMovement:
         raw_im = self.im_info.get_im_memmap(self.im_info.im_path)
         self.raw_im = get_reshaped_image(raw_im, self.num_t, self.im_info)
 
+
         self.organelle_features_path = self.im_info.pipeline_paths['organelle_motility_features']
         self.branch_features_path = self.im_info.pipeline_paths['branch_motility_features']
 
         self.shape = self.skel_label_memmap.shape
+
+        rel_ang_vel_mag_12_im = self.im_info.pipeline_paths['rel_ang_vel_mag_12']
+        self.rel_ang_vel_mag_12_im = self.im_info.allocate_memory(rel_ang_vel_mag_12_im, shape=self.shape, dtype='double',
+                                                          description='rel_ang_vel_mag_12_im im',
+                                                          return_memmap=True)
+
+        rel_lin_vel_mag_12_im = self.im_info.pipeline_paths['rel_lin_vel_mag_12']
+        self.rel_lin_vel_mag_12_im = self.im_info.allocate_memory(rel_lin_vel_mag_12_im, shape=self.shape, dtype='double',
+                                                          description='rel_lin_vel_mag_12_im im',
+                                                          return_memmap=True)
+
+        rel_ang_acc_mag_im = self.im_info.pipeline_paths['rel_ang_acc_mag']
+        self.rel_ang_acc_mag_im = self.im_info.allocate_memory(rel_ang_acc_mag_im, shape=self.shape, dtype='double',
+                                                          description='rel_ang_acc_mag_im im',
+                                                          return_memmap=True)
+
+        rel_lin_acc_mag_im = self.im_info.pipeline_paths['rel_lin_acc_mag']
+        self.rel_lin_acc_mag_im = self.im_info.allocate_memory(rel_lin_acc_mag_im, shape=self.shape, dtype='double',
+                                                          description='rel_lin_acc_mag_im im',
+                                                          return_memmap=True)
 
     def _get_min_euc_dist(self, labels, match_vec):
         euc_dist = np.linalg.norm(match_vec, axis=1)
@@ -315,6 +336,11 @@ class CoordMovement:
         coords_0 = coords_1 - vec01
         coords_2 = coords_1 + vec12
         self._get_voxel_features(skel_label_vals, coords_0, coords_1, coords_2)
+        # rel_ang_vel_im = np.zeros(self.skel_label_memmap[t].shape, dtype='float32')
+        self.rel_ang_vel_mag_12_im[t][valid_pxs] = self.feature_df['rel_ang_vel_mag_01'].values
+        self.rel_lin_vel_mag_12_im[t][valid_pxs] = self.feature_df['rel_lin_vel_mag_12'].values
+        self.rel_ang_acc_mag_im[t][valid_pxs] = self.feature_df['rel_ang_acc_mag'].values
+        self.rel_lin_acc_mag_im[t][valid_pxs] = self.feature_df['rel_lin_acc_mag'].values
         self._get_label_features(t)
         self._save_features()
 
