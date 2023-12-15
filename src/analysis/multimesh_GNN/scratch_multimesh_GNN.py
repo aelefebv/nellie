@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import cosine_similarity
 from torch_geometric.nn import MessagePassing, GATv2Conv
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
@@ -339,13 +340,16 @@ def test_and_train():
     print(f"Mean Cosine Similarity between Similar1 and Different: {similarity_sim1_diff}")
     print(f"Mean Cosine Similarity between Similar2 and Different: {similarity_sim2_diff}")
 
-def run_model(model_path, dataset):
+def run_model(model_path, dataset, reconstruction=False):
     model = GNNAutoencoder(dataset.num_features, 512, 512, 16).to(device)
     model.load_state_dict(torch.load(model_path))
     dataset = dataset.to(device)
     with torch.no_grad():
-        reconstruction = model(dataset.x, dataset.edge_index).cpu().numpy()
-    return reconstruction
+        if reconstruction:
+            out = model(dataset.x, dataset.edge_index).cpu().numpy()
+        else:
+            out = model.encoder(dataset.x, dataset.edge_index).cpu().numpy()
+    return out
 
 def import_data(im_path):
     # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
@@ -374,7 +378,7 @@ def import_data(im_path):
     return datasets
 
 if __name__ == '__main__':
-    model_path = r"D:\test_files\nelly_tests\20231214_183802-autoencoder.pt"
+    model_path = r"D:\test_files\nelly_tests\20231214_190130-autoencoder - Copy.pt"
     datasets = import_data(r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif")
     normalized_datasets = [Data(x=normalize_features(dataset.x), edge_index=dataset.edge_index) for dataset in datasets]
 
@@ -387,7 +391,109 @@ if __name__ == '__main__':
     train_model(training_dataloader, validation_dataloader)
 
     # datasets = [dataset_0_norm, ]
-    test_dataset = datasets[-1]
-    reconstruction = run_model(model_path, test_dataset)
-    reconstruction = reconstruction * test_dataset.x.std(dim=0, keepdim=True).cpu().numpy() + test_dataset.x.mean(dim=0, keepdim=True).cpu().numpy()
-    real_features = test_dataset.x.cpu().numpy()
+    # test_dataset_num = len(datasets) - 1
+    # reconstruction = run_model(model_path, normalized_datasets[test_dataset_num])
+    # reconstruction = (reconstruction * datasets[test_dataset_num].x.std(dim=0, keepdim=True).cpu().numpy() +
+    #                   datasets[test_dataset_num].x.mean(dim=0, keepdim=True).cpu().numpy())
+    # real_features = datasets[test_dataset_num].x.cpu().numpy()
+
+    # get embeddings for each dataset
+    embeddings_og = [run_model(model_path, dataset) for dataset in normalized_datasets]
+    # add labels
+    labels = []
+    for i, dataset in enumerate(embeddings_og):
+        labels += [i] * len(dataset)
+    embeddings = np.vstack(embeddings_og)
+
+    # label by dataset
+    # dimensionality reduction
+    tsne = TSNE(n_components=2, random_state=42, perplexity=500)
+    reduced_embeddings = tsne.fit_transform(embeddings[::50])
+
+    # plot
+    plt.figure(figsize=(8, 6))
+    plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1], c=labels[::50], cmap='tab10')
+    plt.xlabel('t-SNE Feature 1')
+    plt.ylabel('t-SNE Feature 2')
+    plt.title('t-SNE Visualization of All Dataset Embeddings')
+    plt.legend()
+    plt.show()
+
+    new_dataset_paths = [
+        r"D:\test_files\nelly_smorgasbord\deskewed-iono_post.ome.tif",
+        r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif",
+        r"D:\test_files\nelly_smorgasbord\deskewed-mt_ends.ome.tif",
+        r"D:\test_files\nelly_smorgasbord\deskewed-peroxisome.ome.tif",
+    ]
+    new_datasets = [import_data(path)[0] for path in new_dataset_paths]
+    new_normalized_datasets = [Data(x=normalize_features(dataset_new.x), edge_index=dataset_new.edge_index) for dataset_new in new_datasets]
+    new_embeddings_list = [run_model(model_path, dataset_new) for dataset_new in new_normalized_datasets]
+    new_labels = []
+    for i, dataset in enumerate(new_embeddings_list):
+        new_labels += [i] * len(dataset)
+    new_embeddings = np.vstack(new_embeddings_list)
+
+    skip_size = 1
+    new_reduced_embeddings = tsne.fit_transform(new_embeddings_list[1][::skip_size])
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(new_reduced_embeddings[:, 0], new_reduced_embeddings[:, 1], alpha=0.75, s=5,)# c=new_labels[::skip_size], cmap='tab10', )
+    plt.xlabel('t-SNE Feature 1')
+    plt.ylabel('t-SNE Feature 2')
+    plt.title('t-SNE Visualization of All Dataset Embeddings')
+    plt.legend()
+    plt.show()
+
+    embeds_to_use = embeddings_og
+
+    from scipy.spatial.distance import cdist
+    similarity_matrix = np.zeros((len(embeds_to_use), len(embeds_to_use)))
+    # Compute cosine similarity (Note: 'cdist' returns the distance, so you need to subtract it from 1)
+    for i in range(len(embeds_to_use)):
+        for j in range(i + 1, len(embeds_to_use)):
+            cosine_similarity = 1 - cdist(embeds_to_use[i], embeds_to_use[j], metric='cosine')
+            mean_cosine_similarity = cosine_similarity.mean()
+            similarity_matrix[i, j] = mean_cosine_similarity
+            similarity_matrix[j, i] = mean_cosine_similarity
+        similarity_matrix[i, i] = 1
+
+    #plot heatmap
+    plt.figure(figsize=(8, 6))
+    plt.imshow(similarity_matrix, cmap='viridis')
+    plt.show()
+
+    all_embeddings = embeddings_og + new_embeddings_list
+    mean_embeddings = [np.mean(embed, axis=0) for embed in all_embeddings]
+    # compute cosine similarity
+    similarity_matrix = np.zeros((len(mean_embeddings), len(mean_embeddings)))
+    for i in range(len(mean_embeddings)):
+        for j in range(i + 1, len(mean_embeddings)):
+            cosine_similarity = 1 - cdist(mean_embeddings[i].reshape(1, -1), mean_embeddings[j].reshape(1, -1), metric='cosine')
+            mean_cosine_similarity = cosine_similarity.mean()
+            similarity_matrix[i, j] = mean_cosine_similarity
+            similarity_matrix[j, i] = mean_cosine_similarity
+        similarity_matrix[i, i] = 1
+
+    # normalize between 0 and 1
+    similarity_matrix = (similarity_matrix - similarity_matrix.min()) / (similarity_matrix.max() - similarity_matrix.min())
+
+    #plot heatmap
+    plt.figure(figsize=(8, 6))
+    plt.imshow(similarity_matrix, cmap='viridis')
+
+    # plt.show()
+
+    mean_embeddings_all = np.vstack(mean_embeddings)
+    mean_embeddings_labels = range(len(mean_embeddings_all))
+
+    tsne = TSNE(n_components=2, random_state=42, perplexity=2)
+    reduced_mean_embeddings = tsne.fit_transform(mean_embeddings_all)
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(reduced_mean_embeddings[:, 0], reduced_mean_embeddings[:, 1], alpha=0.75, s=5, c=mean_embeddings_labels, cmap='turbo', )
+    plt.xlabel('t-SNE Feature 1')
+    plt.ylabel('t-SNE Feature 2')
+    plt.title('t-SNE Visualization of All Dataset Embeddings')
+    plt.legend()
+    plt.show()
+
