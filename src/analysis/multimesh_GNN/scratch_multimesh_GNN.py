@@ -7,12 +7,18 @@ from torch_geometric.loader import DataLoader
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import numpy as np
+import pandas as pd
+import datetime
 
 from src.feature_extraction.graph_frame import GraphBuilder
 from src.im_info.im_info import ImInfo
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Using device: {device}')
+
+# YYYYMMDD_HHMMSS
+current_dt = datetime.datetime.now()
+current_dt_str = current_dt.strftime("%Y%m%d_%H%M%S")
 
 
 class InitialEmbedding(nn.Module):
@@ -121,28 +127,14 @@ def normalize_features(features):
     std = features.std(dim=0, keepdim=True)
     return (features - mean) / std
 
-def import_data(im_path):
-    # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(im_path)
-    graph_builder = GraphBuilder(im_info)
-    graph_builder.run()
-    dataset = Data(x=graph_builder.node_features, edge_index=graph_builder.edges)
-    dataset_normalized = dataset.clone()
-    dataset_normalized.x = normalize_features(dataset.x)
-    return dataset, dataset_normalized
-
 def get_final_reconstruction(dataset, model):
     dataset = dataset.to(device)
     with torch.no_grad():
         reconstructed = model(dataset.x, dataset.edge_index).cpu().numpy()
     return reconstructed
 
-def train_model():
-    dataset_0, dataset_0_norm = import_data(r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif")
-    datasets = [dataset_0_norm,]
-    dataloader = DataLoader(datasets, batch_size=32, shuffle=True)
-
-    num_node_features = 25
+def train_model(training, validation):
+    num_node_features = training.dataset[0].num_features
 
     # Initialize the autoencoder
     embedding_dim = 512  # Dimensionality of the node embeddings
@@ -150,12 +142,14 @@ def train_model():
     num_layers = 16  # Number of GNN layers
     autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
 
-    num_epochs = 5000
+    num_epochs = 1e5
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.01)
-    loss_values = []
-    for epoch in range(num_epochs):
+    train_loss_values = []
+    val_loss_values = []
+    lowest_validation_loss = np.inf
+    for epoch in range(int(num_epochs)):
         total_loss = 0
-        for n, data in enumerate(dataloader):
+        for n, data in enumerate(training):
             data = data.to(device)
             optimizer.zero_grad()
             reconstructed = autoencoder(data.x, data.edge_index)
@@ -163,52 +157,70 @@ def train_model():
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        avg_loss = total_loss / len(dataloader)
-        loss_values.append(avg_loss)
-        print(f'Epoch {epoch + 1}, Avg Loss: {avg_loss}')
+        avg_train_loss = total_loss / len(training)
+        train_loss_values.append(avg_train_loss)
+        print(f'Epoch {epoch + 1}, Avg Loss: {avg_train_loss}')
 
-    plt.plot(loss_values)
+        # also check validation loss
+        with torch.no_grad():
+            for n, data in enumerate(validation):
+                data = data.to(device)
+                reconstructed = autoencoder(data.x, data.edge_index)
+                loss = F.mse_loss(reconstructed, data.x)
+                total_loss += loss.item()
+            avg_val_loss = total_loss / len(validation)
+            val_loss_values.append(avg_val_loss)
+            print(f'Epoch {epoch + 1}, Avg Validation Loss: {avg_val_loss}')
+
+        # save the model if validation loss is lower than previous lowest
+        if avg_val_loss < lowest_validation_loss:
+            lowest_validation_loss = avg_val_loss
+            torch.save(autoencoder.state_dict(), rf"D:\test_files\nelly_tests\{current_dt_str}-autoencoder.pt")
+
+
+    plt.plot(train_loss_values, label='Training Loss')
+    plt.plot(val_loss_values, label='Validation Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Average Loss')
-    plt.title('Training Loss Over Epochs')
-    plt.show()
-
-
-    def get_embeddings(dataset):
-        dataset = dataset.to(device)
-        with torch.no_grad():
-            embeddings = autoencoder.encoder(dataset.x, dataset.edge_index).cpu().numpy()
-        return embeddings
-
-    reconstructed_final = get_final_reconstruction(datasets[0])
-    # transform back to unnormalized
-    reconstructed_final = reconstructed_final * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
-    original = dataset_0.x.cpu().numpy()
-
-    # Get embeddings for each dataset
-    embeddings = get_embeddings(datasets[0])[::20]
-    np.save(r"D:\test_files\nelly_tests\embeddings.npy", embeddings)
-
-    # save the model
-    torch.save(autoencoder.state_dict(), r"D:\test_files\nelly_tests\autoencoder.pt")
-    # load the model
-    new_autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
-    new_autoencoder.load_state_dict(torch.load(r"D:\test_files\nelly_tests\autoencoder.pt"))
-    test_reconstructed = get_final_reconstruction(datasets[0], new_autoencoder)
-    test_reconstructed = test_reconstructed * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
-
-    tsne = TSNE(n_components=2, random_state=42)
-    reduced_embeddings = tsne.fit_transform(embeddings)
-
-    plt.figure(figsize=(8, 6))
-    plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1])
-
-    plt.xlabel('t-SNE Feature 1')
-    plt.ylabel('t-SNE Feature 2')
-    plt.title('t-SNE Visualization of All Dataset Embeddings')
+    plt.title('Loss Over Epochs')
     plt.legend()
     plt.show()
-    print('hi')
+
+    # def get_embeddings(dataset):
+    #     dataset = dataset.to(device)
+    #     with torch.no_grad():
+    #         embeddings = autoencoder.encoder(dataset.x, dataset.edge_index).cpu().numpy()
+    #     return embeddings
+    #
+    # reconstructed_final = get_final_reconstruction(datasets[0])
+    # # transform back to unnormalized
+    # reconstructed_final = reconstructed_final * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
+    # original = dataset_0.x.cpu().numpy()
+    #
+    # # Get embeddings for each dataset
+    # embeddings = get_embeddings(datasets[0])[::20]
+    # np.save(r"D:\test_files\nelly_tests\embeddings.npy", embeddings)
+    #
+    # # save the model
+    # torch.save(autoencoder.state_dict(), r"D:\test_files\nelly_tests\autoencoder.pt")
+    # # load the model
+    # new_autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
+    # new_autoencoder.load_state_dict(torch.load(r"D:\test_files\nelly_tests\autoencoder.pt"))
+    # test_reconstructed = get_final_reconstruction(datasets[0], new_autoencoder)
+    # test_reconstructed = test_reconstructed * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
+    #
+    # tsne = TSNE(n_components=2, random_state=42)
+    # reduced_embeddings = tsne.fit_transform(embeddings)
+    #
+    # plt.figure(figsize=(8, 6))
+    # plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1])
+    #
+    # plt.xlabel('t-SNE Feature 1')
+    # plt.ylabel('t-SNE Feature 2')
+    # plt.title('t-SNE Visualization of All Dataset Embeddings')
+    # plt.legend()
+    # plt.show()
+    # print('hi')
 
 def test_and_train():
     def create_dataset(num_nodes, num_features, feature_range=(0, 1)):
@@ -328,19 +340,54 @@ def test_and_train():
     print(f"Mean Cosine Similarity between Similar2 and Different: {similarity_sim2_diff}")
 
 def run_model(model_path, dataset):
-    model = GNNAutoencoder(25, 512, 512, 16).to(device)
+    model = GNNAutoencoder(dataset.num_features, 512, 512, 16).to(device)
     model.load_state_dict(torch.load(model_path))
-    reconstruction = get_final_reconstruction(dataset, model)
+    dataset = dataset.to(device)
+    with torch.no_grad():
+        reconstruction = model(dataset.x, dataset.edge_index).cpu().numpy()
     return reconstruction
 
+def import_data(im_path):
+    # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_info = ImInfo(im_path)
+    #load graph_features as pd.DataFrame
+    graph_features = pd.read_csv(im_info.pipeline_paths['graph_features'])
+    # load graph_edges as pd.DataFrame
+    graph_edges = pd.read_csv(im_info.pipeline_paths['graph_edges'])
+    # group by column 't'
+    graph_features_grouped = graph_features.groupby('t')
+    graph_edges_grouped = graph_edges.groupby('t')
+    # create a list of numpy arrays, each array is a frame
+    graph_features_list = [group.to_numpy() for _, group in graph_features_grouped]
+    graph_edges_list = [group.to_numpy() for _, group in graph_edges_grouped]
+    # drop the 't' column
+    graph_features_list = [frame[:, 1:] for frame in graph_features_list]
+    graph_edges_list = [frame[:, 1:] for frame in graph_edges_list]
+    # convert to torch tensors
+    graph_features_list = [torch.tensor(frame, dtype=torch.float) for frame in graph_features_list]
+    graph_edges_list = [torch.tensor(frame, dtype=torch.long) for frame in graph_edges_list]
+    # transpose edge list
+    graph_edges_list = [edge_list.t() for edge_list in graph_edges_list]
+    # create a list of Data objects
+    datasets = [Data(x=graph_features, edge_index=graph_edges) for graph_features, graph_edges in zip(graph_features_list, graph_edges_list)]
 
+    return datasets
 
 if __name__ == '__main__':
-    model_path = r"D:\test_files\nelly_tests\autoencoder.pt"
-    dataset_0, dataset_0_norm = import_data(r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif")
-    datasets = [dataset_0_norm, ]
-    reconstruction = run_model(model_path, datasets[0])
-    # transform back to unnormalized
-    reconstruction = reconstruction * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
+    model_path = r"D:\test_files\nelly_tests\20231214_183802-autoencoder.pt"
+    datasets = import_data(r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif")
+    normalized_datasets = [Data(x=normalize_features(dataset.x), edge_index=dataset.edge_index) for dataset in datasets]
 
-    pass
+    training_datasets = normalized_datasets[:5]
+    validation_datasets = normalized_datasets[5:]
+
+    training_dataloader = DataLoader(training_datasets, batch_size=1, shuffle=True)
+    validation_dataloader = DataLoader(validation_datasets, batch_size=1, shuffle=True)
+
+    train_model(training_dataloader, validation_dataloader)
+
+    # datasets = [dataset_0_norm, ]
+    test_dataset = datasets[-1]
+    reconstruction = run_model(model_path, test_dataset)
+    reconstruction = reconstruction * test_dataset.x.std(dim=0, keepdim=True).cpu().numpy() + test_dataset.x.mean(dim=0, keepdim=True).cpu().numpy()
+    real_features = test_dataset.x.cpu().numpy()

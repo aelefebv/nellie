@@ -99,7 +99,7 @@ class GraphBuilder:
                          'rel_lin_acc_mean': [], 'rel_lin_acc_max': [], 'rel_lin_acc_min': [], 'rel_lin_acc_median': [], 'rel_lin_acc_CoV': [],
                          'rel_ang_vel_mean': [], 'rel_ang_vel_max': [], 'rel_ang_vel_min': [], 'rel_ang_vel_median': [], 'rel_ang_vel_CoV': [],
                          'rel_lin_vel_mean': [], 'rel_lin_vel_max': [], 'rel_lin_vel_min': [], 'rel_lin_vel_median': [], 'rel_lin_vel_CoV': []}
-        self.edges = {'t': [], 'edges': []}
+        self.edges = {'t': [], 'edge_0': [], 'edge_1': []}
 
     def _get_t(self):
         if self.num_t is None:
@@ -278,8 +278,9 @@ class GraphBuilder:
             self._get_features(t)
             trees = self._build_jump_map(t)
             num_edges = sum([len(tree.multiscale_edge_list) for tree in trees])
-            for tree in trees:
-                self.edges['edges'].extend(list(tree.multiscale_edge_list))
+            edge_0, edge_1 = zip(*[edge for tree in trees for edge in tree.multiscale_edge_list])
+            self.edges['edge_0'].extend(edge_0)
+            self.edges['edge_1'].extend(edge_1)
             self.edges['t'].extend([t] * num_edges)
         # for any feature in self.features, if it is nan, set it to 0
         for feature in self.features:
