@@ -70,6 +70,11 @@ class ImInfo:
         self.create_output_path('rel_lin_vel_mag_12')
         self.create_output_path('rel_ang_acc_mag')
         self.create_output_path('rel_lin_acc_mag')
+        self.create_output_path('graph_features', ext='.csv')
+        self.create_output_path('graph_edges', ext='.csv')
+
+
+
 
 
     def _create_output_dir(self):

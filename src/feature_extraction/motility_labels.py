@@ -10,11 +10,11 @@ class CoordMovement:
     def __init__(self, im_info: ImInfo, num_t=None):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t < 3:
-            raise ValueError('num_t must be at least 3')
         # todo, could just extract velocity stats with 2..
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
+        if self.num_t < 3:
+            raise ValueError('num_t must be at least 3')
 
         if self.im_info.no_z:
             self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
@@ -306,15 +306,17 @@ class CoordMovement:
         group_df_main = main_copy_df.groupby('main_label')
         # drop 'label' column from group_df_main
 
-        self.organelle_feature_df = self._get_df_stats(group_df_main)
-        self.organelle_feature_df['t'] = t
+        organelle_feature_df = self._get_df_stats(group_df_main)
+        organelle_feature_df['t'] = t
 
         skel_copy_df = copy_df.copy()
         skel_copy_df = skel_copy_df.drop(columns=['main_label', 't'])
         group_df_skel = skel_copy_df.groupby('label')
 
-        self.branch_feature_df = self._get_df_stats(group_df_skel)
-        self.branch_feature_df['t'] = t
+        branch_feature_df = self._get_df_stats(group_df_skel)
+        branch_feature_df['t'] = t
+
+        return organelle_feature_df, branch_feature_df
 
     def _save_features(self):
         logger.debug('Saving spatial features.')
@@ -341,8 +343,16 @@ class CoordMovement:
         self.rel_lin_vel_mag_12_im[t][valid_pxs] = self.feature_df['rel_lin_vel_mag_12'].values
         self.rel_ang_acc_mag_im[t][valid_pxs] = self.feature_df['rel_ang_acc_mag'].values
         self.rel_lin_acc_mag_im[t][valid_pxs] = self.feature_df['rel_lin_acc_mag'].values
-        self._get_label_features(t)
-        self._save_features()
+        organelle_feature_df, branch_feature_df = self._get_label_features(t)
+        if self.organelle_feature_df is None:
+            self.organelle_feature_df = organelle_feature_df
+        else:
+            self.organelle_feature_df = pd.concat([self.organelle_feature_df, organelle_feature_df], axis=0)
+        if self.branch_feature_df is None:
+            self.branch_feature_df = branch_feature_df
+        else:
+            self.branch_feature_df = pd.concat([self.branch_feature_df, branch_feature_df], axis=0)
+
 
         # vec12_scaled = vec12 * self.scaling
         # vec01_scaled = vec01 * self.scaling
@@ -378,19 +388,19 @@ class CoordMovement:
         # # idx where idxmin_01 index is 2056
         # # idx_test = np.argwhere(idxmin_01.index.values == 2056)
         #
-        self.feature_df.lin_vel_mag_01[np.isnan(self.feature_df.lin_vel_mag_01)] = 0
-        self.feature_df.lin_vel_mag_12[np.isnan(self.feature_df.lin_vel_mag_12)] = 0
-        self.feature_df.lin_acc_mag[np.isnan(self.feature_df.lin_acc_mag)] = 0
-        self.feature_df.rel_lin_vel_mag_01[np.isnan(self.feature_df.rel_lin_vel_mag_01)] = 0
-        self.feature_df.rel_lin_vel_mag_12[np.isnan(self.feature_df.rel_lin_vel_mag_12)] = 0
-        self.feature_df.rel_ang_vel_mag_01[np.isnan(self.feature_df.rel_ang_vel_mag_01)] = 0
-        self.feature_df.rel_ang_vel_mag_12[np.isnan(self.feature_df.rel_ang_vel_mag_12)] = 0
-        self.feature_df.com_lin_vel_mag_01[np.isnan(self.feature_df.com_lin_vel_mag_01)] = 0
-        self.feature_df.com_lin_vel_mag_12[np.isnan(self.feature_df.com_lin_vel_mag_12)] = 0
-        self.feature_df.com_ang_vel_mag_01[np.isnan(self.feature_df.com_ang_vel_mag_01)] = 0
-        self.feature_df.com_ang_vel_mag_12[np.isnan(self.feature_df.com_ang_vel_mag_12)] = 0
-        self.feature_df.com_directionality_01[np.isnan(self.feature_df.com_directionality_01)] = 0
-        self.feature_df.com_directionality_12[np.isnan(self.feature_df.com_directionality_12)] = 0
+        # self.feature_df.lin_vel_mag_01[np.isnan(self.feature_df.lin_vel_mag_01)] = 0
+        # self.feature_df.lin_vel_mag_12[np.isnan(self.feature_df.lin_vel_mag_12)] = 0
+        # self.feature_df.lin_acc_mag[np.isnan(self.feature_df.lin_acc_mag)] = 0
+        # self.feature_df.rel_lin_vel_mag_01[np.isnan(self.feature_df.rel_lin_vel_mag_01)] = 0
+        # self.feature_df.rel_lin_vel_mag_12[np.isnan(self.feature_df.rel_lin_vel_mag_12)] = 0
+        # self.feature_df.rel_ang_vel_mag_01[np.isnan(self.feature_df.rel_ang_vel_mag_01)] = 0
+        # self.feature_df.rel_ang_vel_mag_12[np.isnan(self.feature_df.rel_ang_vel_mag_12)] = 0
+        # self.feature_df.com_lin_vel_mag_01[np.isnan(self.feature_df.com_lin_vel_mag_01)] = 0
+        # self.feature_df.com_lin_vel_mag_12[np.isnan(self.feature_df.com_lin_vel_mag_12)] = 0
+        # self.feature_df.com_ang_vel_mag_01[np.isnan(self.feature_df.com_ang_vel_mag_01)] = 0
+        # self.feature_df.com_ang_vel_mag_12[np.isnan(self.feature_df.com_ang_vel_mag_12)] = 0
+        # self.feature_df.com_directionality_01[np.isnan(self.feature_df.com_directionality_01)] = 0
+        # self.feature_df.com_directionality_12[np.isnan(self.feature_df.com_directionality_12)] = 0
 
         # import napari
         # viewer = napari.Viewer()
@@ -441,7 +451,10 @@ class CoordMovement:
 
     def _run_coord_movement_analysis(self):
         for t in range(1, self.num_t-1):
+            print(f'Processing {t} of {self.num_t-1}')
             self._run_frame(t)
+        self._save_features()
+
 
     def run(self):
         self._get_t()
@@ -451,5 +464,5 @@ class CoordMovement:
 if __name__ == "__main__":
     tif_file = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(tif_file)
-    run_obj = CoordMovement(im_info, num_t=3)
+    run_obj = CoordMovement(im_info)
     run_obj.run()

@@ -1,4 +1,4 @@
-from src import logger, xp, ndi
+from src import logger, xp, ndi, device_type
 from src.im_info.im_info import ImInfo
 from src.utils.general import get_reshaped_image
 import numpy as np
@@ -8,9 +8,9 @@ from scipy.spatial import cKDTree
 
 class MorphologySkeletonFeatures:
     def __init__(self, im_info: ImInfo,
-                 t=1):
+                 num_t=None):
         self.im_info = im_info
-        self.t = t
+        self.num_t = num_t
         if self.im_info.no_z:
             self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
         else:
@@ -22,8 +22,8 @@ class MorphologySkeletonFeatures:
         self.pixel_class_memmap = None
         self.organelle_skeleton_features_path = None
 
-        self.features = {}
-        self.branch_features = {}
+        self.features = {'t': [], 'main_label': [], 'length': [], 'radius_weighted': [], 'tortuosity_weighted': [], 'aspect_ratio_weighted': []}
+        self.branch_features = {'t': [], 'label': [], 'main_label': [], 'branch_lengths': [], 'branch_radius': [], 'branch_tortuosities': [], 'branch_aspect_ratio': []}
 
     def _get_pixel_class(self, skel):
         skel_mask = xp.array(skel > 0).astype('uint8')
@@ -38,19 +38,25 @@ class MorphologySkeletonFeatures:
     def _distance_check(self, mask, check_coords):
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
 
-        border_mask_coords = xp.argwhere(border_mask).get() * self.spacing
+        border_mask_coords = xp.argwhere(border_mask)
+        if device_type == 'cuda':
+            border_mask_coords = border_mask_coords.get() * self.spacing
+        else:
+            border_mask_coords = border_mask_coords * self.spacing
 
         border_tree = cKDTree(border_mask_coords)
-        dist, _ = border_tree.query(check_coords.get() * self.spacing, k=1)
+        if device_type == 'cuda':
+            check_coords = check_coords.get()
+        dist, _ = border_tree.query(check_coords * self.spacing, k=1)
         return dist
 
-    def _get_branches(self):
+    def _get_branches(self, t):
         if self.im_info.no_z:
             structure = xp.ones((3, 3))
         else:
             structure = xp.ones((3, 3, 3))
-        skel_labels_gpu = xp.array(self.network_memmap)
-        main_labels_gpu = xp.array(self.label_memmap) * (skel_labels_gpu>0)
+        skel_labels_gpu = xp.array(self.network_memmap[t])
+        main_labels_gpu = xp.array(self.label_memmap[t]) * (skel_labels_gpu>0)
         pixel_class = self._get_pixel_class(skel_labels_gpu)
         # everywhere where the image does not equal 0 or 4
         branch_mask = (pixel_class != 0) * (pixel_class != 4)
@@ -88,7 +94,10 @@ class MorphologySkeletonFeatures:
         scaled_coords = coord_array_1 * xp.array(self.spacing)
         scaled_coords_1 = scaled_coords[pixel_neighbors[0]]
         scaled_coords_2 = scaled_coords[pixel_neighbors[1]]
-        scaled_coords_dist = xp.linalg.norm(scaled_coords_1 - scaled_coords_2, axis=-1).get()
+
+        scaled_coords_dist = xp.linalg.norm(scaled_coords_1 - scaled_coords_2, axis=-1)
+        if device_type == 'cuda':
+            scaled_coords_dist = scaled_coords_dist.get()
 
         branch_length_list = {label: [] for label in xp.unique(px_branch_label).tolist()}
         for i, label in enumerate(valid_branch_labels.tolist()):
@@ -116,12 +125,19 @@ class MorphologySkeletonFeatures:
             if len(length_list) == 0:
                 branch_tortuosities[label] = 1.0
             elif tip_coord_distances.get(label) is None:
-                branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / self.im_info.dim_sizes['X']).get())
+                if device_type == 'cuda':
+                    branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / self.im_info.dim_sizes['X']).get())
+                else:
+                    branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / self.im_info.dim_sizes['X']))
             else:
-                branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / tip_coord_distances[label]).get())
+                if device_type == 'cuda':
+                    branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / tip_coord_distances[label]).get())
+                else:
+                    branch_tortuosities[label] = float((xp.sum(xp.array(length_list)) / tip_coord_distances[label]))
 
-        lone_tip_radii = self._distance_check(xp.array(self.label_memmap)>0, lone_tip_coords)
-        tip_radii = self._distance_check(xp.array(self.label_memmap)>0, tip_coords)
+
+        lone_tip_radii = self._distance_check(xp.array(self.label_memmap[t])>0, lone_tip_coords)
+        tip_radii = self._distance_check(xp.array(self.label_memmap[t])>0, tip_coords)
 
         lone_tip_labels = branch_labels[tuple(lone_tip_coords.T)]
         tip_labels = branch_labels[tuple(tip_coords.T)]
@@ -132,7 +148,7 @@ class MorphologySkeletonFeatures:
         for label in unchecked_labels:
             branch_coords = xp.argwhere(branch_labels == label)
             random_coords = branch_coords[xp.random.choice(len(branch_coords), 3)]
-            random_radii = self._distance_check(xp.array(self.label_memmap)>0, random_coords)
+            random_radii = self._distance_check(xp.array(self.label_memmap[t])>0, random_coords)
             tip_radii = np.concatenate((tip_radii, random_radii))
             tip_labels = xp.concatenate((tip_labels, xp.ones(3) * label))
 
@@ -142,36 +158,44 @@ class MorphologySkeletonFeatures:
         for label, radius in zip(tip_labels.tolist(), tip_radii):
             branch_length_list[label].append(radius)
 
-        self.branch_features['label'] = [label for label in xp.unique(px_branch_label).tolist()]
+
+        # self.branch_features['label'] = [label for label in xp.unique(px_branch_label).tolist()]
+        frame_branch_labels = [label for label in xp.unique(px_branch_label).tolist()]
+        self.branch_features['label'].extend(frame_branch_labels)
         main_labels = {}
         # self.branch_features['main_label'] =
         for idx, label in enumerate(px_branch_label.tolist()):
             if label not in main_labels:
-                main_labels[label] = int(px_main_label[idx].get())
-        self.branch_features['main_label'] = [main_labels[label] for label in xp.unique(px_branch_label).tolist()]
-        self.branch_features['branch_lengths'] = {label: np.sum(np.array(length_list)) for label, length_list in branch_length_list.items()}
-        self.branch_features['branch_tortuosities'] = branch_tortuosities
+                if device_type == 'cuda':
+                    main_labels[label] = int(px_main_label[idx].get())
+                else:
+                    main_labels[label] = int(px_main_label[idx])
+        frame_branch_main_labels = [main_labels[label] for label in xp.unique(px_branch_label).tolist()]
+        self.branch_features['main_label'].extend(frame_branch_main_labels)
+        frame_branch_lengths = {label: np.sum(np.array(length_list)) for label, length_list in branch_length_list.items()}
+        self.branch_features['branch_lengths'].extend(list(frame_branch_lengths.values()))
+        self.branch_features['branch_tortuosities'].extend(list(branch_tortuosities.values()))
 
-        self.features['main_label'] = [label for label in xp.unique(px_main_label).tolist()]
+        frame_org_main_labels = [label for label in xp.unique(px_main_label).tolist()]
+        self.features['main_label'].extend(frame_org_main_labels)
+
         lengths = {label: [] for label in xp.unique(px_main_label).tolist()}
-        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+        for branch_label, main_label in zip(frame_branch_labels, frame_branch_main_labels):
             lengths[main_label].append(np.sum(branch_length_list[branch_label]))
         main_label_lengths = {label: [] for label in xp.unique(px_main_label).tolist()}
-        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+        for branch_label, main_label in zip(frame_branch_labels, frame_branch_main_labels):
             main_label_lengths[main_label].append(np.sum(branch_length_list[branch_label]))
-        self.features['length'] = [np.sum(np.array(length_list)) for length_list in lengths.values()]
+        frame_org_lengths = [np.sum(np.array(length_list)) for length_list in lengths.values()]
+        self.features['length'].extend(frame_org_lengths)
         # tortuosity weighted by length
         branch_weights = {label: [] for label in xp.unique(px_branch_label).tolist()}
-        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
-            branch_weights[branch_label] = self.branch_features['branch_lengths'][branch_label]/np.sum(main_label_lengths[main_label])
+        for branch_label, main_label in zip(frame_branch_labels, frame_branch_main_labels):
+            branch_weights[branch_label] = frame_branch_lengths[branch_label]/np.sum(main_label_lengths[main_label])
         tortuosity_weighted = {label: [] for label in xp.unique(px_main_label).tolist()}
-        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
-            tortuosity_weighted[main_label].append(self.branch_features['branch_tortuosities'][branch_label] * branch_weights[branch_label])
-        self.features['tortuosity_weighted'] = [np.sum(tortuosity_list) for tortuosity_list in tortuosity_weighted.values()]
-
-        # convert self.branch_features['branch_lengths'] and ['branch_tortuosities'] from dict to list
-        self.branch_features['branch_lengths'] = [self.branch_features['branch_lengths'][label] for label in self.branch_features['label']]
-        self.branch_features['branch_tortuosities'] = [self.branch_features['branch_tortuosities'][label] for label in self.branch_features['label']]
+        for branch_label, main_label in zip(frame_branch_labels, frame_branch_main_labels):
+            tortuosity_weighted[main_label].append(branch_tortuosities[branch_label] * branch_weights[branch_label])
+        frame_org_tortuosities = [np.sum(tortuosity_list) for tortuosity_list in tortuosity_weighted.values()]
+        self.features['tortuosity_weighted'].extend(frame_org_tortuosities)
 
         branch_mean_radii = {label: [] for label in xp.unique(px_branch_label).tolist()}
         for label, radius in zip(lone_tip_labels.tolist(), lone_tip_radii):
@@ -181,22 +205,26 @@ class MorphologySkeletonFeatures:
         branch_mean_radii = {label: np.mean(np.array(radius_list)) for label, radius_list in branch_mean_radii.items()}
         branch_aspect_ratios = {label: [] for label in xp.unique(px_branch_label).tolist()}
         for branch_idx, (branch_label, branch_mean_radius) in enumerate(branch_mean_radii.items()):
-            branch_aspect_ratios[branch_label] = self.branch_features['branch_lengths'][branch_idx]/branch_mean_radius
+            branch_aspect_ratios[branch_label] = frame_branch_lengths[branch_label]/branch_mean_radius
 
-        self.branch_features['branch_radius'] = [branch_mean_radii[label] for label in xp.unique(px_branch_label).tolist()]
-        self.branch_features['branch_aspect_ratio'] = [branch_aspect_ratios[label] for label in xp.unique(px_branch_label).tolist()]
+        frame_branch_radius = [branch_mean_radii[label] for label in xp.unique(px_branch_label).tolist()]
+        self.branch_features['branch_radius'].extend(frame_branch_radius)
+        frame_branch_aspect_ratio = [branch_aspect_ratios[label] for label in xp.unique(px_branch_label).tolist()]
+        self.branch_features['branch_aspect_ratio'].extend(frame_branch_aspect_ratio)
 
         main_label_radii = {label: [] for label in xp.unique(px_main_label).tolist()}
-        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+        for branch_label, main_label in zip(frame_branch_labels, frame_branch_main_labels):
             main_label_radii[main_label].append(branch_mean_radii[branch_label] * branch_weights[branch_label])
-        self.features['radius_weighted'] = [np.sum(radius_list) for radius_list in main_label_radii.values()]
-        #todo why are some 0? I think it's because they are closed loops, so no points to check for radius.. Pick first coord in skeleton? actually should go back to the branch itself and get a point
-        #  eg 66, 73
+        frame_org_radius = [np.sum(radius_list) for radius_list in main_label_radii.values()]
+        self.features['radius_weighted'].extend(frame_org_radius)
 
         aspect_ratio_weighted = {label: [] for label in xp.unique(px_main_label).tolist()}
-        for branch_label, main_label in zip(self.branch_features['label'], self.branch_features['main_label']):
+        for branch_label, main_label in zip(frame_branch_labels, frame_branch_main_labels):
             aspect_ratio_weighted[main_label].append(branch_aspect_ratios[branch_label] * branch_weights[branch_label])
-        self.features['aspect_ratio_weighted'] = [np.sum(aspect_ratio_list) for aspect_ratio_list in aspect_ratio_weighted.values()]
+        frame_org_aspect_ratio = [np.sum(aspect_ratio_list) for aspect_ratio_list in aspect_ratio_weighted.values()]
+        self.features['aspect_ratio_weighted'].extend(frame_org_aspect_ratio)
+        self.features['t'].extend([t for _ in range(len(frame_org_aspect_ratio))])
+        self.branch_features['t'].extend([t for _ in range(len(frame_branch_aspect_ratio))])
 
         # for idx, length in enumerate(self.features['length']):
         #     if length >= 1.74:  # sqrt(3)
@@ -211,23 +239,21 @@ class MorphologySkeletonFeatures:
         #     self.features['aspect_ratio_weighted'][idx] = np.nan
 
     def _skeleton_morphology(self):
-        self._get_branches()
+        for t in range(1, self.num_t-1):
+            print(f'Processing frame {t} of {self.num_t-1}')
+            self._get_branches(t)
 
     def _get_memmaps(self):
         logger.debug('Allocating memory for spatial feature extraction.')
 
-        num_t = self.im_info.shape[self.im_info.axes.index('T')]
-        if num_t == 1:
-            self.t = 0
-
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, num_t, self.im_info)
+        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
 
         network_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
-        self.network_memmap = get_reshaped_image(network_memmap, num_t, self.im_info)
+        self.network_memmap = get_reshaped_image(network_memmap, self.num_t, self.im_info)
 
         pixel_class_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
-        self.pixel_class_memmap = get_reshaped_image(pixel_class_memmap, num_t, self.im_info)
+        self.pixel_class_memmap = get_reshaped_image(pixel_class_memmap, self.num_t, self.im_info)
 
         # self.im_info.create_output_path('morphology_skeleton_features', ext='.csv')
         self.organelle_skeleton_features_path = self.im_info.pipeline_paths['organelle_skeleton_features']
@@ -235,13 +261,7 @@ class MorphologySkeletonFeatures:
         self.branch_skeleton_features_path = self.im_info.pipeline_paths['branch_skeleton_features']
 
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, num_t, self.im_info)
-
-        if not self.im_info.no_t:
-            self.im_memmap = self.im_memmap[self.t]
-            self.network_memmap = self.network_memmap[self.t]
-            self.pixel_class_memmap = self.pixel_class_memmap[self.t]
-            self.label_memmap = self.label_memmap[self.t]
+        self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
         self.shape = self.network_memmap.shape
 
@@ -249,17 +269,28 @@ class MorphologySkeletonFeatures:
         logger.debug('Saving spatial features.')
         features_df = pd.DataFrame.from_dict(self.features)
         features_df.to_csv(self.organelle_skeleton_features_path, index=False)
+
         branch_features_df = pd.DataFrame.from_dict(self.branch_features)
         branch_features_df.to_csv(self.branch_skeleton_features_path, index=False)
 
+    def _get_t(self):
+        if self.num_t is None:
+            if self.im_info.no_t:
+                self.num_t = 1
+            else:
+                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
+        else:
+            return
+
     def run(self):
+        self._get_t()
         self._get_memmaps()
         self._skeleton_morphology()
         self._save_features()
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-peroxisome.ome.tif"
+    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
     im_info = ImInfo(im_path)
 
     morphology_skeleton_features = MorphologySkeletonFeatures(im_info)

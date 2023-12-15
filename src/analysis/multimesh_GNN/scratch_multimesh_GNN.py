@@ -8,6 +8,9 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 import numpy as np
 
+from src.feature_extraction.graph_frame import GraphBuilder
+from src.im_info.im_info import ImInfo
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Using device: {device}')
 
@@ -28,10 +31,11 @@ class InitialEmbedding(nn.Module):
 
 
 class GATLayer(nn.Module):
-    def __init__(self, in_channels, out_channels, heads=8):
+    def __init__(self, in_channels, out_channels, heads=1):
         super(GATLayer, self).__init__()
         self.gat_conv = GATv2Conv(in_channels, out_channels // heads, heads=heads, dropout=0.2)
         self.layer_norm = nn.LayerNorm(out_channels)
+        # todo need to figure out this attention head issue when non-divisible
 
     def forward(self, x, edge_index):
         x = self.gat_conv(x, edge_index)
@@ -117,8 +121,94 @@ def normalize_features(features):
     std = features.std(dim=0, keepdim=True)
     return (features - mean) / std
 
-def import_data():
-    pass
+def import_data(im_path):
+    # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_info = ImInfo(im_path)
+    graph_builder = GraphBuilder(im_info)
+    graph_builder.run()
+    dataset = Data(x=graph_builder.node_features, edge_index=graph_builder.edges)
+    dataset_normalized = dataset.clone()
+    dataset_normalized.x = normalize_features(dataset.x)
+    return dataset, dataset_normalized
+
+def get_final_reconstruction(dataset, model):
+    dataset = dataset.to(device)
+    with torch.no_grad():
+        reconstructed = model(dataset.x, dataset.edge_index).cpu().numpy()
+    return reconstructed
+
+def train_model():
+    dataset_0, dataset_0_norm = import_data(r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif")
+    datasets = [dataset_0_norm,]
+    dataloader = DataLoader(datasets, batch_size=32, shuffle=True)
+
+    num_node_features = 25
+
+    # Initialize the autoencoder
+    embedding_dim = 512  # Dimensionality of the node embeddings
+    hidden_dim = 512  # Hidden dimension size
+    num_layers = 16  # Number of GNN layers
+    autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
+
+    num_epochs = 5000
+    optimizer = torch.optim.Adam(autoencoder.parameters(), lr=0.01)
+    loss_values = []
+    for epoch in range(num_epochs):
+        total_loss = 0
+        for n, data in enumerate(dataloader):
+            data = data.to(device)
+            optimizer.zero_grad()
+            reconstructed = autoencoder(data.x, data.edge_index)
+            loss = F.mse_loss(reconstructed, data.x)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        avg_loss = total_loss / len(dataloader)
+        loss_values.append(avg_loss)
+        print(f'Epoch {epoch + 1}, Avg Loss: {avg_loss}')
+
+    plt.plot(loss_values)
+    plt.xlabel('Epoch')
+    plt.ylabel('Average Loss')
+    plt.title('Training Loss Over Epochs')
+    plt.show()
+
+
+    def get_embeddings(dataset):
+        dataset = dataset.to(device)
+        with torch.no_grad():
+            embeddings = autoencoder.encoder(dataset.x, dataset.edge_index).cpu().numpy()
+        return embeddings
+
+    reconstructed_final = get_final_reconstruction(datasets[0])
+    # transform back to unnormalized
+    reconstructed_final = reconstructed_final * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
+    original = dataset_0.x.cpu().numpy()
+
+    # Get embeddings for each dataset
+    embeddings = get_embeddings(datasets[0])[::20]
+    np.save(r"D:\test_files\nelly_tests\embeddings.npy", embeddings)
+
+    # save the model
+    torch.save(autoencoder.state_dict(), r"D:\test_files\nelly_tests\autoencoder.pt")
+    # load the model
+    new_autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
+    new_autoencoder.load_state_dict(torch.load(r"D:\test_files\nelly_tests\autoencoder.pt"))
+    test_reconstructed = get_final_reconstruction(datasets[0], new_autoencoder)
+    test_reconstructed = test_reconstructed * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
+
+    tsne = TSNE(n_components=2, random_state=42)
+    reduced_embeddings = tsne.fit_transform(embeddings)
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1])
+
+    plt.xlabel('t-SNE Feature 1')
+    plt.ylabel('t-SNE Feature 2')
+    plt.title('t-SNE Visualization of All Dataset Embeddings')
+    plt.legend()
+    plt.show()
+    print('hi')
 
 def test_and_train():
     def create_dataset(num_nodes, num_features, feature_range=(0, 1)):
@@ -237,6 +327,20 @@ def test_and_train():
     print(f"Mean Cosine Similarity between Similar1 and Different: {similarity_sim1_diff}")
     print(f"Mean Cosine Similarity between Similar2 and Different: {similarity_sim2_diff}")
 
+def run_model(model_path, dataset):
+    model = GNNAutoencoder(25, 512, 512, 16).to(device)
+    model.load_state_dict(torch.load(model_path))
+    reconstruction = get_final_reconstruction(dataset, model)
+    return reconstruction
+
+
 
 if __name__ == '__main__':
-    test_and_train()
+    model_path = r"D:\test_files\nelly_tests\autoencoder.pt"
+    dataset_0, dataset_0_norm = import_data(r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif")
+    datasets = [dataset_0_norm, ]
+    reconstruction = run_model(model_path, datasets[0])
+    # transform back to unnormalized
+    reconstruction = reconstruction * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
+
+    pass
