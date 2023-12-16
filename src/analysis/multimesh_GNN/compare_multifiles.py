@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 
 
-model_path = r"D:\test_files\nelly_tests\20231214_190130-autoencoder - Copy.pt"
+model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy (2).pt"
 
 dataset_paths = [
     r"D:\test_files\nelly_iono\deskewed-pre_0-19.ome.tif",
@@ -22,16 +22,16 @@ normalized_datasets = [Data(x=normalize_features(dataset.x), edge_index=dataset.
 embeddings = [run_model(model_path, normalized_dataset) for normalized_dataset in normalized_datasets]
 mean_embeddings = [np.mean(embed, axis=0) for embed in embeddings]
 
-
-all_embeddings = np.vstack(embeddings)
-# all embeddings from the first 18 files are the first group, the last 18 are the second group. There should be as many labels as there are all_embeddings
-all_embeddings_labels = []
-for i in range(len(embeddings)):
-    if i < len(embeddings) // 2:
-        all_embeddings_labels.extend([0] * len(embeddings[i]))
-    else:
-        all_embeddings_labels.extend([1] * len(embeddings[i]))
-all_embeddings_labels = np.array(all_embeddings_labels)
+#
+# all_embeddings = np.vstack(embeddings)
+# # all embeddings from the first 18 files are the first group, the last 18 are the second group. There should be as many labels as there are all_embeddings
+# all_embeddings_labels = []
+# for i in range(len(embeddings)):
+#     if i < len(embeddings) // 2:
+#         all_embeddings_labels.extend([0] * len(embeddings[i]))
+#     else:
+#         all_embeddings_labels.extend([1] * len(embeddings[i]))
+# all_embeddings_labels = np.array(all_embeddings_labels)
 
 similarity_matrix = np.zeros((len(mean_embeddings), len(mean_embeddings)))
 for i in range(len(mean_embeddings)):
@@ -70,13 +70,13 @@ mean_embeddings_all = np.vstack(mean_embeddings)
 mean_embeddings_labels = np.repeat(np.arange(len(mean_embeddings) // 18), 18)
 
 
-tsne = TSNE(n_components=2, random_state=42, perplexity=20)
+tsne = TSNE(n_components=2, random_state=42, perplexity=10)
 reduced_mean_embeddings = tsne.fit_transform(mean_embeddings_all)
 # reduced_mean_embeddings = tsne.fit_transform(all_embeddings[::50])
 
 # color is categorical by filename
 plt.figure(figsize=(8, 6))
-plt.scatter(reduced_mean_embeddings[:, 0], reduced_mean_embeddings[:, 1], c=mean_embeddings_labels, cmap='Paired')
+plt.scatter(reduced_mean_embeddings[:, 0], reduced_mean_embeddings[:, 1], c=range(len(mean_embeddings_all)), cmap='turbo')
 plt.xlabel('t-SNE Feature 1')
 plt.ylabel('t-SNE Feature 2')
 plt.title('t-SNE Visualization of All Dataset Embeddings')

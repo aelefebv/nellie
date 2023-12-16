@@ -148,6 +148,12 @@ def train_model(training, validation):
     train_loss_values = []
     val_loss_values = []
     lowest_validation_loss = np.inf
+
+    # Early stopping parameters
+    patience = 10  # Number of epochs to wait for improvement
+    min_delta = 0.001  # Minimum change to qualify as an improvement
+    best_epoch = 0
+    early_stopping_counter = 0
     for epoch in range(int(num_epochs)):
         total_loss = 0
         for n, data in enumerate(training):
@@ -173,13 +179,25 @@ def train_model(training, validation):
             val_loss_values.append(avg_val_loss)
             print(f'Epoch {epoch + 1}, Avg Validation Loss: {avg_val_loss}')
 
-        # save the model if validation loss is lower than previous lowest
-        if avg_val_loss < lowest_validation_loss:
+        # Check if validation loss improved
+        if avg_val_loss < (lowest_validation_loss - min_delta):
+            print(
+                f'Validation loss decreased ({lowest_validation_loss:.6f} --> {avg_val_loss:.6f}). Saving model...')
             lowest_validation_loss = avg_val_loss
+            best_epoch = epoch
+            early_stopping_counter = 0
             torch.save(autoencoder.state_dict(), rf"D:\test_files\nelly_tests\{current_dt_str}-autoencoder.pt")
+        else:
+            early_stopping_counter += 1
+            print(f'EarlyStopping counter: {early_stopping_counter} out of {patience}')
+            if early_stopping_counter >= patience:
+                print(
+                    f'Early stopping triggered. Stopping at epoch {epoch + 1}. Best epoch was {best_epoch + 1} with loss {lowest_validation_loss:.6f}.')
+                break
 
         # plot every 20 epochs
-        if epoch % 20 == 0:
+        if epoch % 10 == 0:
+            print('Plotting')
             plt.plot(train_loss_values, label='Training Loss')
             plt.plot(val_loss_values, label='Validation Loss')
             plt.xlabel('Epoch')
@@ -189,51 +207,6 @@ def train_model(training, validation):
             # save the plot
             plt.savefig(rf"D:\test_files\nelly_tests\{current_dt_str}-loss_plot.png")
             plt.close()
-
-    #
-    # plt.plot(train_loss_values, label='Training Loss')
-    # plt.plot(val_loss_values, label='Validation Loss')
-    # plt.xlabel('Epoch')
-    # plt.ylabel('Average Loss')
-    # plt.title('Loss Over Epochs')
-    # plt.legend()
-    # plt.show()
-
-    # def get_embeddings(dataset):
-    #     dataset = dataset.to(device)
-    #     with torch.no_grad():
-    #         embeddings = autoencoder.encoder(dataset.x, dataset.edge_index).cpu().numpy()
-    #     return embeddings
-    #
-    # reconstructed_final = get_final_reconstruction(datasets[0])
-    # # transform back to unnormalized
-    # reconstructed_final = reconstructed_final * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
-    # original = dataset_0.x.cpu().numpy()
-    #
-    # # Get embeddings for each dataset
-    # embeddings = get_embeddings(datasets[0])[::20]
-    # np.save(r"D:\test_files\nelly_tests\embeddings.npy", embeddings)
-    #
-    # # save the model
-    # torch.save(autoencoder.state_dict(), r"D:\test_files\nelly_tests\autoencoder.pt")
-    # # load the model
-    # new_autoencoder = GNNAutoencoder(num_node_features, embedding_dim, hidden_dim, num_layers).to(device)
-    # new_autoencoder.load_state_dict(torch.load(r"D:\test_files\nelly_tests\autoencoder.pt"))
-    # test_reconstructed = get_final_reconstruction(datasets[0], new_autoencoder)
-    # test_reconstructed = test_reconstructed * dataset_0.x.std(dim=0, keepdim=True).cpu().numpy() + dataset_0.x.mean(dim=0, keepdim=True).cpu().numpy()
-    #
-    # tsne = TSNE(n_components=2, random_state=42)
-    # reduced_embeddings = tsne.fit_transform(embeddings)
-    #
-    # plt.figure(figsize=(8, 6))
-    # plt.scatter(reduced_embeddings[:, 0], reduced_embeddings[:, 1])
-    #
-    # plt.xlabel('t-SNE Feature 1')
-    # plt.ylabel('t-SNE Feature 2')
-    # plt.title('t-SNE Visualization of All Dataset Embeddings')
-    # plt.legend()
-    # plt.show()
-    # print('hi')
 
 def test_and_train():
     def create_dataset(num_nodes, num_features, feature_range=(0, 1)):
