@@ -32,16 +32,16 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
     # vox_reassign = VoxelReassigner(im_info, num_t)
     # vox_reassign.run()
 
-    morphology_skeleton_features = MorphologySkeletonFeatures(im_info)
-    morphology_skeleton_features.run()
-
-    morphology_label_features = MorphologyLabelFeatures(im_info)
-    morphology_label_features.run()
+    # morphology_skeleton_features = MorphologySkeletonFeatures(im_info, num_t)
+    # morphology_skeleton_features.run()
+    #
+    # morphology_label_features = MorphologyLabelFeatures(im_info, num_t)
+    # morphology_label_features.run()
 
     motility_label_features = CoordMovement(im_info, num_t)
     motility_label_features.run()
 
-    graph_builder = GraphBuilder(im_info)
+    graph_builder = GraphBuilder(im_info, num_t)
     graph_builder.run()
 
     return im_info
@@ -61,4 +61,4 @@ if __name__ == "__main__":
     for file_num, tif_file in enumerate(all_files):
         for ch in range(1):
             print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 2')
-            im_info = run(tif_file, remove_edges=True, num_t=2, ch=ch)
+            im_info = run(tif_file, remove_edges=True, ch=ch)

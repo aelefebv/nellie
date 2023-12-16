@@ -178,14 +178,26 @@ def train_model(training, validation):
             lowest_validation_loss = avg_val_loss
             torch.save(autoencoder.state_dict(), rf"D:\test_files\nelly_tests\{current_dt_str}-autoencoder.pt")
 
+        # plot every 20 epochs
+        if epoch % 20 == 0:
+            plt.plot(train_loss_values, label='Training Loss')
+            plt.plot(val_loss_values, label='Validation Loss')
+            plt.xlabel('Epoch')
+            plt.ylabel('Average Loss')
+            plt.title('Loss Over Epochs')
+            plt.legend()
+            # save the plot
+            plt.savefig(rf"D:\test_files\nelly_tests\{current_dt_str}-loss_plot.png")
+            plt.close()
 
-    plt.plot(train_loss_values, label='Training Loss')
-    plt.plot(val_loss_values, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Average Loss')
-    plt.title('Loss Over Epochs')
-    plt.legend()
-    plt.show()
+    #
+    # plt.plot(train_loss_values, label='Training Loss')
+    # plt.plot(val_loss_values, label='Validation Loss')
+    # plt.xlabel('Epoch')
+    # plt.ylabel('Average Loss')
+    # plt.title('Loss Over Epochs')
+    # plt.legend()
+    # plt.show()
 
     # def get_embeddings(dataset):
     #     dataset = dataset.to(device)
