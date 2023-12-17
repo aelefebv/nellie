@@ -110,7 +110,7 @@ def plot_recovery(xdata, recovery_array, fit_params, r_squared, save_plots=False
     else:
         plt.show()
 
-def plot_tsne(reduced_mean_embeddings, labels, alpha=1, size=10, cmap='turbp', save_plots=False, save_path=None):
+def plot_tsne(reduced_mean_embeddings, labels, alpha=1, size=10, cmap='turbo', save_plots=False, save_path=None):
     # color is categorical by filename
     plt.figure(figsize=(8, 6))
     plt.scatter(reduced_mean_embeddings[:, 0], reduced_mean_embeddings[:, 1], c=labels, cmap=cmap,
@@ -150,8 +150,8 @@ def get_frequency_stats(vec):
 if __name__ == '__main__':
     model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy.pt"
     dataset_paths = [
-        r"D:\test_files\nelly_iono\deskewed-pre_0-19.ome.tif",
-        r"D:\test_files\nelly_iono\full_2\deskewed-full_post_1.ome.tif",
+        r"D:\test_files\nelly_iono\full_2\deskewed-pre_2.ome.tif",
+        r"D:\test_files\nelly_iono\full_2\deskewed-full_post_2.ome.tif",
     ]
 
     # Import datasets and get some embeddings
@@ -199,16 +199,19 @@ if __name__ == '__main__':
     # low_pass filter
     from scipy.signal import butter, filtfilt
 
+    plot_embedding_changes(similarity_1, line=False)
     # Let's get a filter for every 5 frames
     b, a = butter(2, 0.2)
     vec_filtered = filtfilt(b, a, similarity_1)
+    plot_embedding_changes(vec_filtered, line=True)
     # Let's get a filter for every 20 frames to get a good average
     b2, a2 = butter(2, 0.05)
     vec_bigger_filter = filtfilt(b2, a2, similarity_1)
+    plot_embedding_changes(vec_bigger_filter, line=True)
     # Let's remove the low frequency component (remove the average)
     low_freq_removed_and_filtered = vec_filtered - vec_bigger_filter
-    # Let's see what's happening after that.
     plot_embedding_changes(low_freq_removed_and_filtered, line=True)
+    # Let's see what's happening after that.
     get_frequency_stats(low_freq_removed_and_filtered)
 
     # now let's find the individual nodes that are most dissimilar to the control
@@ -223,6 +226,6 @@ if __name__ == '__main__':
     labels = np.array([0] * len(max_timepoint_embeddings) + [1] * len(last_timepoint_embeddings))
     # color array by mean node difference value
     mean_node_diffs = np.mean(node_diffs, axis=1)
-    plot_tsne(reduced_embeddings, mean_node_diffs[::10], alpha=0.5, size=2)
+    # plot_tsne(reduced_embeddings, mean_node_diffs[::10], alpha=0.5, size=2)
     plot_tsne(reduced_embeddings, labels, alpha=0.75, size=5, cmap='bwr')
 
