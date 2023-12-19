@@ -48,18 +48,18 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 
 if __name__ == "__main__":
-    # im_path = r"D:\test_files\nelly_iono\full_post_1\deskewed-full_post_1.ome.tif"
-    # im_info = run(im_path, remove_edges=True)
-    import os
-    # top_dir = r"D:\test_files\nelly_smorgasbord"
-    top_dir = r"D:\test_files\nelly_iono\full_2"
-    # top_dir = r"D:\test_files\stress_granules"
-    # top_dir = r"D:\test_files\nelly_multichannel"
-    # get all non-folder files
-    all_files = os.listdir(top_dir)
-    all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
-    # all_files = [r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"]
-    for file_num, tif_file in enumerate(all_files):
-        for ch in range(1):
-            print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 1')
-            im_info = run(tif_file, remove_edges=True, ch=ch)
+    im_path = r"D:\test_files\nelly_iono\full_pre\deskewed-full_pre.ome.tif"
+    im_info = run(im_path, remove_edges=True)
+    # import os
+    # # top_dir = r"D:\test_files\nelly_smorgasbord"
+    # top_dir = r"D:\test_files\nelly_iono\full_2"
+    # # top_dir = r"D:\test_files\stress_granules"
+    # # top_dir = r"D:\test_files\nelly_multichannel"
+    # # get all non-folder files
+    # all_files = os.listdir(top_dir)
+    # all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
+    # # all_files = [r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"]
+    # for file_num, tif_file in enumerate(all_files):
+    #     for ch in range(1):
+    #         print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 1')
+    #         im_info = run(tif_file, remove_edges=True, ch=ch)

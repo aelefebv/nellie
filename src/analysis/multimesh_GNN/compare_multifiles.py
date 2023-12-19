@@ -96,8 +96,9 @@ def plot_embedding_changes(dissimilarity_to_control, save_plots=False, save_path
 def plot_recovery(xdata, recovery_array, fit_params, r_squared, save_plots=False, save_path=None):
     # plot decay
     plt.figure(figsize=(8, 6))
+    fit_y = exponential_decay(xdata, *fit_params[0])
     plt.scatter(xdata, recovery_array, label='Dissimilarity to Control')
-    plt.plot(xdata, exponential_decay(xdata, *fit_params[0]), 'r-', label='Exponential fit')
+    plt.plot(xdata, fit_y, 'r-', label='Exponential fit')
     plt.xlabel('File Number')
     plt.ylabel('Dissimilarity to Control')
     plt.title('Recovery post-treatment\n'
@@ -109,6 +110,8 @@ def plot_recovery(xdata, recovery_array, fit_params, r_squared, save_plots=False
         plt.close()
     else:
         plt.show()
+
+    return fit_y
 
 def plot_tsne(reduced_mean_embeddings, labels, alpha=1, size=10, cmap='turbo', save_plots=False, save_path=None):
     # color is categorical by filename
@@ -143,16 +146,22 @@ def get_frequency_stats(vec):
     peak_indices = np.argsort(magnitude)[-5:][::-1]
     peak_freqs = freq[peak_indices]
     peak_magnitudes = magnitude[peak_indices]
-    print(f"The 5 strongest oscillating frequencies are: {peak_freqs}")
+    print(f"The 5 strongest oscillating wavelengths are: {1/peak_freqs}")
     print(f"Their magnitudes are: {peak_magnitudes}")
+    return np.array([1/peak_freqs, peak_magnitudes]).T
 
 
 if __name__ == '__main__':
     model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy.pt"
+    file_set_num = 1
+
     dataset_paths = [
-        r"D:\test_files\nelly_iono\full_2\deskewed-pre_2.ome.tif",
-        r"D:\test_files\nelly_iono\full_2\deskewed-full_post_2.ome.tif",
+        # r"D:\test_files\nelly_iono\full_2\deskewed-pre_2.ome.tif",
+        # r"D:\test_files\nelly_iono\full_2\deskewed-full_post_2.ome.tif",
+        rf"D:\test_files\nelly_iono\full_2\deskewed-pre_{file_set_num}.ome.tif",
+        rf"D:\test_files\nelly_iono\full_2\deskewed-full_post_{file_set_num}.ome.tif",
     ]
+    save_path = r"D:\test_files\nelly_iono\full_2"
 
     # Import datasets and get some embeddings
     datasets, labels = import_datasets(dataset_paths)
@@ -167,35 +176,49 @@ if __name__ == '__main__':
     # Let's have our controls as one embedding, and compare the rest to that
     new_embeddings = np.array([mean_control_embeddings] + median_embeddings[control_timepoints:])
     new_labels = np.array([0] + labels[control_timepoints:])
-    similarity_matrix = get_similarity_matrix(new_embeddings)
+    similarity_matrix = get_similarity_matrix(new_embeddings, normalize=False)
+    # save as csv
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_matrix_mean_control-{file_set_num}.txt'), similarity_matrix)
 
     # Let's analyze how things change over time
     peak_dissimilarity = get_peak_difference_time(similarity_matrix)
     dissimilarity_to_control = 1-similarity_matrix[0, 1:]
     plot_embedding_changes(dissimilarity_to_control)
     print(f"Peak dissimilarity is at frame {peak_dissimilarity}")
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-difference_to_first-{file_set_num}.txt'), dissimilarity_to_control)
+
+    similarity_to_first = similarity_matrix[0, 1:]
+    similarity_to_peak_dissimilarity = similarity_matrix[peak_dissimilarity, 1:]
+    both_arrays = np.array([similarity_to_first, similarity_to_peak_dissimilarity]).T
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_vs_peak-{file_set_num}.txt'), both_arrays)
 
     # Let's fit an exponential decay to the recovery curve to analyze recovery time
-    recovery_array = dissimilarity_to_control[peak_dissimilarity:]
+    recovery_array = dissimilarity_to_control[peak_dissimilarity+1:]
     xdata = np.arange(len(recovery_array))
     r_squared, fit_params = get_recovery(xdata, recovery_array)
-    plot_recovery(xdata, recovery_array, fit_params, r_squared)
+    fit_y = plot_recovery(xdata, recovery_array, fit_params, r_squared)
     print(f"Recovery time is {1/fit_params[0][1]:.2f} frames")
+    output_recovery_array = np.array([xdata, recovery_array, fit_y]).T
+    output_recovery_stats = np.array([r_squared, 1/fit_params[0][1]])
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-recovery-{file_set_num}.txt'), output_recovery_array)
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-recovery_stats-{file_set_num}.txt'), output_recovery_stats)
 
-    # Let's plot all of our embeddings in 2D space to visualize any other trends
-    stacked_embeddings = np.vstack(median_embeddings)
-    tsne = TSNE(n_components=2, random_state=42)
-    reduced_embeddings = tsne.fit_transform(stacked_embeddings)
-    frame_array = np.arange(len(stacked_embeddings))
-    plot_tsne(reduced_embeddings, frame_array)
+    # # Let's plot all of our embeddings in 2D space to visualize any other trends
+    # stacked_embeddings = np.vstack(median_embeddings)
+    # tsne = TSNE(n_components=2, random_state=42)
+    # reduced_embeddings = tsne.fit_transform(stacked_embeddings)
+    # frame_array = np.arange(len(stacked_embeddings))
+    # plot_tsne(reduced_embeddings, frame_array)
 
     # Are there any other smaller patterns happening?
-    similarity_matrix = get_similarity_matrix(mean_embeddings)
+    similarity_matrix = get_similarity_matrix(mean_embeddings, normalize=False)
     # similarity_matrix = get_similarity_matrix(mean_embeddings[36:])
     plot_similarity_matrix(similarity_matrix)
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_matrix_all-{file_set_num}.txt'), similarity_matrix)
 
     # Let's look at the frequency of the whole treatment curve
-    similarity_1 = similarity_matrix[0, 1:]
+    similarity_1 = similarity_matrix[0, control_timepoints:]
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first-{file_set_num}.txt'), similarity_1)
     # low_pass filter
     from scipy.signal import butter, filtfilt
 
@@ -203,29 +226,35 @@ if __name__ == '__main__':
     # Let's get a filter for every 5 frames
     b, a = butter(2, 0.2)
     vec_filtered = filtfilt(b, a, similarity_1)
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_5f_filtered-{file_set_num}.txt'), vec_filtered)
     plot_embedding_changes(vec_filtered, line=True)
     # Let's get a filter for every 20 frames to get a good average
     b2, a2 = butter(2, 0.05)
     vec_bigger_filter = filtfilt(b2, a2, similarity_1)
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_20f_filtered-{file_set_num}.txt'), vec_bigger_filter)
     plot_embedding_changes(vec_bigger_filter, line=True)
+
     # Let's remove the low frequency component (remove the average)
     low_freq_removed_and_filtered = vec_filtered - vec_bigger_filter
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_5f_filtered_low_freq_removed-{file_set_num}.txt'), low_freq_removed_and_filtered)
     plot_embedding_changes(low_freq_removed_and_filtered, line=True)
     # Let's see what's happening after that.
-    get_frequency_stats(low_freq_removed_and_filtered)
+    freq_stats = get_frequency_stats(low_freq_removed_and_filtered)
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_5f_filtered_low_freq_removed_freq_stats-{file_set_num}.txt'), freq_stats)
 
-    # now let's find the individual nodes that are most dissimilar to the control
-    # eg for max timepoint after treatment:
-    max_timepoint = peak_dissimilarity + control_timepoints
-    node_diffs = np.abs(embeddings[max_timepoint] - mean_control_embeddings)
-    tsne = TSNE(n_components=2, random_state=42, perplexity=200)
-    max_timepoint_embeddings = embeddings[max_timepoint][::10]
-    last_timepoint_embeddings = embeddings[-1][::10]
-    # combined
-    reduced_embeddings = tsne.fit_transform(np.vstack((max_timepoint_embeddings, last_timepoint_embeddings)))
-    labels = np.array([0] * len(max_timepoint_embeddings) + [1] * len(last_timepoint_embeddings))
-    # color array by mean node difference value
-    mean_node_diffs = np.mean(node_diffs, axis=1)
-    # plot_tsne(reduced_embeddings, mean_node_diffs[::10], alpha=0.5, size=2)
-    plot_tsne(reduced_embeddings, labels, alpha=0.75, size=5, cmap='bwr')
+
+    # # now let's find the individual nodes that are most dissimilar to the control
+    # # eg for max timepoint after treatment:
+    # max_timepoint = peak_dissimilarity + control_timepoints
+    # node_diffs = np.abs(embeddings[max_timepoint] - mean_control_embeddings)
+    # tsne = TSNE(n_components=2, random_state=42, perplexity=200)
+    # max_timepoint_embeddings = embeddings[max_timepoint][::10]
+    # last_timepoint_embeddings = embeddings[-1][::10]
+    # # combined
+    # reduced_embeddings = tsne.fit_transform(np.vstack((max_timepoint_embeddings, last_timepoint_embeddings)))
+    # labels = np.array([0] * len(max_timepoint_embeddings) + [1] * len(last_timepoint_embeddings))
+    # # color array by mean node difference value
+    # mean_node_diffs = np.mean(node_diffs, axis=1)
+    # # plot_tsne(reduced_embeddings, mean_node_diffs[::10], alpha=0.5, size=2)
+    # plot_tsne(reduced_embeddings, labels, alpha=0.75, size=5, cmap='bwr')
 
