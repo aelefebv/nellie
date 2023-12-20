@@ -152,19 +152,25 @@ def get_frequency_stats(vec):
 
 
 if __name__ == '__main__':
-    model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy.pt"
-    file_set_num = 1
+    # model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy.pt"
+    model_path = r"D:\test_files\nelly_tests\20231219_122843-autoencoder - Copy.pt"
+    file_set_num = 2
 
     dataset_paths = [
         # r"D:\test_files\nelly_iono\full_2\deskewed-pre_2.ome.tif",
         # r"D:\test_files\nelly_iono\full_2\deskewed-full_post_2.ome.tif",
         rf"D:\test_files\nelly_iono\full_2\deskewed-pre_{file_set_num}.ome.tif",
         rf"D:\test_files\nelly_iono\full_2\deskewed-full_post_{file_set_num}.ome.tif",
+        # r"D:\test_files\nelly_iono\full_pre\deskewed-full_pre.ome.tif"
     ]
     save_path = r"D:\test_files\nelly_iono\full_2"
 
     # Import datasets and get some embeddings
     datasets, labels = import_datasets(dataset_paths)
+    #testing
+    datasets = datasets
+    labels = labels
+
     embeddings = get_embeddings(datasets, model_path)
     median_embeddings = [np.median(embed, axis=0) for embed in embeddings]
     mean_embeddings = [np.mean(embed, axis=0) for embed in embeddings]
@@ -203,12 +209,12 @@ if __name__ == '__main__':
     np.savetxt(os.path.join(save_path, f'{current_dt_str}-recovery-{file_set_num}.txt'), output_recovery_array)
     np.savetxt(os.path.join(save_path, f'{current_dt_str}-recovery_stats-{file_set_num}.txt'), output_recovery_stats)
 
-    # # Let's plot all of our embeddings in 2D space to visualize any other trends
-    # stacked_embeddings = np.vstack(median_embeddings)
-    # tsne = TSNE(n_components=2, random_state=42)
-    # reduced_embeddings = tsne.fit_transform(stacked_embeddings)
-    # frame_array = np.arange(len(stacked_embeddings))
-    # plot_tsne(reduced_embeddings, frame_array)
+    # Let's plot all of our embeddings in 2D space to visualize any other trends
+    stacked_embeddings = np.vstack(mean_embeddings)
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30)
+    reduced_embeddings = tsne.fit_transform(stacked_embeddings)
+    frame_array = np.arange(len(stacked_embeddings))
+    plot_tsne(reduced_embeddings, frame_array)
 
     # Are there any other smaller patterns happening?
     similarity_matrix = get_similarity_matrix(mean_embeddings, normalize=False)
