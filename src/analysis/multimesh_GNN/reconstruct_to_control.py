@@ -1,16 +1,23 @@
 import os
+import napari
 
 import numpy as np
+import torch
 
-from src.analysis.multimesh_GNN.scratch_multimesh_GNN import import_data, normalize_features, run_model
+from src.analysis.multimesh_GNN.compare_output_to_original import Reconstructor, create_sphere, generate_array
+from src.analysis.multimesh_GNN.scratch_multimesh_GNN import import_data, normalize_features, run_model, \
+    run_decoder_from_embeddings, GNNAutoencoder
 from torch_geometric.data import Data
 from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
 import datetime
 from scipy.optimize import curve_fit
 from scipy.fft import fft
 
+from src.im_info.im_info import ImInfo
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f'Using device: {device}')
 
 # YYYYMMDD_HHMMSS
 current_dt = datetime.datetime.now()
@@ -176,99 +183,107 @@ if __name__ == '__main__':
     # Import datasets and get some embeddings
     datasets, labels = import_datasets(dataset_paths)
     #testing
-    datasets = datasets[50:]
-    labels = labels[50:]
+    # datasets = datasets[50:]
+    # labels = labels[50:]
 
     embeddings = get_embeddings(datasets, model_path)
-    median_embeddings = [np.median(embed, axis=0) for embed in embeddings]
+    # median_embeddings = [np.median(embed, axis=0) for embed in embeddings]
     mean_embeddings = [np.mean(embed, axis=0) for embed in embeddings]
+
 
     # All of our controls are from frames 0 to 18, so lets get the mean of those to compare to.
     control_timepoints = 18
-    mean_control_embeddings = np.mean(median_embeddings[:control_timepoints], axis=0).tolist()
+    mean_control_embeddings = np.mean(mean_embeddings[:control_timepoints], axis=0).tolist()
 
     # Let's have our controls as one embedding, and compare the rest to that
-    new_embeddings = np.array([mean_control_embeddings] + median_embeddings[control_timepoints:])
+    new_embeddings = np.array([mean_control_embeddings] + mean_embeddings[control_timepoints:])
     new_labels = np.array([0] + labels[control_timepoints:])
     similarity_matrix = get_similarity_matrix(new_embeddings, normalize=False)
-    # save as csv
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_matrix_mean_control-{file_set_num}.txt'), similarity_matrix)
 
     # Let's analyze how things change over time
     peak_dissimilarity = get_peak_difference_time(similarity_matrix)
     dissimilarity_to_control = 1-similarity_matrix[0, 1:]
     plot_embedding_changes(dissimilarity_to_control)
     print(f"Peak dissimilarity is at frame {peak_dissimilarity}")
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-difference_to_first-{file_set_num}.txt'), dissimilarity_to_control)
+    real_frame_num = peak_dissimilarity + control_timepoints
+    # last time point
+    # real_frame_num = len(embeddings) - 1
+    peak_dissimilarity_embedding = embeddings[real_frame_num]
+    diff_embedding = peak_dissimilarity_embedding - mean_control_embeddings
+    shift_to_control_embedding = embeddings[real_frame_num] - mean_embeddings[real_frame_num] + mean_control_embeddings
+    shift_control_to_peak_embedding = embeddings[control_timepoints-1] - mean_embeddings[control_timepoints-1] + mean_embeddings[real_frame_num]
+    mean_shift_to_control_embedding = np.mean(shift_to_control_embedding, axis=0)
+    mean_shift_control_to_peak_embedding = np.mean(shift_control_to_peak_embedding, axis=0)
+    # get cosine similarity of the mean_shift_control_embedding to the mean control embedding
+    cosine_similarity = 1 - cdist(mean_shift_to_control_embedding.reshape(1, -1), np.array(mean_control_embeddings).reshape(1, -1), metric='cosine')
+    assert cosine_similarity > 0.99999
 
-    similarity_to_first = similarity_matrix[0, 1:]
-    similarity_to_peak_dissimilarity = similarity_matrix[peak_dissimilarity, 1:]
-    both_arrays = np.array([similarity_to_first, similarity_to_peak_dissimilarity]).T
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_vs_peak-{file_set_num}.txt'), both_arrays)
+    reconstructed_diff = run_decoder_from_embeddings(model_path, datasets[real_frame_num], diff_embedding)
+    # get mean of reconstructed diff columns
+    mean_reconstructed_diff = np.mean(reconstructed_diff, axis=0)
 
-    # Let's fit an exponential decay to the recovery curve to analyze recovery time
-    recovery_array = dissimilarity_to_control[peak_dissimilarity+1:]
-    xdata = np.arange(len(recovery_array))
-    r_squared, fit_params = get_recovery(xdata, recovery_array)
-    fit_y = plot_recovery(xdata, recovery_array, fit_params, r_squared)
-    print(f"Recovery time is {1/fit_params[0][1]:.2f} frames")
-    output_recovery_array = np.array([xdata, recovery_array, fit_y]).T
-    output_recovery_stats = np.array([r_squared, 1/fit_params[0][1]])
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-recovery-{file_set_num}.txt'), output_recovery_array)
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-recovery_stats-{file_set_num}.txt'), output_recovery_stats)
+    reconstructed_shift_to_control = run_decoder_from_embeddings(model_path, datasets[real_frame_num], shift_to_control_embedding)
 
-    # Let's plot all of our embeddings in 2D space to visualize any other trends
-    stacked_embeddings = np.vstack(mean_embeddings)
-    tsne = TSNE(n_components=2, random_state=42, perplexity=30)
-    reduced_embeddings = tsne.fit_transform(stacked_embeddings)
-    frame_array = np.arange(len(stacked_embeddings))
-    plot_tsne(reduced_embeddings, frame_array)
+    og_datasets = datasets[control_timepoints-1]
+    reconstruction_original = (reconstructed_shift_to_control * og_datasets.x.std(dim=0, keepdim=True).cpu().numpy() +
+                      og_datasets.x.mean(dim=0, keepdim=True).cpu().numpy())
 
-    # Are there any other smaller patterns happening?
-    similarity_matrix = get_similarity_matrix(mean_embeddings, normalize=False)
-    # similarity_matrix = get_similarity_matrix(mean_embeddings[36:])
-    plot_similarity_matrix(similarity_matrix)
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_matrix_all-{file_set_num}.txt'), similarity_matrix)
+    im_info = ImInfo(dataset_paths[1])
+    reconstructor = Reconstructor(im_info, t=real_frame_num-control_timepoints+1)
+    reconstructor.run()
+    skel_idxs = np.argwhere(reconstructor.pixel_class > 0)
 
-    # Let's look at the frequency of the whole treatment curve
-    similarity_1 = similarity_matrix[0, control_timepoints:]
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first-{file_set_num}.txt'), similarity_1)
-    # low_pass filter
-    from scipy.signal import butter, filtfilt
+    assert len(skel_idxs) == len(reconstruction_original)
 
-    plot_embedding_changes(similarity_1, line=False)
-    # Let's get a filter for every 5 frames
-    b, a = butter(2, 0.2)
-    vec_filtered = filtfilt(b, a, similarity_1)
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_5f_filtered-{file_set_num}.txt'), vec_filtered)
-    plot_embedding_changes(vec_filtered, line=True)
-    # Let's get a filter for every 20 frames to get a good average
-    b2, a2 = butter(2, 0.05)
-    vec_bigger_filter = filtfilt(b2, a2, similarity_1)
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_20f_filtered-{file_set_num}.txt'), vec_bigger_filter)
-    plot_embedding_changes(vec_bigger_filter, line=True)
+    means = reconstruction_original[:, 1]
+    maxs = reconstruction_original[:, 2]
+    mins = reconstruction_original[:, 3]
+    covs = reconstruction_original[:, 4]
 
-    # Let's remove the low frequency component (remove the average)
-    low_freq_removed_and_filtered = vec_filtered - vec_bigger_filter
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_5f_filtered_low_freq_removed-{file_set_num}.txt'), low_freq_removed_and_filtered)
-    plot_embedding_changes(low_freq_removed_and_filtered, line=True)
-    # Let's see what's happening after that.
-    freq_stats = get_frequency_stats(low_freq_removed_and_filtered)
-    np.savetxt(os.path.join(save_path, f'{current_dt_str}-similarity_to_first_5f_filtered_low_freq_removed_freq_stats-{file_set_num}.txt'), freq_stats)
+    test_sphere = create_sphere(2)
+    num_true = test_sphere.sum()
+
+    radii = reconstruction_original[:, 0] / 2
+    new_im = np.zeros_like(reconstructor.im_memmap)
+    # generate a sphere of radius radii for each point
+    spheres = []
+    for idx, skel_idx in enumerate(skel_idxs):
+        print(f"Processing {idx} of {len(skel_idxs)}")
+        int_radius = int(np.round(radii[idx] + 1))
+        # sphere = viewer.add_points([skel_idx], size=radii[idx]*2, face_color='red', edge_color='red')
+        # spheres.append(sphere)
+        sphere = create_sphere(int_radius).astype(np.float32)
+        true_locs = np.argwhere(sphere)
+        fill_array = generate_array(means[idx], mins[idx], maxs[idx], covs[idx], len(true_locs))
+        sphere[true_locs[:, 0], true_locs[:, 1], true_locs[:, 2]] = fill_array
+        sphere = sphere.astype(new_im.dtype)
+        spheres.append(sphere)
+        min_idx = skel_idx - int_radius
+        max_idx = skel_idx + int_radius
+
+        min_x = max(0, min_idx[0])
+        min_y = max(0, min_idx[1])
+        min_z = max(0, min_idx[2])
+        max_x = min(new_im.shape[0], max_idx[0])
+        max_y = min(new_im.shape[1], max_idx[1])
+        max_z = min(new_im.shape[2], max_idx[2])
+
+        x_len = max_x - min_x
+        y_len = max_y - min_y
+        z_len = max_z - min_z
+
+        # the new_im coords at that location should be the max of the existing value and the new value
+        new_im[min_x:max_x, min_y:max_y, min_z:max_z] = np.maximum(new_im[min_x:max_x, min_y:max_y, min_z:max_z],
+                                                                   sphere[:x_len, :y_len, :z_len])
 
 
-    # # now let's find the individual nodes that are most dissimilar to the control
-    # # eg for max timepoint after treatment:
-    # max_timepoint = peak_dissimilarity + control_timepoints
-    # node_diffs = np.abs(embeddings[max_timepoint] - mean_control_embeddings)
-    # tsne = TSNE(n_components=2, random_state=42, perplexity=200)
-    # max_timepoint_embeddings = embeddings[max_timepoint][::10]
-    # last_timepoint_embeddings = embeddings[-1][::10]
-    # # combined
-    # reduced_embeddings = tsne.fit_transform(np.vstack((max_timepoint_embeddings, last_timepoint_embeddings)))
-    # labels = np.array([0] * len(max_timepoint_embeddings) + [1] * len(last_timepoint_embeddings))
-    # # color array by mean node difference value
-    # mean_node_diffs = np.mean(node_diffs, axis=1)
-    # # plot_tsne(reduced_embeddings, mean_node_diffs[::10], alpha=0.5, size=2)
-    # plot_tsne(reduced_embeddings, labels, alpha=0.75, size=5, cmap='bwr')
+    viewer = napari.Viewer()
+    viewer.add_image(reconstructor.im_memmap * (reconstructor.label_memmap > 0))
+    # todo actually in reality, I should reconstruct it with the original data too, and compare those to each other.
+    viewer.add_image(reconstructor.pixel_class)
+    viewer.add_image(new_im)
 
+    im_info_control = ImInfo(dataset_paths[0])
+    reconstructor_control = Reconstructor(im_info_control, t=control_timepoints)
+    reconstructor_control.run()
+    viewer.add_image(reconstructor_control.im_memmap * (reconstructor_control.label_memmap > 0))

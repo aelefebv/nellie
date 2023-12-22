@@ -199,6 +199,9 @@ class GraphBuilder:
         vals_rel_ang_vel[vals_rel_ang_vel == 0] = np.nan
         vals_rel_lin_vel[vals_rel_lin_vel == 0] = np.nan
 
+        # todo, add features for translation of nodes? that way we can predict where the node goes next.
+        #  should direction be wrt pivot point?
+
         self.features['thickness'].extend(skeleton_radius * 2)
 
         self.features['raw_mean'].extend(np.nanmean(vals_raw, axis=(1, 2, 3)))

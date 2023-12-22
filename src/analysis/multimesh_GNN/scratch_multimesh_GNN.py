@@ -325,6 +325,17 @@ def test_and_train():
     print(f"Mean Cosine Similarity between Similar1 and Different: {similarity_sim1_diff}")
     print(f"Mean Cosine Similarity between Similar2 and Different: {similarity_sim2_diff}")
 
+
+def run_decoder_from_embeddings(model_path, original_dataset, embeddings):
+    model = GNNAutoencoder(original_dataset.num_features, 512, 512, 16).to(device)
+    model.load_state_dict(torch.load(model_path))
+    embeddings_torch = torch.tensor(embeddings, dtype=torch.float).to(device)
+    original_dataset_edge_index = original_dataset.edge_index.to(device)
+    with torch.no_grad():
+        out = model.decoder(embeddings_torch, original_dataset_edge_index).cpu().numpy()
+    return out
+
+
 def run_model(model_path, dataset, reconstruction=False):
     model = GNNAutoencoder(dataset.num_features, 512, 512, 16).to(device)
     model.load_state_dict(torch.load(model_path))
