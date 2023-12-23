@@ -212,30 +212,40 @@ if __name__ == '__main__':
     diff_embedding = peak_dissimilarity_embedding - mean_control_embeddings
     shift_to_control_embedding = embeddings[real_frame_num] - mean_embeddings[real_frame_num] + mean_control_embeddings
 
+    peak_mean = datasets[real_frame_num].x.mean(dim=0, keepdim=True).cpu().numpy()
+    peak_std = datasets[real_frame_num].x.std(dim=0, keepdim=True).cpu().numpy()
+
     control_timepoint = 0
+    control_mean = datasets[0].x.mean(dim=0, keepdim=True).cpu().numpy()
+    control_std = datasets[0].x.std(dim=0, keepdim=True).cpu().numpy()
+    mean_diff = peak_mean - control_mean
+    std_diff = peak_std - control_std
+
+    mean_increment = mean_diff / control_timepoints
+    std_increment = std_diff / control_timepoints
+
     im_info_control = ImInfo(dataset_paths[0])
     reconstructor = Reconstructor(im_info_control, t=control_timepoint+1)
     reconstructor.run()
     skel_idxs = np.argwhere(reconstructor.pixel_class > 0)
     # every 10 frames
-    frame_range = range(0, len(embeddings))
-    num_frames = len(frame_range)
-    new_im = np.zeros((num_frames, *reconstructor.im_memmap.shape), dtype=np.uint16)
-    for i, frame_after_control in enumerate(frame_range):
-        print(f'Processing frame {frame_after_control} of {len(embeddings)}')
-        shift_control_to_treated = embeddings[control_timepoint] - mean_embeddings[control_timepoint] + \
-                                   mean_embeddings[frame_after_control]
-        mean_shift_control_to_treated = np.mean(shift_control_to_treated, axis=0)
-
-        # reconstructed_diff = run_decoder_from_embeddings(model_path, datasets[real_frame_num], diff_embedding)
-        # # get mean of reconstructed diff columns
-        # mean_reconstructed_diff = np.mean(reconstructed_diff, axis=0)
+    num_frames = 20
+    frame_range = range(0, num_frames)
+    diff_embedding = mean_embeddings[real_frame_num] - mean_embeddings[control_timepoint]
+    # start at 0, increase exponentially until 20 is hit, in 20 steps
+    increments = np.exp(np.linspace(0, 3, num_frames))-1
+    new_im = np.zeros((num_frames*2, *reconstructor.im_memmap.shape), dtype=np.uint16)
+    for frame_num in frame_range[:5]:
+        print(f'Processing frame {frame_num} of {num_frames}')
+        # shift_control_to_treated = embeddings[control_timepoint] - mean_embeddings[control_timepoint] + \
+        #                            mean_embeddings[frame_after_control]
+        shift_control_to_treated = embeddings[control_timepoint] + increments[frame_num] * (diff_embedding / num_frames)
 
         reconstruct_control = run_decoder_from_embeddings(model_path, datasets[control_timepoint], shift_control_to_treated)
 
-        treated_dataset = datasets[frame_after_control]
-        reconstruction_original = (reconstruct_control * treated_dataset.x.std(dim=0, keepdim=True).cpu().numpy() +
-                                   treated_dataset.x.mean(dim=0, keepdim=True).cpu().numpy())
+        # reconstruction_original = (reconstruct_control * (control_std + std_increment * frame_num)) + (control_mean + mean_increment * frame_num)
+        reconstruction_original = (reconstruct_control * (peak_std)) + (peak_mean)
+
 
         assert len(skel_idxs) == len(reconstruction_original)
 
@@ -264,25 +274,28 @@ if __name__ == '__main__':
             min_x = max(0, min_idx[0])
             min_y = max(0, min_idx[1])
             min_z = max(0, min_idx[2])
-            max_x = min(new_im[i].shape[0], max_idx[0])
-            max_y = min(new_im[i].shape[1], max_idx[1])
-            max_z = min(new_im[i].shape[2], max_idx[2])
+            max_x = min(new_im[frame_num].shape[0], max_idx[0])
+            max_y = min(new_im[frame_num].shape[1], max_idx[1])
+            max_z = min(new_im[frame_num].shape[2], max_idx[2])
 
             x_len = max_x - min_x
             y_len = max_y - min_y
             z_len = max_z - min_z
 
             # the new_im coords at that location should be the max of the existing value and the new value
-            new_im[i][min_x:max_x, min_y:max_y, min_z:max_z][new_im[i][min_x:max_x, min_y:max_y, min_z:max_z]==0] = sphere[:x_len, :y_len, :z_len][new_im[i][min_x:max_x, min_y:max_y, min_z:max_z]==0]
-            new_im[i][min_x:max_x, min_y:max_y, min_z:max_z] = np.mean([new_im[i][min_x:max_x, min_y:max_y, min_z:max_z],
+            new_im[frame_num][min_x:max_x, min_y:max_y, min_z:max_z][new_im[frame_num][min_x:max_x, min_y:max_y, min_z:max_z]==0] = sphere[:x_len, :y_len, :z_len][new_im[frame_num][min_x:max_x, min_y:max_y, min_z:max_z]==0]
+            new_im[frame_num][min_x:max_x, min_y:max_y, min_z:max_z] = np.mean([new_im[frame_num][min_x:max_x, min_y:max_y, min_z:max_z],
                                                                      sphere[:x_len, :y_len, :z_len]],axis=0)
+
+        # new_im[num_frames*2-1 - frame_num] = new_im[frame_num]
 
         # todo use the frangi filtered reconstructured sphere as a probability distribution for the intensities?
 
+    # new_im should go back down to the origin
 
 
     viewer = napari.Viewer()
-    viewer.add_image(reconstructor.im_memmap * (reconstructor.label_memmap > 0))
+    # viewer.add_image(reconstructor.im_memmap * (reconstructor.label_memmap > 0))
     # todo actually in reality, I should reconstruct it with the original data too, and compare those to each other.
     # viewer.add_image(reconstructor.pixel_class)
     viewer.add_image(new_im)
