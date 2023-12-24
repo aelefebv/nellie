@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.analysis.multimesh_GNN.scratch_multimesh_GNN import import_data, run_model
+from src.case_studies.ionomycin_embeddings.multimesh_GNN import import_data, run_model
 from src.im_info.im_info import ImInfo
 from src.utils.general import get_reshaped_image
 viewer = None

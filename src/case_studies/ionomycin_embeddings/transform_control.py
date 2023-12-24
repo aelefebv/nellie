@@ -4,9 +4,9 @@ import napari
 import numpy as np
 import torch
 
-from src.analysis.multimesh_GNN.compare_output_to_original import Reconstructor, create_sphere, generate_array
-from src.analysis.multimesh_GNN.scratch_multimesh_GNN import import_data, normalize_features, run_model, \
-    run_decoder_from_embeddings, GNNAutoencoder
+from src.case_studies.ionomycin_embeddings.reconstruction import Reconstructor, create_sphere, generate_array
+from src.case_studies.ionomycin_embeddings.multimesh_GNN import import_data, normalize_features, run_model, \
+    run_decoder_from_embeddings
 from torch_geometric.data import Data
 from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
@@ -163,8 +163,51 @@ def get_frequency_stats(vec):
     print(f"Their magnitudes are: {peak_magnitudes}")
     return np.array([1/peak_freqs, peak_magnitudes]).T
 
+def build_spheres(im_frame, skel_idxs, features):
+    means = features[:, 1]
+    maxs = features[:, 2]
+    mins = features[:, 3]
+    covs = features[:, 4]
+
+    radii = features[:, 0] / 2
+    # generate a sphere of radius radii for each point
+    spheres = []
+    for idx, skel_idx in enumerate(skel_idxs):
+        int_radius = int(np.round(radii[idx] + 1))
+        # sphere = viewer.add_points([skel_idx], size=radii[idx]*2, face_color='red', edge_color='red')
+        # spheres.append(sphere)
+        sphere = create_sphere(int_radius).astype(np.float32)
+        true_locs = np.argwhere(sphere)
+        fill_array = generate_array(means[idx], mins[idx], maxs[idx], covs[idx], len(true_locs))
+        sphere[true_locs[:, 0], true_locs[:, 1], true_locs[:, 2]] = fill_array
+        sphere = sphere.astype(im_frame.dtype)
+        spheres.append(sphere)
+        min_idx = skel_idx - int_radius
+        max_idx = skel_idx + int_radius
+
+        min_x = max(0, min_idx[0])
+        min_y = max(0, min_idx[1])
+        min_z = max(0, min_idx[2])
+        max_x = min(im_frame.shape[0], max_idx[0])
+        max_y = min(im_frame.shape[1], max_idx[1])
+        max_z = min(im_frame.shape[2], max_idx[2])
+
+        x_len = max_x - min_x
+        y_len = max_y - min_y
+        z_len = max_z - min_z
+
+        # the new_im coords at that location should be the max of the existing value and the new value
+        im_frame[min_x:max_x, min_y:max_y, min_z:max_z][
+            im_frame[min_x:max_x, min_y:max_y, min_z:max_z] == 0] = sphere[:x_len, :y_len, :z_len][
+            im_frame[min_x:max_x, min_y:max_y, min_z:max_z] == 0]
+        im_frame[min_x:max_x, min_y:max_y, min_z:max_z] = np.mean(
+            [im_frame[min_x:max_x, min_y:max_y, min_z:max_z],
+             sphere[:x_len, :y_len, :z_len]], axis=0)
+    return im_frame
+
 
 if __name__ == '__main__':
+    # todo try to get the "iono" vector, then add it to the control and see if it's similar to iono
     # model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy.pt"
     model_path = r"D:\test_files\nelly_tests\20231219_122843-autoencoder - Copy.pt"
     file_set_num = 1
@@ -204,86 +247,54 @@ if __name__ == '__main__':
     peak_dissimilarity = get_peak_difference_time(similarity_matrix)
     dissimilarity_to_control = 1-similarity_matrix[0, 1:]
     plot_embedding_changes(dissimilarity_to_control)
+    real_peak_frame_num = peak_dissimilarity + control_timepoints
     print(f"Peak dissimilarity is at frame {peak_dissimilarity}")
-    real_frame_num = peak_dissimilarity + control_timepoints
-    # last time point
-    # real_frame_num = len(embeddings) - 1
-    peak_dissimilarity_embedding = embeddings[real_frame_num]
-    diff_embedding = peak_dissimilarity_embedding - mean_control_embeddings
-    shift_to_control_embedding = embeddings[real_frame_num] - mean_embeddings[real_frame_num] + mean_control_embeddings
-    shift_control_to_peak_embedding = embeddings[control_timepoints-1] - mean_embeddings[control_timepoints-1] + mean_embeddings[real_frame_num]
-    mean_shift_to_control_embedding = np.mean(shift_to_control_embedding, axis=0)
-    mean_shift_control_to_peak_embedding = np.mean(shift_control_to_peak_embedding, axis=0)
-    # get cosine similarity of the mean_shift_control_embedding to the mean control embedding
-    cosine_similarity = 1 - cdist(mean_shift_to_control_embedding.reshape(1, -1), np.array(mean_control_embeddings).reshape(1, -1), metric='cosine')
-    assert cosine_similarity > 0.99999
 
-    reconstructed_diff = run_decoder_from_embeddings(model_path, datasets[real_frame_num], diff_embedding)
-    # get mean of reconstructed diff columns
-    mean_reconstructed_diff = np.mean(reconstructed_diff, axis=0)
+    peak_dissimilarity_embedding = embeddings[real_peak_frame_num]
+    peak_mean = datasets[real_peak_frame_num].x.mean(dim=0, keepdim=True).cpu().numpy()
+    peak_std = datasets[real_peak_frame_num].x.std(dim=0, keepdim=True).cpu().numpy()
 
-    reconstructed_shift_to_control = run_decoder_from_embeddings(model_path, datasets[real_frame_num], shift_to_control_embedding)
+    control_timepoint = 0
+    control_mean = datasets[0].x.mean(dim=0, keepdim=True).cpu().numpy()
+    control_std = datasets[0].x.std(dim=0, keepdim=True).cpu().numpy()
 
-    og_datasets = datasets[control_timepoints-1]
-    reconstruction_original = (reconstructed_shift_to_control * og_datasets.x.std(dim=0, keepdim=True).cpu().numpy() +
-                      og_datasets.x.mean(dim=0, keepdim=True).cpu().numpy())
+    num_frames = 10
+    embed_diff_inc = (mean_embeddings[real_peak_frame_num] - mean_embeddings[control_timepoint]) / num_frames
+    mean_diff_inc = (peak_mean - control_mean) / num_frames
+    std_diff_inc = (peak_std - control_std) / num_frames
 
-    im_info = ImInfo(dataset_paths[1])
-    reconstructor = Reconstructor(im_info, t=real_frame_num-control_timepoints+1)
+    increments = np.exp(np.linspace(0, 3, num_frames))-1
+
+    im_info_control = ImInfo(dataset_paths[0])
+    reconstructor = Reconstructor(im_info_control, t=control_timepoint+1)
     reconstructor.run()
     skel_idxs = np.argwhere(reconstructor.pixel_class > 0)
+    im_recon = np.zeros((num_frames, *reconstructor.im_memmap.shape), dtype=np.uint16)
+    im_renorm = np.zeros((num_frames, *reconstructor.im_memmap.shape), dtype=np.uint16)
 
-    assert len(skel_idxs) == len(reconstruction_original)
+    frame_range = range(0, num_frames)
+    for frame_num in frame_range:
+        print(f'Processing frame {frame_num} of {num_frames}')
+        shift_control_to_treated = embeddings[control_timepoint] + increments[frame_num] * embed_diff_inc
+        reconstruct_control = run_decoder_from_embeddings(model_path, datasets[control_timepoint], shift_control_to_treated)
+        reconstruction_original = (reconstruct_control * (control_std + std_diff_inc * increments[frame_num])) + (control_mean + mean_diff_inc * increments[frame_num])
+        renorm_original = (embeddings[control_timepoint] * (control_std + std_diff_inc * increments[frame_num])) + (control_mean + mean_diff_inc * increments[frame_num])
+        assert len(skel_idxs) == len(reconstruction_original)
 
-    means = reconstruction_original[:, 1]
-    maxs = reconstruction_original[:, 2]
-    mins = reconstruction_original[:, 3]
-    covs = reconstruction_original[:, 4]
+        im_recon[frame_num] = build_spheres(im_recon[frame_num], skel_idxs, reconstruction_original)
+        im_renorm[frame_num] = build_spheres(im_renorm[frame_num], skel_idxs, renorm_original)
 
-    test_sphere = create_sphere(2)
-    num_true = test_sphere.sum()
-
-    radii = reconstruction_original[:, 0] / 2
-    new_im = np.zeros_like(reconstructor.im_memmap)
-    # generate a sphere of radius radii for each point
-    spheres = []
-    for idx, skel_idx in enumerate(skel_idxs):
-        print(f"Processing {idx} of {len(skel_idxs)}")
-        int_radius = int(np.round(radii[idx] + 1))
-        # sphere = viewer.add_points([skel_idx], size=radii[idx]*2, face_color='red', edge_color='red')
-        # spheres.append(sphere)
-        sphere = create_sphere(int_radius).astype(np.float32)
-        true_locs = np.argwhere(sphere)
-        fill_array = generate_array(means[idx], mins[idx], maxs[idx], covs[idx], len(true_locs))
-        sphere[true_locs[:, 0], true_locs[:, 1], true_locs[:, 2]] = fill_array
-        sphere = sphere.astype(new_im.dtype)
-        spheres.append(sphere)
-        min_idx = skel_idx - int_radius
-        max_idx = skel_idx + int_radius
-
-        min_x = max(0, min_idx[0])
-        min_y = max(0, min_idx[1])
-        min_z = max(0, min_idx[2])
-        max_x = min(new_im.shape[0], max_idx[0])
-        max_y = min(new_im.shape[1], max_idx[1])
-        max_z = min(new_im.shape[2], max_idx[2])
-
-        x_len = max_x - min_x
-        y_len = max_y - min_y
-        z_len = max_z - min_z
-
-        # the new_im coords at that location should be the max of the existing value and the new value
-        new_im[min_x:max_x, min_y:max_y, min_z:max_z] = np.maximum(new_im[min_x:max_x, min_y:max_y, min_z:max_z],
-                                                                   sphere[:x_len, :y_len, :z_len])
+        # todo use the frangi filtered reconstructured sphere as a probability distribution for the intensities?
 
 
     viewer = napari.Viewer()
-    viewer.add_image(reconstructor.im_memmap * (reconstructor.label_memmap > 0))
+    # viewer.add_image(reconstructor.im_memmap * (reconstructor.label_memmap > 0))
     # todo actually in reality, I should reconstruct it with the original data too, and compare those to each other.
-    viewer.add_image(reconstructor.pixel_class)
-    viewer.add_image(new_im)
+    # viewer.add_image(reconstructor.pixel_class)
+    viewer.add_image(im_recon)
+    viewer.add_image(im_renorm)
 
-    im_info_control = ImInfo(dataset_paths[0])
-    reconstructor_control = Reconstructor(im_info_control, t=control_timepoints)
-    reconstructor_control.run()
-    viewer.add_image(reconstructor_control.im_memmap * (reconstructor_control.label_memmap > 0))
+    # im_info_peak = ImInfo(dataset_paths[1])
+    # reconstructor_control = Reconstructor(im_info_peak, t=peak_dissimilarity+control_timepoints+1)
+    # reconstructor_control.run()
+    # viewer.add_image(reconstructor_control.im_memmap)
