@@ -269,6 +269,8 @@ if __name__ == '__main__':
     reconstructor = Reconstructor(im_info_control, t=control_timepoint+1)
     reconstructor.run()
     skel_idxs = np.argwhere(reconstructor.pixel_class > 0)
+
+    control_features = normalize_features(datasets[control_timepoint].x).cpu().numpy()
     im_recon = np.zeros((num_frames, *reconstructor.im_memmap.shape), dtype=np.uint16)
     im_renorm = np.zeros((num_frames, *reconstructor.im_memmap.shape), dtype=np.uint16)
 
@@ -278,7 +280,7 @@ if __name__ == '__main__':
         shift_control_to_treated = embeddings[control_timepoint] + increments[frame_num] * embed_diff_inc
         reconstruct_control = run_decoder_from_embeddings(model_path, datasets[control_timepoint], shift_control_to_treated)
         reconstruction_original = (reconstruct_control * (control_std + std_diff_inc * increments[frame_num])) + (control_mean + mean_diff_inc * increments[frame_num])
-        renorm_original = (embeddings[control_timepoint] * (control_std + std_diff_inc * increments[frame_num])) + (control_mean + mean_diff_inc * increments[frame_num])
+        renorm_original = (control_features * (control_std + std_diff_inc * increments[frame_num])) + (control_mean + mean_diff_inc * increments[frame_num])
         assert len(skel_idxs) == len(reconstruction_original)
 
         im_recon[frame_num] = build_spheres(im_recon[frame_num], skel_idxs, reconstruction_original)
