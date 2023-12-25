@@ -12,6 +12,18 @@ from src.tracking.flow_interpolation import interpolate_all_forward, interpolate
 from src.tracking.hu_tracking import HuMomentTracking
 from src.utils.general import get_reshaped_image
 
+
+def get_range(num):
+    current = np.round(num, 2)
+    ceil = np.ceil(current)
+    floor = np.floor(current)
+    floor_frac = ceil - current
+    if ceil == floor:
+        ranges = [floor]
+    else:
+        ranges = [floor, ceil]
+    return ranges, floor_frac
+
 ch = 0
 im_path = r"D:\test_files\nelly_iono\partial_for_interp\deskewed-pre_1.ome.tif"
 lowres_path = r"D:\test_files\nelly_iono\partial_for_interp\deskewed-pre_1_lowres.tif"
@@ -48,11 +60,15 @@ label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
 im_memmap = im_info.get_im_memmap(im_info.im_path)
 im_memmap = get_reshaped_image(im_memmap, im_info=im_info)
 
+step_size = 1 / downsample_t
+original_t_frames = (np.array(range(im_info.shape[0])) / float(step_size)).astype(int)
+
+interp_vox_ints = {}
 tracks_all = []
 for start_frame in range(3, 5):
     coords = np.argwhere(label_memmap[start_frame] > 0).astype(float)
     np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float).copy()
+    coords = coords[np.random.choice(coords.shape[0], 1000, replace=False), :].astype(float).copy()
     tracks_fw, _ = interpolate_all_forward(coords.copy(), start_frame, im_info.shape[0], im_info)
     if start_frame > 0:
         tracks_bw, _ = interpolate_all_backward(coords.copy(), start_frame, 0, im_info)
@@ -76,10 +92,54 @@ for start_frame in range(3, 5):
         track_dict[track] = np.array(track_dict[track])
 
     new_track_dict = {}
-    step_size = 1/3
     for track, track_list in track_dict.items():
         # run interpolation and create new track dict
         t, z, y, x = track_list[:, 0], track_list[:, 1], track_list[:, 2], track_list[:, 3]
+        intensities = []
+        for pos in range(len(z)):
+            # make z 2 decimal places
+            z_range, z_floor_frac = get_range(z[pos])
+            y_range, y_floor_frac = get_range(y[pos])
+            x_range, x_floor_frac = get_range(x[pos])
+
+            # get all possible combinations
+            all_voxels = np.array(np.meshgrid(z_range, y_range, x_range)).T.reshape(-1, 3)
+            frac_nums = []
+            for voxel in all_voxels:
+                frac_num = []
+                if len(z_range) == 1:
+                    frac_num.append(1.0)
+                else:
+                    frac_num.append(z_floor_frac if z_range[0] == voxel[0] else 1 - z_floor_frac)
+                if len(y_range) == 1:
+                    frac_num.append(1.0)
+                else:
+                    frac_num.append(y_floor_frac if y_range[0] == voxel[1] else 1 - y_floor_frac)
+                if len(x_range) == 1:
+                    frac_num.append(1.0)
+                else:
+                    frac_num.append(x_floor_frac if x_range[0] == voxel[2] else 1 - x_floor_frac)
+                frac_nums.append(np.sum(frac_num))
+            frac_nums = np.array(frac_nums) / np.sum(frac_nums)
+
+            # get pixel intensities
+            pixel_intensities = []
+            for voxel in all_voxels:
+                tloc, zloc, yloc, xloc = int(t[pos]), int(voxel[0]), int(voxel[1]), int(voxel[2])
+                if zloc < 0 or yloc < 0 or xloc < 0:
+                    voxel_intensity = 0
+                if zloc >= im_memmap.shape[1] or yloc >= im_memmap.shape[2] or xloc >= im_memmap.shape[3]:
+                    voxel_intensity = 0
+                else:
+                    voxel_intensity = im_memmap[tloc, zloc, yloc, xloc]
+                if np.isnan(voxel_intensity):
+                    voxel_intensity = 0
+                pixel_intensities.append(voxel_intensity)
+            pixel_intensities = np.array(pixel_intensities)
+            weighted_intensity = np.sum(frac_nums * pixel_intensities)
+            intensities.append(weighted_intensity)
+        intensities = np.array(intensities)
+
         interpolated_t = np.arange(t[0], t[-1]+step_size, step_size)
         # 3rd order spline interpolation
         if len(t) <= 1:
@@ -92,25 +152,57 @@ for start_frame in range(3, 5):
         interpolated_z = scipy.interpolate.make_interp_spline(t, z, k=k)(interpolated_t)
         interpolated_y = scipy.interpolate.make_interp_spline(t, y, k=k)(interpolated_t)
         interpolated_x = scipy.interpolate.make_interp_spline(t, x, k=k)(interpolated_t)
+        interpolated_int = scipy.interpolate.make_interp_spline(t, intensities, k=k)(interpolated_t)
         interpolated_coords = np.stack([interpolated_t/step_size, interpolated_z, interpolated_y, interpolated_x], axis=1)
-        new_track_dict[track] = interpolated_coords
+        new_track_dict[track] = (interpolated_coords, interpolated_int)
         # todo note, interpolated coords can be visualized here.
+        # let's interpolate the pixel intensities as well
+
 
     all_new_tracks = []
-    for track, track_list in new_track_dict.items():
+    for track, (track_list, track_intensities) in new_track_dict.items():
         for i in range(len(track_list)):
-            all_new_tracks.append(np.concatenate([[track], track_list[i]]))
+            all_new_tracks.append(np.concatenate(([track], track_list[i])))
+            zloc, yloc, xloc = track_list[i][1], track_list[i][2], track_list[i][3]
+            z_range, z_floor_frac = get_range(zloc)
+            y_range, y_floor_frac = get_range(yloc)
+            x_range, x_floor_frac = get_range(xloc)
+
+            # get all possible combinations
+            all_voxels = np.array(np.meshgrid(z_range, y_range, x_range)).T.reshape(-1, 3)
+            frac_nums = []
+            for voxel in all_voxels:
+                frac_num = []
+                if len(z_range) == 1:
+                    frac_num.append(1.0)
+                else:
+                    frac_num.append(z_floor_frac if z_range[0] == voxel[0] else 1 - z_floor_frac)
+                if len(y_range) == 1:
+                    frac_num.append(1.0)
+                else:
+                    frac_num.append(y_floor_frac if y_range[0] == voxel[1] else 1 - y_floor_frac)
+                if len(x_range) == 1:
+                    frac_num.append(1.0)
+                else:
+                    frac_num.append(x_floor_frac if x_range[0] == voxel[2] else 1 - x_floor_frac)
+                frac_nums.append(np.sum(frac_num))
+            frac_nums = np.array(frac_nums) / np.sum(frac_nums)
+
+            for vox_num, voxel in enumerate(all_voxels):
+                tloc, zloc, yloc, xloc = int(track_list[i][0]), int(voxel[0]), int(voxel[1]), int(voxel[2])
+                if tloc in original_t_frames:
+                    continue
+                if interp_vox_ints.get((tloc, zloc, yloc, xloc)) is None:
+                    interp_vox_ints[(tloc, zloc, yloc, xloc)] = []
+                if zloc < 0 or yloc < 0 or xloc < 0:
+                    continue
+                if zloc >= im_memmap.shape[1] or yloc >= im_memmap.shape[2] or xloc >= im_memmap.shape[3]:
+                    continue
+                else:
+                    interp_vox_ints[(tloc, zloc, yloc, xloc)].append(track_intensities[i] * frac_nums[vox_num])
     tracks_all.append(all_new_tracks)
 
-    # tracks_all.append(tracks_fw)
-    # tracks_all.append(tracks_bw)
-    # load_vecs = np.load(r"D:\test_files\nelly_iono\partial_for_interp\output\deskewed-pre_1.ome-ch0-flow_vector_array.npy")
-# start_frame = 0
-# coords = np.argwhere(label_memmap[start_frame] > 0).astype(float)
-# np.random.seed(0)
-# coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
-# tracks, track_properties = interpolate_all_forward(coords, start_frame, im_info.shape[0], im_info)
-# load_vecs = np.load(r"D:\test_files\nelly_iono\partial_for_interp\output\deskewed-pre_1.ome-ch0-flow_vector_array.npy")
+
 
 viewer = napari.Viewer()
 for tracks in tracks_all:
