@@ -290,11 +290,13 @@ class HuMomentTracking:
     def _get_cost_matrix(self, t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
         distance_matrix, distance_mask = self._get_distance_mask(t)
         z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis], distance_mask)
+        del distance_matrix
         stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
         z_score_stats_matrix = self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2]
+        del stats_matrix
         hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
         z_score_hu_matrix = self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2]
-        del stats_matrix, hu_matrix, distance_matrix, distance_mask
+        del hu_matrix, distance_mask
         z_score_matrix = xp.concatenate((z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix), axis=2)
         # z_score_matrix = xp.concatenate((z_score_stats_matrix, z_score_hu_matrix), axis=2)
         cost_matrix = xp.nansum(z_score_matrix, axis=2)

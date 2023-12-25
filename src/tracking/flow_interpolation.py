@@ -67,7 +67,9 @@ class FlowInterpolator:
             self.current_tree = cKDTree(self.check_coords * self.scaling)
         scaled_coords = np.array(coords) * self.scaling
         # get all coords and distances within the radius of the coord
-        nearby_idxs = self.current_tree.query_ball_point(scaled_coords, self.max_distance_um, p=2)
+        # good coords are non-nan
+        good_coords = np.where(~np.isnan(scaled_coords[:, 0]))[0]
+        nearby_idxs = self.current_tree.query_ball_point(scaled_coords[good_coords], self.max_distance_um, p=2)
         # if len(nearby_idxs) == 0:
         #     logger.debug(f'No nearby flow vectors found for {coord} in temporal frame {t}.')
         #     return None, None
@@ -75,10 +77,20 @@ class FlowInterpolator:
         max_k = np.max(k_all)
         if max_k == 0:
             return None, None
-        distances, nearby_idxs = self.current_tree.query(scaled_coords, k=max_k, p=2, workers=-1)
-        distances = [distances[i][:k_all[i]] for i in range(len(distances))]
-        nearby_idxs = [nearby_idxs[i][:k_all[i]] for i in range(len(nearby_idxs))]
-        return nearby_idxs, distances
+        distances, nearby_idxs = self.current_tree.query(scaled_coords[good_coords], k=max_k, p=2, workers=-1)
+        distance_return = [[] for _ in range(len(coords))]
+        nearby_idxs_return = [[] for _ in range(len(coords))]
+        pos = 0
+        for i in range(len(distances)):
+            if i not in good_coords:
+                continue
+            distance_return[i] = distances[pos][:k_all[pos]]
+            nearby_idxs_return[i] = nearby_idxs[pos][:k_all[pos]]
+            pos += 1
+        # distances = [distances[i][:k_all[i]] for i in range(len(distances)) if i in good_coords]
+        # nearby_idxs_return = [[] for _ in range(len(coords))]
+        # nearby_idxs = [nearby_idxs[i][:k_all[i]] for i in range(len(nearby_idxs)) if i in good_coords]
+        return nearby_idxs_return, distance_return
 
     def _get_vector_weights(self, nearby_idxs, distances_all):
         weights_all = []
@@ -197,8 +209,7 @@ def interpolate_all_backward(coords, start_t, end_t, im_info):
     flow_interpx = FlowInterpolator(im_info, forward=False)
     tracks = []
     track_properties = {'frame_num': []}
-    frame_range = np.arange(end_t, start_t+1)[::-1]
-    print(frame_range)
+    frame_range = np.arange(end_t+1, start_t+1)[::-1]
     num_frames = len(frame_range)
     for t in frame_range:
         print(f'Interpolating frame {t} of {num_frames - 1}')
