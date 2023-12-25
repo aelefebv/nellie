@@ -2,6 +2,7 @@ from src.im_info.im_info import ImInfo
 import napari
 import tifffile
 import numpy as np
+import scipy
 
 from src.segmentation.filtering import Filter
 from src.segmentation.labelling import Label
@@ -61,7 +62,46 @@ for start_frame in range(3, 5):
     else:
         tracks_bw = []
     tracks = tracks_fw + tracks_bw
-    tracks_all.append(tracks)
+
+    track_dict = {}
+    for track in tracks:
+        if track[0] in track_dict.keys():
+            track_dict[track[0]] += [track[1:]]
+        else:
+            track_dict[track[0]] = [track[1:]]
+
+    for track, track_list in track_dict.items():
+        track_dict[track] = list(set(tuple(x) for x in track_list))
+        track_dict[track] = sorted(track_dict[track], key=lambda x: x[0])
+        track_dict[track] = np.array(track_dict[track])
+
+    new_track_dict = {}
+    step_size = 1/3
+    for track, track_list in track_dict.items():
+        # run interpolation and create new track dict
+        t, z, y, x = track_list[:, 0], track_list[:, 1], track_list[:, 2], track_list[:, 3]
+        interpolated_t = np.arange(t[0], t[-1]+step_size, step_size)
+        # 3rd order spline interpolation
+        if len(t) <= 1:
+            continue
+        k = len(t) - 1
+        # if k is even, it must be reduced by 1
+        if k % 2 == 0:
+            k -= 1
+        # choosing k=1 because movement is much more twitchy than smooth in general
+        interpolated_z = scipy.interpolate.make_interp_spline(t, z, k=k)(interpolated_t)
+        interpolated_y = scipy.interpolate.make_interp_spline(t, y, k=k)(interpolated_t)
+        interpolated_x = scipy.interpolate.make_interp_spline(t, x, k=k)(interpolated_t)
+        interpolated_coords = np.stack([interpolated_t/step_size, interpolated_z, interpolated_y, interpolated_x], axis=1)
+        new_track_dict[track] = interpolated_coords
+        # todo note, interpolated coords can be visualized here.
+
+    all_new_tracks = []
+    for track, track_list in new_track_dict.items():
+        for i in range(len(track_list)):
+            all_new_tracks.append(np.concatenate([[track], track_list[i]]))
+    tracks_all.append(all_new_tracks)
+
     # tracks_all.append(tracks_fw)
     # tracks_all.append(tracks_bw)
     # load_vecs = np.load(r"D:\test_files\nelly_iono\partial_for_interp\output\deskewed-pre_1.ome-ch0-flow_vector_array.npy")
