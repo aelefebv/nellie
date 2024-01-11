@@ -242,7 +242,7 @@ def interpolate_all_backward(coords, start_t, end_t, im_info):
 
 if __name__ == "__main__":
     # im_path = r"D:\test_files\nelly_gav_tests\fibro_7.nd2"
-    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     im_info = ImInfo(im_path)
     label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
     label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
@@ -257,9 +257,15 @@ if __name__ == "__main__":
     # going backwards
     coords = np.argwhere(label_memmap[0] > 0).astype(float)
     # get 100 random coords
-    np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
-
+    # np.random.seed(0)
+    # coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
+    # x in range 450-650
+    # y in range 600-750
+    new_coords = []
+    for coord in coords:
+        if 450 < coord[-1] < 650 and 600 < coord[-2] < 750:
+            new_coords.append(coord)
+    coords = np.array(new_coords[::3])
     tracks, track_properties = interpolate_all_forward(coords, start_frame, 3, im_info)
 
     # tracks = []

@@ -256,8 +256,8 @@ class HuMomentTracking:
         return distance_matrix, distance_mask
 
     def _get_difference_matrix(self, m1, m2):
-        m1_reshaped = m1[:, xp.newaxis, :]
-        m2_reshaped = m2[xp.newaxis, :, :]
+        m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float16)
+        m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float16)
         difference_matrix = xp.abs(m1_reshaped - m2_reshaped)
         return difference_matrix
 
@@ -289,17 +289,17 @@ class HuMomentTracking:
 
     def _get_cost_matrix(self, t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
         distance_matrix, distance_mask = self._get_distance_mask(t)
-        z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis], distance_mask)
+        z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis], distance_mask).astype(xp.float16)
         del distance_matrix
         stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
-        z_score_stats_matrix = self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2]
+        z_score_stats_matrix = (self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2]).astype(xp.float16)
         del stats_matrix
         hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
-        z_score_hu_matrix = self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2]
+        z_score_hu_matrix = (self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2]).astype(xp.float16)
         del hu_matrix, distance_mask
-        z_score_matrix = xp.concatenate((z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix), axis=2)
+        z_score_matrix = xp.concatenate((z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix), axis=2).astype(xp.float16)
         # z_score_matrix = xp.concatenate((z_score_stats_matrix, z_score_hu_matrix), axis=2)
-        cost_matrix = xp.nansum(z_score_matrix, axis=2)
+        cost_matrix = xp.nansum(z_score_matrix, axis=2).astype(xp.float16)
         # cost_matrix[distance_mask == 0] = xp.inf
 
         return cost_matrix
@@ -361,10 +361,20 @@ class HuMomentTracking:
             # import napari
             # viewer = napari.Viewer()
             # tracks = []
+            # track_props = {'costs': []}
             # for track_num, (coord, vec) in enumerate(zip(pre_marker_indices, vecs)):
             #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
             #     tracks.append([track_num, 1, coord[0] + vec[0], coord[1] + vec[1], coord[2] + vec[2]])
-            # viewer.add_tracks(tracks)
+            #     curr_cost = costs[track_num]
+            #     # curr_cost = min(curr_cost, 0)
+            #     curr_cost = max(curr_cost, -1.5)
+            #     track_props['costs'].append(curr_cost)
+            #     track_props['costs'].append(curr_cost)
+            #
+            # viewer.add_image(self.im_memmap[:t+1], name='im', colormap='viridis')
+            # viewer.add_points(marker_indices, size=1, face_color='red', name='current')
+            # viewer.add_points(pre_marker_indices, size=1, face_color='cyan', name='previous')
+            # viewer.add_tracks(tracks, properties=track_props, )
 
             pre_stats_vecs = stats_vecs
             pre_hu_vecs = hu_vecs
@@ -388,6 +398,7 @@ class HuMomentTracking:
                 flow_vector_array = frame_vector_array
             else:
                 flow_vector_array = np.concatenate((flow_vector_array, frame_vector_array), axis=0)
+            del frame_vector_array
 
         # save the array
         np.save(self.flow_vector_array_path, flow_vector_array)
@@ -399,7 +410,7 @@ class HuMomentTracking:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     im_info = ImInfo(im_path)
     hu = HuMomentTracking(im_info, num_t=2)
     hu.run()

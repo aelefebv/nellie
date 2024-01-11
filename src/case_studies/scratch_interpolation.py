@@ -68,7 +68,7 @@ tracks_all = []
 for start_frame in range(3, 5):
     coords = np.argwhere(label_memmap[start_frame] > 0).astype(float)
     np.random.seed(0)
-    coords = coords[np.random.choice(coords.shape[0], 1000, replace=False), :].astype(float).copy()
+    coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float).copy()
     tracks_fw, _ = interpolate_all_forward(coords.copy(), start_frame, im_info.shape[0], im_info)
     if start_frame > 0:
         tracks_bw, _ = interpolate_all_backward(coords.copy(), start_frame, 0, im_info)
@@ -202,12 +202,30 @@ for start_frame in range(3, 5):
                     interp_vox_ints[(tloc, zloc, yloc, xloc)].append(track_intensities[i] * frac_nums[vox_num])
     tracks_all.append(all_new_tracks)
 
+for voxel, intensities in interp_vox_ints.items():
+    interp_vox_ints[voxel] = np.round(np.sum(intensities)).astype(int)
 
+# make a new image same size as original with num_frames = num_frames * downsample_t
+new_im = np.zeros((im_info.shape[0]*downsample_t, im_info.shape[1], im_info.shape[2], im_info.shape[3]), dtype=np.uint16)
+vox_coord_vec = np.array([vox for vox in interp_vox_ints.keys()])
+vox_int_vec = np.array(list(interp_vox_ints.values()))
+for t in original_t_frames:
+    new_im[t] = im_memmap[t//downsample_t] * (label_memmap[t//downsample_t]>0)
+# remove any vox_coord_vec and corresponding vox_int_vec that are outside of the image
+bad_idxs = []
+for idx, vox in enumerate(vox_coord_vec):
+    if vox[0] >= new_im.shape[0] or vox[1] >= new_im.shape[1] or vox[2] >= new_im.shape[2] or vox[3] >= new_im.shape[3]:
+        bad_idxs.append(idx)
+vox_coord_vec = np.delete(vox_coord_vec, bad_idxs, axis=0)
+vox_int_vec = np.delete(vox_int_vec, bad_idxs, axis=0)
+
+new_im[tuple(vox_coord_vec.T)] = vox_int_vec
 
 viewer = napari.Viewer()
+viewer.add_image(new_im, name='interp_im')
 for tracks in tracks_all:
     viewer.add_tracks(tracks)
-viewer.add_image(im_memmap, name='im')
+# viewer.add_image(im_memmap, name='im')
 # napari.run()
 # viewer.add_image(preprocessing.frangi_memmap)
 # viewer.add_labels(segmenting.instance_label_memmap)

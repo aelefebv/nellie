@@ -10,6 +10,7 @@ from sklearn.manifold import TSNE
 import numpy as np
 import pandas as pd
 import datetime
+import os
 
 from src.feature_extraction.graph_frame import GraphBuilder
 from src.im_info.im_info import ImInfo
@@ -134,7 +135,7 @@ def get_final_reconstruction(dataset, model):
         reconstructed = model(dataset.x, dataset.edge_index).cpu().numpy()
     return reconstructed
 
-def train_model(training, validation):
+def train_model(training, validation, savedir):
     num_node_features = training.dataset[0].num_features
 
     # Initialize the autoencoder
@@ -186,7 +187,7 @@ def train_model(training, validation):
             lowest_validation_loss = avg_val_loss
             best_epoch = epoch
             early_stopping_counter = 0
-            torch.save(autoencoder.state_dict(), rf"D:\test_files\nelly_tests\{current_dt_str}-autoencoder.pt")
+            torch.save(autoencoder.state_dict(), os.path.join(savedir, f"{current_dt_str}-autoencoder.pt"))
         else:
             early_stopping_counter += 1
             print(f'EarlyStopping counter: {early_stopping_counter} out of {patience}')
@@ -205,7 +206,7 @@ def train_model(training, validation):
             plt.title('Loss Over Epochs')
             plt.legend()
             # save the plot
-            plt.savefig(rf"D:\test_files\nelly_tests\{current_dt_str}-loss_plot.png")
+            plt.savefig(os.path.join(savedir, f"{current_dt_str}-loss_plot.png"))
             plt.close()
 
 def test_and_train():
@@ -347,9 +348,9 @@ def run_model(model_path, dataset, reconstruction=False):
             out = model.encoder(dataset.x, dataset.edge_index).cpu().numpy()
     return out
 
-def import_data(im_path):
+def import_data(im_path, ch=0):
     # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(im_path)
+    im_info = ImInfo(im_path, ch=ch)
     #load graph_features as pd.DataFrame
     graph_features = pd.read_csv(im_info.pipeline_paths['graph_features'])
     # load graph_edges as pd.DataFrame

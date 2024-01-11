@@ -35,4 +35,4 @@ normalized_testing_datasets = [Data(x=normalize_features(dataset.x), edge_index=
 training_dataloader = DataLoader(normalized_training_datasets, batch_size=1, shuffle=True)
 testing_dataloader = DataLoader(normalized_testing_datasets, batch_size=1, shuffle=True)
 
-train_model(training_dataloader, testing_dataloader)
+train_model(training_dataloader, testing_dataloader, r"D:\test_files\nelly_iono")
