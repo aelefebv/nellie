@@ -36,7 +36,8 @@ def otsu_threshold(matrix, nbins=256):
 
 def triangle_threshold(matrix, nbins=256):
     # gpu version of skimage.filters.threshold_triangle
-    hist, bin_edges = xp.histogram(matrix.reshape(-1), bins=nbins, range=(matrix.min(), matrix.max()))
+    hist, bin_edges = xp.histogram(matrix.reshape(-1), bins=nbins, range=(xp.min(matrix), xp.max(matrix)))
+    # hist, bin_edges = xp.histogram(matrix.reshape(-1), bins=nbins, range=(matrix.min(), matrix.max()))
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.
     hist = hist / xp.sum(hist)
 

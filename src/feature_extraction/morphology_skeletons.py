@@ -206,6 +206,7 @@ class MorphologySkeletonFeatures:
         branch_aspect_ratios = {label: [] for label in xp.unique(px_branch_label).tolist()}
         for branch_idx, (branch_label, branch_mean_radius) in enumerate(branch_mean_radii.items()):
             branch_aspect_ratios[branch_label] = frame_branch_lengths[branch_label]/branch_mean_radius
+            # todo should this be branch mean radius * 2 instead?
 
         frame_branch_radius = [branch_mean_radii[label] for label in xp.unique(px_branch_label).tolist()]
         self.branch_features['branch_radius'].extend(frame_branch_radius)

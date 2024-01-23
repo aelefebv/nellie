@@ -25,7 +25,7 @@ setup(
         'plotly',
         'seaborn',
         'scikit-image',
-        'cupy-cuda11x',
+        # 'cupy-cuda11x',
     ],
     python_requires='>=3.9',
 )
