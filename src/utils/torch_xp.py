@@ -108,6 +108,11 @@ def ones_like(input_array, dtype=None):
         dtype = torch.bool
     return torch.ones_like(input_array, dtype=dtype)
 
+def ones(shape, dtype=None):
+    if dtype == 'bool':
+        dtype = torch.bool
+    return torch.ones(shape, dtype=dtype)
+
 def asarray(input_array, dtype=None):
     tensor_out = to_tensor(input_array)
     if dtype is not None:

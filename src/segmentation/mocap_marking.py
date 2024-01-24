@@ -1,5 +1,5 @@
 from src.im_info.im_info import ImInfo
-from src import xp, ndi, logger
+from src import xp, ndi, logger, device_type
 from src.utils.general import get_reshaped_image
 from scipy.spatial import cKDTree, distance
 import numpy as np
@@ -89,8 +89,12 @@ class Markers:
     def _distance_im(self, mask):
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
 
-        mask_coords = xp.argwhere(mask).get()
-        border_mask_coords = xp.argwhere(border_mask).get()
+        if device_type == 'cuda':
+            mask_coords = xp.argwhere(mask).get()
+            border_mask_coords = xp.argwhere(border_mask).get()
+        else:
+            mask_coords = xp.argwhere(mask)
+            border_mask_coords = xp.argwhere(border_mask)
 
         # print('Getting distance image')
         border_tree = cKDTree(border_mask_coords)
@@ -106,7 +110,11 @@ class Markers:
         check_im_max = ndi.maximum_filter(check_im, size=3, mode='nearest')
         intensities = check_im_max[coord[:, 0], coord[:, 1], coord[:, 2]]
         idx_maxsort = np.argsort(-intensities)
-        coord_sorted = coord[idx_maxsort].get()
+
+        if device_type == 'cuda':
+            coord_sorted = coord[idx_maxsort].get()
+        else:
+            coord_sorted = coord[idx_maxsort]
 
         # print('Removing peaks that are too close')
         tree = cKDTree(coord_sorted)
@@ -174,7 +182,10 @@ class Markers:
         #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1])
         # else:
         #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1], peak_coords[:, 2])
-        return peak_im.get(), distance_im.get()
+        if device_type == "cuda":
+            return peak_im.get(), distance_im.get()
+        else:
+            return peak_im, distance_im
 
     def _run_mocap_marking(self):
         for t in range(self.num_t):

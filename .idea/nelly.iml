@@ -6,8 +6,10 @@
       <excludeFolder url="file://$MODULE_DIR$/venv312" />
       <excludeFolder url="file://$MODULE_DIR$/venvtorch" />
       <excludeFolder url="file://$MODULE_DIR$/venv_no_torch" />
+      <excludeFolder url="file://$MODULE_DIR$/venv_no_torch_310" />
+      <excludeFolder url="file://$MODULE_DIR$/venv_no_torch_39" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.12 (nelly) (2)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.9 (nelly)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

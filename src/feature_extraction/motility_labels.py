@@ -118,6 +118,8 @@ class CoordMovement:
         return coords_0_all, coords_1_all
 
     def _get_angular_velocity(self, r0, r1):
+        # todo fix for 2d
+
         ang_disp_um = np.divide(np.cross(r0, r1, axis=1).T, (np.linalg.norm(r0, axis=1) * np.linalg.norm(r1, axis=1))).T
 
         ang_vel_um_s = ang_disp_um / self.im_info.dim_sizes['T']

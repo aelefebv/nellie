@@ -142,10 +142,10 @@ class HuMomentTracking:
         # Extract sub-volumes
         for i in range(len(y_low)):
             if self.im_info.no_z:
-                yl, yh, xl, xh = y_low[i], y_high[i], x_low[i], x_high[i]
+                yl, yh, xl, xh = int(y_low[i]), int(y_high[i]), int(x_low[i]), int(x_high[i])
                 sub_volumes[i, :yh - yl, :xh - xl] = im_frame[yl:yh, xl:xh]
             else:
-                zl, zh, yl, yh, xl, xh = z_low[i], z_high[i], y_low[i], y_high[i], x_low[i], x_high[i]
+                zl, zh, yl, yh, xl, xh = int(z_low[i]), int(z_high[i]), int(y_low[i]), int(y_high[i]), int(x_low[i]), int(x_high[i])
                 sub_volumes[i, :zh - zl, :yh - yl, :xh - xl] = im_frame[zl:zh, yl:yh, xl:xh]
 
         return sub_volumes
@@ -363,8 +363,12 @@ class HuMomentTracking:
             # tracks = []
             # track_props = {'costs': []}
             # for track_num, (coord, vec) in enumerate(zip(pre_marker_indices, vecs)):
-            #     tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-            #     tracks.append([track_num, 1, coord[0] + vec[0], coord[1] + vec[1], coord[2] + vec[2]])
+            #     if self.im_info.no_z:
+            #         tracks.append([track_num, 0, coord[0], coord[1]])
+            #         tracks.append([track_num, 1, coord[0] + vec[0], coord[1] + vec[1]])
+            #     else:
+            #         tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
+            #         tracks.append([track_num, 1, coord[0] + vec[0], coord[1] + vec[1], coord[2] + vec[2]])
             #     curr_cost = costs[track_num]
             #     # curr_cost = min(curr_cost, 0)
             #     curr_cost = max(curr_cost, -1.5)
