@@ -14,23 +14,23 @@ from src.tracking.voxel_reassignment import VoxelReassigner
 def run(im_path, num_t=None, remove_edges=True, ch=0):
     im_info = ImInfo(im_path, ch=ch)
 
-    preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
-    preprocessing.run()
+    # preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
+    # preprocessing.run()
+    #
+    # segmenting = Label(im_info, num_t)
+    # segmenting.run()
+    #
+    # networking = Network(im_info, num_t)
+    # networking.run()
+    #
+    # mocap_marking = Markers(im_info, num_t)
+    # mocap_marking.run()
+    #
+    # hu_tracking = HuMomentTracking(im_info, num_t)
+    # hu_tracking.run()
 
-    segmenting = Label(im_info, num_t)
-    segmenting.run()
-
-    networking = Network(im_info, num_t)
-    networking.run()
-
-    mocap_marking = Markers(im_info, num_t)
-    mocap_marking.run()
-
-    hu_tracking = HuMomentTracking(im_info, num_t)
-    hu_tracking.run()
-
-    # vox_reassign = VoxelReassigner(im_info, num_t)
-    # vox_reassign.run()
+    vox_reassign = VoxelReassigner(im_info, num_t)
+    vox_reassign.run()
 
     # morphology_skeleton_features = MorphologySkeletonFeatures(im_info, num_t)
     # morphology_skeleton_features.run()
@@ -38,11 +38,11 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
     # morphology_label_features = MorphologyLabelFeatures(im_info, num_t)
     # morphology_label_features.run()
 
-    motility_label_features = CoordMovement(im_info, num_t)
-    motility_label_features.run()
-
-    graph_builder = GraphBuilder(im_info, num_t)
-    graph_builder.run()
+    # motility_label_features = CoordMovement(im_info, num_t)
+    # motility_label_features.run()
+    #
+    # graph_builder = GraphBuilder(im_info, num_t)
+    # graph_builder.run()
 
     return im_info
 
