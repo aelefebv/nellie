@@ -82,7 +82,10 @@ class MorphologySkeletonFeatures:
         bad_coords_matrix = valid_dist * ~label_array
         bad_idxs = np.argwhere(bad_coords_matrix).flatten()
 
-        branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs], branch_px[2][bad_idxs]] = 0
+        if not self.im_info.no_z:
+            branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs], branch_px[2][bad_idxs]] = 0
+        else:
+            branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs]] = 0
         px_class = branch_pixel_class[branch_px]
         px_branch_label = branch_labels[branch_px]
         dist = dist * label_array

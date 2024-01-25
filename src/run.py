@@ -29,17 +29,17 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
     # hu_tracking = HuMomentTracking(im_info, num_t)
     # hu_tracking.run()
 
-    vox_reassign = VoxelReassigner(im_info, num_t)
-    vox_reassign.run()
+    # vox_reassign = VoxelReassigner(im_info, num_t)
+    # vox_reassign.run()
 
-    # morphology_skeleton_features = MorphologySkeletonFeatures(im_info, num_t)
-    # morphology_skeleton_features.run()
-    #
-    # morphology_label_features = MorphologyLabelFeatures(im_info, num_t)
-    # morphology_label_features.run()
+    morphology_skeleton_features = MorphologySkeletonFeatures(im_info, num_t)
+    morphology_skeleton_features.run()
 
-    # motility_label_features = CoordMovement(im_info, num_t)
-    # motility_label_features.run()
+    morphology_label_features = MorphologyLabelFeatures(im_info, num_t)
+    morphology_label_features.run()
+
+    motility_label_features = CoordMovement(im_info, num_t)
+    motility_label_features.run()
     #
     # graph_builder = GraphBuilder(im_info, num_t)
     # graph_builder.run()
@@ -49,7 +49,7 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 if __name__ == "__main__":
     im_path = "/Users/austin/test_files/nelly/ND Stimulation Parallel 12.nd2"
-    im_info = run(im_path, remove_edges=False, ch=0, num_t=3)
+    im_info = run(im_path, remove_edges=False, ch=0, num_t=4)
 
     # # im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     # # im_info = run(im_path, remove_edges=True, num_t=3)
