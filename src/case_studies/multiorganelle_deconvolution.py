@@ -35,8 +35,8 @@ label_types = ['organelle', 'branch']
 #  theoretically, if motility and morphology are both important, our combo model will outperform the individual models.
 df_types = ['combo', 'motility', 'morphology']
 
-for label_type in label_types:
-    for df_type_to_use in df_types:
+for label_type in label_types[:1]:
+    for df_type_to_use in df_types[:1]:
         # generate a random guess line for plotting purposes
         r_x, r_y = [0, 1], [0, 1]
         plt.figure(figsize=(10, 10))
@@ -48,7 +48,7 @@ for label_type in label_types:
         # we have 11 files, so we will leave out one file at a time and train on the rest,
         #  then test on the left out file
         #  we will average the results from all 11 tests to get the final result
-        for file_to_leave_out in range(len(all_files)):
+        for file_to_leave_out in range(len(all_files[:1])):
             print(f'Leaving out file {file_to_leave_out + 1} of {len(all_files)}')
             test_file = all_files[file_to_leave_out]
 
@@ -113,6 +113,9 @@ for label_type in label_types:
                 raise ValueError(f'Invalid df_type_to_use: {df_type_to_use}')
 
             test_df_to_use = test_df_to_use.replace([np.inf, -np.inf], np.nan)
+            na_indices = test_df_to_use.isna().any(axis=1)
+            # remove na_indices from regions
+            non_0_all_regions = [region for region_num, region in enumerate(non_0_all_regions) if not na_indices[region_num]]
             test_df_to_use = test_df_to_use.dropna()
             test_df_to_use.reset_index(drop=True, inplace=True)
             og_test_df = test_df_to_use.copy()
@@ -204,7 +207,7 @@ for label_type in label_types:
             # train a model on all but test file with combined branch data from all files
             # train a morphology only model, a motility only model, and a combined model
 
-            # # Volcano plot stuff
+            # Volcano plot stuff
             # group1 = test_df_to_use[og_test_df['gt_ch'] == 0]
             # group2 = test_df_to_use[og_test_df['gt_ch'] == 1]
             #
@@ -219,6 +222,9 @@ for label_type in label_types:
             #     'Log2FoldChange': np.log2(fold_changes),
             #     '-Log10PValue': -np.log10(p_values)
             # })
+            # # save df
+            # volcano_save_path = os.path.join(top_dir, 'output', f'volcano_df-{label_type}-{df_type_to_use}-{file_to_leave_out}.csv')
+            # volcano_df.to_csv(volcano_save_path, index=False)
             #
             # # Plotting the Volcano Plot with Annotations
             # plt.figure(figsize=(12, 8))
@@ -254,6 +260,11 @@ for label_type in label_types:
             # test the model on the test file, have it generate a vector assigning branches to the golgi channel or mito channel (0 or 1)
             y_pred = clf.predict(test_standardized_features)
 
+            # # get feature importances
+            # feature_importances = pd.DataFrame(clf.feature_importances_, index=train_df_to_use.columns, columns=['importance']).sort_values('importance', ascending=False)
+            # # save to csv
+            # feature_importances.to_csv(os.path.join(top_dir, 'output', f'feature_importances-{label_type}-{df_type_to_use}-{file_to_leave_out}.csv'))
+
             # evaluate the model: compare the vector to the ground truth for metrics
             report = classification_report(og_test_df['gt_ch'], y_pred, output_dict=True)
 
@@ -274,6 +285,28 @@ for label_type in label_types:
             roc_aucs.append(roc_auc)
 
             plt.plot(fpr, tpr, marker='.')
+
+            # wrong_labels = []
+            # for region_num, region in enumerate(non_0_all_regions):
+            #     if y_pred[region_num] != og_test_df['gt_ch'][region_num]:
+            #         wrong_labels.append(region_num)
+            #
+            # # recolor labels based on prediction
+            # new_label_im = np.zeros(test_all_labels.shape, dtype=np.uint8)
+            # for region_num, region in enumerate(non_0_all_regions):
+            #     new_label_im[region.coords[:, 0], region.coords[:, 1], region.coords[:, 2]] = y_pred[region_num] + 1
+            #
+            # wrong_label_im = np.zeros(test_all_labels.shape, dtype=np.uint8)
+            # for region_num, region in enumerate(non_0_all_regions):
+            #     if region_num in wrong_labels:
+            #         wrong_label_im[region.coords[:, 0], region.coords[:, 1], region.coords[:, 2]] = 1
+            #     else:
+            #         wrong_label_im[region.coords[:, 0], region.coords[:, 1], region.coords[:, 2]] = 2
+            #
+            # y_prob_im = np.zeros(test_all_labels.shape, dtype=np.float32)
+            # for region_num, region in enumerate(non_0_all_regions):
+            #     y_prob_im[region.coords[:, 0], region.coords[:, 1], region.coords[:, 2]] = y_prob[region_num]
+
         plt.plot(r_x, r_y, linestyle='--')
         plt.title('ROC Curve')
         plt.xlabel('False Positive Rate')

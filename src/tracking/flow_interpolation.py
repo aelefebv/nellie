@@ -265,9 +265,12 @@ if __name__ == "__main__":
     for coord in coords:
         if 450 < coord[-1] < 650 and 600 < coord[-2] < 750:
             new_coords.append(coord)
-    coords = np.array(new_coords[::3])
+    coords = np.array(new_coords[::1])
     tracks, track_properties = interpolate_all_forward(coords, start_frame, 3, im_info)
-
+    # reduce all of the second column by 1
+    # tracks_np = np.array(tracks)
+    # tracks_np[:, 1] += 1
+    # tracks = tracks_np.tolist()
     # tracks = []
     # for coord_num, coord in enumerate(coords):
     #     tracks.append([coord_num, start_frame, coord[0], coord[1]])
