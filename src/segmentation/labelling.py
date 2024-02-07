@@ -1,5 +1,5 @@
 from src.im_info.im_info import ImInfo
-from src import xp, ndi, logger
+from src import xp, ndi, logger, device_type
 from src.utils.general import get_reshaped_image
 from src.utils.gpu_functions import otsu_threshold, triangle_threshold
 
@@ -197,10 +197,12 @@ class Label:
     def _run_segmentation(self):
         for t in range(self.num_t):
             labels = self._run_frame(t)
+            if device_type == 'cuda':
+                labels = labels.get()
             if self.im_info.no_t:
-                self.instance_label_memmap[:] = labels.get()[:]
+                self.instance_label_memmap[:] = labels[:]
             else:
-                self.instance_label_memmap[t, ...] = labels.get()
+                self.instance_label_memmap[t, ...] = labels
 
     def run(self):
         logger.info('Running semantic segmentation.')

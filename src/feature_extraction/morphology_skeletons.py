@@ -82,7 +82,10 @@ class MorphologySkeletonFeatures:
         bad_coords_matrix = valid_dist * ~label_array
         bad_idxs = np.argwhere(bad_coords_matrix).flatten()
 
-        branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs], branch_px[2][bad_idxs]] = 0
+        if not self.im_info.no_z:
+            branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs], branch_px[2][bad_idxs]] = 0
+        else:
+            branch_mask[branch_px[0][bad_idxs], branch_px[1][bad_idxs]] = 0
         px_class = branch_pixel_class[branch_px]
         px_branch_label = branch_labels[branch_px]
         dist = dist * label_array
@@ -206,6 +209,7 @@ class MorphologySkeletonFeatures:
         branch_aspect_ratios = {label: [] for label in xp.unique(px_branch_label).tolist()}
         for branch_idx, (branch_label, branch_mean_radius) in enumerate(branch_mean_radii.items()):
             branch_aspect_ratios[branch_label] = frame_branch_lengths[branch_label]/branch_mean_radius
+            # todo should this be branch mean radius * 2 instead?
 
         frame_branch_radius = [branch_mean_radii[label] for label in xp.unique(px_branch_label).tolist()]
         self.branch_features['branch_radius'].extend(frame_branch_radius)

@@ -117,16 +117,43 @@ class CoordMovement:
         coords_1_all[bad_idxs] = np.nan
         return coords_0_all, coords_1_all
 
+    def _get_angular_velocity_2d(self, r0, r1):
+        # Calculate angles of r0 and r1 relative to x-axis
+        theta0 = np.arctan2(r0[:, 1], r0[:, 0])
+        theta1 = np.arctan2(r1[:, 1], r1[:, 0])
+
+        # Angular displacement: Difference of angles
+        ang_disp = theta1 - theta0
+
+        # Normalize angular displacement to the range (-pi, pi)
+        ang_disp = (ang_disp + np.pi) % (2 * np.pi) - np.pi
+
+        # Angular velocity: Angular displacement divided by the time interval
+        ang_vel = ang_disp / self.im_info.dim_sizes['T']
+
+        # For 2D, the magnitude and orientation are the same as the angular velocity itself
+        ang_vel_magnitude = np.abs(ang_vel)
+        # There isn't an orientation for 2D, so just use the sign of the angular velocity
+        ang_vel_orientation = np.sign(ang_vel)
+
+        return ang_vel, ang_vel_magnitude, ang_vel_orientation
+
     def _get_angular_velocity(self, r0, r1):
-        ang_disp_um = np.divide(np.cross(r0, r1, axis=1).T, (np.linalg.norm(r0, axis=1) * np.linalg.norm(r1, axis=1))).T
+        if self.im_info.no_z:
+            ang_vel_um_s, ang_vel_magnitude, ang_vel_orientation = (
+                self._get_angular_velocity_2d(r0, r1)
+            )
+        # todo fix for 2d
+        else:
+            ang_disp_um = np.divide(np.cross(r0, r1, axis=1).T, (np.linalg.norm(r0, axis=1) * np.linalg.norm(r1, axis=1))).T
 
-        ang_vel_um_s = ang_disp_um / self.im_info.dim_sizes['T']
+            ang_vel_um_s = ang_disp_um / self.im_info.dim_sizes['T']
 
-        ang_vel_magnitude = np.linalg.norm(ang_vel_um_s, axis=1)
+            ang_vel_magnitude = np.linalg.norm(ang_vel_um_s, axis=1)
 
-        ang_vel_orientation = (ang_vel_um_s.T / ang_vel_magnitude).T
-        ang_vel_orientation = np.where(np.isnan(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
-        ang_vel_orientation = np.where(np.isinf(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
+            ang_vel_orientation = (ang_vel_um_s.T / ang_vel_magnitude).T
+            ang_vel_orientation = np.where(np.isnan(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
+            ang_vel_orientation = np.where(np.isinf(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
 
         return ang_vel_um_s, ang_vel_magnitude, ang_vel_orientation
 
@@ -176,9 +203,13 @@ class CoordMovement:
 
 
         com_ang_acc_vec = (com_ang_vel_vec_12 - com_ang_vel_vec_01) / self.im_info.dim_sizes['T']
-        com_ang_acc_mag = np.linalg.norm(com_ang_acc_vec, axis=1)
-        com_ang_ori_change = (com_ang_vel_ori_12 - com_ang_vel_ori_01) / self.im_info.dim_sizes['T']
-        com_ang_acc_ori = com_ang_acc_vec / com_ang_acc_mag[:, None]
+
+        if not self.im_info.no_z:
+            com_ang_acc_mag = np.linalg.norm(com_ang_acc_vec, axis=1)
+        else:
+            com_ang_acc_mag = np.abs(com_ang_acc_vec)
+        # com_ang_ori_change = (com_ang_vel_ori_12 - com_ang_vel_ori_01) / self.im_info.dim_sizes['T']
+        # com_ang_acc_ori = com_ang_acc_vec / com_ang_acc_mag[:, None]
 
         self.feature_df['com_ang_vel_mag_01'] = com_ang_vel_mag_01
         self.feature_df['com_ang_vel_mag_12'] = com_ang_vel_mag_12
@@ -189,8 +220,8 @@ class CoordMovement:
 
         com_lin_acc_vec = (com_lin_vel_vec_12 - com_lin_vel_vec_01) / self.im_info.dim_sizes['T']
         com_lin_acc_mag = np.linalg.norm(com_lin_acc_vec, axis=1)
-        com_lin_ori_change = (com_lin_vel_ori_12 - com_lin_vel_ori_01) / self.im_info.dim_sizes['T']
-        com_lin_acc_ori = com_lin_acc_vec / com_lin_acc_mag[:, None]
+        # com_lin_ori_change = (com_lin_vel_ori_12 - com_lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        # com_lin_acc_ori = com_lin_acc_vec / com_lin_acc_mag[:, None]
 
         self.feature_df['com_lin_vel_mag_01'] = com_lin_vel_mag_01
         self.feature_df['com_lin_vel_mag_12'] = com_lin_vel_mag_12
@@ -219,9 +250,12 @@ class CoordMovement:
         rel_ang_vel_vec_12, rel_ang_vel_mag_12, rel_ang_vel_ori_12 = self._get_angular_velocity(r1_rel_12, r2_rel_12)
 
         rel_ang_acc_vec = (rel_ang_vel_vec_12 - rel_ang_vel_vec_01) / self.im_info.dim_sizes['T']
-        rel_ang_acc_mag = np.linalg.norm(rel_ang_acc_vec, axis=1)
-        rel_ang_ori_change = (rel_ang_vel_ori_12 - rel_ang_vel_ori_01) / self.im_info.dim_sizes['T']
-        rel_ang_acc_ori = rel_ang_acc_vec / rel_ang_acc_mag[:, None]
+        if not self.im_info.no_z:
+            rel_ang_acc_mag = np.linalg.norm(rel_ang_acc_vec, axis=1)
+        else:
+            rel_ang_acc_mag = np.abs(rel_ang_acc_vec)
+        # rel_ang_ori_change = (rel_ang_vel_ori_12 - rel_ang_vel_ori_01) / self.im_info.dim_sizes['T']
+        # rel_ang_acc_ori = rel_ang_acc_vec / rel_ang_acc_mag[:, None]
 
         self.feature_df['rel_ang_vel_mag_01'] = rel_ang_vel_mag_01
         self.feature_df['rel_ang_vel_mag_12'] = rel_ang_vel_mag_12
@@ -232,8 +266,8 @@ class CoordMovement:
 
         rel_lin_acc_vec = (rel_lin_vel_vec_12 - rel_lin_vel_vec_01) / self.im_info.dim_sizes['T']
         rel_lin_acc_mag = np.linalg.norm(rel_lin_acc_vec, axis=1)
-        rel_lin_ori_change = (rel_lin_vel_ori_12 - rel_lin_vel_ori_01) / self.im_info.dim_sizes['T']
-        rel_lin_acc_ori = rel_lin_acc_vec / rel_lin_acc_mag[:, None]
+        # rel_lin_ori_change = (rel_lin_vel_ori_12 - rel_lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        # rel_lin_acc_ori = rel_lin_acc_vec / rel_lin_acc_mag[:, None]
 
         self.feature_df['rel_lin_vel_mag_01'] = rel_lin_vel_mag_01
         self.feature_df['rel_lin_vel_mag_12'] = rel_lin_vel_mag_12
@@ -244,8 +278,8 @@ class CoordMovement:
 
         lin_acc_vec = (lin_vel_vec_12 - lin_vel_vec_01) / self.im_info.dim_sizes['T']
         lin_acc_mag = np.linalg.norm(lin_acc_vec, axis=1)
-        lin_ori_change = (lin_vel_ori_12 - lin_vel_ori_01) / self.im_info.dim_sizes['T']
-        lin_acc_ori = lin_acc_vec / lin_acc_mag[:, None]
+        # lin_ori_change = (lin_vel_ori_12 - lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        # lin_acc_ori = lin_acc_vec / lin_acc_mag[:, None]
 
         self.feature_df['lin_vel_mag_01'] = lin_vel_mag_01
         self.feature_df['lin_vel_mag_12'] = lin_vel_mag_12
@@ -256,8 +290,9 @@ class CoordMovement:
 
         ref_lin_acc_vec = (ref_lin_vel_vec_12 - ref_lin_vel_vec_01) / self.im_info.dim_sizes['T']
         ref_lin_acc_mag = np.linalg.norm(ref_lin_acc_vec, axis=1)
-        ref_lin_ori_change = (ref_lin_vel_ori_12 - ref_lin_vel_ori_01) / self.im_info.dim_sizes['T']
-        ref_lin_acc_ori = ref_lin_acc_vec / ref_lin_acc_mag[:, None]
+
+        # ref_lin_ori_change = (ref_lin_vel_ori_12 - ref_lin_vel_ori_01) / self.im_info.dim_sizes['T']
+        # ref_lin_acc_ori = ref_lin_acc_vec / ref_lin_acc_mag[:, None]
 
         self.feature_df['ref_lin_vel_mag_01'] = ref_lin_vel_mag_01
         self.feature_df['ref_lin_vel_mag_12'] = ref_lin_vel_mag_12

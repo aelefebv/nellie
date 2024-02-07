@@ -1,4 +1,4 @@
-from src import xp, ndi, logger
+from src import xp, ndi, logger, device_type
 from src.im_info.im_info import ImInfo
 from src.utils.general import get_reshaped_image
 import skimage.morphology as morph
@@ -46,7 +46,9 @@ class Network:
         self.debug = None
 
     def _remove_connected_label_pixels(self, skel_labels):
-        skel_labels = skel_labels.get()
+        if device_type == 'cuda':
+            skel_labels = skel_labels.get()
+
         if self.im_info.no_z:
             height, width = skel_labels.shape
         else:
@@ -187,8 +189,18 @@ class Network:
         skel_mask = xp.array(branch_skel_labels > 0).astype('uint8')
         label_mask = xp.array(label_frame > 0).astype('uint8')
         skel_border = (ndi.binary_dilation(skel_mask, iterations=1, structure=structure) ^ skel_mask) * label_mask
-        vox_matched = np.argwhere((branch_skel_labels > 0).get())
-        vox_next_unmatched = np.argwhere(skel_border.get())
+        skel_label_mask = (branch_skel_labels > 0)
+        
+        if device_type == 'cuda':
+            skel_label_mask = skel_label_mask.get()
+
+        vox_matched = np.argwhere(skel_label_mask)
+
+        if device_type == 'cuda':
+            vox_next_unmatched = np.argwhere(skel_border.get())
+        else:
+            vox_next_unmatched = np.argwhere(skel_border)
+
         unmatched_diff = np.inf
         while True:
             num_unmatched = len(vox_next_unmatched)
@@ -206,11 +218,21 @@ class Network:
             matched_labels = branch_skel_labels[tuple(np.transpose(unmatched_matches[:, 0]))]
             relabelled_labels[tuple(np.transpose(unmatched_matches[:, 1]))] = matched_labels
             branch_skel_labels = relabelled_labels.copy()
-            vox_matched = np.argwhere((relabelled_labels > 0).get())
-            relabelled_mask = xp.array(relabelled_labels > 0).astype('uint8')
+            relabelled_labels_mask = relabelled_labels > 0
+
+            if device_type == 'cuda':
+                relabelled_labels_mask = relabelled_labels_mask.get()
+
+            vox_matched = np.argwhere(relabelled_labels_mask)
+            relabelled_mask = relabelled_labels_mask.astype('uint8')
             # add unmatched matches to coords_matched
             skel_border = (ndi.binary_dilation(relabelled_mask, iterations=1, structure=structure) - relabelled_mask) * label_mask
-            vox_next_unmatched = np.argwhere(skel_border.get())
+
+            if device_type == 'cuda':
+                vox_next_unmatched = np.argwhere(skel_border.get())
+            else:
+                vox_next_unmatched = np.argwhere(skel_border)
+
             new_num_unmatched = len(vox_next_unmatched)
             unmatched_diff_temp = abs(num_unmatched - new_num_unmatched)
             if unmatched_diff_temp == unmatched_diff:
@@ -320,7 +342,10 @@ class Network:
         # else:
         #     structure = xp.ones((3, 3, 3))
         # final_skel, _ = ndi.label(skel > 0, structure=structure)
-        skel_pre = (skel.get() > 0) * label_frame
+        if device_type == 'cuda':
+            skel = skel.get()
+
+        skel_pre = (skel > 0) * label_frame
         pixel_class = self._get_pixel_class(skel_pre)
         branch_skel_labels = self._get_branch_skel_labels(pixel_class)
         branch_labels = self._relabel_objects(branch_skel_labels, label_frame)
@@ -348,13 +373,23 @@ class Network:
             skel, pixel_class, skel_relabelled_memmap = self._run_frame(t)
             # pixel_class = self._clean_junctions(pixel_class)
             if self.im_info.no_t:
-                self.skel_memmap[:] = skel[:].get()
-                self.pixel_class_memmap[:] = pixel_class[:].get()
-                self.skel_relabelled_memmap[:] = skel_relabelled_memmap[:].get()
+                if device_type == 'cuda':
+                    self.skel_memmap[:] = skel[:].get()
+                    self.pixel_class_memmap[:] = pixel_class[:].get()
+                    self.skel_relabelled_memmap[:] = skel_relabelled_memmap[:].get()
+                else:
+                    self.skel_memmap[:] = skel[:]
+                    self.pixel_class_memmap[:] = pixel_class[:]
+                    self.skel_relabelled_memmap[:] = skel_relabelled_memmap[:]
             else:
-                self.skel_memmap[t] = skel.get()
-                self.pixel_class_memmap[t] = pixel_class.get()
-                self.skel_relabelled_memmap[t] = skel_relabelled_memmap.get()
+                if device_type == 'cuda':
+                    self.skel_memmap[t] = skel.get()
+                    self.pixel_class_memmap[t] = pixel_class.get()
+                    self.skel_relabelled_memmap[t] = skel_relabelled_memmap.get()
+                else:
+                    self.skel_memmap[t] = skel
+                    self.pixel_class_memmap[t] = pixel_class
+                    self.skel_relabelled_memmap[t] = skel_relabelled_memmap
             # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
             # label_frame = xp.asarray(self.label_memmap[t])
             # intensity_frame = xp.asarray(self.im_memmap[t])

@@ -3,8 +3,9 @@ from itertools import combinations_with_replacement
 from src import logger
 from src.im_info.im_info import ImInfo
 from src.utils.general import get_reshaped_image, bbox
-from src import xp, ndi
 import numpy as np
+# xp=np
+from src import ndi, xp, device_type
 
 from src.utils.gpu_functions import triangle_threshold, otsu_threshold
 
@@ -72,14 +73,15 @@ class Filter:
         sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / num_sigma
         sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)  # Avoid taking too small of steps.
 
-        self.sigmas = list(xp.arange(self.sigma_min, self.sigma_max, sigma_step_size))
+        self.sigmas = list(np.arange(self.sigma_min, self.sigma_max, sigma_step_size))
         logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
     def _gauss_filter(self, sigma, t=None):
         # if self.sigma_vec is None:
         self._get_sigma_vec(sigma)
-        gauss_volume = xp.asarray(self.im_memmap[t, ...]).astype('double')
+        gauss_volume = xp.asarray(self.im_memmap[t, ...], dtype='double')
         logger.debug(f'Gaussian filtering {t=} with {self.sigma_vec=}.')
+
         gauss_volume = ndi.gaussian_filter(gauss_volume, sigma=self.sigma_vec,
                                            mode='reflect', cval=0.0, truncate=3).astype('double')
         return gauss_volume
@@ -94,14 +96,17 @@ class Filter:
     def _compute_hessian(self, image):
         gradients = xp.gradient(image)
         axes = range(image.ndim)
-        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1).astype('float16')
+        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)#.astype('float16')
                    for ax0, ax1 in combinations_with_replacement(axes, 2)])
         h_mask = self._get_frob_mask(h_elems)
         if self.remove_edges:
             h_mask = self._remove_edges(h_mask)
 
         if self.im_info.no_z:
-            hxx, hxy, hyy = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
+            if device_type == 'cuda':
+                hxx, hxy, hyy = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
+            else:
+                hxx, hxy, hyy = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask]]
             hessian_matrices = np.concatenate([
                 np.concatenate([hxx, hxy], axis=-1),
                 np.concatenate([hxy, hyy], axis=-1)
@@ -152,11 +157,10 @@ class Filter:
         return eigenvalues_flat
 
     def _filter_hessian(self, eigenvalues, gamma_sq):
-        eigenvalues = eigenvalues.astype('float64')
+        #eigenvalues = eigenvalues.astype('float64')
         alpha_sq = 0.5
         beta_sq = 0.5
         if self.im_info.no_z:
-            # todo showing accentuation of round objects. need to adjust..
             rb_sq = (xp.abs(eigenvalues[:, 0]) / xp.abs(eigenvalues[:, 1])) ** 2
             # rb_sq = (xp.abs(eigenvalues[:, 0])) ** 2 / (xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))
             # rb_sq = (xp.abs(eigenvalues[:, 0]) / xp.sqrt(xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))) ** 2
@@ -195,9 +199,9 @@ class Filter:
     def _run_frame(self, t):
         logger.info(f'Running frangi filter on {t=}.')
 
-        vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
-        temp = xp.zeros_like(self.im_memmap[t, ...], dtype='double')
-        masks = xp.ones_like(self.im_memmap[t, ...])
+        vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='float64')
+        temp = xp.zeros_like(self.im_memmap[t, ...], dtype='float64')
+        masks = xp.ones_like(self.im_memmap[t, ...], dtype='bool')
 
         for sigma_num, sigma in enumerate(self.sigmas):
             gauss_volume = self._gauss_filter(sigma, t)
@@ -252,10 +256,14 @@ class Filter:
                 filtered_im = log_frame
             else:
                 filtered_im = frangi_frame
+
+            if device_type == 'cuda':
+                filtered_im = filtered_im.get()
+
             if self.im_info.no_t:
-                self.frangi_memmap[:] = filtered_im.get()[:]
+                self.frangi_memmap[:] = filtered_im[:]
             else:
-                self.frangi_memmap[t, ...] = filtered_im.get()
+                self.frangi_memmap[t, ...] = filtered_im
 
     def run(self):
         logger.info('Running frangi filter.')
