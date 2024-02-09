@@ -10,6 +10,7 @@ from typing import Union, Type
 class ImInfo:
     def __init__(self, im_path: str,
                  output_dirpath: str = None,
+                 screenshot_dirpath: str = None,
                  ch: int = None,
                  dim_sizes: dict = None,
                  dimension_order: str = '',
@@ -26,8 +27,10 @@ class ImInfo:
         self.basename_no_ext = os.path.splitext(self.basename)[0]
         self.dirname = os.path.basename(os.path.dirname(self.im_path))
         self.input_dir = os.path.dirname(self.im_path)
-        self.output_dir = output_dirpath or os.path.join(self.input_dir, 'output')
+        self.output_dir = output_dirpath or os.path.join(self.input_dir, 'nelle_output')
         self.output_dir = self.output_dir + self.output_suffix
+        self.screenshot_dir = screenshot_dirpath or os.path.join(self.output_dir, 'screenshots')
+        self.screenshot_dir = self.screenshot_dir + self.output_suffix
 
         self.shape = ()
         self.metadata = None
@@ -72,10 +75,6 @@ class ImInfo:
         self.create_output_path('rel_lin_acc_mag')
         self.create_output_path('graph_features', ext='.csv')
         self.create_output_path('graph_edges', ext='.csv')
-
-
-
-
 
     def _create_output_dir(self):
         if not os.path.isdir(self.output_dir):
@@ -220,7 +219,7 @@ class ImInfo:
     def _load_nd2(self):
         with nd2.ND2File(self.im_path) as nd2_file:
             self.metadata = nd2_file.metadata.channels[self.ch]
-            self.metadata.recorded_data = nd2_file.recorded_data
+            self.metadata.recorded_data = nd2_file.events(orient='list')
             self.metadata_type = 'nd2'
             if self.axes == '':
                 self.axes = ''.join(nd2_file.sizes.keys())
