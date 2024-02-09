@@ -13,7 +13,7 @@ from src.utils.gpu_functions import triangle_threshold, otsu_threshold
 class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=True,
-                 min_radius_um=0.20, max_radius_um=1):
+                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5):
         self.im_info = im_info
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
@@ -33,6 +33,9 @@ class Filter:
 
         self.sigma_vec = None
         self.sigmas = None
+
+        self.alpha_sq = alpha_sq
+        self.beta_sq = beta_sq
 
     def _get_t(self):
         if self.num_t is None:
@@ -160,9 +163,6 @@ class Filter:
         return eigenvalues_flat
 
     def _filter_hessian(self, eigenvalues, gamma_sq):
-        #eigenvalues = eigenvalues.astype('float64')
-        alpha_sq = 0.5
-        beta_sq = 0.5
         if self.im_info.no_z:
             rb_sq = (xp.abs(eigenvalues[:, 0]) / xp.abs(eigenvalues[:, 1])) ** 2
             # rb_sq = (xp.abs(eigenvalues[:, 0])) ** 2 / (xp.abs(eigenvalues[:, 0] * eigenvalues[:, 1]))
@@ -171,12 +171,12 @@ class Filter:
             # s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2))) ** 2
             s_sq = (eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2)
             # s_sq = rb_sq
-            filtered_im = (xp.exp(-(rb_sq / beta_sq))) * (1 - xp.exp(-(s_sq / gamma_sq)))
+            filtered_im = (xp.exp(-(rb_sq / self.beta_sq))) * (1 - xp.exp(-(s_sq / gamma_sq)))
         else:
             ra_sq = (xp.abs(eigenvalues[:, 1]) / xp.abs(eigenvalues[:, 2])) ** 2
             rb_sq = (xp.abs(eigenvalues[:, 1]) / xp.sqrt(xp.abs(eigenvalues[:, 1] * eigenvalues[:, 2]))) ** 2
             s_sq = (xp.sqrt((eigenvalues[:, 0] ** 2) + (eigenvalues[:, 1] ** 2) + (eigenvalues[:, 2] ** 2))) ** 2
-            filtered_im = (1 - xp.exp(-(ra_sq / alpha_sq))) * (xp.exp(-(rb_sq / beta_sq))) * \
+            filtered_im = (1 - xp.exp(-(ra_sq / self.alpha_sq))) * (xp.exp(-(rb_sq / self.beta_sq))) * \
                           (1 - xp.exp(-(s_sq / gamma_sq)))
         # if self.im_info.no_z:
         #     filtered_im[eigenvalues[:, 0] > 0] = 0
