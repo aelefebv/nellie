@@ -241,6 +241,10 @@ class ImInfo:
             logger.error(f"Error loading file {self.im_path}")
             raise e
 
+        if 'Q' in self.axes:
+            # change to T
+            self.axes = self.axes.replace('Q', 'T')
+
         accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
         if self.axes not in accepted_axes:
             # todo, have user optionally specify axes

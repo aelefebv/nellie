@@ -497,7 +497,7 @@ class CoordMovement:
         self._run_coord_movement_analysis()
 
 if __name__ == "__main__":
-    tif_file = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    tif_file = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     im_info = ImInfo(tif_file)
-    run_obj = CoordMovement(im_info)
+    run_obj = CoordMovement(im_info, num_t=3)
     run_obj.run()

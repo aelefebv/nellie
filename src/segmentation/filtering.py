@@ -93,12 +93,15 @@ class Filter:
         # gamma = (gamma_tri + gamma_otsu) / 2
         return gamma
 
-    def _compute_hessian(self, image):
+    def _compute_hessian(self, image, mask=True):
         gradients = xp.gradient(image)
         axes = range(image.ndim)
         h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)#.astype('float16')
                    for ax0, ax1 in combinations_with_replacement(axes, 2)])
-        h_mask = self._get_frob_mask(h_elems)
+        if mask:
+            h_mask = self._get_frob_mask(h_elems)
+        else:
+            h_mask = xp.ones_like(image, dtype='bool')
         if self.remove_edges:
             h_mask = self._remove_edges(h_mask)
 
@@ -196,7 +199,7 @@ class Filter:
         lapofg_min_proj = lapofg
         return lapofg_min_proj
 
-    def _run_frame(self, t):
+    def _run_frame(self, t, mask=True):
         logger.info(f'Running frangi filter on {t=}.')
 
         vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='float64')
@@ -209,7 +212,7 @@ class Filter:
             gamma = self._calculate_gamma(gauss_volume)
             gamma_sq = 2 * gamma ** 2
 
-            h_mask, hessian_matrices = self._compute_hessian(gauss_volume)
+            h_mask, hessian_matrices = self._compute_hessian(gauss_volume, mask=mask)
             eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
 
             temp[h_mask] = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
@@ -244,9 +247,9 @@ class Filter:
             # frangi_frame[z_idx, :, cmax - 10:cmax + 1] = 0
         return frangi_frame
 
-    def _run_filter(self):
+    def _run_filter(self, mask=True):
         for t in range(self.num_t):
-            frangi_frame = self._run_frame(t)
+            frangi_frame = self._run_frame(t, mask=mask)
             # if self.remove_edges:
             #     frangi_frame = self._remove_edges(frangi_frame)
             frangi_frame = self._mask_volume(frangi_frame)#.get()
@@ -264,13 +267,14 @@ class Filter:
                 self.frangi_memmap[:] = filtered_im[:]
             else:
                 self.frangi_memmap[t, ...] = filtered_im
+            self.frangi_memmap.flush()
 
-    def run(self):
+    def run(self, mask=True):
         logger.info('Running frangi filter.')
         self._get_t()
         self._allocate_memory()
         self._set_default_sigmas()
-        self._run_filter()
+        self._run_filter(mask=mask)
 
 if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"

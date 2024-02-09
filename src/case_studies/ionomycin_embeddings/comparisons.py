@@ -160,15 +160,16 @@ def get_frequency_stats(vec):
 if __name__ == '__main__':
     # model_path = r"D:\test_files\nelly_tests\20231215_145237-autoencoder - Copy.pt"
     model_path = r"D:\test_files\nelly_tests\20231219_122843-autoencoder - Copy.pt"
-    file_set_num = 1
+    file_set_num = -1
 
     dataset_paths = [
         # r"D:\test_files\nelly_iono\full_2\deskewed-pre_2.ome.tif",
         # r"D:\test_files\nelly_iono\full_2\deskewed-full_post_2.ome.tif",
-        rf"D:\test_files\nelly_iono\full_2\deskewed-pre_{file_set_num}.ome.tif",
-        rf"D:\test_files\nelly_iono\full_2\deskewed-full_post_{file_set_num}.ome.tif",
+        # rf"D:\test_files\nelly_iono\full_2\deskewed-pre_{file_set_num}.ome.tif",
+        # rf"D:\test_files\nelly_iono\full_2\deskewed-full_post_{file_set_num}.ome.tif",
         # r"D:\test_files\nelly_iono\full_pre\deskewed-full_pre.ome.tif",
-        # r"D:\test_files\nelly_iono\full_2\deskewed-full_pre_2.ome.tif"
+        # r"D:\test_files\nelly_iono\full_2\deskewed-pre_1.ome.tif"
+        r"D:\test_files\nelly_iono\full_2\deskewed-full_pre.ome.tif"
         # r"D:\test_files\nelly_iono\full\deskewed-full_v2.ome.tif"
     ]
     save_path = r"D:\test_files\nelly_iono\full_2"
@@ -176,8 +177,8 @@ if __name__ == '__main__':
     # Import datasets and get some embeddings
     datasets, labels = import_datasets(dataset_paths)
     #testing
-    datasets = datasets[50:]
-    labels = labels[50:]
+    datasets = datasets[40:]
+    labels = labels[40:]
 
     embeddings = get_embeddings(datasets, model_path)
     median_embeddings = [np.median(embed, axis=0) for embed in embeddings]
@@ -219,10 +220,11 @@ if __name__ == '__main__':
 
     # Let's plot all of our embeddings in 2D space to visualize any other trends
     stacked_embeddings = np.vstack(mean_embeddings)
-    tsne = TSNE(n_components=2, random_state=42, perplexity=30)
+    tsne = TSNE(n_components=2, random_state=42, perplexity=80)
     reduced_embeddings = tsne.fit_transform(stacked_embeddings)
     frame_array = np.arange(len(stacked_embeddings))
     plot_tsne(reduced_embeddings, frame_array)
+    np.savetxt(os.path.join(save_path, f'{current_dt_str}-tsne_all-{file_set_num}.txt'), reduced_embeddings)
 
     # Are there any other smaller patterns happening?
     similarity_matrix = get_similarity_matrix(mean_embeddings, normalize=False)
@@ -271,4 +273,31 @@ if __name__ == '__main__':
     # mean_node_diffs = np.mean(node_diffs, axis=1)
     # # plot_tsne(reduced_embeddings, mean_node_diffs[::10], alpha=0.5, size=2)
     # plot_tsne(reduced_embeddings, labels, alpha=0.75, size=5, cmap='bwr')
+
+###
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Load your data
+txt_file = r"H:\My Drive\Projects\Collaboration-based\Nelly-AEL\paper_figure_data\20231215_GNN_plots\full_1\20240116_162625-tsne_all-1.txt"
+data = np.loadtxt(txt_file)
+
+# Plot
+plt.figure(figsize=(8, 6))
+# make these black
+plt.scatter(data[:, 0], data[:, 1], c=np.arange(len(data[:])), cmap='turbo', s=50)
+plt.scatter(data[:18, 0], data[:18, 1], c='k', s=50)
+# x is between -6 and 0
+# y is between -0.5 and 2
+plt.xlim(-6, 0)
+plt.ylim(-0.5, 2)
+# remove ticks, grid, and text
+plt.xticks([])
+plt.yticks([])
+plt.grid(False)
+
+# save plot as pdf
+plt.savefig(os.path.join(save_path, f'{current_dt_str}-tsne-1.pdf'))
+
+
 

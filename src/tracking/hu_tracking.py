@@ -213,9 +213,13 @@ class HuMomentTracking:
         frangi_frame[frangi_frame>0] = xp.log10(frangi_frame[frangi_frame>0])
         frangi_frame[frangi_frame<0] -= xp.min(frangi_frame[frangi_frame<0])
         distance_frame = xp.array(self.im_distance_memmap[t])
-
+        # any inf gets set to 0
+        # inf_mask = xp.isinf(distance_frame)
+        # distance_frame[inf_mask] = 0
         distance_max_frame = ndi.maximum_filter(distance_frame, size=3)*2
         marker_frame = xp.array(self.im_marker_memmap[t]) > 0
+        # remove any inf markers that
+        # marker_frame[inf_mask] = 0
         marker_indices = xp.argwhere(marker_frame)
 
         region_bounds = self._get_im_bounds(marker_indices, distance_max_frame)

@@ -170,14 +170,14 @@ class FlowInterpolator:
         self._allocate_memory()
 
 
-def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0):
-    flow_interpx = FlowInterpolator(im_info, forward=True)
+def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5):
+    flow_interpx = FlowInterpolator(im_info, forward=True, max_distance_um=max_distance_um)
     tracks = []
     track_properties = {'frame_num': []}
     frame_range = np.arange(start_t, end_t)
     num_frames = len(frame_range)
     for t in frame_range:
-        print(f'Interpolating frame {t} of {num_frames - 1}')
+        # print(f'Interpolating frame {t} of {num_frames - 1}')
         final_vector = flow_interpx.interpolate_coord(coords, t)
         if final_vector is None or len(final_vector) == 0:
             continue
@@ -191,6 +191,7 @@ def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0):
                 else:
                     tracks.append([coord_num+min_track_num, frame_range[0], coord[0], coord[1], coord[2]])
                 track_properties['frame_num'].append(frame_range[0])
+
             track_properties['frame_num'].append(t + 1)
             if im_info.no_z:
                 coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
@@ -203,14 +204,14 @@ def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0):
                 tracks.append([coord_num+min_track_num, t + 1, coord[0], coord[1], coord[2]])
     return tracks, track_properties
 
-def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0):
-    flow_interpx = FlowInterpolator(im_info, forward=False)
+def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5):
+    flow_interpx = FlowInterpolator(im_info, forward=False, max_distance_um=max_distance_um)
     tracks = []
     track_properties = {'frame_num': []}
     frame_range = np.arange(end_t+1, start_t+1)[::-1]
     num_frames = len(frame_range)
     for t in frame_range:
-        print(f'Interpolating frame {t} of {num_frames - 1}')
+        # print(f'Interpolating frame {t} of {num_frames - 1}')
         final_vector = flow_interpx.interpolate_coord(coords, t)
         if final_vector is None or len(final_vector) == 0:
             continue
@@ -225,7 +226,6 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0):
                 else:
                     tracks.append([coord_num+min_track_num, frame_range[0], coord[0], coord[1], coord[2]])
                 track_properties['frame_num'].append(frame_range[0])
-            track_properties['frame_num'].append(t-1)
             if im_info.no_z:
                 coords[coord_num] = np.array([coord[0] - final_vector[coord_num][0],
                                               coord[1] - final_vector[coord_num][1]])
@@ -235,6 +235,7 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0):
                                               coord[1] - final_vector[coord_num][1],
                                               coord[2] - final_vector[coord_num][2]])
                 tracks.append([coord_num+min_track_num, t-1, coord[0], coord[1], coord[2]])
+            track_properties['frame_num'].append(t-1)
     return tracks, track_properties
 
 
@@ -263,9 +264,12 @@ if __name__ == "__main__":
     for coord in coords:
         if 450 < coord[-1] < 650 and 600 < coord[-2] < 750:
             new_coords.append(coord)
-    coords = np.array(new_coords[::3])
+    coords = np.array(new_coords[::1])
     tracks, track_properties = interpolate_all_forward(coords, start_frame, 3, im_info)
-
+    # reduce all of the second column by 1
+    # tracks_np = np.array(tracks)
+    # tracks_np[:, 1] += 1
+    # tracks = tracks_np.tolist()
     # tracks = []
     # for coord_num, coord in enumerate(coords):
     #     tracks.append([coord_num, start_frame, coord[0], coord[1]])

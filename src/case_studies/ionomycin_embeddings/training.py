@@ -23,11 +23,11 @@ for dataset_path in dataset_paths:
     datasets.extend(new_datasets)
     # get a random 30% for testing, the rest for testing
     random_list = np.random.choice(len(new_datasets), testing_size, replace=False)
-    for i in range(len(datasets)):
+    for i in range(len(new_datasets)):
         if i in random_list:
-            testing_datasets.append(datasets[i])
+            testing_datasets.append(new_datasets[i])
         else:
-            training_datasets.append(datasets[i])
+            training_datasets.append(new_datasets[i])
 
 normalized_training_datasets = [Data(x=normalize_features(dataset.x), edge_index=dataset.edge_index) for dataset in training_datasets]
 normalized_testing_datasets = [Data(x=normalize_features(dataset.x), edge_index=dataset.edge_index) for dataset in testing_datasets]
