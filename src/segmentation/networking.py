@@ -11,7 +11,7 @@ from src.utils.gpu_functions import triangle_threshold
 
 class Network:
     def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1):
+                 min_radius_um=0.20, max_radius_um=1, clean_skel=True):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
@@ -39,6 +39,8 @@ class Network:
         self.pixel_class_memmap = None
         self.skel_memmap = None
         self.skel_relabelled_memmap = None
+
+        self.clean_skel = clean_skel
 
 
         self.sigmas = None
@@ -126,26 +128,31 @@ class Network:
         gpu_frame = xp.array(label_frame)
 
         skel = xp.array(morph.skeletonize(cpu_frame > 0).astype('bool'))
-        # masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=0.5) * skel
-        masked_frangi = ndi.median_filter(frangi_frame, size=3) * (gpu_frame>0)# * skel
-        # thresh, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
-        thresh = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
-        thresh = 10**thresh
-        cleaned_skel = (masked_frangi > thresh) * skel
-        # skel = morph.skeletonize(test > 0).astype('bool')
 
-        skel_labels = gpu_frame * cleaned_skel
-        # unique_labels = xp.unique(skel_labels)
-        label_sizes = xp.bincount(skel_labels.ravel())
+        if self.clean_skel:
+            # masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=0.5) * skel
+            masked_frangi = ndi.median_filter(frangi_frame, size=3) * (gpu_frame>0)# * skel
+            # thresh, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
+            thresh = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
+            thresh = 10**thresh
+            cleaned_skel = (masked_frangi > thresh) * skel
+            # skel = morph.skeletonize(test > 0).astype('bool')
 
-        above_threshold = label_sizes > 1
+            skel_labels = gpu_frame * cleaned_skel
+            # unique_labels = xp.unique(skel_labels)
+            label_sizes = xp.bincount(skel_labels.ravel())
 
-        mask = xp.zeros_like(skel_labels, dtype=bool)
-        mask[above_threshold[skel_labels]] = True
-        mask[skel_labels == 0] = False
+            above_threshold = label_sizes > 1
 
-        skel_labels = gpu_frame * mask
+            mask = xp.zeros_like(skel_labels, dtype=bool)
+            mask[above_threshold[skel_labels]] = True
+            mask[skel_labels == 0] = False
+
+            skel_labels = gpu_frame * mask
         # skel_labels, _ = ndi.label(cleaned_skel)
+        else:
+            skel_labels = gpu_frame * skel
+            thresh = 0
 
         return skel_labels, thresh
 
@@ -288,7 +295,7 @@ class Network:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for skeletonization.')
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'], read_type='r+')
+        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])#, read_type='r+')
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)

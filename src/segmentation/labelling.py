@@ -204,6 +204,8 @@ class Label:
             else:
                 self.instance_label_memmap[t, ...] = labels
 
+            self.instance_label_memmap.flush()
+
     def run(self):
         logger.info('Running semantic segmentation.')
         self._get_t()

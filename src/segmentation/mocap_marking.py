@@ -7,7 +7,7 @@ import numpy as np
 
 class Markers:
     def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1):
+                 min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None:
@@ -19,7 +19,8 @@ class Markers:
 
         self.min_radius_px = self.min_radius_um / self.im_info.dim_sizes['X']
         self.max_radius_px = self.max_radius_um / self.im_info.dim_sizes['X']
-
+        self.use_im = use_im
+        self.num_sigma = num_sigma
 
         self.shape = ()
 
@@ -41,12 +42,11 @@ class Markers:
     def _set_default_sigmas(self):
         logger.debug('Setting to sigma values.')
         min_sigma_step_size = 0.2
-        num_sigma = 5
 
         self.sigma_min = self.min_radius_px / 2
         self.sigma_max = self.max_radius_px / 3
 
-        sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / num_sigma
+        sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / self.num_sigma
         sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)  # Avoid taking too small of steps.
 
         self.sigmas = list(xp.arange(self.sigma_min, self.sigma_max, sigma_step_size))
@@ -86,6 +86,7 @@ class Markers:
                                                              dtype='float',
                                                              description='distance transform image',
                                                              return_memmap=True)
+
     def _distance_im(self, mask):
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
 
@@ -104,11 +105,18 @@ class Markers:
             distances_im_frame[mask_coords[:, 0], mask_coords[:, 1]] = dist
         else:
             distances_im_frame[mask_coords[:, 0], mask_coords[:, 1], mask_coords[:, 2]] = dist
+        # any inf pixels get set to upper bound
+        distances_im_frame[distances_im_frame == xp.inf] = self.max_radius_px * 2
         return distances_im_frame
 
     def _remove_close_peaks(self, coord, check_im):
         check_im_max = ndi.maximum_filter(check_im, size=3, mode='nearest')
-        intensities = check_im_max[coord[:, 0], coord[:, 1], coord[:, 2]]
+        if not self.im_info.no_z:
+            intensities = check_im_max[coord[:, 0], coord[:, 1], coord[:, 2]]
+        else:
+            intensities = check_im_max[coord[:, 0], coord[:, 1]]
+
+        # Sort to remove peaks that are too close by keeping the brightest peak
         idx_maxsort = np.argsort(-intensities)
 
         if device_type == 'cuda':
@@ -118,7 +126,7 @@ class Markers:
 
         # print('Removing peaks that are too close')
         tree = cKDTree(coord_sorted)
-        min_dist = self.min_radius_px * 2
+        min_dist = 2  # self.min_radius_px * 2
         indices = tree.query_ball_point(coord_sorted, r=min_dist, p=2, workers=-1)
         rejected_peaks_indices = set()
         naccepted = 0
@@ -141,17 +149,17 @@ class Markers:
 
         return cleaned_coords
 
-    def _local_max_peak(self, distance_im):
-        mask = distance_im > 0
-        lapofg = xp.empty(((len(self.sigmas),) + distance_im.shape), dtype=float)
+    def _local_max_peak(self, use_im, mask, distance_im):
+        # mask = use_im > 0
+        lapofg = xp.empty(((len(self.sigmas),) + use_im.shape), dtype=float)
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
-            current_lapofg = -ndi.gaussian_laplace(distance_im, sigma_vec) * xp.mean(s) ** 2
+            current_lapofg = -ndi.gaussian_laplace(use_im, sigma_vec) * xp.mean(s) ** 2
             # current_lapofg = current_lapofg * mask
             current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
 
-        filt_footprint = xp.ones((3,) * (distance_im.ndim + 1))
+        filt_footprint = xp.ones((3,) * (use_im.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
         peaks = xp.empty(lapofg.shape, dtype=bool)
         for filt_slice, max_filt_slice in enumerate(max_filt):
@@ -159,7 +167,8 @@ class Markers:
             # max_filt_mask = xp.asarray(max_filt_slice > thresh)
             # peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
             peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice))# * max_filt_mask
-        peaks = peaks * mask
+        distance_mask = distance_im > 0
+        peaks = peaks * mask * distance_mask
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
         coords_idx = xp.argwhere(coords)
@@ -172,8 +181,11 @@ class Markers:
         # frangi_frame = xp.asarray(self.im_frangi_memmap[t])
         mask_frame = xp.asarray(self.label_memmap[t] > 0)
         distance_im = self._distance_im(mask_frame)
-        peak_coords = self._local_max_peak(distance_im)
-        # cleaned_coords = self._remove_close_peaks(peak_coords, intensity_frame)
+        if self.use_im == 'distance':
+            peak_coords = self._local_max_peak(distance_im, mask_frame, distance_im)
+        elif self.use_im == 'frangi':
+            peak_coords = self._local_max_peak(xp.asarray(self.im_frangi_memmap[t]), mask_frame, distance_im)
+        peak_coords = self._remove_close_peaks(peak_coords, intensity_frame)
         peak_im = xp.zeros_like(mask_frame)
         peak_im[tuple(peak_coords.T)] = 1
         # peak_im[tuple(cleaned_coords.T)] = 1
@@ -191,6 +203,9 @@ class Markers:
         for t in range(self.num_t):
             marker_frame = self._run_frame(t)
             self.im_marker_memmap[t], self.im_distance_memmap[t] = marker_frame
+            # save self.im_marker_memmap and self.im_distance_memmap to respective paths
+            self.im_marker_memmap.flush()
+            self.im_distance_memmap.flush()
 
     def run(self):
         self._get_t()
