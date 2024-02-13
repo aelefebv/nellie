@@ -96,6 +96,8 @@ class Markers:
         else:
             mask_coords = xp.argwhere(mask)
             border_mask_coords = xp.argwhere(border_mask)
+        # import tifffile
+        # tifffile.imwrite('border.tif', border_mask.get().astype('uint8')*255)
 
         # print('Getting distance image')
         border_tree = cKDTree(border_mask_coords)
@@ -107,6 +109,7 @@ class Markers:
             distances_im_frame[mask_coords[:, 0], mask_coords[:, 1], mask_coords[:, 2]] = dist
         # any inf pixels get set to upper bound
         distances_im_frame[distances_im_frame == xp.inf] = self.max_radius_px * 2
+        # tifffile.imwrite('distance.tif', distances_im_frame.get().astype('float32'))
         return distances_im_frame
 
     def _remove_close_peaks(self, coord, check_im):
@@ -159,8 +162,12 @@ class Markers:
             current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
 
+        # import tifffile
+        # tifffile.imwrite('lapofg.tif', lapofg.get().astype('float32'))
+
         filt_footprint = xp.ones((3,) * (use_im.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
+        # tifffile.imwrite('max_filt.tif', max_filt.get().astype('float32'))
         peaks = xp.empty(lapofg.shape, dtype=bool)
         for filt_slice, max_filt_slice in enumerate(max_filt):
             # thresh = triangle_threshold(max_filt_slice[max_filt_slice > 0])
@@ -169,6 +176,7 @@ class Markers:
             peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice))# * max_filt_mask
         distance_mask = distance_im > 0
         peaks = peaks * mask * distance_mask
+        # tifffile.imwrite('peaks.tif', peaks.get().astype('uint8')*255)
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
         coords_idx = xp.argwhere(coords)

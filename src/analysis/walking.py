@@ -127,9 +127,26 @@ with open(output_path, 'wb') as f:
 
 ### Visualize
 import napari
+import pickle
+import os
+from src.im_info.im_info import ImInfo
+import tifffile
+frame_dir = r"H:\My Drive\Projects\Collaboration-based\Nelly-AEL\walking\tif_frames"
+output_dir = r"H:\My Drive\Projects\Collaboration-based\Nelly-AEL\walking"
+tifs = [f for f in os.listdir(frame_dir) if f.endswith('.tif')]
+im_path = os.path.join(frame_dir, tifs[0])
+im_info = ImInfo(im_path, dim_sizes={'X': 0.2, 'Y': 0.2, 'Z': None, 'T': 0.1})
 im_memmap = im_info.get_im_memmap(im_info.im_path)
+im_mask = tifffile.imread(r"H:\My Drive\Projects\Collaboration-based\Nelly-AEL\walking\tif_frames\output\bw-ch0-im_instance_label.ome.tif")
+all_tracks_path = os.path.join(output_dir, "all_tracks.pkl")
+all_props_path = os.path.join(output_dir, "all_props.pkl")
+with open(all_tracks_path, 'rb') as f:
+    all_tracks = pickle.load(f)
+with open(all_props_path, 'rb') as f:
+    all_props = pickle.load(f)
 viewer = napari.Viewer()
 viewer.add_image(im_memmap, name='im', opacity=0.3)
+viewer.add_labels(im_mask, name='mask')
 viewer.add_tracks(all_tracks, properties=all_props, name='all_tracks')
 # for frame_num, track_by in enumerate(track_by_frame):
 #     viewer.add_tracks(track_by_frame[track_by], properties=props_by_frame[track_by], name=f'tracks_{frame_num}')

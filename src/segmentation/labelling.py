@@ -99,6 +99,8 @@ class Label:
         min_thresh = min([triangle, otsu])
 
         mask = frame > min_thresh
+        # import tifffile
+        # tifffile.imwrite("mask-pre.tif", mask.get().astype('uint8')*255)
 
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
@@ -106,8 +108,10 @@ class Label:
         else:
             structure = xp.ones((2, 2))
         mask = ndi.binary_opening(mask, structure=structure)
+        # tifffile.imwrite("mask-post.tif", mask.get().astype('uint8')*255)
 
         labels, _ = ndi.label(mask, structure=footprint)
+        # tifffile.imwrite("labels.tif", labels.get().astype('uint16'))
         return mask, labels
 
     def _remove_bad_sized_objects(self, labels):

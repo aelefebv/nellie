@@ -99,7 +99,7 @@ class Filter:
     def _compute_hessian(self, image, mask=True):
         gradients = xp.gradient(image)
         axes = range(image.ndim)
-        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1)#.astype('float16')
+        h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1).astype('float16')
                    for ax0, ax1 in combinations_with_replacement(axes, 2)])
         if mask:
             h_mask = self._get_frob_mask(h_elems)
@@ -188,6 +188,8 @@ class Filter:
 
     def _filter_log(self, frame, mask):
         lapofg = xp.zeros_like(frame, dtype='double')
+        # label_by_sigma_num = xp.zeros_like(frame, dtype='int8')
+        # import tifffile
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
             current_lapofg = -ndi.gaussian_laplace(frame, sigma_vec) * xp.mean(s) ** 2
@@ -196,7 +198,13 @@ class Filter:
             lapofg[min_indices] = current_lapofg[min_indices]
             if i == 0:
                 lapofg = current_lapofg
+            # label_by_sigma_num[min_indices] = i + 1
+            # tifffile.imwrite(f'log_intermediates-{i}.tif', current_lapofg.get())
         lapofg_min_proj = lapofg
+        # label_by_sigma_num[lapofg < 0] = 0
+
+        # tifffile.imwrite(f'log_intermediates-labels.tif', label_by_sigma_num.get())
+
         return lapofg_min_proj
 
     def _run_frame(self, t, mask=True):
@@ -205,9 +213,10 @@ class Filter:
         vesselness = xp.zeros_like(self.im_memmap[t, ...], dtype='float64')
         temp = xp.zeros_like(self.im_memmap[t, ...], dtype='float64')
         masks = xp.ones_like(self.im_memmap[t, ...], dtype='bool')
-
+        import tifffile
+        # label_by_sigma_num = xp.zeros_like(self.im_memmap[t, ...], dtype='int8')
         for sigma_num, sigma in enumerate(self.sigmas):
-            gauss_volume = self._gauss_filter(sigma, t)
+            gauss_volume = self._gauss_filter(sigma, t)  # * xp.mean(sigma) ** 2
 
             gamma = self._calculate_gamma(gauss_volume)
             gamma_sq = 2 * gamma ** 2
@@ -221,7 +230,15 @@ class Filter:
             vesselness[max_indices] = temp[max_indices]
             masks = xp.where(~h_mask, 0, masks)
 
+            # label_by_sigma_num[max_indices] = sigma_num+1
+            # tifffile.imwrite(f'frangi_intermediates-{sigma_num}-norm.tif', temp.get())
         vesselness = vesselness * masks
+        # tifffile.imwrite(f'frangi_intermediates-final.tif', vesselness.get())
+        # label_by_sigma_num = label_by_sigma_num * masks
+        # test_vess = self._mask_volume(vesselness)
+        # mask_2 = test_vess > 0
+        # label_by_sig_2 = label_by_sigma_num * mask_2
+        # tifffile.imwrite(f'frangi_intermediates-labels.tif', label_by_sig_2.get())
         return vesselness
 
     def _mask_volume(self, frangi_frame):

@@ -228,9 +228,11 @@ class Network:
             relabelled_labels_mask = relabelled_labels > 0
 
             if device_type == 'cuda':
-                relabelled_labels_mask = relabelled_labels_mask.get()
+                relabelled_labels_mask_cpu = relabelled_labels_mask.get()
+            else:
+                relabelled_labels_mask_cpu = relabelled_labels_mask
 
-            vox_matched = np.argwhere(relabelled_labels_mask)
+            vox_matched = np.argwhere(relabelled_labels_mask_cpu)
             relabelled_mask = relabelled_labels_mask.astype('uint8')
             # add unmatched matches to coords_matched
             skel_border = (ndi.binary_dilation(relabelled_mask, iterations=1, structure=structure) - relabelled_mask) * label_mask
