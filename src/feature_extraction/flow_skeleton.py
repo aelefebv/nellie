@@ -85,85 +85,59 @@ class FlowFeatures:
         coords_t0 = coords_t1 - mask_vecs_t0t1
         coords_t2 = coords_t1 + mask_vecs_t1t2
 
-        vergere_t0t1 = []
-        vergere_t1t2 = []
-
-        alignments_t0t1 = []
-        alignments_t1t2 = []
-
+        # >0 values means moving away from skeleton point
         dot_prods_t0t1 = []
         dot_prods_t1t2 = []
 
-        num_vec_thresh = 5
-        sum_mag_thresh = 5
+        # higher values means more variability in flow speed
+        flow_mag_variation_t0t1 = []
+        flow_mag_variation_t1t2 = []
+
+        # higher values means more uniform flow direction
+        flow_direction_uniformity_t0t1 = []
+        flow_direction_uniformity_t1t2 = []
+
         for i, skel_coord in enumerate(skel_coords):
             print(i, len(skel_coords))
-            # skel_vec = skel_vecs[i]
 
             # get all the vecs of mask_vecs that are within the radius of the test skel coord
             dist = np.linalg.norm(coords_t1 - skel_coord, axis=1)
             # these are all the mask coords in t1 that are within the radius of the skel coord in t1
             good_idxs = dist <= skel_thicknesses[i]
 
-            diff_t0 = coords_t0[good_idxs] - skel_coord
             diff_t1 = coords_t1[good_idxs] - skel_coord
-            diff_t2 = coords_t2[good_idxs] - skel_coord
 
-            vec_t0t1 = diff_t1-diff_t0
-            vec_t1t2 = diff_t2-diff_t1
-
-            sum_vec_t0t1 = np.sum(vec_t0t1)
-            sum_vec_t1t2 = np.sum(vec_t1t2)
-
-            # remove any vectors with nan
-            vec_t0t1 = vec_t0t1[~np.isnan(vec_t0t1).any(axis=1)]
-            vec_t1t2 = vec_t1t2[~np.isnan(vec_t1t2).any(axis=1)]
-
-            norm_vec_t0t1 = np.linalg.norm(vec_t0t1)
-            norm_vec_t1t2 = np.linalg.norm(vec_t1t2)
-
-            if np.abs(sum_vec_t0t1) > sum_mag_thresh or len(vec_t0t1) < num_vec_thresh:
-                norm_vec_t0t1 = np.nan
-            if np.abs(sum_vec_t1t2) > sum_mag_thresh or len(vec_t1t2) < num_vec_thresh:
-                norm_vec_t1t2 = np.nan
-
-            vergere_t0t1.append(np.sign(sum_vec_t0t1) * norm_vec_t0t1)
-            vergere_t1t2.append(np.sign(sum_vec_t1t2) * norm_vec_t1t2)
-
-            # reference_direction is the mean direction of the flow vectors
-            flow_vectors_t0t1_normalized = vec_t0t1 / np.linalg.norm(vec_t0t1, axis=1, keepdims=True)
-            reference_direction_t0t1 = np.nanmean(flow_vectors_t0t1_normalized, axis=0)
-            reference_direction_normalized_t0t1 = reference_direction_t0t1 / np.linalg.norm(reference_direction_t0t1)
-            alignments_t0t1.append(np.nanmean(np.dot(flow_vectors_t0t1_normalized, reference_direction_normalized_t0t1)))
-
-            flow_vectors_t1t2_normalized = vec_t1t2 / np.linalg.norm(vec_t1t2, axis=1, keepdims=True)
-            reference_direction_t1t2 = np.nanmean(flow_vectors_t1t2_normalized, axis=0)
-            reference_direction_normalized_t1t2 = reference_direction_t1t2 / np.linalg.norm(reference_direction_t1t2)
-            alignments_t1t2.append(np.nanmean(np.dot(flow_vectors_t1t2_normalized, reference_direction_normalized_t1t2)))
-
-            norms_t0t1 = np.linalg.norm(diff_t0, axis=1, keepdims=True)
-            unit_direction_vectors_t0t1 = diff_t0 / norms_t0t1
-
-            dot_prods_t0t1.append(np.nanmean(np.sum(mask_vecs_t0t1[good_idxs] * unit_direction_vectors_t0t1, axis=1)))
+            norms_t0t1 = np.linalg.norm(diff_t1, axis=1, keepdims=True)
+            unit_direction_vectors_t0t1 = diff_t1 / norms_t0t1
+            dot_prods_t0t1.append(np.nanmean(np.sum(-mask_vecs_t0t1[good_idxs] * unit_direction_vectors_t0t1, axis=1)))
 
             norms_t1t2 = np.linalg.norm(diff_t1, axis=1, keepdims=True)
             unit_direction_vectors_t1t2 = diff_t1 / norms_t1t2
-
             dot_prods_t1t2.append(np.nanmean(np.sum(mask_vecs_t1t2[good_idxs] * unit_direction_vectors_t1t2, axis=1)))
 
+            flow_vec_mags_t0t1 = np.linalg.norm(-mask_vecs_t0t1[good_idxs], axis=1)
+            flow_vec_mags_t1t2 = np.linalg.norm(mask_vecs_t1t2[good_idxs], axis=1)
+
+            flow_mag_variation_t0t1.append(np.nanstd(flow_vec_mags_t0t1))
+            flow_mag_variation_t1t2.append(np.nanstd(flow_vec_mags_t1t2))
+
+            # Normalize vectors to unit vectors
+            norms_t0t1 = np.linalg.norm(-mask_vecs_t0t1[good_idxs], axis=1, keepdims=True)
+            unit_vectors_t0t1 = -mask_vecs_t0t1[good_idxs] / norms_t0t1
+            # Calculate cosine similarity matrix
+            similarity_matrix_t0t1 = np.dot(unit_vectors_t0t1, unit_vectors_t0t1.T)
+            # Exclude diagonal elements (self-similarity) and calculate average similarity
+            np.fill_diagonal(similarity_matrix_t0t1, np.nan)
+            flow_direction_uniformity_t0t1.append(np.nanmean(similarity_matrix_t0t1))
+
+            norms_t1t2 = np.linalg.norm(mask_vecs_t1t2[good_idxs], axis=1, keepdims=True)
+            unit_vectors_t1t2 = mask_vecs_t1t2[good_idxs] / norms_t1t2
+            similarity_matrix_t1t2 = np.dot(unit_vectors_t1t2, unit_vectors_t1t2.T)
+            np.fill_diagonal(similarity_matrix_t1t2, np.nan)
+            flow_direction_uniformity_t1t2.append(np.nanmean(similarity_matrix_t1t2))
 
         import napari
         viewer = napari.Viewer()
-
-        skel_mask_align_t0t1 = np.zeros_like(skel_mask, dtype=float)
-        skel_mask_align_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = alignments_t0t1
-        skel_mask_align_t0t1[skel_mask_align_t0t1 == 0] = np.nan
-        viewer.add_image(skel_mask_align_t0t1, name='align_t0t1', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
-
-        skel_mask_align_t1t2 = np.zeros_like(skel_mask, dtype=float)
-        skel_mask_align_t1t2[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = alignments_t1t2
-        skel_mask_align_t1t2[skel_mask_align_t1t2 == 0] = np.nan
-        viewer.add_image(skel_mask_align_t1t2, name='align_t1t2', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
 
         skel_mask_dot_t0t1 = np.zeros_like(skel_mask, dtype=float)
         skel_mask_dot_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = dot_prods_t0t1
@@ -175,6 +149,27 @@ class FlowFeatures:
         skel_mask_dot_t1t2[skel_mask_dot_t1t2 == 0] = np.nan
         viewer.add_image(skel_mask_dot_t1t2, name='dot_t1t2', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
 
+        skel_mask_flow_mag_var_t0t1 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_flow_mag_var_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = flow_mag_variation_t0t1
+        skel_mask_flow_mag_var_t0t1[skel_mask_flow_mag_var_t0t1 == 0] = np.nan
+        viewer.add_image(skel_mask_flow_mag_var_t0t1, name='flow_mag_var_t0t1', interpolation3d='nearest', colormap='turbo')
+
+        skel_mask_flow_mag_var_t1t2 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_flow_mag_var_t1t2[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = flow_mag_variation_t1t2
+        skel_mask_flow_mag_var_t1t2[skel_mask_flow_mag_var_t1t2 == 0] = np.nan
+        viewer.add_image(skel_mask_flow_mag_var_t1t2, name='flow_mag_var_t1t2', interpolation3d='nearest', colormap='turbo')
+
+        skel_mask_flow_dir_unif_t0t1 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_flow_dir_unif_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = flow_direction_uniformity_t0t1
+        skel_mask_flow_dir_unif_t0t1[skel_mask_flow_dir_unif_t0t1 == 0] = np.nan
+        viewer.add_image(skel_mask_flow_dir_unif_t0t1, name='flow_dir_unif_t0t1', interpolation3d='nearest', colormap='turbo')
+
+        skel_mask_flow_dir_unif_t1t2 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_flow_dir_unif_t1t2[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = flow_direction_uniformity_t1t2
+        skel_mask_flow_dir_unif_t1t2[skel_mask_flow_dir_unif_t1t2 == 0] = np.nan
+        viewer.add_image(skel_mask_flow_dir_unif_t1t2, name='flow_dir_unif_t1t2', interpolation3d='nearest', colormap='turbo')
+
+
         tracks = []
         track_props = {'frame_num': []}
         for i, skel_coord in enumerate(coords_t1):
@@ -185,9 +180,7 @@ class FlowFeatures:
             tracks.append([i, 2, *coords_t2[i]])
             track_props['frame_num'].extend([0, 1, 2])
 
-        viewer.add_tracks(tracks, name='mask_tracks', properties=track_props)
-
-        print('hi')
+        viewer.add_tracks(tracks, name='tracks', properties=track_props)
 
     def _get_skel_pixels_all(self):
         for t in range(1, self.num_t):
