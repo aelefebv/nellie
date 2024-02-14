@@ -88,6 +88,12 @@ class FlowFeatures:
         vergere_t0t1 = []
         vergere_t1t2 = []
 
+        alignments_t0t1 = []
+        alignments_t1t2 = []
+
+        dot_prods_t0t1 = []
+        dot_prods_t1t2 = []
+
         num_vec_thresh = 5
         sum_mag_thresh = 5
         for i, skel_coord in enumerate(skel_coords):
@@ -109,6 +115,10 @@ class FlowFeatures:
             sum_vec_t0t1 = np.sum(vec_t0t1)
             sum_vec_t1t2 = np.sum(vec_t1t2)
 
+            # remove any vectors with nan
+            vec_t0t1 = vec_t0t1[~np.isnan(vec_t0t1).any(axis=1)]
+            vec_t1t2 = vec_t1t2[~np.isnan(vec_t1t2).any(axis=1)]
+
             norm_vec_t0t1 = np.linalg.norm(vec_t0t1)
             norm_vec_t1t2 = np.linalg.norm(vec_t1t2)
 
@@ -120,20 +130,50 @@ class FlowFeatures:
             vergere_t0t1.append(np.sign(sum_vec_t0t1) * norm_vec_t0t1)
             vergere_t1t2.append(np.sign(sum_vec_t1t2) * norm_vec_t1t2)
 
-        # recolor the skeleton coords based on the vergere
-        convergence = np.array(vergere_t0t1.copy())
-        divergence = np.array(vergere_t1t2.copy())
+            # reference_direction is the mean direction of the flow vectors
+            flow_vectors_t0t1_normalized = vec_t0t1 / np.linalg.norm(vec_t0t1, axis=1, keepdims=True)
+            reference_direction_t0t1 = np.nanmean(flow_vectors_t0t1_normalized, axis=0)
+            reference_direction_normalized_t0t1 = reference_direction_t0t1 / np.linalg.norm(reference_direction_t0t1)
+            alignments_t0t1.append(np.nanmean(np.dot(flow_vectors_t0t1_normalized, reference_direction_normalized_t0t1)))
+
+            flow_vectors_t1t2_normalized = vec_t1t2 / np.linalg.norm(vec_t1t2, axis=1, keepdims=True)
+            reference_direction_t1t2 = np.nanmean(flow_vectors_t1t2_normalized, axis=0)
+            reference_direction_normalized_t1t2 = reference_direction_t1t2 / np.linalg.norm(reference_direction_t1t2)
+            alignments_t1t2.append(np.nanmean(np.dot(flow_vectors_t1t2_normalized, reference_direction_normalized_t1t2)))
+
+            norms_t0t1 = np.linalg.norm(diff_t0, axis=1, keepdims=True)
+            unit_direction_vectors_t0t1 = diff_t0 / norms_t0t1
+
+            dot_prods_t0t1.append(np.nanmean(np.sum(mask_vecs_t0t1[good_idxs] * unit_direction_vectors_t0t1, axis=1)))
+
+            norms_t1t2 = np.linalg.norm(diff_t1, axis=1, keepdims=True)
+            unit_direction_vectors_t1t2 = diff_t1 / norms_t1t2
+
+            dot_prods_t1t2.append(np.nanmean(np.sum(mask_vecs_t1t2[good_idxs] * unit_direction_vectors_t1t2, axis=1)))
+
+
         import napari
         viewer = napari.Viewer()
-        skel_mask_converge_t0t1 = np.zeros_like(skel_mask, dtype=float)
-        skel_mask_converge_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = convergence
-        skel_mask_converge_t0t1[skel_mask_converge_t0t1 == 0] = np.nan
-        viewer.add_image(skel_mask_converge_t0t1, name='t0t1', interpolation3d='nearest', colormap='turbo', contrast_limits=[-30, 30])
 
-        skel_mask_diverge_t1t2 = np.zeros_like(skel_mask, dtype=float)
-        skel_mask_diverge_t1t2[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = divergence
-        skel_mask_diverge_t1t2[skel_mask_diverge_t1t2 == 0] = np.nan
-        viewer.add_image(skel_mask_diverge_t1t2, name='t1t2', interpolation3d='nearest', colormap='turbo', contrast_limits=[-30, 30])
+        skel_mask_align_t0t1 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_align_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = alignments_t0t1
+        skel_mask_align_t0t1[skel_mask_align_t0t1 == 0] = np.nan
+        viewer.add_image(skel_mask_align_t0t1, name='align_t0t1', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
+
+        skel_mask_align_t1t2 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_align_t1t2[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = alignments_t1t2
+        skel_mask_align_t1t2[skel_mask_align_t1t2 == 0] = np.nan
+        viewer.add_image(skel_mask_align_t1t2, name='align_t1t2', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
+
+        skel_mask_dot_t0t1 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_dot_t0t1[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = dot_prods_t0t1
+        skel_mask_dot_t0t1[skel_mask_dot_t0t1 == 0] = np.nan
+        viewer.add_image(skel_mask_dot_t0t1, name='dot_t0t1', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
+
+        skel_mask_dot_t1t2 = np.zeros_like(skel_mask, dtype=float)
+        skel_mask_dot_t1t2[skel_coords[:, 0], skel_coords[:, 1], skel_coords[:, 2]] = dot_prods_t1t2
+        skel_mask_dot_t1t2[skel_mask_dot_t1t2 == 0] = np.nan
+        viewer.add_image(skel_mask_dot_t1t2, name='dot_t1t2', interpolation3d='nearest', colormap='turbo', contrast_limits=[-1, 1])
 
         tracks = []
         track_props = {'frame_num': []}
