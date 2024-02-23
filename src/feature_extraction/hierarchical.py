@@ -204,37 +204,41 @@ class Branches:
 
         self.time = []
         self.branch_label = []
-        self.branch_voxel_label = []
-        self.branch_skel_label = []
+        # self.branch_voxel_label = []
+        # self.branch_skel_label = []
         # add aggregate voxel metrics
         # add branch metrics
-        self.voxel_idxs = []
-        self.skel_idxs = []
+        # self.voxel_idxs = []
+        # self.skel_idxs = []
         self.component_label = []
         self.image_name = []
 
     def _run_frame(self, t):
-        frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
-        self.voxel_idxs.append(frame_voxel_idxs)
+        # frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
+        # self.voxel_idxs.append(frame_voxel_idxs)
 
         frame_skel_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
-        self.skel_idxs.append(frame_skel_idxs)
+        # self.skel_idxs.append(frame_skel_idxs)
 
-        frame_voxel_branch_labels = self.hierarchy.label_branches[t][frame_voxel_idxs[:, 0], frame_voxel_idxs[:, 1], frame_voxel_idxs[:, 2]]
-        self.branch_voxel_label.append(frame_voxel_branch_labels)
+        # frame_voxel_branch_labels = self.hierarchy.label_branches[t][frame_voxel_idxs[:, 0], frame_voxel_idxs[:, 1], frame_voxel_idxs[:, 2]]
+        # self.branch_voxel_label.append(frame_voxel_branch_labels)
 
         frame_skel_branch_labels = self.hierarchy.label_branches[t][frame_skel_idxs[:, 0], frame_skel_idxs[:, 1], frame_skel_idxs[:, 2]]
-        self.branch_skel_label.append(frame_skel_branch_labels)
+        # self.branch_skel_label.append(frame_skel_branch_labels)
 
-        num_branches = np.max(frame_skel_branch_labels)
+        smallest_label = int(np.min(self.hierarchy.label_branches[t][self.hierarchy.label_branches[t] > 0]))
+        largest_label = int(np.max(self.hierarchy.label_branches[t]))
+        frame_branch_labels = np.arange(smallest_label, largest_label + 1)
+        num_branches = len(frame_branch_labels)
+
         frame_t = np.ones(num_branches, dtype=int) * t
         self.time.append(frame_t)
 
         # get the first voxel idx for each branch
         frame_branch_coords = np.zeros((num_branches, 3), dtype=int)
-        for i in range(num_branches):
-            branch_voxels = frame_voxel_idxs[frame_voxel_branch_labels == i + 1]
-            frame_branch_coords[i] = branch_voxels[0]
+        for i in frame_branch_labels:
+            branch_voxels = frame_skel_idxs[frame_skel_branch_labels == i]
+            frame_branch_coords[i-1] = branch_voxels[0]
         frame_component_label = self.hierarchy.label_components[t][frame_branch_coords[:, 0], frame_branch_coords[:, 1], frame_branch_coords[:, 2]]
         self.component_label.append(frame_component_label)
 
@@ -249,14 +253,59 @@ class Branches:
             self._run_frame(t)
         print('hi')
 
+
 class Components:
-    def __init__(self):
-        pass
+    def __init__(self, hierarchy):
+        self.hierarchy = hierarchy
+
+        self.time = []
+        self.component_label = []
+        # add aggregate voxel metrics
+        # add aggregate branch metrics
+        # add component metrics
+
+        self.image_name = []
+
+    def _run_frame(self, t):
+        smallest_label = int(np.min(self.hierarchy.label_components[t][self.hierarchy.label_components[t] > 0]))
+        largest_label = int(np.max(self.hierarchy.label_components[t]))
+        frame_component_labels = np.arange(smallest_label, largest_label + 1)
+
+        self.component_label.append(frame_component_labels)
+
+        num_components = len(frame_component_labels)
+
+        frame_t = np.ones(num_components, dtype=int) * t
+        self.time.append(frame_t)
+
+        im_name = np.ones(num_components, dtype=object) * self.hierarchy.im_info.basename_no_ext
+        self.image_name.append(im_name)
+
+    def run(self):
+        for t in range(self.hierarchy.num_t):
+            self._run_frame(t)
+        print('hi')
 
 
 class Image:
-    def __init__(self):
-        pass
+    def __init__(self, hierarchy):
+        self.hierarchy = hierarchy
+
+        self.time = []
+        self.image_name = []
+        # add aggregate voxel metrics
+        # add aggregate branch metrics
+        # add aggregate component metrics
+        # add image metrics
+
+    def _run_frame(self, t):
+        self.time.append(t)
+        self.image_name.append(self.hierarchy.im_info.basename_no_ext)
+
+    def run(self):
+        for t in range(self.hierarchy.num_t):
+            self._run_frame(t)
+        print('hi')
 
 
 if __name__ == "__main__":
@@ -276,7 +325,9 @@ if __name__ == "__main__":
     branches = Branches(hierarchy)
     branches.run()
 
-    # components = Components(hierarchy)
-    # image = Image(hierarchy)
+    components = Components(hierarchy)
+    components.run()
 
+    image = Image(hierarchy)
+    image.run()
 
