@@ -58,22 +58,24 @@ class Voxels:
 
         self.time = []
         self.coords = []
+        # add voxel metrics
+        # self.vel_lin = []
+        # self.vel_ang = []
+        # self.acc_lin = []
+        # self.acc_ang = []
         self.node_labels = []
         self.branch_labels = []
         self.component_labels = []
         self.image_name = []
         self.intensity = []
         self.structure = []
-        # self.vel_lin = []
-        # self.vel_ang = []
-        # self.acc_lin = []
-        # self.acc_ang = []
 
         self.node_z_lims = []
         self.node_y_lims = []
         self.node_x_lims = []
+        self.node_voxel_idxs = []
 
-    def _get_lims(self, t, frame_coords):
+    def _get_node_info(self, t, frame_coords):
         # get all network pixels
         skeleton_pixels = np.argwhere(self.hierarchy.im_skel[t] > 0)
         skeleton_radius = self.hierarchy.im_distance[t][skeleton_pixels[:, 0], skeleton_pixels[:, 1], skeleton_pixels[:, 2]]
@@ -98,6 +100,10 @@ class Voxels:
         y_lims[y_lims > y_max] = y_max
         x_lims[x_lims > x_max] = x_max
 
+        self.node_z_lims.append(z_lims)
+        self.node_y_lims.append(y_lims)
+        self.node_x_lims.append(x_lims)
+
         frame_coord_nodes_idxs = []
         # if a frame coord is within the bounding box of a skeleton pixel, add the skeleton pixel's idx to the list for that frame coord
         for i, frame_coord in enumerate(frame_coords):
@@ -108,36 +114,81 @@ class Voxels:
             mask = z_mask & y_mask & x_mask
             frame_coord_nodes_idxs.append(np.argwhere(mask).flatten())
 
-        return frame_coord_nodes_idxs
+        self.node_labels.append(frame_coord_nodes_idxs)
 
+        # Initialize an empty dictionary for frame_coord_nodes_idxs
+        node_voxel_idxs = []
 
+        for i, skeleton_px in enumerate(skeleton_pixels):
+            bbox_voxels = np.argwhere((z_lims[i, 0] <= frame_coords[:, 0]) & (z_lims[i, 1] >= frame_coords[:, 0]) &
+                                        (y_lims[i, 0] <= frame_coords[:, 1]) & (y_lims[i, 1] >= frame_coords[:, 1]) &
+                                        (x_lims[i, 0] <= frame_coords[:, 2]) & (x_lims[i, 1] >= frame_coords[:, 2]))
+            node_voxel_idxs.append(bbox_voxels.flatten())
+
+        self.node_voxel_idxs.append(node_voxel_idxs)
 
     def _run_frame(self, t):
         frame_coords = np.argwhere(self.hierarchy.label_components[t] > 0)
-        frame_component_labels = self.hierarchy.label_components[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
-        frame_branch_labels = self.hierarchy.label_branches[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
-        frame_intensity_vals = self.hierarchy.im_raw[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
-        frame_structure_vals = self.hierarchy.im_struct[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
-        frame_t = np.ones(frame_coords.shape[0], dtype=int) * t
-        frame_coord_nodes_idxs = self._get_lims(t, frame_coords)
+        self.coords.append(frame_coords)
 
-        self.time.extend(frame_t)
-        self.coords.extend(frame_coords)
-        self.component_labels.extend(frame_component_labels)
-        self.branch_labels.extend(frame_branch_labels)
-        self.node_labels.extend(frame_coord_nodes_idxs)
-        self.intensity.extend(frame_intensity_vals)
-        self.structure.extend(frame_structure_vals)
+        frame_component_labels = self.hierarchy.label_components[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
+        self.component_labels.append(frame_component_labels)
+
+        frame_branch_labels = self.hierarchy.label_branches[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
+        self.branch_labels.append(frame_branch_labels)
+
+        frame_intensity_vals = self.hierarchy.im_raw[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
+        self.intensity.append(frame_intensity_vals)
+
+        frame_structure_vals = self.hierarchy.im_struct[t][frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]]
+        self.structure.append(frame_structure_vals)
+
+        frame_t = np.ones(frame_coords.shape[0], dtype=int) * t
+        self.time.append(frame_t)
+
+        self._get_node_info(t, frame_coords)
 
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
-        print("done")
+
+        print('hi')
 
 
 class Nodes:
-    def __init__(self):
-        pass
+    def __init__(self, hierarchy, voxels):
+        self.hierarchy = hierarchy
+        self.voxels = voxels
+
+        self.time = []
+        self.nodes = []
+        # add voxel aggregate metrics
+        # add node metrics
+        self.voxel_idxs = voxels.node_voxel_idxs
+        self.branch_label = []
+        self.component_label = []
+        self.image_name = []
+
+        self.node_z_lims = voxels.node_z_lims
+        self.node_y_lims = voxels.node_y_lims
+        self.node_x_lims = voxels.node_x_lims
+
+    def _run_frame(self, t):
+        frame_skel_coords = np.argwhere(self.hierarchy.im_skel[t] > 0)
+        frame_t = np.ones(frame_skel_coords.shape[0], dtype=int) * t
+        frame_component_label = self.hierarchy.label_components[t][frame_skel_coords[:, 0], frame_skel_coords[:, 1], frame_skel_coords[:, 2]]
+        frame_branch_label = self.hierarchy.label_branches[t][frame_skel_coords[:, 0], frame_skel_coords[:, 1], frame_skel_coords[:, 2]]
+
+        self.time.append(frame_t)
+        self.nodes.append(frame_skel_coords)
+        self.component_label.append(frame_component_label)
+        self.branch_label.append(frame_branch_label)
+        print('hi')
+
+    def run(self):
+        for t in range(self.hierarchy.num_t):
+            self._run_frame(t)
+        print('hi')
 
 
 class Branches:
@@ -166,7 +217,9 @@ if __name__ == "__main__":
     voxels = Voxels(hierarchy)
     voxels.run()
 
-    # nodes = Nodes(hierarchy)
+    nodes = Nodes(hierarchy, voxels)
+    nodes.run()
+
     # branches = Branches(hierarchy)
     # components = Components(hierarchy)
     # image = Image(hierarchy)
