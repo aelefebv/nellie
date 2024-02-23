@@ -146,6 +146,9 @@ class Voxels:
         frame_t = np.ones(frame_coords.shape[0], dtype=int) * t
         self.time.append(frame_t)
 
+        im_name = np.ones(frame_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
+        self.image_name.append(im_name)
+
         self._get_node_info(t, frame_coords)
 
     def run(self):
@@ -175,15 +178,19 @@ class Nodes:
 
     def _run_frame(self, t):
         frame_skel_coords = np.argwhere(self.hierarchy.im_skel[t] > 0)
-        frame_t = np.ones(frame_skel_coords.shape[0], dtype=int) * t
-        frame_component_label = self.hierarchy.label_components[t][frame_skel_coords[:, 0], frame_skel_coords[:, 1], frame_skel_coords[:, 2]]
-        frame_branch_label = self.hierarchy.label_branches[t][frame_skel_coords[:, 0], frame_skel_coords[:, 1], frame_skel_coords[:, 2]]
-
-        self.time.append(frame_t)
         self.nodes.append(frame_skel_coords)
+
+        frame_t = np.ones(frame_skel_coords.shape[0], dtype=int) * t
+        self.time.append(frame_t)
+
+        frame_component_label = self.hierarchy.label_components[t][frame_skel_coords[:, 0], frame_skel_coords[:, 1], frame_skel_coords[:, 2]]
         self.component_label.append(frame_component_label)
+
+        frame_branch_label = self.hierarchy.label_branches[t][frame_skel_coords[:, 0], frame_skel_coords[:, 1], frame_skel_coords[:, 2]]
         self.branch_label.append(frame_branch_label)
-        print('hi')
+
+        im_name = np.ones(frame_skel_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
+        self.image_name.append(im_name)
 
     def run(self):
         for t in range(self.hierarchy.num_t):
@@ -192,9 +199,55 @@ class Nodes:
 
 
 class Branches:
-    def __init__(self):
-        pass
+    def __init__(self, hierarchy):
+        self.hierarchy = hierarchy
 
+        self.time = []
+        self.branch_label = []
+        self.branch_voxel_label = []
+        self.branch_skel_label = []
+        # add aggregate voxel metrics
+        # add branch metrics
+        self.voxel_idxs = []
+        self.skel_idxs = []
+        self.component_label = []
+        self.image_name = []
+
+    def _run_frame(self, t):
+        frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
+        self.voxel_idxs.append(frame_voxel_idxs)
+
+        frame_skel_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
+        self.skel_idxs.append(frame_skel_idxs)
+
+        frame_voxel_branch_labels = self.hierarchy.label_branches[t][frame_voxel_idxs[:, 0], frame_voxel_idxs[:, 1], frame_voxel_idxs[:, 2]]
+        self.branch_voxel_label.append(frame_voxel_branch_labels)
+
+        frame_skel_branch_labels = self.hierarchy.label_branches[t][frame_skel_idxs[:, 0], frame_skel_idxs[:, 1], frame_skel_idxs[:, 2]]
+        self.branch_skel_label.append(frame_skel_branch_labels)
+
+        num_branches = np.max(frame_skel_branch_labels)
+        frame_t = np.ones(num_branches, dtype=int) * t
+        self.time.append(frame_t)
+
+        # get the first voxel idx for each branch
+        frame_branch_coords = np.zeros((num_branches, 3), dtype=int)
+        for i in range(num_branches):
+            branch_voxels = frame_voxel_idxs[frame_voxel_branch_labels == i + 1]
+            frame_branch_coords[i] = branch_voxels[0]
+        frame_component_label = self.hierarchy.label_components[t][frame_branch_coords[:, 0], frame_branch_coords[:, 1], frame_branch_coords[:, 2]]
+        self.component_label.append(frame_component_label)
+
+        frame_branch_label = self.hierarchy.label_branches[t][frame_branch_coords[:, 0], frame_branch_coords[:, 1], frame_branch_coords[:, 2]]
+        self.branch_label.append(frame_branch_label)
+
+        im_name = np.ones(num_branches, dtype=object) * self.hierarchy.im_info.basename_no_ext
+        self.image_name.append(im_name)
+
+    def run(self):
+        for t in range(self.hierarchy.num_t):
+            self._run_frame(t)
+        print('hi')
 
 class Components:
     def __init__(self):
@@ -214,13 +267,15 @@ if __name__ == "__main__":
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()
 
-    voxels = Voxels(hierarchy)
-    voxels.run()
+    # voxels = Voxels(hierarchy)
+    # voxels.run()
 
-    nodes = Nodes(hierarchy, voxels)
-    nodes.run()
+    # nodes = Nodes(hierarchy, voxels)
+    # nodes.run()
 
-    # branches = Branches(hierarchy)
+    branches = Branches(hierarchy)
+    branches.run()
+
     # components = Components(hierarchy)
     # image = Image(hierarchy)
 
