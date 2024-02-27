@@ -140,20 +140,17 @@ class CoordMovement:
 
     def _get_angular_velocity(self, r0, r1):
         if self.im_info.no_z:
-            ang_vel_um_s, ang_vel_magnitude, ang_vel_orientation = (
-                self._get_angular_velocity_2d(r0, r1)
-            )
-        # todo fix for 2d
-        else:
-            ang_disp_um = np.divide(np.cross(r0, r1, axis=1).T, (np.linalg.norm(r0, axis=1) * np.linalg.norm(r1, axis=1))).T
+            return self._get_angular_velocity_2d(r0, r1)
 
-            ang_vel_um_s = ang_disp_um / self.im_info.dim_sizes['T']
+        ang_disp_um = np.divide(np.cross(r0, r1, axis=1).T, (np.linalg.norm(r0, axis=1) * np.linalg.norm(r1, axis=1))).T
 
-            ang_vel_magnitude = np.linalg.norm(ang_vel_um_s, axis=1)
+        ang_vel_um_s = ang_disp_um / self.im_info.dim_sizes['T']
 
-            ang_vel_orientation = (ang_vel_um_s.T / ang_vel_magnitude).T
-            ang_vel_orientation = np.where(np.isnan(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
-            ang_vel_orientation = np.where(np.isinf(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
+        ang_vel_magnitude = np.linalg.norm(ang_vel_um_s, axis=1)
+
+        ang_vel_orientation = (ang_vel_um_s.T / ang_vel_magnitude).T
+        ang_vel_orientation = np.where(np.isnan(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
+        ang_vel_orientation = np.where(np.isinf(ang_vel_orientation), ang_vel_um_s, ang_vel_orientation)
 
         return ang_vel_um_s, ang_vel_magnitude, ang_vel_orientation
 

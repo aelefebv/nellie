@@ -1,6 +1,8 @@
 import numpy as np
+import pandas as pd
 
 from src.im_info.im_info import ImInfo
+from src.tracking.flow_interpolation import FlowInterpolator
 from src.utils.general import get_reshaped_image
 
 
@@ -19,6 +21,9 @@ class Hierarchy:
         self.im_skel = None
         self.label_components = None
         self.label_branches = None
+
+        self.flow_interpolator_fw = FlowInterpolator(im_info)
+        self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
 
         self.shape = None
 
@@ -41,7 +46,7 @@ class Hierarchy:
         label_branches = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
         self.label_branches = get_reshaped_image(label_branches, self.num_t, self.im_info)
         im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_distance = get_reshaped_image(label_branches, self.num_t, self.im_info)
+        self.im_distance = get_reshaped_image(im_distance, self.num_t, self.im_info)
         im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
         self.im_skel = get_reshaped_image(im_skel, self.num_t, self.im_info)
 
@@ -58,17 +63,54 @@ class Voxels:
 
         self.time = []
         self.coords = []
+
         # add voxel metrics
+        self.intensity = []
+        self.structure = []
+
+        self.ang_acc = []
+        self.ang_acc_mag = []
+        self.ang_vel_mag = []
+        self.ang_vel_orient = []
+        self.ang_vel = []
+        self.lin_acc = []
+        self.lin_acc_mag = []
+        self.lin_vel_mag = []
+        self.lin_vel_orient = []
+        self.lin_vel = []
+
+        self.ang_acc_rel = []
+        self.ang_acc_rel_mag = []
+        self.ang_vel_mag_rel = []
+        self.ang_vel_orient_rel = []
+        self.ang_vel_rel = []
+        self.lin_acc_rel = []
+        self.lin_acc_rel_mag = []
+        self.lin_vel_mag_rel = []
+        self.lin_vel_orient_rel = []
+        self.lin_vel_rel = []
+
+        self.ang_acc_com = []
+        self.ang_acc_com_mag = []
+        self.ang_vel_mag_com = []
+        self.ang_vel_orient_com = []
+        self.ang_vel_com = []
+        self.lin_acc_com = []
+        self.lin_acc_com_mag = []
+        self.lin_vel_mag_com = []
+        self.lin_vel_orient_com = []
+        self.lin_vel_com = []
+
+
         # self.vel_lin = []
         # self.vel_ang = []
         # self.acc_lin = []
         # self.acc_ang = []
+
         self.node_labels = []
         self.branch_labels = []
         self.component_labels = []
         self.image_name = []
-        self.intensity = []
-        self.structure = []
 
         self.node_z_lims = []
         self.node_y_lims = []
@@ -121,11 +163,220 @@ class Voxels:
 
         for i, skeleton_px in enumerate(skeleton_pixels):
             bbox_voxels = np.argwhere((z_lims[i, 0] <= frame_coords[:, 0]) & (z_lims[i, 1] >= frame_coords[:, 0]) &
-                                        (y_lims[i, 0] <= frame_coords[:, 1]) & (y_lims[i, 1] >= frame_coords[:, 1]) &
-                                        (x_lims[i, 0] <= frame_coords[:, 2]) & (x_lims[i, 1] >= frame_coords[:, 2]))
+                                      (y_lims[i, 0] <= frame_coords[:, 1]) & (y_lims[i, 1] >= frame_coords[:, 1]) &
+                                      (x_lims[i, 0] <= frame_coords[:, 2]) & (x_lims[i, 1] >= frame_coords[:, 2]))
             node_voxel_idxs.append(bbox_voxels.flatten())
 
         self.node_voxel_idxs.append(node_voxel_idxs)
+
+    def _get_min_euc_dist(self, t, vec):
+        euc_dist = np.linalg.norm(vec, axis=1)
+        branch_labels = self.branch_labels[t]
+
+        df = pd.DataFrame({'euc_dist': euc_dist, 'branch_label': branch_labels})
+        df = df[~np.isnan(df['euc_dist'])]
+        idxmin = df.groupby('branch_label')['euc_dist'].idxmin()
+        return idxmin
+
+    def _get_ref_coords(self, coords_a, coords_b, idxmin, t):
+        ref_a = coords_a[idxmin[self.branch_labels[t]].values]
+        ref_b = coords_b[idxmin[self.branch_labels[t]].values]
+        return ref_a, ref_b
+
+    def _get_motility_stats(self, t, coords_1_px):
+        coords_1_px = coords_1_px.astype('float32')
+        if self.hierarchy.im_info.no_z:
+            dims = 2
+        else:
+            dims = 3
+
+        vec01 = []
+        vec12 = []
+        if t > 0:
+            vec01_px = self.hierarchy.flow_interpolator_bw.interpolate_coord(coords_1_px, t)
+            vec01 = vec01_px * self.hierarchy.spacing
+        if t < self.hierarchy.num_t - 1:
+            vec12_px = self.hierarchy.flow_interpolator_fw.interpolate_coord(coords_1_px, t)
+            vec12 = vec12_px * self.hierarchy.spacing
+
+
+        coords_1 = coords_1_px * self.hierarchy.spacing
+        coords_com_1 = np.nanmean(coords_1, axis=0)
+        r1_rel_com = coords_1 - coords_com_1
+
+        if len(vec01):
+            coords_0_px = coords_1_px - vec01_px
+            coords_0 = coords_0_px * self.hierarchy.spacing
+
+            lin_vel_01, lin_vel_mag_01, lin_vel_orient_01 = self._get_linear_velocity(coords_0, coords_1)
+            ang_vel_01, ang_vel_mag_01, ang_vel_orient_01 = self._get_angular_velocity(coords_0, coords_1)
+
+            idxmin01 = self._get_min_euc_dist(t, vec01)
+            ref_coords01 = self._get_ref_coords(coords_0, coords_1, idxmin01, t)
+            ref_coords01[0][np.isnan(vec01)] = np.nan
+            ref_coords01[1][np.isnan(vec01)] = np.nan
+            r0_rel_01 = coords_0 - ref_coords01[0]
+            r1_rel_01 = coords_1 - ref_coords01[1]
+
+            lin_vel_rel_01, lin_vel_mag_rel_01, lin_vel_orient_rel_01 = self._get_linear_velocity(r0_rel_01, r1_rel_01)
+            ang_vel_rel_01, ang_vel_mag_rel_01, ang_vel_orient_rel_01 = self._get_angular_velocity(r0_rel_01, r1_rel_01)
+
+            coords_com_0 = np.nanmean(coords_0, axis=0)
+            r0_rel_com = coords_0 - coords_com_0
+            lin_vel_com_01, lin_vel_mag_com_01, lin_vel_orient_com_01 = self._get_linear_velocity(r0_rel_com, r1_rel_com)
+            ang_vel_com_01, ang_vel_mag_com_01, ang_vel_orient_com_01 = self._get_angular_velocity(r0_rel_com, r1_rel_com)
+
+        if len(vec12):
+            coords_2_px = coords_1_px + vec12_px
+            coords_2 = coords_2_px * self.hierarchy.spacing
+
+            lin_vel_12, lin_vel_mag_12, lin_vel_orient_12 = self._get_linear_velocity(coords_1, coords_2)
+            ang_vel_12, ang_vel_mag_12, ang_vel_orient_12 = self._get_angular_velocity(coords_1, coords_2)
+
+            idxmin12 = self._get_min_euc_dist(t, vec12)
+            ref_coords12 = self._get_ref_coords(coords_1, coords_2, idxmin12, t)
+            ref_coords12[0][np.isnan(vec12)] = np.nan
+            ref_coords12[1][np.isnan(vec12)] = np.nan
+            r1_rel_12 = coords_1 - ref_coords12[0]
+            r2_rel_12 = coords_2 - ref_coords12[1]
+
+            lin_vel_rel, lin_vel_mag_rel, lin_vel_orient_rel = self._get_linear_velocity(r1_rel_12, r2_rel_12)
+            ang_vel_rel, ang_vel_mag_rel, ang_vel_orient_rel = self._get_angular_velocity(r1_rel_12, r2_rel_12)
+
+            coords_com_2 = np.nanmean(coords_2, axis=0)
+            r2_rel_com = coords_2 - coords_com_2
+            lin_vel_com, lin_vel_mag_com, lin_vel_orient_com = self._get_linear_velocity(r1_rel_com, r2_rel_com)
+            ang_vel_com, ang_vel_mag_com, ang_vel_orient_com = self._get_angular_velocity(r1_rel_com, r2_rel_com)
+        else:
+            # vectors of nans
+            lin_vel = np.full((len(coords_1), dims), np.nan)
+            lin_vel_mag = np.full(len(coords_1), np.nan)
+            lin_vel_orient = np.full((len(coords_1), dims), np.nan)
+            ang_vel = np.full((len(coords_1), dims), np.nan)
+            ang_vel_mag = np.full(len(coords_1), np.nan)
+            ang_vel_orient = np.full((len(coords_1), dims), np.nan)
+            lin_vel_rel = np.full((len(coords_1), dims), np.nan)
+            lin_vel_mag_rel = np.full(len(coords_1), np.nan)
+            lin_vel_orient_rel = np.full((len(coords_1), dims), np.nan)
+            ang_vel_rel = np.full((len(coords_1), dims), np.nan)
+            ang_vel_mag_rel = np.full(len(coords_1), np.nan)
+            ang_vel_orient_rel = np.full((len(coords_1), dims), np.nan)
+            lin_vel_com = np.full((len(coords_1), dims), np.nan)
+            lin_vel_mag_com = np.full(len(coords_1), np.nan)
+            lin_vel_orient_com = np.full((len(coords_1), dims), np.nan)
+            ang_vel_com = np.full((len(coords_1), dims), np.nan)
+            ang_vel_mag_com = np.full(len(coords_1), np.nan)
+            ang_vel_orient_com = np.full((len(coords_1), dims), np.nan)
+        self.lin_vel.append(lin_vel)
+        self.lin_vel_mag.append(lin_vel_mag)
+        self.lin_vel_orient.append(lin_vel_orient)
+        self.ang_vel.append(ang_vel)
+        self.ang_vel_mag.append(ang_vel_mag)
+        self.ang_vel_orient.append(ang_vel_orient)
+        self.lin_vel_rel.append(lin_vel_rel)
+        self.lin_vel_mag_rel.append(lin_vel_mag_rel)
+        self.lin_vel_orient_rel.append(lin_vel_orient_rel)
+        self.ang_vel_rel.append(ang_vel_rel)
+        self.ang_vel_mag_rel.append(ang_vel_mag_rel)
+        self.ang_vel_orient_rel.append(ang_vel_orient_rel)
+        self.lin_vel_com.append(lin_vel_com)
+        self.lin_vel_mag_com.append(lin_vel_mag_com)
+        self.lin_vel_orient_com.append(lin_vel_orient_com)
+        self.ang_vel_com.append(ang_vel_com)
+        self.ang_vel_mag_com.append(ang_vel_mag_com)
+        self.ang_vel_orient_com.append(ang_vel_orient_com)
+
+        if len(vec01) and len(vec12):
+            lin_acc = (lin_vel_12 - lin_vel_01) / self.hierarchy.im_info.dim_sizes['T']
+            lin_acc_mag = np.linalg.norm(lin_acc, axis=1)
+            ang_acc = (ang_vel_12 - ang_vel_01) / self.hierarchy.im_info.dim_sizes['T']
+            ang_acc_mag = np.linalg.norm(ang_acc, axis=1)
+            lin_acc_rel = (lin_vel_rel - lin_vel_rel_01) / self.hierarchy.im_info.dim_sizes['T']
+            lin_acc_rel_mag = np.linalg.norm(lin_acc_rel, axis=1)
+            ang_acc_rel = (ang_vel_rel - ang_vel_rel_01) / self.hierarchy.im_info.dim_sizes['T']
+            ang_acc_rel_mag = np.linalg.norm(ang_acc_rel, axis=1)
+            lin_acc_com = (lin_vel_com - lin_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
+            lin_acc_com_mag = np.linalg.norm(lin_acc_com, axis=1)
+            ang_acc_com = (ang_vel_com - ang_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
+            ang_acc_com_mag = np.linalg.norm(ang_acc_com, axis=1)
+        else:
+            # vectors of nans
+            lin_acc = np.full((len(coords_1), dims), np.nan)
+            lin_acc_mag = np.full(len(coords_1), np.nan)
+            ang_acc = np.full((len(coords_1), dims), np.nan)
+            ang_acc_mag = np.full(len(coords_1), np.nan)
+            lin_acc_rel = np.full((len(coords_1), dims), np.nan)
+            lin_acc_rel_mag = np.full(len(coords_1), np.nan)
+            ang_acc_rel = np.full((len(coords_1), dims), np.nan)
+            ang_acc_rel_mag = np.full(len(coords_1), np.nan)
+            lin_acc_com = np.full((len(coords_1), dims), np.nan)
+            lin_acc_com_mag = np.full(len(coords_1), np.nan)
+            ang_acc_com = np.full((len(coords_1), dims), np.nan)
+            ang_acc_com_mag = np.full(len(coords_1), np.nan)
+        self.lin_acc.append(lin_acc)
+        self.lin_acc_mag.append(lin_acc_mag)
+        self.ang_acc.append(ang_acc)
+        self.ang_acc_mag.append(ang_acc_mag)
+        self.lin_acc_rel.append(lin_acc_rel)
+        self.lin_acc_rel_mag.append(lin_acc_rel_mag)
+        self.ang_acc_rel.append(ang_acc_rel)
+        self.ang_acc_rel_mag.append(ang_acc_rel_mag)
+        self.lin_acc_com.append(lin_acc_com)
+        self.lin_acc_com_mag.append(lin_acc_com_mag)
+        self.ang_acc_com.append(ang_acc_com)
+        self.ang_acc_com_mag.append(ang_acc_com_mag)
+
+        print('hi')
+
+    def _get_linear_velocity(self, ra, rb):
+        lin_disp = rb - ra
+        lin_vel = lin_disp / self.hierarchy.im_info.dim_sizes['T']
+        lin_vel_mag = np.linalg.norm(lin_vel, axis=1)
+        lin_vel_orient = (lin_vel.T / lin_vel_mag).T
+        if self.hierarchy.im_info.no_z:
+            lin_vel_orient = np.where(np.isinf(lin_vel_orient), [np.nan, np.nan], lin_vel_orient)
+        else:
+            lin_vel_orient = np.where(np.isinf(lin_vel_orient), [np.nan, np.nan, np.nan], lin_vel_orient)
+
+        return lin_vel, lin_vel_mag, lin_vel_orient
+
+    def _get_angular_velocity_2d(self, ra, rb):
+        # Calculate angles of ra and rb relative to x-axis
+        theta_a = np.arctan2(ra[:, 1], ra[:, 0])
+        theta_b = np.arctan2(rb[:, 1], rb[:, 0])
+
+        # Calculate the change in angle
+        delta_theta = theta_b - theta_a
+
+        # Normalize the change in angle to be between -pi and pi
+        delta_theta = (delta_theta + np.pi) % (2 * np.pi) - np.pi
+
+        # Get the angular velocity
+        ang_vel = delta_theta / self.hierarchy.im_info.dim_sizes['T']
+        ang_vel_mag = np.abs(ang_vel)
+        ang_vel_orient = np.sign(ang_vel)
+
+        return ang_vel, ang_vel_mag, ang_vel_orient
+
+    def _get_angular_velocity_3d(self, ra, rb):
+        cross_product = np.cross(ra, rb, axis=1)
+        norm = np.linalg.norm(ra, axis=1) * np.linalg.norm(rb, axis=1)
+        ang_disp = np.divide(cross_product.T, norm.T).T
+        ang_disp[norm == 0] = [np.nan, np.nan, np.nan]
+
+        ang_vel = ang_disp / self.hierarchy.im_info.dim_sizes['T']
+        ang_vel_mag = np.linalg.norm(ang_vel, axis=1)
+        ang_vel_orient = (ang_vel.T / ang_vel_mag).T
+        ang_vel_orient = np.where(np.isinf(ang_vel_orient), [np.nan, np.nan, np.nan], ang_vel_orient)
+
+        return ang_vel, ang_vel_mag, ang_vel_orient
+
+    def _get_angular_velocity(self, ra, rb):
+        if self.hierarchy.im_info.no_z:
+            return self._get_angular_velocity_2d(ra, rb)
+
+        return self._get_angular_velocity_3d(ra, rb)
+
 
     def _run_frame(self, t):
         frame_coords = np.argwhere(self.hierarchy.label_components[t] > 0)
@@ -150,6 +401,9 @@ class Voxels:
         self.image_name.append(im_name)
 
         self._get_node_info(t, frame_coords)
+        self._get_motility_stats(t, frame_coords)
+
+        print('hi')
 
     def run(self):
         for t in range(self.hierarchy.num_t):
@@ -316,18 +570,18 @@ if __name__ == "__main__":
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()
 
-    # voxels = Voxels(hierarchy)
-    # voxels.run()
+    voxels = Voxels(hierarchy)
+    voxels.run()
 
     # nodes = Nodes(hierarchy, voxels)
     # nodes.run()
 
-    branches = Branches(hierarchy)
-    branches.run()
-
-    components = Components(hierarchy)
-    components.run()
-
-    image = Image(hierarchy)
-    image.run()
+    # branches = Branches(hierarchy)
+    # branches.run()
+    #
+    # components = Components(hierarchy)
+    # components.run()
+    #
+    # image = Image(hierarchy)
+    # image.run()
 
