@@ -565,8 +565,10 @@ class Nodes:
 
 
 class Branches:
-    def __init__(self, hierarchy):
+    def __init__(self, hierarchy, voxels, nodes):
         self.hierarchy = hierarchy
+        self.voxels = voxels
+        self.nodes = nodes
 
         self.time = []
         self.branch_label = []
@@ -582,15 +584,75 @@ class Branches:
         self.tortuosity = []
 
         # self.voxel_idxs = []
-        # self.skel_idxs = []
+        self.branch_idxs = []
         self.component_label = []
         self.image_name = []
 
-    def _get_branch_stats(self, t):
-        if self.hierarchy.im_info.no_z:
-            structure = np.ones((3, 3))
+    def _get_pixel_class(self, skel):
+        skel_mask = np.array(skel > 0).astype('uint8')
+        if self.im_info.no_z:
+            weights = np.ones((3, 3))
         else:
-            structure = np.ones((3, 3, 3))
+            weights = np.ones((3, 3, 3))
+        skel_mask_sum = ndi.convolve(skel_mask, weights=weights, mode='constant', cval=0) * skel_mask
+        skel_mask_sum[skel_mask_sum > 4] = 4
+        return skel_mask_sum
+
+    def _get_branch_stats(self, t):
+        print('hi')
+        branch_idx_array_1 = np.array(self.branch_idxs[t])
+        branch_idx_array_2 = np.array(self.branch_idxs[t])[:, None, :]
+        dist = np.linalg.norm(branch_idx_array_1 - branch_idx_array_2, axis=-1)
+        dist[dist >= 2] = 0  # remove any distances greater than adjacent pixel
+        neighbors = np.sum(dist > 0, axis=1)
+        tips = np.where(neighbors == 1)[0]
+        lone_tips = np.where(neighbors == 0)[0]
+        dist = np.triu(dist)
+
+        neighbor_idxs = np.argwhere(dist > 0)
+
+        # all coords idxs should be within 1 pixel of each other
+        neighbor_coords_0 = self.branch_idxs[t][neighbor_idxs[:, 0]]
+        neighbor_coords_1 = self.branch_idxs[t][neighbor_idxs[:, 1]]
+        assert np.all(np.abs(neighbor_coords_0 - neighbor_coords_1) <= 1)
+
+        # labels should be the exact same
+        neighbor_labels_0 = self.hierarchy.im_skel[t][neighbor_coords_0[:, 0], neighbor_coords_0[:, 1], neighbor_coords_0[:, 2]]
+        neighbor_labels_1 = self.hierarchy.im_skel[t][neighbor_coords_1[:, 0], neighbor_coords_1[:, 1], neighbor_coords_1[:, 2]]
+        assert np.all(neighbor_labels_0 == neighbor_labels_1)
+
+        scaled_coords_0 = neighbor_coords_0 * self.hierarchy.spacing
+        scaled_coords_1 = neighbor_coords_1 * self.hierarchy.spacing
+        distances = np.linalg.norm(scaled_coords_0 - scaled_coords_1, axis=1)
+        unique_labels = np.unique(self.hierarchy.im_skel[t][self.hierarchy.im_skel[t] > 0])
+
+        label_lengths = np.zeros(len(unique_labels))
+        for i, label in enumerate(unique_labels):
+            label_lengths[i] = np.sum(distances[neighbor_labels_0 == label])
+
+        lone_tip_coords = self.branch_idxs[t][lone_tips]
+        tip_coords = self.branch_idxs[t][tips]
+
+        lone_tip_labels = self.hierarchy.im_skel[t][lone_tip_coords[:, 0], lone_tip_coords[:, 1], lone_tip_coords[:, 2]]
+        tip_labels = self.hierarchy.im_skel[t][tip_coords[:, 0], tip_coords[:, 1], tip_coords[:, 2]]
+
+        # todo append radius *2 for lone tips and radius for tips to length
+        self.length.append(label_lengths)
+
+        # find the distance between the two tips with the same label in tip_labels
+        tip_distances = np.zeros(len(tip_labels))
+        for i, label in enumerate(tip_labels):
+            matched_idxs = tip_coords[tip_labels == label] * self.hierarchy.spacing
+            tip_distances[i] = np.linalg.norm(matched_idxs[0] - matched_idxs[1])
+
+        tortuosity = np.zeros(len(unique_labels))
+        for i, label in enumerate(unique_labels):
+            tip_dist = tip_distances[tip_labels == label]
+            if len(tip_dist):
+                tortuosity[i] = label_lengths[i] / tip_dist[0]
+            else:
+                tortuosity[i] = 0
+
 
 
 
@@ -600,17 +662,17 @@ class Branches:
         # frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
         # self.voxel_idxs.append(frame_voxel_idxs)
 
-        frame_skel_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
-        # self.skel_idxs.append(frame_skel_idxs)
+        frame_branch_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
+        self.branch_idxs.append(frame_branch_idxs)
 
         # frame_voxel_branch_labels = self.hierarchy.label_branches[t][frame_voxel_idxs[:, 0], frame_voxel_idxs[:, 1], frame_voxel_idxs[:, 2]]
         # self.branch_voxel_label.append(frame_voxel_branch_labels)
 
-        frame_skel_branch_labels = self.hierarchy.im_skel[t][frame_skel_idxs[:, 0], frame_skel_idxs[:, 1], frame_skel_idxs[:, 2]]
+        frame_skel_branch_labels = self.hierarchy.im_skel[t][frame_branch_idxs[:, 0], frame_branch_idxs[:, 1], frame_branch_idxs[:, 2]]
         # self.branch_skel_label.append(frame_skel_branch_labels)
 
-        smallest_label = int(np.min(self.hierarchy.label_branches[t][self.hierarchy.label_branches[t] > 0]))
-        largest_label = int(np.max(self.hierarchy.label_branches[t]))
+        smallest_label = int(np.min(self.hierarchy.im_skel[t][self.hierarchy.im_skel[t] > 0]))
+        largest_label = int(np.max(self.hierarchy.im_skel[t]))
         frame_branch_labels = np.arange(smallest_label, largest_label + 1)
         num_branches = len(frame_branch_labels)
 
@@ -620,12 +682,12 @@ class Branches:
         # get the first voxel idx for each branch
         frame_branch_coords = np.zeros((num_branches, 3), dtype=int)
         for i in frame_branch_labels:
-            branch_voxels = frame_skel_idxs[frame_skel_branch_labels == i]
+            branch_voxels = frame_branch_idxs[frame_skel_branch_labels == i]
             frame_branch_coords[i-1] = branch_voxels[0]
         frame_component_label = self.hierarchy.label_components[t][frame_branch_coords[:, 0], frame_branch_coords[:, 1], frame_branch_coords[:, 2]]
         self.component_label.append(frame_component_label)
 
-        frame_branch_label = self.hierarchy.label_branches[t][frame_branch_coords[:, 0], frame_branch_coords[:, 1], frame_branch_coords[:, 2]]
+        frame_branch_label = self.hierarchy.im_skel[t][frame_branch_coords[:, 0], frame_branch_coords[:, 1], frame_branch_coords[:, 2]]
         self.branch_label.append(frame_branch_label)
 
         im_name = np.ones(num_branches, dtype=object) * self.hierarchy.im_info.basename_no_ext
@@ -707,7 +769,7 @@ if __name__ == "__main__":
     nodes = Nodes(hierarchy, voxels)
     nodes.run()
 
-    branches = Branches(hierarchy)
+    branches = Branches(hierarchy, voxels, nodes)
     branches.run()
     #
     # components = Components(hierarchy)
