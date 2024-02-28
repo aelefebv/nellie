@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
-from scipy import ndimage as ndi
 from scipy import spatial
+from skimage.measure import regionprops
 
 from src.im_info.im_info import ImInfo
 from src.tracking.flow_interpolation import FlowInterpolator
@@ -30,6 +30,12 @@ class Hierarchy:
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
 
         self.shape = None
+
+        self.voxels = None
+        self.nodes = None
+        self.branches = None
+        self.components = None
+        self.image = None
 
     def _get_t(self):
         if self.num_t is None:
@@ -468,9 +474,8 @@ class Voxels:
 
 
 class Nodes:
-    def __init__(self, hierarchy, voxels):
+    def __init__(self, hierarchy):
         self.hierarchy = hierarchy
-        self.voxels = voxels
 
         self.time = []
         self.nodes = []
@@ -486,14 +491,14 @@ class Nodes:
         self.lin_direction_uniformity = []
         self.ang_direction_uniformity = []
 
-        self.voxel_idxs = voxels.node_voxel_idxs
+        self.voxel_idxs = self.hierarchy.voxels.node_voxel_idxs
         self.branch_label = []
         self.component_label = []
         self.image_name = []
 
-        self.node_z_lims = voxels.node_z_lims
-        self.node_y_lims = voxels.node_y_lims
-        self.node_x_lims = voxels.node_x_lims
+        self.node_z_lims = self.hierarchy.voxels.node_z_lims
+        self.node_y_lims = self.hierarchy.voxels.node_y_lims
+        self.node_x_lims = self.hierarchy.voxels.node_x_lims
 
     def _get_node_stats(self, t):
         radius = distance_check(self.hierarchy.im_border_mask[t], self.nodes[t], self.hierarchy.spacing)
@@ -509,32 +514,32 @@ class Nodes:
         for i, node in enumerate(self.nodes[t]):
             # print(i, len(self.nodes[t]))
             vox_idxs = self.voxel_idxs[t][i]
-            dist_vox_node = self.voxels.coords[t][vox_idxs] - self.nodes[t][i]
+            dist_vox_node = self.hierarchy.voxels.coords[t][vox_idxs] - self.nodes[t][i]
             dist_vox_node_mag = np.linalg.norm(dist_vox_node, axis=1, keepdims=True)
             dir_vox_node = dist_vox_node / dist_vox_node_mag
 
-            dot_prod_01 = -np.nanmean(np.sum(-self.voxels.vec01[t][vox_idxs] * dir_vox_node, axis=1))
+            dot_prod_01 = -np.nanmean(np.sum(-self.hierarchy.voxels.vec01[t][vox_idxs] * dir_vox_node, axis=1))
             convergence.append(dot_prod_01)
 
-            dot_prod_12 = np.nanmean(np.sum(self.voxels.vec12[t][vox_idxs] * dir_vox_node, axis=1))
+            dot_prod_12 = np.nanmean(np.sum(self.hierarchy.voxels.vec12[t][vox_idxs] * dir_vox_node, axis=1))
             divergence.append(dot_prod_12)
 
             vergere.append(dot_prod_01 + dot_prod_12)
             # high vergere is a funnel point (converges then diverges)
             # low vergere is a dispersal point (diverges then converges)
 
-            lin_vel_mag = self.voxels.lin_vel_mag[t][vox_idxs]
+            lin_vel_mag = self.hierarchy.voxels.lin_vel_mag[t][vox_idxs]
             lin_mag_variability.append(np.nanstd(lin_vel_mag))
-            ang_vel_mag = self.voxels.ang_vel_mag[t][vox_idxs]
+            ang_vel_mag = self.hierarchy.voxels.ang_vel_mag[t][vox_idxs]
             ang_mag_variability.append(np.nanstd(ang_vel_mag))
 
-            lin_vel = self.voxels.lin_vel[t][vox_idxs]
+            lin_vel = self.hierarchy.voxels.lin_vel[t][vox_idxs]
             lin_unit_vec = lin_vel / lin_vel_mag[:, np.newaxis]
             lin_similarity_matrix = np.dot(lin_unit_vec, lin_unit_vec.T)
             np.fill_diagonal(lin_similarity_matrix, np.nan)
             lin_dir_uniformity.append(np.nanmean(lin_similarity_matrix))
 
-            ang_vel = self.voxels.ang_vel[t][vox_idxs]
+            ang_vel = self.hierarchy.voxels.ang_vel[t][vox_idxs]
             ang_unit_vec = ang_vel / ang_vel_mag[:, np.newaxis]
             ang_similarity_matrix = np.dot(ang_unit_vec, ang_unit_vec.T)
             np.fill_diagonal(ang_similarity_matrix, np.nan)
@@ -579,10 +584,8 @@ def distance_check(border_mask, check_coords, spacing):
 
 
 class Branches:
-    def __init__(self, hierarchy, voxels, nodes):
+    def __init__(self, hierarchy):
         self.hierarchy = hierarchy
-        self.voxels = voxels
-        self.nodes = nodes
 
         self.time = []
         self.branch_label = []
@@ -596,6 +599,11 @@ class Branches:
         self.thickness = []
         self.aspect_ratio = []
         self.tortuosity = []
+        self.area = []
+        self.axis_length_maj = []
+        self.axis_length_min = []
+        self.extent = []
+        self.solidity = []
 
         # self.voxel_idxs = []
         self.branch_idxs = []
@@ -603,7 +611,6 @@ class Branches:
         self.image_name = []
 
     def _get_branch_stats(self, t):
-        print('hi')
         branch_idx_array_1 = np.array(self.branch_idxs[t])
         branch_idx_array_2 = np.array(self.branch_idxs[t])[:, None, :]
         dist = np.linalg.norm(branch_idx_array_1 - branch_idx_array_2, axis=-1)
@@ -639,8 +646,6 @@ class Branches:
 
         lone_tip_labels = self.hierarchy.im_skel[t][lone_tip_coords[:, 0], lone_tip_coords[:, 1], lone_tip_coords[:, 2]]
         tip_labels = self.hierarchy.im_skel[t][tip_coords[:, 0], tip_coords[:, 1], tip_coords[:, 2]]
-
-        # todo append radius *2 for lone tips and radius for tips to length
 
         # find the distance between the two tips with the same label in tip_labels
         tip_distances = np.zeros(len(tip_labels))
@@ -685,6 +690,24 @@ class Branches:
         self.aspect_ratio.append(aspect_ratios)
         self.thickness.append(median_thickenss)
         self.length.append(label_lengths)
+
+        regions = regionprops(self.hierarchy.label_branches[t], spacing=self.hierarchy.spacing)
+        areas = []
+        axis_length_maj = []
+        axis_length_min = []
+        extent = []
+        solidity = []
+        for region in regions:
+            areas.append(region.area)
+            axis_length_maj.append(region.major_axis_length)
+            axis_length_min.append(region.minor_axis_length)
+            extent.append(region.extent)
+            solidity.append(region.solidity)
+        self.area.append(areas)
+        self.axis_length_maj.append(axis_length_maj)
+        self.axis_length_min.append(axis_length_min)
+        self.extent.append(extent)
+        self.solidity.append(solidity)
 
     def _run_frame(self, t):
         # frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
@@ -739,9 +762,32 @@ class Components:
         # add aggregate node metrics
         # add aggregate branch metrics
         # add component metrics
-
+        self.area = []
+        self.axis_length_maj = []
+        self.axis_length_min = []
+        self.extent = []
+        self.solidity = []
 
         self.image_name = []
+        
+    def _get_component_stats(self, t):
+        regions = regionprops(self.hierarchy.label_components[t], spacing=self.hierarchy.spacing)
+        areas = []
+        axis_length_maj = []
+        axis_length_min = []
+        extent = []
+        solidity = []
+        for region in regions:
+            areas.append(region.area)
+            axis_length_maj.append(region.major_axis_length)
+            axis_length_min.append(region.minor_axis_length)
+            extent.append(region.extent)
+            solidity.append(region.solidity)
+        self.area.append(areas)
+        self.axis_length_maj.append(axis_length_maj)
+        self.axis_length_min.append(axis_length_min)
+        self.extent.append(extent)
+        self.solidity.append(solidity)
 
     def _run_frame(self, t):
         smallest_label = int(np.min(self.hierarchy.label_components[t][self.hierarchy.label_components[t] > 0]))
@@ -757,6 +803,8 @@ class Components:
 
         im_name = np.ones(num_components, dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
+
+        self._get_component_stats(t)
 
     def run(self):
         for t in range(self.hierarchy.num_t):
@@ -793,18 +841,18 @@ if __name__ == "__main__":
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()
 
-    voxels = Voxels(hierarchy)
-    voxels.run()
+    hierarchy.voxels = Voxels(hierarchy)
+    hierarchy.voxels.run()
 
-    nodes = Nodes(hierarchy, voxels)
-    nodes.run()
+    hierarchy.nodes = Nodes(hierarchy)
+    hierarchy.nodes.run()
 
-    branches = Branches(hierarchy, voxels, nodes)
-    branches.run()
-    #
-    # components = Components(hierarchy)
-    # components.run()
-    #
-    # image = Image(hierarchy)
-    # image.run()
+    hierarchy.branches = Branches(hierarchy)
+    hierarchy.branches.run()
+
+    hierarchy.components = Components(hierarchy)
+    hierarchy.components.run()
+
+    image = Image(hierarchy)
+    image.run()
 
