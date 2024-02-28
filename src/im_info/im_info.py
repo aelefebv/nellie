@@ -27,7 +27,7 @@ class ImInfo:
         self.basename_no_ext = os.path.splitext(self.basename)[0]
         self.dirname = os.path.basename(os.path.dirname(self.im_path))
         self.input_dir = os.path.dirname(self.im_path)
-        self.output_dir = output_dirpath or os.path.join(self.input_dir, 'nelle_output')
+        self.output_dir = output_dirpath or os.path.join(self.input_dir, 'nellie_output')
         self.output_dir = self.output_dir + self.output_suffix
         self.screenshot_dir = screenshot_dirpath or os.path.join(self.output_dir, 'screenshots')
         self.screenshot_dir = self.screenshot_dir + self.output_suffix
@@ -60,6 +60,7 @@ class ImInfo:
         self.create_output_path('im_pixel_class')
         self.create_output_path('im_marker')
         self.create_output_path('im_distance')
+        self.create_output_path('im_border')
         self.create_output_path('flow_vector_array', ext='.npy')
         self.create_output_path('voxel_matches', ext='.npy')
         self.create_output_path('im_instance_label_reassigned')

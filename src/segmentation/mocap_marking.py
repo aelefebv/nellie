@@ -29,6 +29,7 @@ class Markers:
         self.label_memmap = None
         self.im_marker_memmap = None
         self.im_distance_memmap = None
+        self.im_border_memmap = None
 
         self.debug = None
 
@@ -87,6 +88,12 @@ class Markers:
                                                              description='distance transform image',
                                                              return_memmap=True)
 
+        im_border_path = self.im_info.pipeline_paths['im_border']
+        self.im_border_memmap = self.im_info.allocate_memory(im_border_path, shape=self.shape,
+                                                                dtype='uint8',
+                                                                description='border image',
+                                                                return_memmap=True)
+
     def _distance_im(self, mask):
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
 
@@ -110,7 +117,7 @@ class Markers:
         # any inf pixels get set to upper bound
         distances_im_frame[distances_im_frame == xp.inf] = self.max_radius_px * 2
         # tifffile.imwrite('distance.tif', distances_im_frame.get().astype('float32'))
-        return distances_im_frame
+        return distances_im_frame, border_mask
 
     def _remove_close_peaks(self, coord, check_im):
         check_im_max = ndi.maximum_filter(check_im, size=3, mode='nearest')
@@ -188,7 +195,7 @@ class Markers:
         intensity_frame = xp.asarray(self.im_memmap[t])
         # frangi_frame = xp.asarray(self.im_frangi_memmap[t])
         mask_frame = xp.asarray(self.label_memmap[t] > 0)
-        distance_im = self._distance_im(mask_frame)
+        distance_im, border_mask = self._distance_im(mask_frame)
         if self.use_im == 'distance':
             peak_coords = self._local_max_peak(distance_im, mask_frame, distance_im)
         elif self.use_im == 'frangi':
@@ -203,17 +210,18 @@ class Markers:
         # else:
         #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1], peak_coords[:, 2])
         if device_type == "cuda":
-            return peak_im.get(), distance_im.get()
+            return peak_im.get(), distance_im.get(), border_mask.get()
         else:
-            return peak_im, distance_im
+            return peak_im, distance_im, border_mask
 
     def _run_mocap_marking(self):
         for t in range(self.num_t):
             marker_frame = self._run_frame(t)
-            self.im_marker_memmap[t], self.im_distance_memmap[t] = marker_frame
+            self.im_marker_memmap[t], self.im_distance_memmap[t], self.im_border_memmap[t] = marker_frame
             # save self.im_marker_memmap and self.im_distance_memmap to respective paths
             self.im_marker_memmap.flush()
             self.im_distance_memmap.flush()
+            self.im_border_memmap.flush()
 
     def run(self):
         self._get_t()
@@ -223,9 +231,8 @@ class Markers:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
+    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     im_info = ImInfo(im_path)
-    im_info.create_output_path('im_instance_label')
-    im_info.create_output_path('im_frangi')
-    markers = Markers(im_info, num_t=2)
+    num_t = 3
+    markers = Markers(im_info, num_t=num_t)
     markers.run()

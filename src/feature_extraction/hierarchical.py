@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from scipy import ndimage as ndi
+from scipy import spatial
 
 from src.im_info.im_info import ImInfo
 from src.tracking.flow_interpolation import FlowInterpolator
@@ -22,6 +24,7 @@ class Hierarchy:
         self.im_pixel_class = None
         self.label_components = None
         self.label_branches = None
+        self.im_border_mask = None
 
         self.flow_interpolator_fw = FlowInterpolator(im_info)
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
@@ -52,6 +55,8 @@ class Hierarchy:
         self.im_skel = get_reshaped_image(im_skel, self.num_t, self.im_info)
         im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
         self.im_pixel_class = get_reshaped_image(im_pixel_class, self.num_t, self.im_info)
+        im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
+        self.im_border_mask = get_reshaped_image(im_border_mask, self.num_t, self.im_info)
 
         self.shape = self.im_raw.shape
 
@@ -491,7 +496,9 @@ class Nodes:
         self.node_x_lims = voxels.node_x_lims
 
     def _get_node_stats(self, t):
-        self.thickness.append(self.hierarchy.im_distance[t][self.nodes[t][:, 0], self.nodes[t][:, 1], self.nodes[t][:, 2]])
+        radius = distance_check(self.hierarchy.im_border_mask[t], self.nodes[t], self.hierarchy.spacing)
+        self.thickness.append(radius*2)
+
         divergence = []
         convergence = []
         vergere = []
@@ -564,6 +571,13 @@ class Nodes:
         print('hi')
 
 
+def distance_check(border_mask, check_coords, spacing):
+    border_coords = np.argwhere(border_mask) * spacing
+    border_tree = spatial.cKDTree(border_coords)
+    dist, _ = border_tree.query(check_coords * spacing, k=1)
+    return dist
+
+
 class Branches:
     def __init__(self, hierarchy, voxels, nodes):
         self.hierarchy = hierarchy
@@ -587,16 +601,6 @@ class Branches:
         self.branch_idxs = []
         self.component_label = []
         self.image_name = []
-
-    def _get_pixel_class(self, skel):
-        skel_mask = np.array(skel > 0).astype('uint8')
-        if self.im_info.no_z:
-            weights = np.ones((3, 3))
-        else:
-            weights = np.ones((3, 3, 3))
-        skel_mask_sum = ndi.convolve(skel_mask, weights=weights, mode='constant', cval=0) * skel_mask
-        skel_mask_sum[skel_mask_sum > 4] = 4
-        return skel_mask_sum
 
     def _get_branch_stats(self, t):
         print('hi')
@@ -637,7 +641,6 @@ class Branches:
         tip_labels = self.hierarchy.im_skel[t][tip_coords[:, 0], tip_coords[:, 1], tip_coords[:, 2]]
 
         # todo append radius *2 for lone tips and radius for tips to length
-        self.length.append(label_lengths)
 
         # find the distance between the two tips with the same label in tip_labels
         tip_distances = np.zeros(len(tip_labels))
@@ -651,12 +654,37 @@ class Branches:
             if len(tip_dist):
                 tortuosity[i] = label_lengths[i] / tip_dist[0]
             else:
-                tortuosity[i] = 0
+                tortuosity[i] = 1
+
+        self.tortuosity.append(tortuosity)
+
+        radii = distance_check(self.hierarchy.im_border_mask[t], self.branch_idxs[t], self.hierarchy.spacing)
+        lone_tip_radii = radii[lone_tips]
+        tip_radii = radii[tips]
+
+        for label, radius in zip(lone_tip_labels, lone_tip_radii):
+            label_lengths[unique_labels == label] += radius * 2
+        for label, radius in zip(tip_labels, tip_radii):
+            label_lengths[unique_labels == label] += radius
 
 
+        # mean radii for each branch:
+        median_thickenss = []
+        thicknesses = radii * 2
+        for label, thickness in zip(unique_labels, thicknesses):
+            median_thickenss.append(np.median(thickness))
 
+        # if thickness at an index is larger than the length, set it to the length, and length to thickness
+        for i, thickness in enumerate(median_thickenss):
+            if thickness > label_lengths[i]:
+                median_thickenss[i] = label_lengths[i]
+                label_lengths[i] = thickness
 
+        aspect_ratios = label_lengths / median_thickenss
 
+        self.aspect_ratio.append(aspect_ratios)
+        self.thickness.append(median_thickenss)
+        self.length.append(label_lengths)
 
     def _run_frame(self, t):
         # frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
@@ -708,8 +736,10 @@ class Components:
         self.time = []
         self.component_label = []
         # add aggregate voxel metrics
+        # add aggregate node metrics
         # add aggregate branch metrics
         # add component metrics
+
 
         self.image_name = []
 
