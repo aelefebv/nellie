@@ -132,11 +132,22 @@ class Voxels:
         self.node_x_lims = []
         self.node_voxel_idxs = []
 
+        self.stats_to_aggregate = [
+            "ang_acc", "ang_acc_com", "ang_acc_com_mag", "ang_acc_mag", "ang_acc_rel", "ang_acc_rel_mag",
+            "ang_vel", "ang_vel_com", "ang_vel_mag", "ang_vel_mag_com", "ang_vel_mag_rel",
+            "ang_vel_orient", "ang_vel_orient_com", "ang_vel_orient_rel", "ang_vel_rel",
+            "directionality_acc_com", "directionality_acc_rel", "directionality_com", "directionality_rel",
+            "lin_acc", "lin_acc_com", "lin_acc_com_mag", "lin_acc_mag", "lin_acc_rel", "lin_acc_rel_mag",
+            "lin_vel", "lin_vel_com", "lin_vel_mag", "lin_vel_mag_rel", "lin_vel_orient", "lin_vel_orient_com",
+            "lin_vel_orient_rel",
+            "lin_vel_rel", "intensity", "structure"
+        ]
+
     def _get_node_info(self, t, frame_coords):
         # get all network pixels
         skeleton_pixels = np.argwhere(self.hierarchy.im_pixel_class[t] > 0)
         skeleton_radius = self.hierarchy.im_distance[t][skeleton_pixels[:, 0], skeleton_pixels[:, 1], skeleton_pixels[:, 2]]
-        largest_thickness = int(np.ceil(np.max(skeleton_radius * 2))) + 1
+
         # create bounding boxes of size largest_thickness around each skeleton pixel
         z_lims = (skeleton_radius[:, np.newaxis] * np.array([-1, 1]) + skeleton_pixels[:, 0, np.newaxis]).astype(int)
         z_lims[:, 1] += 1
@@ -471,6 +482,40 @@ class Voxels:
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
+        print()
+
+def aggregate_stats_for_class(child_class, t, list_of_idxs):
+    # Initialize a dictionary to hold lists of aggregated stats for each stat name
+    aggregate_stats = {
+        stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": []} for
+        stat_name in child_class.stats_to_aggregate}
+
+    for stat_name in child_class.stats_to_aggregate:
+        # Access the relevant attribute for the current time frame
+        stat_array = getattr(child_class, stat_name)[t]
+
+        for idxs in list_of_idxs:
+            stat_values = np.array(stat_array)[idxs]
+
+            # Calculate various statistics for the subset
+            mean = np.nanmean(stat_values, axis=0)
+            std_dev = np.nanstd(stat_values, axis=0)
+            quartiles = np.nanquantile(stat_values, [0.25, 0.5, 0.75], axis=0)
+            min_val = np.nanmin(stat_values, axis=0)
+            max_val = np.nanmax(stat_values, axis=0)
+            range_val = max_val - min_val
+
+            # Append the calculated statistics to their respective lists in the aggregate_stats dictionary
+            aggregate_stats[stat_name]["mean"].append(mean)
+            aggregate_stats[stat_name]["std_dev"].append(std_dev)
+            aggregate_stats[stat_name]["25%"].append(quartiles[0])
+            aggregate_stats[stat_name]["50%"].append(quartiles[1])  # Median
+            aggregate_stats[stat_name]["75%"].append(quartiles[2])
+            aggregate_stats[stat_name]["min"].append(min_val)
+            aggregate_stats[stat_name]["max"].append(max_val)
+            aggregate_stats[stat_name]["range"].append(range_val)
+
+    return aggregate_stats
 
 
 class Nodes:
@@ -481,6 +526,7 @@ class Nodes:
         self.nodes = []
 
         # add voxel aggregate metrics
+        self.aggregate_voxel_metrics = []
         # add node metrics
         self.thickness = []
         self.divergence = []
@@ -491,6 +537,11 @@ class Nodes:
         self.lin_direction_uniformity = []
         self.ang_direction_uniformity = []
 
+        self.stats_to_aggregate = [
+            "divergence", "convergence", "vergere", "lin_magnitude_variability", "ang_magnitude_variability",
+            "lin_direction_uniformity", "ang_direction_uniformity", "thickness",
+        ]
+
         self.voxel_idxs = self.hierarchy.voxels.node_voxel_idxs
         self.branch_label = []
         self.component_label = []
@@ -499,6 +550,10 @@ class Nodes:
         self.node_z_lims = self.hierarchy.voxels.node_z_lims
         self.node_y_lims = self.hierarchy.voxels.node_y_lims
         self.node_x_lims = self.hierarchy.voxels.node_x_lims
+
+    def _get_aggregate_voxel_stats(self, t):
+        frame_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, self.hierarchy.voxels.node_voxel_idxs[t])
+        self.aggregate_voxel_metrics.append(frame_agg)
 
     def _get_node_stats(self, t):
         radius = distance_check(self.hierarchy.im_border_mask[t], self.nodes[t], self.hierarchy.spacing)
@@ -568,6 +623,7 @@ class Nodes:
         im_name = np.ones(frame_skel_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
+        # self._get_aggregate_voxel_stats(t)
         self._get_node_stats(t)
 
     def run(self):
@@ -590,10 +646,9 @@ class Branches:
         self.time = []
         self.branch_label = []
 
-        # self.branch_voxel_label = []
         # self.branch_skel_label = []
-        # add aggregate voxel metrics
-        # add aggregate node metrics
+        self.aggregate_voxel_metrics = []
+        self.aggregate_node_metris = []
         # add branch metrics
         self.length = []
         self.thickness = []
@@ -605,10 +660,20 @@ class Branches:
         self.extent = []
         self.solidity = []
 
-        # self.voxel_idxs = []
         self.branch_idxs = []
         self.component_label = []
         self.image_name = []
+
+    def _get_aggregate_stats(self, t):
+        voxel_labels = self.hierarchy.voxels.branch_labels[t]
+        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels)]
+        vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
+        self.aggregate_voxel_metrics.append(vox_agg)
+
+        node_labels = self.hierarchy.nodes.branch_label[t]
+        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(node_labels)]
+        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
+        self.aggregate_node_metris.append(node_agg)
 
     def _get_branch_stats(self, t):
         branch_idx_array_1 = np.array(self.branch_idxs[t])
@@ -710,14 +775,14 @@ class Branches:
         self.solidity.append(solidity)
 
     def _run_frame(self, t):
-        # frame_voxel_idxs = np.argwhere(self.hierarchy.label_branches[t] > 0)
-        # self.voxel_idxs.append(frame_voxel_idxs)
+        # frame_voxel_idxs = self.hierarchy.voxels.coords[t]
+
+        # frame_voxel_branch_labels = self.hierarchy.label_branches[t][frame_voxel_idxs[:, 0], frame_voxel_idxs[:, 1], frame_voxel_idxs[:, 2]]
+        # self.branch_voxel_label.append(frame_voxel_branch_labels)
 
         frame_branch_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
         self.branch_idxs.append(frame_branch_idxs)
 
-        # frame_voxel_branch_labels = self.hierarchy.label_branches[t][frame_voxel_idxs[:, 0], frame_voxel_idxs[:, 1], frame_voxel_idxs[:, 2]]
-        # self.branch_voxel_label.append(frame_voxel_branch_labels)
 
         frame_skel_branch_labels = self.hierarchy.im_skel[t][frame_branch_idxs[:, 0], frame_branch_idxs[:, 1], frame_branch_idxs[:, 2]]
         # self.branch_skel_label.append(frame_skel_branch_labels)
@@ -744,6 +809,7 @@ class Branches:
         im_name = np.ones(num_branches, dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
+        # self._get_aggregate_stats(t)
         self._get_branch_stats(t)
 
     def run(self):
