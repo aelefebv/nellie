@@ -482,12 +482,11 @@ class Voxels:
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
-        print()
 
 def aggregate_stats_for_class(child_class, t, list_of_idxs):
     # Initialize a dictionary to hold lists of aggregated stats for each stat name
     aggregate_stats = {
-        stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": []} for
+        stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": [], "sum": []} for
         stat_name in child_class.stats_to_aggregate}
 
     for stat_name in child_class.stats_to_aggregate:
@@ -496,6 +495,11 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
 
         for idxs in list_of_idxs:
             stat_values = np.array(stat_array)[idxs]
+            if stat_values.size == 0:
+                # If there are no values for the current node, append a list of nans to each list in the aggregate_stats dictionary
+                for key in aggregate_stats[stat_name].keys():
+                    aggregate_stats[stat_name][key].append(np.nan)
+                continue
 
             # Calculate various statistics for the subset
             mean = np.nanmean(stat_values, axis=0)
@@ -504,6 +508,7 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
             min_val = np.nanmin(stat_values, axis=0)
             max_val = np.nanmax(stat_values, axis=0)
             range_val = max_val - min_val
+            sum_val = np.nansum(stat_values, axis=0)
 
             # Append the calculated statistics to their respective lists in the aggregate_stats dictionary
             aggregate_stats[stat_name]["mean"].append(mean)
@@ -514,6 +519,7 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
             aggregate_stats[stat_name]["min"].append(min_val)
             aggregate_stats[stat_name]["max"].append(max_val)
             aggregate_stats[stat_name]["range"].append(range_val)
+            aggregate_stats[stat_name]["sum"].append(sum_val)
 
     return aggregate_stats
 
@@ -567,7 +573,6 @@ class Nodes:
         lin_dir_uniformity = []
         ang_dir_uniformity = []
         for i, node in enumerate(self.nodes[t]):
-            # print(i, len(self.nodes[t]))
             vox_idxs = self.voxel_idxs[t][i]
             dist_vox_node = self.hierarchy.voxels.coords[t][vox_idxs] - self.nodes[t][i]
             dist_vox_node_mag = np.linalg.norm(dist_vox_node, axis=1, keepdims=True)
@@ -623,13 +628,12 @@ class Nodes:
         im_name = np.ones(frame_skel_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
-        # self._get_aggregate_voxel_stats(t)
+        self._get_aggregate_voxel_stats(t)
         self._get_node_stats(t)
 
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
-        print('hi')
 
 
 def distance_check(border_mask, check_coords, spacing):
@@ -648,7 +652,7 @@ class Branches:
 
         # self.branch_skel_label = []
         self.aggregate_voxel_metrics = []
-        self.aggregate_node_metris = []
+        self.aggregate_node_metrics = []
         # add branch metrics
         self.length = []
         self.thickness = []
@@ -664,6 +668,11 @@ class Branches:
         self.component_label = []
         self.image_name = []
 
+        self.stats_to_aggregate = [
+            "length", "thickness", "aspect_ratio", "tortuosity", "area", "axis_length_maj", "axis_length_min",
+            "extent", "solidity",
+        ]
+
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.branch_labels[t]
         grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels)]
@@ -673,7 +682,7 @@ class Branches:
         node_labels = self.hierarchy.nodes.branch_label[t]
         grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(node_labels)]
         node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
-        self.aggregate_node_metris.append(node_agg)
+        self.aggregate_node_metrics.append(node_agg)
 
     def _get_branch_stats(self, t):
         branch_idx_array_1 = np.array(self.branch_idxs[t])
@@ -809,13 +818,12 @@ class Branches:
         im_name = np.ones(num_branches, dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
-        # self._get_aggregate_stats(t)
+        self._get_aggregate_stats(t)
         self._get_branch_stats(t)
 
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
-        print('hi')
 
 
 class Components:
@@ -824,9 +832,9 @@ class Components:
 
         self.time = []
         self.component_label = []
-        # add aggregate voxel metrics
-        # add aggregate node metrics
-        # add aggregate branch metrics
+        self.aggregate_voxel_metrics = []
+        self.aggregate_node_metrics = []
+        self.aggregate_branch_metrics = []
         # add component metrics
         self.area = []
         self.axis_length_maj = []
@@ -835,7 +843,27 @@ class Components:
         self.solidity = []
 
         self.image_name = []
-        
+
+        self.stats_to_aggregate = [
+            "area", "axis_length_maj", "axis_length_min", "extent", "solidity",
+        ]
+
+    def _get_aggregate_stats(self, t):
+        voxel_labels = self.hierarchy.voxels.component_labels[t]
+        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels)]
+        vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
+        self.aggregate_voxel_metrics.append(vox_agg)
+
+        node_labels = self.hierarchy.nodes.component_label[t]
+        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels)]
+        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
+        self.aggregate_node_metrics.append(node_agg)
+
+        branch_labels = self.hierarchy.branches.component_label[t]
+        grouped_branch_idxs = [np.argwhere(branch_labels == label).flatten() for label in np.unique(voxel_labels)]
+        branch_agg = aggregate_stats_for_class(self.hierarchy.branches, t, grouped_branch_idxs)
+        self.aggregate_branch_metrics.append(branch_agg)
+
     def _get_component_stats(self, t):
         regions = regionprops(self.hierarchy.label_components[t], spacing=self.hierarchy.spacing)
         areas = []
@@ -870,12 +898,12 @@ class Components:
         im_name = np.ones(num_components, dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
+        self._get_aggregate_stats(t)
         self._get_component_stats(t)
 
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
-        print('hi')
 
 
 class Image:
@@ -884,19 +912,33 @@ class Image:
 
         self.time = []
         self.image_name = []
-        # add aggregate voxel metrics
-        # add aggregate branch metrics
-        # add aggregate component metrics
-        # add image metrics
+        self.aggregate_voxel_metrics = []
+        self.aggregate_node_metrics = []
+        self.aggregate_branch_metrics = []
+        self.aggregate_component_metrics = []
+
+    def _get_aggregate_stats(self, t):
+        voxel_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, [np.arange(len(self.hierarchy.voxels.coords[t]))])
+        self.aggregate_voxel_metrics.append(voxel_agg)
+
+        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, [np.arange(len(self.hierarchy.nodes.nodes[t]))])
+        self.aggregate_node_metrics.append(node_agg)
+
+        branch_agg = aggregate_stats_for_class(self.hierarchy.branches, t, [self.hierarchy.branches.branch_label[t].flatten()-1])
+        self.aggregate_branch_metrics.append(branch_agg)
+
+        component_agg = aggregate_stats_for_class(self.hierarchy.components, t, [np.arange(len(self.hierarchy.components.component_label[t]))])
+        self.aggregate_component_metrics.append(component_agg)
 
     def _run_frame(self, t):
         self.time.append(t)
         self.image_name.append(self.hierarchy.im_info.basename_no_ext)
 
+        self._get_aggregate_stats(t)
+
     def run(self):
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
-        print('hi')
 
 
 if __name__ == "__main__":
@@ -919,6 +961,8 @@ if __name__ == "__main__":
     hierarchy.components = Components(hierarchy)
     hierarchy.components.run()
 
-    image = Image(hierarchy)
-    image.run()
+    hierarchy.image = Image(hierarchy)
+    hierarchy.image.run()
+
+    print('hi')
 
