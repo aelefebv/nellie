@@ -10,6 +10,7 @@ from src.im_info.im_info import ImInfo
 from src.tracking.flow_interpolation import FlowInterpolator
 from src.utils.general import get_reshaped_image
 import pandas as pd
+import time
 
 
 class Hierarchy:
@@ -73,23 +74,44 @@ class Hierarchy:
     def _get_hierarchies(self):
         self.voxels = Voxels(self)
         print("Running voxel analysis")
+        start = time.time()
         self.voxels.run()
+        end = time.time()
+        v_time = end - start
 
         self.nodes = Nodes(self)
         print("Running node analysis")
+        start = time.time()
         self.nodes.run()
+        end = time.time()
+        n_time = end - start
 
         self.branches = Branches(self)
         print("Running branch analysis")
+        start = time.time()
         self.branches.run()
+        end = time.time()
+        b_time = end - start
 
         self.components = Components(self)
         print("Running component analysis")
+        start = time.time()
         self.components.run()
+        end = time.time()
+        c_time = end - start
 
         self.image = Image(self)
         print("Running image analysis")
+        start = time.time()
         self.image.run()
+        end = time.time()
+        i_time = end - start
+
+        print("Voxel analysis took", v_time, "seconds")
+        print("Node analysis took", n_time, "seconds")
+        print("Branch analysis took", b_time, "seconds")
+        print("Component analysis took", c_time, "seconds")
+        print("Image analysis took", i_time, "seconds")
 
     def _save_dfs(self):
         voxel_features, voxel_headers = create_feature_array(self.voxels)
@@ -100,11 +122,11 @@ class Hierarchy:
         node_df = pd.DataFrame(node_features, columns=node_headers)
         node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=False)
 
-        branch_features, branch_headers = create_feature_array(self.branches)
+        branch_features, branch_headers = create_feature_array(self.branches, self.branches.branch_label)
         branch_df = pd.DataFrame(branch_features, columns=branch_headers)
         branch_df.to_csv(self.im_info.pipeline_paths['features_branches'], index=False)
 
-        component_features, component_headers = create_feature_array(self.components)
+        component_features, component_headers = create_feature_array(self.components, self.components.component_label)
         component_df = pd.DataFrame(component_features, columns=component_headers)
         component_df.to_csv(self.im_info.pipeline_paths['features_components'], index=False)
 
@@ -193,7 +215,7 @@ def append_to_array(to_append):
     return new_array, new_headers
 
 
-def create_feature_array(level):
+def create_feature_array(level, labels=None):
     full_array = None
     headers = None
     all_attr = []
@@ -221,6 +243,11 @@ def create_feature_array(level):
     for t in range(len(attr_dict)):
         to_append = attr_dict[t]
         time_array, new_headers = append_to_array(to_append)
+        if labels is None:
+            labels_t = range(len(time_array[0]))
+        else:
+            labels_t = labels[t]
+        time_array.insert(0, labels_t)
         # append a list of t values to the start of time_array
         time_array.insert(0, [t] * len(time_array[0]))
         if headers is None:
@@ -231,6 +258,7 @@ def create_feature_array(level):
             time_array = np.array(time_array).T
             full_array = np.vstack([full_array, time_array])
 
+    headers.insert(0, 'label')
     headers.insert(0, 't')
     return full_array, headers
     # df = pd.DataFrame(full_array, columns=headers)
@@ -1122,4 +1150,27 @@ if __name__ == "__main__":
 
     edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
 
+    mask = hierarchy.label_components[0] > 0
+    mask_coords = np.argwhere(mask)
 
+    # color all the mask coords based on the branch labels via the edges
+    v_b = edges_loaded['v_b'][0]
+    v_n = edges_loaded['v_n'][0]
+    v_o = edges_loaded['v_o'][0]
+    # within v_b, find the index where each row (voxel) is true (corresponding branch)
+    branch_labels = np.argmax(v_b, axis=1)
+    mask_branches = np.zeros(mask.shape, dtype=np.uint16)
+    mask_branches[tuple(mask_coords.T)] = branch_labels + 1
+    node_labels = np.argmax(v_n, axis=1)
+    mask_nodes = np.zeros(mask.shape, dtype=np.uint16)
+    mask_nodes[tuple(mask_coords.T)] = node_labels + 1
+    organelle_labels = np.argmax(v_o, axis=1)
+    mask_organelles = np.zeros(mask.shape, dtype=np.uint16)
+    mask_organelles[tuple(mask_coords.T)] = organelle_labels + 1
+
+    import napari
+    viewer = napari.Viewer()
+    viewer.add_image(mask)
+    viewer.add_image(mask_branches)
+    viewer.add_image(mask_nodes)
+    viewer.add_image(mask_organelles)

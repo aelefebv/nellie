@@ -284,9 +284,10 @@ class VoxelReassigner:
 
 
 if __name__ == "__main__":
-    tif_file = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(tif_file)
-    run_obj = VoxelReassigner(im_info, num_t=3)
+    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
+    im_info = ImInfo(im_path)
+    num_t = 3
+    run_obj = VoxelReassigner(im_info, num_t=num_t)
     run_obj.run()
 
     # import os
@@ -300,3 +301,43 @@ if __name__ == "__main__":
     #     im_info.create_output_path('im_instance_label')
     #     run_obj = VoxelReassigner(im_info)
     #     run_obj.run()
+
+    mask_voxels_0 = np.argwhere(run_obj.label_memmap[0] > 0)
+    mask_voxels_1 = np.argwhere(run_obj.label_memmap[1] > 0)
+
+    t0_coords_in_mask_0 = {tuple(coord): idx for idx, coord in enumerate(mask_voxels_0)}
+    t1_coords_in_mask_1 = {tuple(coord): idx for idx, coord in enumerate(mask_voxels_1)}
+
+    idx_matches_0 = [t0_coords_in_mask_0[tuple(coord)] for coord in run_obj.running_matches[0][0]]
+    idx_matches_1 = [t1_coords_in_mask_1[tuple(coord)] for coord in run_obj.running_matches[0][1]]
+    # sort based on idx_matches_0
+    sorted_idx_matches_0_order = np.argsort(idx_matches_0)
+    sorted_idx_matches_0 = np.array(idx_matches_0)[sorted_idx_matches_0_order]
+    sorted_idx_matches_1 = np.array(idx_matches_1)[sorted_idx_matches_0_order]
+
+    v_t = np.zeros((len(mask_voxels_0), len(mask_voxels_1)), dtype=bool)
+    v_t[sorted_idx_matches_0, sorted_idx_matches_1] = True
+
+    # todo useful for getting continuous tracks for voxels
+    matches_t0_t1 = run_obj.running_matches[0][1]
+    matches_t1_t2 = run_obj.running_matches[1][0]
+
+    t1_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(matches_t0_t1)}
+    t1_coords_in_t1_t2 = {tuple(coord): idx for idx, coord in enumerate(matches_t1_t2)}
+
+    t0_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(run_obj.running_matches[0][0])}
+
+    # Create the continuous track list
+    continuous_tracks = []
+    for t1_coord, t0_idx in t1_coords_in_t0_t1.items():
+        if t1_coord in t1_coords_in_t1_t2:
+            t0_coord = run_obj.running_matches[0][0][t0_idx]
+            t2_idx = t1_coords_in_t1_t2[t1_coord]
+            t2_coord = run_obj.running_matches[1][1][t2_idx]
+            continuous_tracks.append([t0_coord, t1_coord, t2_coord])
+
+    napari_tracks = []
+    for i, track in enumerate(continuous_tracks):
+        napari_tracks.append([i, 0, track[0][0], track[0][1], track[0][2]])
+        napari_tracks.append([i, 1, track[1][0], track[1][1], track[1][2]])
+        napari_tracks.append([i, 2, track[2][0], track[2][1], track[2][2]])
