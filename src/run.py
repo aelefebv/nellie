@@ -1,4 +1,5 @@
 from src.feature_extraction.graph_frame import GraphBuilder
+from src.feature_extraction.hierarchical import Hierarchy
 from src.feature_extraction.morphology_labels import MorphologyLabelFeatures
 from src.feature_extraction.morphology_skeletons import MorphologySkeletonFeatures
 from src.feature_extraction.motility_labels import CoordMovement
@@ -31,6 +32,9 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
     vox_reassign = VoxelReassigner(im_info, num_t)
     vox_reassign.run()
+
+    hierarchy = Hierarchy(im_info, num_t)
+    hierarchy.run()
 
     # morphology_skeleton_features = MorphologySkeletonFeatures(im_info, num_t)
     # morphology_skeleton_features.run()

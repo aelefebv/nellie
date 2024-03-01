@@ -76,6 +76,12 @@ class ImInfo:
         self.create_output_path('rel_lin_acc_mag')
         self.create_output_path('graph_features', ext='.csv')
         self.create_output_path('graph_edges', ext='.csv')
+        self.create_output_path('features_voxels', ext='.csv')
+        self.create_output_path('features_nodes', ext='.csv')
+        self.create_output_path('features_branches', ext='.csv')
+        self.create_output_path('features_components', ext='.csv')
+        self.create_output_path('features_image', ext='.csv')
+        self.create_output_path('adjacency_maps', ext='.pkl')
 
     def _create_output_dir(self):
         if not os.path.isdir(self.output_dir):

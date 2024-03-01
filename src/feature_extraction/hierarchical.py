@@ -1,3 +1,6 @@
+import pickle
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from scipy import spatial
@@ -6,6 +9,7 @@ from skimage.measure import regionprops
 from src.im_info.im_info import ImInfo
 from src.tracking.flow_interpolation import FlowInterpolator
 from src.utils.general import get_reshaped_image
+import pandas as pd
 
 
 class Hierarchy:
@@ -66,9 +70,171 @@ class Hierarchy:
 
         self.shape = self.im_raw.shape
 
+    def _get_hierarchies(self):
+        self.voxels = Voxels(self)
+        print("Running voxel analysis")
+        self.voxels.run()
+
+        self.nodes = Nodes(self)
+        print("Running node analysis")
+        self.nodes.run()
+
+        self.branches = Branches(self)
+        print("Running branch analysis")
+        self.branches.run()
+
+        self.components = Components(self)
+        print("Running component analysis")
+        self.components.run()
+
+        self.image = Image(self)
+        print("Running image analysis")
+        self.image.run()
+
+    def _save_dfs(self):
+        voxel_features, voxel_headers = create_feature_array(self.voxels)
+        voxel_df = pd.DataFrame(voxel_features, columns=voxel_headers)
+        voxel_df.to_csv(self.im_info.pipeline_paths['features_voxels'], index=False)
+
+        node_features, node_headers = create_feature_array(self.nodes)
+        node_df = pd.DataFrame(node_features, columns=node_headers)
+        node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=False)
+
+        branch_features, branch_headers = create_feature_array(self.branches)
+        branch_df = pd.DataFrame(branch_features, columns=branch_headers)
+        branch_df.to_csv(self.im_info.pipeline_paths['features_branches'], index=False)
+
+        component_features, component_headers = create_feature_array(self.components)
+        component_df = pd.DataFrame(component_features, columns=component_headers)
+        component_df.to_csv(self.im_info.pipeline_paths['features_components'], index=False)
+
+        image_features, image_headers = create_feature_array(self.image)
+        image_df = pd.DataFrame(image_features, columns=image_headers)
+        image_df.to_csv(self.im_info.pipeline_paths['features_image'], index=False)
+
+    def _save_adjacency_maps(self):
+        # edge list:
+        v_b = [self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t] for t in
+               range(len(self.voxels.time))]
+        v_n = []
+        for t in range(len(self.voxels.time)):
+            num_voxels = len(self.voxels.coords[0])
+            num_nodes = len(self.nodes.nodes[0])
+            v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
+            for voxel, nodes in enumerate(self.voxels.node_labels[t]):
+                v_n_temp[voxel, nodes] = True
+            v_n.append(v_n_temp)
+        v_o = [self.voxels.component_labels[t][:, None] == self.components.component_label[t] for t in
+               range(len(self.voxels.time))]
+        v_i = [np.ones((len(self.voxels.coords[t]), 1), dtype=bool) for t in range(len(self.voxels.time))]
+
+        n_v = [v_n[t].T for t in range(len(self.voxels.time))]
+        n_b = [self.nodes.branch_label[t][:, None] == self.branches.branch_label[t] for t in
+               range(len(self.nodes.time))]
+        n_o = [self.nodes.component_label[t][:, None] == self.components.component_label[t] for t in
+               range(len(self.nodes.time))]
+        n_i = [np.ones((len(self.nodes.nodes[t]), 1), dtype=bool) for t in range(len(self.nodes.time))]
+
+        b_v = [v_b[t].T for t in range(len(self.voxels.time))]
+        b_n = [n_b[t].T for t in range(len(self.nodes.time))]
+        b_o = [self.branches.component_label[t][:, None] == self.components.component_label[t] for t in
+               range(len(self.branches.time))]
+        b_i = [np.ones((len(self.branches.branch_label[t]), 1), dtype=bool) for t in
+               range(len(self.branches.time))]
+
+        o_v = [v_o[t].T for t in range(len(self.voxels.time))]
+        o_n = [n_o[t].T for t in range(len(self.nodes.time))]
+        o_b = [b_o[t].T for t in range(len(self.branches.time))]
+        o_i = [np.ones((len(self.components.component_label[t]), 1), dtype=bool) for t in
+               range(len(self.components.time))]
+
+        i_v = [v_i[t].T for t in range(len(self.voxels.time))]
+        i_n = [n_i[t].T for t in range(len(self.nodes.time))]
+        i_b = [b_i[t].T for t in range(len(self.branches.time))]
+        i_o = [o_i[t].T for t in range(len(self.components.time))]
+
+        # create a dict with all the edges
+        # could also link voxels between t frames
+        edges = {
+            "v_b": v_b, "v_n": v_n, "v_o": v_o, "v_i": v_i,
+            "n_v": n_v, "n_b": n_b, "n_o": n_o, "n_i": n_i,
+            "b_v": b_v, "b_n": b_n, "b_o": b_o, "b_i": b_i,
+            "o_v": o_v, "o_n": o_n, "o_b": o_b, "o_i": o_i,
+            "i_v": i_v, "i_n": i_n, "i_b": i_b, "i_o": i_o,
+        }
+        # pickle and save
+        with open(self.im_info.pipeline_paths['adjacency_maps'], "wb") as f:
+            pickle.dump(edges, f)
+
     def run(self):
         self._get_t()
         self._allocate_memory()
+        self._get_hierarchies()
+        print("Saving dataframes and adjacency maps")
+        self._save_dfs()
+        self._save_adjacency_maps()
+
+
+def append_to_array(to_append):
+    new_array = []
+    new_headers = []
+    for feature, stats in to_append.items():
+        if type(stats) is not dict:
+            stats = {'raw': stats}
+        for stat, vals in stats.items():
+            vals = np.array(vals)
+            if len(vals.shape) > 1:
+                for i in range(len(vals[0])):
+                    new_array.append(vals[:, i])
+                    new_headers.append(f'{feature}_{stat}_{i}')
+            else:
+                new_array.append(vals)
+                new_headers.append(f'{feature}_{stat}')
+    return new_array, new_headers
+
+
+def create_feature_array(level):
+    full_array = None
+    headers = None
+    all_attr = []
+    attr_dict = []
+    # if level has an aggregate_node_metrics attribute
+    if node_attr := getattr(level, 'aggregate_node_metrics', None):
+        all_attr.append(node_attr)
+    if voxel_attr := getattr(level, 'aggregate_voxel_metrics', None):
+        all_attr.append(voxel_attr)
+    if branch_attr := getattr(level, 'aggregate_branch_metrics', None):
+        all_attr.append(branch_attr)
+    if component_attr := getattr(level, 'aggregate_component_metrics', None):
+        all_attr.append(component_attr)
+    inherent_features = level.stats_to_aggregate
+    for feature in inherent_features:
+        if feature_vals := getattr(level, feature, None):
+            all_attr.append([{feature: feature_vals[t]} for t in range(len(feature_vals))])
+
+    for t in range(len(all_attr[0])):
+        time_dict = {}
+        for attr in all_attr:
+            time_dict.update(attr[t])
+        attr_dict.append(time_dict)
+
+    for t in range(len(attr_dict)):
+        to_append = attr_dict[t]
+        time_array, new_headers = append_to_array(to_append)
+        # append a list of t values to the start of time_array
+        time_array.insert(0, [t] * len(time_array[0]))
+        if headers is None:
+            headers = new_headers
+        if full_array is None:
+            full_array = np.array(time_array).T
+        else:
+            time_array = np.array(time_array).T
+            full_array = np.vstack([full_array, time_array])
+
+    headers.insert(0, 't')
+    return full_array, headers
+    # df = pd.DataFrame(full_array, columns=headers)
+    # return df
 
 
 class Voxels:
@@ -139,9 +305,11 @@ class Voxels:
             "directionality_acc_com", "directionality_acc_rel", "directionality_com", "directionality_rel",
             "lin_acc", "lin_acc_com", "lin_acc_com_mag", "lin_acc_mag", "lin_acc_rel", "lin_acc_rel_mag",
             "lin_vel", "lin_vel_com", "lin_vel_mag", "lin_vel_mag_rel", "lin_vel_orient", "lin_vel_orient_com",
-            "lin_vel_orient_rel",
+            "lin_vel_orient_rel", "lin_vel_mag_com",
             "lin_vel_rel", "intensity", "structure"
         ]
+
+        self.features_to_save = self.stats_to_aggregate
 
     def _get_node_info(self, t, frame_coords):
         # get all network pixels
@@ -548,6 +716,8 @@ class Nodes:
             "lin_direction_uniformity", "ang_direction_uniformity", "thickness",
         ]
 
+        self.features_to_save = self.stats_to_aggregate
+
         self.voxel_idxs = self.hierarchy.voxels.node_voxel_idxs
         self.branch_label = []
         self.component_label = []
@@ -916,6 +1086,7 @@ class Image:
         self.aggregate_node_metrics = []
         self.aggregate_branch_metrics = []
         self.aggregate_component_metrics = []
+        self.stats_to_aggregate = []
 
     def _get_aggregate_stats(self, t):
         voxel_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, [np.arange(len(self.hierarchy.voxels.coords[t]))])
@@ -949,20 +1120,6 @@ if __name__ == "__main__":
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()
 
-    hierarchy.voxels = Voxels(hierarchy)
-    hierarchy.voxels.run()
+    edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
 
-    hierarchy.nodes = Nodes(hierarchy)
-    hierarchy.nodes.run()
-
-    hierarchy.branches = Branches(hierarchy)
-    hierarchy.branches.run()
-
-    hierarchy.components = Components(hierarchy)
-    hierarchy.components.run()
-
-    hierarchy.image = Image(hierarchy)
-    hierarchy.image.run()
-
-    print('hi')
 
