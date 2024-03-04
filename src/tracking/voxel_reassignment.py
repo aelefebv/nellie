@@ -301,9 +301,12 @@ if __name__ == "__main__":
     #     im_info.create_output_path('im_instance_label')
     #     run_obj = VoxelReassigner(im_info)
     #     run_obj.run()
+    import pickle
+    edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
 
-    mask_voxels_0 = np.argwhere(run_obj.label_memmap[0] > 0)
-    mask_voxels_1 = np.argwhere(run_obj.label_memmap[1] > 0)
+    mask_01 = run_obj.label_memmap[:2] > 0
+    mask_voxels_0 = np.argwhere(mask_01[0])
+    mask_voxels_1 = np.argwhere(mask_01[1])
 
     t0_coords_in_mask_0 = {tuple(coord): idx for idx, coord in enumerate(mask_voxels_0)}
     t1_coords_in_mask_1 = {tuple(coord): idx for idx, coord in enumerate(mask_voxels_1)}
@@ -315,29 +318,92 @@ if __name__ == "__main__":
     sorted_idx_matches_0 = np.array(idx_matches_0)[sorted_idx_matches_0_order]
     sorted_idx_matches_1 = np.array(idx_matches_1)[sorted_idx_matches_0_order]
 
-    v_t = np.zeros((len(mask_voxels_0), len(mask_voxels_1)), dtype=bool)
+    v_t = np.zeros((len(mask_voxels_0), len(mask_voxels_1)), dtype=np.uint16)
     v_t[sorted_idx_matches_0, sorted_idx_matches_1] = True
 
-    # todo useful for getting continuous tracks for voxels
-    matches_t0_t1 = run_obj.running_matches[0][1]
-    matches_t1_t2 = run_obj.running_matches[1][0]
+    b_v = edges_loaded['b_v'][0].astype(np.uint16)
+    # dot product b_v and v_t
+    import cupy as cp
 
-    t1_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(matches_t0_t1)}
-    t1_coords_in_t1_t2 = {tuple(coord): idx for idx, coord in enumerate(matches_t1_t2)}
 
-    t0_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(run_obj.running_matches[0][0])}
+    def dot_product_in_chunks(a, b, chunk_size=100):
+        result = cp.zeros((a.shape[0], b.shape[1]), dtype=cp.uint8)
+        for start_row in range(0, a.shape[1], chunk_size):
+            print(start_row, start_row + chunk_size)
+            end_row = start_row + chunk_size
+            v_t_chunk = b[start_row:end_row, :]
+            b_v_chunk = a[:, start_row:end_row]
+            result += cp.dot(b_v_chunk, v_t_chunk)  # Adjust this line as per your logic
+        return result
 
-    # Create the continuous track list
-    continuous_tracks = []
-    for t1_coord, t0_idx in t1_coords_in_t0_t1.items():
-        if t1_coord in t1_coords_in_t1_t2:
-            t0_coord = run_obj.running_matches[0][0][t0_idx]
-            t2_idx = t1_coords_in_t1_t2[t1_coord]
-            t2_coord = run_obj.running_matches[1][1][t2_idx]
-            continuous_tracks.append([t0_coord, t1_coord, t2_coord])
 
-    napari_tracks = []
-    for i, track in enumerate(continuous_tracks):
-        napari_tracks.append([i, 0, track[0][0], track[0][1], track[0][2]])
-        napari_tracks.append([i, 1, track[1][0], track[1][1], track[1][2]])
-        napari_tracks.append([i, 2, track[2][0], track[2][1], track[2][2]])
+    # Convert your numpy arrays to cupy arrays
+    v_t_cp = cp.array(v_t, dtype=cp.uint8)
+    b_v_cp = cp.array(b_v, dtype=cp.uint8)
+
+    # Perform dot product in chunks
+    b0_v1_cp = dot_product_in_chunks(b_v_cp, v_t_cp)
+
+    # Convert the result back to a numpy array if needed
+    b1_v1 = edges_loaded['b_v'][1].astype(np.uint16)
+    b1_v1_cp = cp.array(b1_v1, dtype=cp.uint8)
+    b0_b1_cp = dot_product_in_chunks(b0_v1_cp, b1_v1_cp.T)
+    b0_b1 = cp.asnumpy(b0_b1_cp)
+    # b0_b1 are the new edges between branches in time 0 and time 1, values are the number of voxels in common between (aka weighting to give the edges)
+
+    # find the indices of the maximum value in each col
+    max_idx = np.argmax(b0_b1, axis=0) + 1
+
+    mask_branches = np.zeros(mask_01.shape, dtype=np.uint16)
+    branch_labels_0 = np.argmax(b_v.T, axis=1)
+    branch_labels_1 = np.argmax(b1_v1.T, axis=1)
+
+    mask_branches[0][tuple(mask_voxels_0.T)] = branch_labels_0 + 1
+
+    # replace any non-zero values in b1_v1 with the max_idx
+    new_branch_labels_1 = max_idx[branch_labels_1]
+    mask_branches[1][tuple(mask_voxels_1.T)] = new_branch_labels_1 + 1
+    # these branches are relabelled by t0 branch labels.
+
+    # lets do this with nodes, too
+    n_v = edges_loaded['n_v'][0].astype(np.uint16)
+    n_v_cp = cp.array(n_v, dtype=cp.uint8)
+    n0_v1_cp = dot_product_in_chunks(n_v_cp, v_t_cp)
+    n1_v1 = edges_loaded['n_v'][1].astype(np.uint16)
+    n1_v1_cp = cp.array(n1_v1, dtype=cp.uint8)
+    n0_n1_cp = dot_product_in_chunks(n0_v1_cp, n1_v1_cp.T)
+
+    n0_n1 = cp.asnumpy(n0_n1_cp)
+    max_idx_n = np.argmax(n0_n1, axis=0) + 1
+
+    mask_nodes = np.zeros(mask_01.shape, dtype=np.uint16)
+    node_labels_0 = np.argmax(n_v.T, axis=1)
+    node_labels_1 = np.argmax(n1_v1.T, axis=1)
+    mask_nodes[0][tuple(mask_voxels_0.T)] = node_labels_0 + 1
+    new_node_labels_1 = max_idx_n[node_labels_1]
+    mask_nodes[1][tuple(mask_voxels_1.T)] = new_node_labels_1 + 1
+
+
+    # # todo useful for getting continuous tracks for voxels
+    # matches_t0_t1 = run_obj.running_matches[0][1]
+    # matches_t1_t2 = run_obj.running_matches[1][0]
+    #
+    # t1_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(matches_t0_t1)}
+    # t1_coords_in_t1_t2 = {tuple(coord): idx for idx, coord in enumerate(matches_t1_t2)}
+    #
+    # t0_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(run_obj.running_matches[0][0])}
+    #
+    # # Create the continuous track list
+    # continuous_tracks = []
+    # for t1_coord, t0_idx in t1_coords_in_t0_t1.items():
+    #     if t1_coord in t1_coords_in_t1_t2:
+    #         t0_coord = run_obj.running_matches[0][0][t0_idx]
+    #         t2_idx = t1_coords_in_t1_t2[t1_coord]
+    #         t2_coord = run_obj.running_matches[1][1][t2_idx]
+    #         continuous_tracks.append([t0_coord, t1_coord, t2_coord])
+    #
+    # napari_tracks = []
+    # for i, track in enumerate(continuous_tracks):
+    #     napari_tracks.append([i, 0, track[0][0], track[0][1], track[0][2]])
+    #     napari_tracks.append([i, 1, track[1][0], track[1][1], track[1][2]])
+    #     napari_tracks.append([i, 2, track[2][0], track[2][1], track[2][2]])

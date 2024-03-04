@@ -140,8 +140,8 @@ class Hierarchy:
                range(len(self.voxels.time))]
         v_n = []
         for t in range(len(self.voxels.time)):
-            num_voxels = len(self.voxels.coords[0])
-            num_nodes = len(self.nodes.nodes[0])
+            num_voxels = len(self.voxels.coords[t])
+            num_nodes = len(self.nodes.nodes[t])
             v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
             for voxel, nodes in enumerate(self.voxels.node_labels[t]):
                 v_n_temp[voxel, nodes] = True
@@ -1148,29 +1148,29 @@ if __name__ == "__main__":
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()
 
-    edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
-
-    mask = hierarchy.label_components[0] > 0
-    mask_coords = np.argwhere(mask)
-
-    # color all the mask coords based on the branch labels via the edges
-    v_b = edges_loaded['v_b'][0]
-    v_n = edges_loaded['v_n'][0]
-    v_o = edges_loaded['v_o'][0]
-    # within v_b, find the index where each row (voxel) is true (corresponding branch)
-    branch_labels = np.argmax(v_b, axis=1)
-    mask_branches = np.zeros(mask.shape, dtype=np.uint16)
-    mask_branches[tuple(mask_coords.T)] = branch_labels + 1
-    node_labels = np.argmax(v_n, axis=1)
-    mask_nodes = np.zeros(mask.shape, dtype=np.uint16)
-    mask_nodes[tuple(mask_coords.T)] = node_labels + 1
-    organelle_labels = np.argmax(v_o, axis=1)
-    mask_organelles = np.zeros(mask.shape, dtype=np.uint16)
-    mask_organelles[tuple(mask_coords.T)] = organelle_labels + 1
-
-    import napari
-    viewer = napari.Viewer()
-    viewer.add_image(mask)
-    viewer.add_image(mask_branches)
-    viewer.add_image(mask_nodes)
-    viewer.add_image(mask_organelles)
+    # edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
+    #
+    # mask = hierarchy.label_components[0] > 0
+    # mask_coords = np.argwhere(mask)
+    #
+    # # color all the mask coords based on the branch labels via the edges
+    # v_b = edges_loaded['v_b'][0]
+    # v_n = edges_loaded['v_n'][0]
+    # v_o = edges_loaded['v_o'][0]
+    # # within v_b, find the index where each row (voxel) is true (corresponding branch)
+    # branch_labels = np.argmax(v_b, axis=1)
+    # mask_branches = np.zeros(mask.shape, dtype=np.uint16)
+    # mask_branches[tuple(mask_coords.T)] = branch_labels + 1
+    # node_labels = np.argmax(v_n, axis=1)
+    # mask_nodes = np.zeros(mask.shape, dtype=np.uint16)
+    # mask_nodes[tuple(mask_coords.T)] = node_labels + 1
+    # organelle_labels = np.argmax(v_o, axis=1)
+    # mask_organelles = np.zeros(mask.shape, dtype=np.uint16)
+    # mask_organelles[tuple(mask_coords.T)] = organelle_labels + 1
+    #
+    # import napari
+    # viewer = napari.Viewer()
+    # viewer.add_image(mask)
+    # viewer.add_image(mask_branches)
+    # viewer.add_image(mask_nodes)
+    # viewer.add_image(mask_organelles)
