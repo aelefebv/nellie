@@ -29,6 +29,8 @@ class Label:
         self.remove_in_2d = False
 
         self.max_label_num = 0
+
+        self.min_z_radius_um = min(self.im_info.dim_sizes['Z'], 0.2)
         # if any(xp.array(
         #         [self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X']]
         # ) > (self.min_radius_um*2)):
@@ -104,10 +106,11 @@ class Label:
 
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
-            structure = xp.ones((2, 2, 2))
+
+        if not self.im_info.no_z and self.im_info.dim_sizes['Z'] < self.min_z_radius_um:
+            mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
         else:
-            structure = xp.ones((2, 2))
-        mask = ndi.binary_opening(mask, structure=structure)
+            mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))
         # tifffile.imwrite("mask-post.tif", mask.get().astype('uint8')*255)
 
         labels, _ = ndi.label(mask, structure=footprint)
