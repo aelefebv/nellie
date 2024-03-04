@@ -168,9 +168,6 @@ class ImInfo:
                 if 'T' in self.axes:
                     if 'FrameRate' in tag_names:
                         self.dim_sizes['T'] = 1 / self.metadata[tag_names['FrameRate']].value[0]
-                    else:
-                        logger.warning('No FrameRate tag found, assuming T dimension is 1 second.')
-                        self.dim_sizes['T'] = 1
                 else:
                     logger.warning('No FrameRate tag found, assuming T dimension is 1 second.')
                     self.dim_sizes['T'] = 1
@@ -192,6 +189,10 @@ class ImInfo:
             if self.dim_sizes['X'] != self.dim_sizes['Y']:
                 logger.warning('X and Y dimensions do not match. Rectangular pixels not supported, '
                                'so unexpected results and wrong measurements will occur.')
+            if 'T' in self.axes:
+                if self.dim_sizes['T'] is None:
+                    logger.warning('No FrameRate tag found, assuming T dimension is 1 second.')
+                    self.dim_sizes['T'] = 1
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}

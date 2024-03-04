@@ -6,17 +6,19 @@ import numpy as np
 from scipy.spatial import cKDTree
 import skimage.measure
 
-from src.utils.gpu_functions import triangle_threshold
+from src.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
 class Network:
     def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1, clean_skel=True):
+                 min_radius_um=0.20, max_radius_um=1, clean_skel=None):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         if not self.im_info.no_z:
+            if clean_skel is None:
+                clean_skel = False
             self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
         # either (roughly) diffraction limit, or pixel size, whichever is larger
         self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
@@ -40,7 +42,7 @@ class Network:
         self.skel_memmap = None
         self.skel_relabelled_memmap = None
 
-        self.clean_skel = clean_skel
+        self.clean_skel = True if clean_skel is None else clean_skel
 
 
         self.sigmas = None
@@ -132,9 +134,11 @@ class Network:
         if self.clean_skel:
             # masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=0.5) * skel
             masked_frangi = ndi.median_filter(frangi_frame, size=3) * (gpu_frame>0)# * skel
-            # thresh, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
-            thresh = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
-            thresh = 10**thresh
+            thresh_otsu, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
+            thresh_otsu = 10**thresh_otsu
+            thresh_tri = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
+            thresh_tri = 10**thresh_tri
+            thresh = min(thresh_otsu, thresh_tri)
             cleaned_skel = (masked_frangi > thresh) * skel
             # skel = morph.skeletonize(test > 0).astype('bool')
 
