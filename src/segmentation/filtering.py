@@ -222,7 +222,7 @@ class Filter:
             gamma_sq = 2 * gamma ** 2
 
             h_mask, hessian_matrices = self._compute_hessian(gauss_volume, mask=mask)
-            eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices)
+            eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices.astype('float'))
 
             temp[h_mask] = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
 
