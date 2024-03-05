@@ -109,7 +109,7 @@ class Label:
 
         if not self.im_info.no_z and self.im_info.dim_sizes['Z'] < self.min_z_radius_um:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
-        else:
+        elif self.im_info.no_z:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))
         # tifffile.imwrite("mask-post.tif", mask.get().astype('uint8')*255)
 
