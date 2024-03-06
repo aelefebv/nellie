@@ -116,23 +116,23 @@ class Hierarchy:
     def _save_dfs(self):
         voxel_features, voxel_headers = create_feature_array(self.voxels)
         voxel_df = pd.DataFrame(voxel_features, columns=voxel_headers)
-        voxel_df.to_csv(self.im_info.pipeline_paths['features_voxels'], index=False)
+        voxel_df.to_csv(self.im_info.pipeline_paths['features_voxels'], index=True)
 
         node_features, node_headers = create_feature_array(self.nodes)
         node_df = pd.DataFrame(node_features, columns=node_headers)
-        node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=False)
+        node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=True)
 
         branch_features, branch_headers = create_feature_array(self.branches, self.branches.branch_label)
         branch_df = pd.DataFrame(branch_features, columns=branch_headers)
-        branch_df.to_csv(self.im_info.pipeline_paths['features_branches'], index=False)
+        branch_df.to_csv(self.im_info.pipeline_paths['features_branches'], index=True)
 
         component_features, component_headers = create_feature_array(self.components, self.components.component_label)
         component_df = pd.DataFrame(component_features, columns=component_headers)
-        component_df.to_csv(self.im_info.pipeline_paths['features_components'], index=False)
+        component_df.to_csv(self.im_info.pipeline_paths['features_components'], index=True)
 
         image_features, image_headers = create_feature_array(self.image)
         image_df = pd.DataFrame(image_features, columns=image_headers)
-        image_df.to_csv(self.im_info.pipeline_paths['features_image'], index=False)
+        image_df.to_csv(self.im_info.pipeline_paths['features_image'], index=True)
 
     def _save_adjacency_maps(self):
         # edge list:
@@ -1176,7 +1176,8 @@ class Image:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
+    # im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
+    im_path = "/Users/austin/test_files/nelly/ND Stimulation Parallel 12.nd2"
     im_info = ImInfo(im_path)
     num_t = 3
 
