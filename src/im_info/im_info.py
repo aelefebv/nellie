@@ -31,6 +31,8 @@ class ImInfo:
         self.output_dir = self.output_dir + self.output_suffix
         self.screenshot_dir = screenshot_dirpath or os.path.join(self.output_dir, 'screenshots')
         self.screenshot_dir = self.screenshot_dir + self.output_suffix
+        self.graph_dir = os.path.join(self.output_dir, 'graphs')
+        self.graph_dir = self.graph_dir + self.output_suffix
 
         self.shape = ()
         self.metadata = None
