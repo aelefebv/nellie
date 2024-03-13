@@ -249,7 +249,7 @@ def create_feature_array(level, labels=None):
             labels_t = labels[t]
         time_array.insert(0, labels_t)
         # append a list of t values to the start of time_array
-        time_array.insert(0, [t] * len(time_array[0]))
+        time_array.insert(0, np.array([t] * len(time_array[0])))
         if headers is None:
             headers = new_headers
         if full_array is None:
@@ -905,7 +905,7 @@ class Branches:
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.branch_labels[t]
-        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels)]
+        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels) if label != 0]
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 

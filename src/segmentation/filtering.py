@@ -118,7 +118,10 @@ class Filter:
                 np.concatenate([hxy, hyy], axis=-1)
             ], axis=-2)
         else:
-            hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
+            if device_type == 'cuda':
+                hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask].get()]
+            else:
+                hxx, hxy, hxz, hyy, hyz, hzz = [elem[..., np.newaxis, np.newaxis] for elem in h_elems[:, h_mask]]
             hessian_matrices = np.concatenate([
                 np.concatenate([hxx, hxy, hxz], axis=-1),
                 np.concatenate([hxy, hyy, hyz], axis=-1),
