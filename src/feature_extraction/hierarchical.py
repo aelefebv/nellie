@@ -1003,8 +1003,15 @@ class Branches:
         solidity = []
         for region in regions:
             areas.append(region.area)
-            axis_length_maj.append(region.major_axis_length)
-            axis_length_min.append(region.minor_axis_length)
+            # due to bug in skimage (at the time of writing: https://github.com/scikit-image/scikit-image/issues/6630)
+            try:
+                maj_axis = region.major_axis_length
+                min_axis = region.minor_axis_length
+            except ValueError:
+                maj_axis = np.nan
+                min_axis = np.nan
+            axis_length_maj.append(maj_axis)
+            axis_length_min.append(min_axis)
             extent.append(region.extent)
             solidity.append(region.solidity)
         self.area.append(areas)
@@ -1106,8 +1113,15 @@ class Components:
         solidity = []
         for region in regions:
             areas.append(region.area)
-            axis_length_maj.append(region.major_axis_length)
-            axis_length_min.append(region.minor_axis_length)
+            # due to bug in skimage (at the time of writing)
+            try:
+                maj_axis = region.major_axis_length
+                min_axis = region.minor_axis_length
+            except ValueError:
+                maj_axis = np.nan
+                min_axis = np.nan
+            axis_length_maj.append(maj_axis)
+            axis_length_min.append(min_axis)
             extent.append(region.extent)
             solidity.append(region.solidity)
         self.area.append(areas)
