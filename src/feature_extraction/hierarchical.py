@@ -68,6 +68,10 @@ class Hierarchy:
         self.im_pixel_class = get_reshaped_image(im_pixel_class, self.num_t, self.im_info)
         im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
         self.im_border_mask = get_reshaped_image(im_border_mask, self.num_t, self.im_info)
+        im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
+        self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
+        im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
+        self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
 
         self.shape = self.im_raw.shape
 
@@ -893,6 +897,7 @@ class Branches:
         self.axis_length_min = []
         self.extent = []
         self.solidity = []
+        self.reassigned_label = []
 
         self.branch_idxs = []
         self.component_label = []
@@ -900,7 +905,7 @@ class Branches:
 
         self.stats_to_aggregate = [
             "length", "thickness", "aspect_ratio", "tortuosity", "area", "axis_length_maj", "axis_length_min",
-            "extent", "solidity",
+            "extent", "solidity", "reassigned_label"
         ]
 
     def _get_aggregate_stats(self, t):
@@ -1003,7 +1008,12 @@ class Branches:
         axis_length_min = []
         extent = []
         solidity = []
+        reassigned_label = []
+
         for region in regions:
+            region_reassigned_labels = self.hierarchy.im_branch_reassigned[t][tuple(region.coords.T)]
+            # find which label is most common in the region via bincounting
+            reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
             areas.append(region.area)
             # due to bug in skimage (at the time of writing: https://github.com/scikit-image/scikit-image/issues/6630)
             try:
@@ -1021,6 +1031,7 @@ class Branches:
         self.axis_length_min.append(axis_length_min)
         self.extent.append(extent)
         self.solidity.append(solidity)
+        self.reassigned_label.append(reassigned_label)
 
     def _run_frame(self, t):
         # frame_voxel_idxs = self.hierarchy.voxels.coords[t]
@@ -1083,11 +1094,12 @@ class Components:
         self.axis_length_min = []
         self.extent = []
         self.solidity = []
+        self.reassigned_label = []
 
         self.image_name = []
 
         self.stats_to_aggregate = [
-            "area", "axis_length_maj", "axis_length_min", "extent", "solidity",
+            "area", "axis_length_maj", "axis_length_min", "extent", "solidity", "most_common_label",
         ]
 
     def _get_aggregate_stats(self, t):
@@ -1113,7 +1125,12 @@ class Components:
         axis_length_min = []
         extent = []
         solidity = []
+        reassigned_label = []
+
         for region in regions:
+            region_reassigned_labels = self.hierarchy.im_obj_reassigned[t][tuple(region.coords.T)]
+            # find which label is most common in the region via bincounting
+            reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
             areas.append(region.area)
             # due to bug in skimage (at the time of writing)
             try:
@@ -1131,14 +1148,13 @@ class Components:
         self.axis_length_min.append(axis_length_min)
         self.extent.append(extent)
         self.solidity.append(solidity)
+        self.reassigned_label.append(reassigned_label)
 
     def _run_frame(self, t):
         smallest_label = int(np.min(self.hierarchy.label_components[t][self.hierarchy.label_components[t] > 0]))
         largest_label = int(np.max(self.hierarchy.label_components[t]))
         frame_component_labels = np.arange(smallest_label, largest_label + 1)
-
         self.component_label.append(frame_component_labels)
-
         num_components = len(frame_component_labels)
 
         frame_t = np.ones(num_components, dtype=int) * t
