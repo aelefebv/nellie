@@ -9,7 +9,7 @@ from src.utils.general import get_reshaped_image
 
 class VoxelReassigner:
     def __init__(self, im_info: ImInfo,
-                 num_t=None, skeleton_labels=True):
+                 num_t=None, skeleton_labels=False):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None:
@@ -22,8 +22,10 @@ class VoxelReassigner:
         self.running_matches = []
 
         self.voxel_matches_path = None
-        self.label_memmap = None
-        self.reassigned_memmap = None
+        self.branch_label_memmap = None
+        self.obj_label_memmap = None
+        self.reassigned_branch_memmap = None
+        self.reassigned_obj_memmap = None
 
         self.debug = None
 
@@ -227,21 +229,29 @@ class VoxelReassigner:
         logger.debug('Allocating memory for voxel reassignment.')
         self.voxel_matches_path = self.im_info.pipeline_paths['voxel_matches']
 
-        if self.skeleton_labels:
-            label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        else:
-            label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
-        self.shape = self.label_memmap.shape
+        # if self.skeleton_labels:
+        branch_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        # else:
+        obj_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.branch_label_memmap = get_reshaped_image(branch_label_memmap, self.num_t, self.im_info)
+        self.obj_label_memmap = get_reshaped_image(obj_label_memmap, self.num_t, self.im_info)
+        self.shape = self.branch_label_memmap.shape
 
         # reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
-        reassigned_label_path = self.im_info.pipeline_paths['im_instance_label_reassigned']
-        self.reassigned_memmap = self.im_info.allocate_memory(reassigned_label_path, shape=self.shape,
-                                                              dtype='int32',
-                                                              description='instance segmentation',
-                                                              return_memmap=True)
+        reassigned_branch_label_path = self.im_info.pipeline_paths['im_branch_label_reassigned']
+        self.reassigned_branch_memmap = self.im_info.allocate_memory(reassigned_branch_label_path, shape=self.shape,
+                                                                     dtype='int32',
+                                                                     description='branch label reassigned',
+                                                                     return_memmap=True)
 
-    def _run_frame(self, t, all_mask_coords):
+        # reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
+        reassigned_obj_label_path = self.im_info.pipeline_paths['im_obj_label_reassigned']
+        self.reassigned_obj_memmap = self.im_info.allocate_memory(reassigned_obj_label_path, shape=self.shape,
+                                                                  dtype='int32',
+                                                                  description='object label reassigned',
+                                                                  return_memmap=True)
+
+    def _run_frame(self, t, all_mask_coords, reassigned_memmap):
         logger.info(f'Reassigning pixels in frame {t+1} of {self.num_t - 1}')
 
         vox_prev = all_mask_coords[t]
@@ -260,17 +270,26 @@ class VoxelReassigner:
         # save the matches to a npy file
         # np.save(self.voxel_matches_path, np.array([matched_prev, matched_next]))
 
-        self.reassigned_memmap[t + 1][tuple(matched_next.T)] = self.reassigned_memmap[t][tuple(matched_prev.T)]
+        reassigned_memmap[t + 1][tuple(matched_next.T)] = reassigned_memmap[t][tuple(matched_prev.T)]
 
         return False
 
-    def _run_reassignment(self):
-        vox_prev = np.argwhere(self.label_memmap[0] > 0)
-        self.reassigned_memmap[0][tuple(vox_prev.T)] = self.label_memmap[0][tuple(vox_prev.T)]
-        all_mask_coords = [np.argwhere(self.label_memmap[t] > 0) for t in range(self.num_t)]
+    def _run_reassignment(self, label_type):
+        # todo, be able to specify which frame to start at.
+        if label_type == 'branch':
+            label_memmap = self.branch_label_memmap
+            reassigned_memmap = self.reassigned_branch_memmap
+        elif label_type == 'obj':
+            label_memmap = self.obj_label_memmap
+            reassigned_memmap = self.reassigned_obj_memmap
+        else:
+            raise ValueError('label_type must be "branch" or "obj".')
+        vox_prev = np.argwhere(label_memmap[0] > 0)
+        reassigned_memmap[0][tuple(vox_prev.T)] = label_memmap[0][tuple(vox_prev.T)]
+        all_mask_coords = [np.argwhere(label_memmap[t] > 0) for t in range(self.num_t)]
 
         for t in range(self.num_t - 1):
-            no_matches = self._run_frame(t, all_mask_coords)
+            no_matches = self._run_frame(t, all_mask_coords, reassigned_memmap)
 
             if no_matches:
                 break
@@ -278,7 +297,8 @@ class VoxelReassigner:
     def run(self):
         self._get_t()
         self._allocate_memory()
-        self._run_reassignment()
+        self._run_reassignment('branch')
+        self._run_reassignment('obj')
         # save running matches to npy
         np.save(self.voxel_matches_path, np.array(self.running_matches, dtype=object))
 
@@ -304,7 +324,7 @@ if __name__ == "__main__":
     import pickle
     edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
 
-    mask_01 = run_obj.label_memmap[:2] > 0
+    mask_01 = run_obj.obj_label_memmap[:2] > 0
     mask_voxels_0 = np.argwhere(mask_01[0])
     mask_voxels_1 = np.argwhere(mask_01[1])
 
