@@ -720,7 +720,7 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
     # Initialize a dictionary to hold lists of aggregated stats for each stat name
     aggregate_stats = {
         stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": [], "sum": []} for
-        stat_name in child_class.stats_to_aggregate}
+        stat_name in child_class.stats_to_aggregate if stat_name != 'reassigned_label'}
 
     for stat_name in child_class.stats_to_aggregate:
         if stat_name == 'reassigned_label':
@@ -1107,17 +1107,17 @@ class Components:
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.component_labels[t]
-        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels)]
+        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels) if label != 0]
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 
         node_labels = self.hierarchy.nodes.component_label[t]
-        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels)]
+        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels) if label != 0]
         node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
         self.aggregate_node_metrics.append(node_agg)
 
         branch_labels = self.hierarchy.branches.component_label[t]
-        grouped_branch_idxs = [np.argwhere(branch_labels == label).flatten() for label in np.unique(voxel_labels)]
+        grouped_branch_idxs = [np.argwhere(branch_labels == label).flatten() for label in np.unique(voxel_labels) if label != 0]
         branch_agg = aggregate_stats_for_class(self.hierarchy.branches, t, grouped_branch_idxs)
         self.aggregate_branch_metrics.append(branch_agg)
 
