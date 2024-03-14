@@ -905,12 +905,14 @@ class Branches:
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.branch_labels[t]
-        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels) if label != 0]
+        grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten()
+                            for label in np.unique(voxel_labels) if label != 0]
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 
         node_labels = self.hierarchy.nodes.branch_label[t]
-        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(node_labels)]
+        grouped_node_idxs = [np.argwhere(node_labels == label).flatten()
+                             for label in np.unique(node_labels) if label != 0]
         node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
         self.aggregate_node_metrics.append(node_agg)
 

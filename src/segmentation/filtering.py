@@ -296,6 +296,7 @@ class Filter:
         self._set_default_sigmas()
         self._run_filter(mask=mask)
 
+
 if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
     # im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"

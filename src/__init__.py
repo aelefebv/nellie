@@ -5,21 +5,21 @@ device_type = 'cpu'
 # if it's a mac
 if platform.system() == 'Darwin':
     # if it has pytorch
-    try:
-        import torch
-        # For Mac GPUs with MPS support
-        if torch.backends.mps.is_available():
-            import src.utils.torch_xp as xp
-            device_type = 'mps'
-            logger.warning('GPU packages detected, running via GPU.')
-        else:
-            import numpy as xp
-            device_type = 'cpu'
-            logger.warning('GPU packages not detected, running via CPU.')
-    except ModuleNotFoundError:
-        import numpy as xp
-        device_type = 'cpu'
-        logger.warning('GPU packages not detected, running via CPU.')
+    # try:
+    #     import torch
+    #     # For Mac GPUs with MPS support
+    #     if torch.backends.mps.is_available():
+    #         import src.utils.torch_xp as xp
+    #         device_type = 'mps'
+    #         logger.warning('GPU packages detected, running via GPU.')
+    #     else:
+    #         import numpy as xp
+    #         device_type = 'cpu'
+    #         logger.warning('GPU packages not detected, running via CPU.')
+    # except ModuleNotFoundError:
+    import numpy as xp
+    device_type = 'cpu'
+    logger.warning('GPU packages not detected, running via CPU.')
 
     xp_bk = None
     import scipy.ndimage as ndi

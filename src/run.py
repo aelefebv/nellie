@@ -52,10 +52,10 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 
 if __name__ == "__main__":
-    im_path = r"/Users/austin/test_files/nelly_3d/test.ome.tif"
+    im_path = r"/Users/austin/test_files/nelly_3d copy/test.ome.tif"
     # im_path = r"D:\test_files\gav_errors\230614_Z_t_10_w1iSIM-488_t1_merge.ome.tif"
     # im_path = "/Users/austin/test_files/nelly/ND Stimulation Parallel 12.nd2"
-    im_info = run(im_path, remove_edges=False, ch=0, num_t=3)
+    im_info = run(im_path, remove_edges=False, ch=0)
     # im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     # im_info = run(im_path, remove_edges=True, num_t=3)
     # import os

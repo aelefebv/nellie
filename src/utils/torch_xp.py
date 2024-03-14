@@ -186,3 +186,7 @@ def inf():
 def log10(input_array):
     input_array = to_tensor(input_array)
     return torch.log10(input_array)
+
+def mean(input_array, axis=None):
+    input_array = to_tensor(input_array)
+    return torch.mean(input_array, dim=axis)
