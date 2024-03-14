@@ -715,6 +715,7 @@ class Voxels:
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
 
+
 def aggregate_stats_for_class(child_class, t, list_of_idxs):
     # Initialize a dictionary to hold lists of aggregated stats for each stat name
     aggregate_stats = {
@@ -722,6 +723,8 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
         stat_name in child_class.stats_to_aggregate}
 
     for stat_name in child_class.stats_to_aggregate:
+        if stat_name == 'reassigned_label':
+            continue
         # Access the relevant attribute for the current time frame
         stat_array = getattr(child_class, stat_name)[t]
 
@@ -1099,7 +1102,7 @@ class Components:
         self.image_name = []
 
         self.stats_to_aggregate = [
-            "area", "axis_length_maj", "axis_length_min", "extent", "solidity", "most_common_label",
+            "area", "axis_length_maj", "axis_length_min", "extent", "solidity", "reassigned_label",
         ]
 
     def _get_aggregate_stats(self, t):
