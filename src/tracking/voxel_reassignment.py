@@ -8,16 +8,13 @@ from src.utils.general import get_reshaped_image
 
 
 class VoxelReassigner:
-    def __init__(self, im_info: ImInfo,
-                 num_t=None, skeleton_labels=False):
+    def __init__(self, im_info: ImInfo, num_t=None):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.flow_interpolator_fw = FlowInterpolator(im_info)
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
-
-        self.skeleton_labels = skeleton_labels
 
         self.running_matches = []
 
@@ -229,9 +226,7 @@ class VoxelReassigner:
         logger.debug('Allocating memory for voxel reassignment.')
         self.voxel_matches_path = self.im_info.pipeline_paths['voxel_matches']
 
-        # if self.skeleton_labels:
         branch_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        # else:
         obj_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.branch_label_memmap = get_reshaped_image(branch_label_memmap, self.num_t, self.im_info)
         self.obj_label_memmap = get_reshaped_image(obj_label_memmap, self.num_t, self.im_info)
