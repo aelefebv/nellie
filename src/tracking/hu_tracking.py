@@ -1,8 +1,9 @@
-from src.im_info.im_info import ImInfo
-from src import xp, ndi, logger
-from src.utils.general import get_reshaped_image
 import numpy as np
 from scipy.spatial.distance import cdist
+
+from src import xp, ndi, logger
+from src.im_info.im_info import ImInfo
+from src.utils.general import get_reshaped_image
 
 
 class HuMomentTracking:
@@ -37,33 +38,32 @@ class HuMomentTracking:
     def _calculate_normalized_moments(self, images):
         # I know the broadcasting is super confusing, but it makes it so much faster (400x)...
 
-        # Assuming images is a 3D numpy array of shape (num_images, height, width)
         num_images, height, width = images.shape
         extended_images = images[:, :, :, None, None]  # shape (num_images, height, width, 1, 1)
 
-        # Pre-compute meshgrid
+        # pre-compute meshgrid
         x, y = xp.meshgrid(xp.arange(width), xp.arange(height))
 
-        # Reshape for broadcasting
-        x = x[None, :, :, None, None]  # shape (1, height, width, 1, 1)
-        y = y[None, :, :, None, None]  # shape (1, height, width, 1, 1)
+        # reshape for broadcasting
+        x = x[None, :, :, None, None]
+        y = y[None, :, :, None, None]
 
-        # Raw Moments
+        # raw moments
         M = xp.sum(extended_images * (x ** xp.arange(4)[None, None, None, :, None]) *
-                   (y ** xp.arange(4)[None, None, None, None, :]), axis=(1, 2))  # shape (num_images, 4, 4)
+                   (y ** xp.arange(4)[None, None, None, None, :]), axis=(1, 2))
 
-        # Central Moments; compute x_bar and y_bar
-        x_bar = M[:, 1, 0] / M[:, 0, 0]  # shape (num_images,)
-        y_bar = M[:, 0, 1] / M[:, 0, 0]  # shape (num_images,)
+        # central Moments; compute x_bar and y_bar
+        x_bar = M[:, 1, 0] / M[:, 0, 0]
+        y_bar = M[:, 0, 1] / M[:, 0, 0]
 
-        x_bar = x_bar[:, None, None, None, None]  # shape (num_images, 1, 1, 1, 1)
-        y_bar = y_bar[:, None, None, None, None]  # shape (num_images, 1, 1, 1, 1)
+        x_bar = x_bar[:, None, None, None, None]
+        y_bar = y_bar[:, None, None, None, None]
 
-        # Calculate mu using broadcasting
+        # calculate mu using broadcasting
         mu = xp.sum(extended_images * (x - x_bar) ** xp.arange(4)[None, None, None, :, None] *
-                    (y - y_bar) ** xp.arange(4)[None, None, None, None, :], axis=(1, 2))  # shape (num_images, 4, 4)
+                    (y - y_bar) ** xp.arange(4)[None, None, None, None, :], axis=(1, 2))
 
-        # Normalized moments
+        # normalized moments
         i_plus_j = xp.arange(4)[:, None] + xp.arange(4)[None, :]
         eta = mu / (M[:, 0, 0][:, None, None] ** ((i_plus_j[None, :, :] + 2) / 2))
 
@@ -84,6 +84,7 @@ class HuMomentTracking:
         hu[:, 5] = (eta[:, 2, 0] - eta[:, 0, 2]) * \
                    ((eta[:, 3, 0] + eta[:, 1, 2]) ** 2 - (eta[:, 2, 1] + eta[:, 0, 3]) ** 2) + \
                    4 * eta[:, 1, 1] * (eta[:, 3, 0] + eta[:, 1, 2]) * (eta[:, 2, 1] + eta[:, 0, 3])
+        # don't want mirror symmetry invariance.. doesn't make sense for our application
         # hu[:, 6] = (3 * eta[:, 2, 1] - eta[:, 0, 3]) * (eta[:, 3, 0] + eta[:, 1, 2]) * \
         #            ((eta[:, 3, 0] + eta[:, 1, 2]) ** 2 - 3 * (eta[:, 2, 1] + eta[:, 0, 3]) ** 2) - \
         #            (eta[:, 3, 0] - 3 * eta[:, 1, 2]) * (eta[:, 2, 1] + eta[:, 0, 3]) * \
@@ -133,26 +134,26 @@ class HuMomentTracking:
         else:
             z_low, z_high, y_low, y_high, x_low, x_high = im_bounds
 
-        # Preallocate arrays
+        # preallocate arrays
         if self.im_info.no_z:
             sub_volumes = xp.zeros((len(y_low), max_radius, max_radius))
         else:
-            sub_volumes = xp.zeros((len(y_low), max_radius, max_radius, max_radius))  # Change dtype if necessary
+            sub_volumes = xp.zeros((len(y_low), max_radius, max_radius, max_radius))
 
-        # Extract sub-volumes
+        # extract sub-volumes
         for i in range(len(y_low)):
             if self.im_info.no_z:
                 yl, yh, xl, xh = int(y_low[i]), int(y_high[i]), int(x_low[i]), int(x_high[i])
                 sub_volumes[i, :yh - yl, :xh - xl] = im_frame[yl:yh, xl:xh]
             else:
-                zl, zh, yl, yh, xl, xh = int(z_low[i]), int(z_high[i]), int(y_low[i]), int(y_high[i]), int(x_low[i]), int(x_high[i])
+                zl, zh, yl, yh, xl, xh = int(z_low[i]), int(z_high[i]), int(y_low[i]), int(y_high[i]), int(
+                    x_low[i]), int(x_high[i])
                 sub_volumes[i, :zh - zl, :yh - yl, :xh - xl] = im_frame[zl:zh, yl:yh, xl:xh]
 
         return sub_volumes
 
-
     def _get_orthogonal_projections(self, sub_volumes):
-        # Max projections along each axis
+        # max projections along each axis
         z_projections = xp.max(sub_volumes, axis=1)
         y_projections = xp.max(sub_volumes, axis=2)
         x_projections = xp.max(sub_volumes, axis=3)
@@ -186,7 +187,6 @@ class HuMomentTracking:
         im_distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_distance_memmap = get_reshaped_image(im_distance_memmap, self.num_t, self.im_info)
 
-        # self.im_info.create_output_path('flow_vector_array', ext='.npy')
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
     def _get_hu_moments(self, sub_volumes):
@@ -210,44 +210,33 @@ class HuMomentTracking:
     def _get_feature_matrix(self, t):
         intensity_frame = xp.array(self.im_memmap[t])
         frangi_frame = xp.array(self.im_frangi_memmap[t])
-        frangi_frame[frangi_frame>0] = xp.log10(frangi_frame[frangi_frame>0])
-        frangi_frame[frangi_frame<0] -= xp.min(frangi_frame[frangi_frame<0])
+        frangi_frame[frangi_frame > 0] = xp.log10(frangi_frame[frangi_frame > 0])
+        frangi_frame[frangi_frame < 0] -= xp.min(frangi_frame[frangi_frame < 0])
+
         distance_frame = xp.array(self.im_distance_memmap[t])
-        # any inf gets set to 0
-        # inf_mask = xp.isinf(distance_frame)
-        # distance_frame[inf_mask] = 0
-        distance_max_frame = ndi.maximum_filter(distance_frame, size=3)*2
+        distance_max_frame = ndi.maximum_filter(distance_frame, size=3) * 2
+
         marker_frame = xp.array(self.im_marker_memmap[t]) > 0
-        # remove any inf markers that
-        # marker_frame[inf_mask] = 0
         marker_indices = xp.argwhere(marker_frame)
 
         region_bounds = self._get_im_bounds(marker_indices, distance_max_frame)
-        max_radius = int(xp.ceil(xp.max(distance_max_frame[marker_frame])))*2+1
+        max_radius = int(xp.ceil(xp.max(distance_max_frame[marker_frame]))) * 2 + 1
 
         intensity_sub_volumes = self._get_sub_volumes(intensity_frame, region_bounds, max_radius)
         frangi_sub_volumes = self._get_sub_volumes(frangi_frame, region_bounds, max_radius)
-        # distance_sub_volumes = self._get_sub_volumes(distance_frame, region_bounds, max_radius)
 
         intensity_stats = self._calculate_mean_and_variance(intensity_sub_volumes)
         frangi_stats = self._calculate_mean_and_variance(frangi_sub_volumes)
-        # distance_stats = self._calculate_mean_and_variance(distance_sub_volumes)
         stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats])
-        # stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats, distance_stats])
 
         intensity_hus = self._get_hu_moments(intensity_sub_volumes)
-        # frangi_hus = self._get_hu_moments(frangi_frame, frangi_sub_volumes, max_radius)
-        # distance_hus = self._get_hu_moments(distance_frame, distance_sub_volumes, max_radius)
-        hu_feature_matrix = intensity_hus
-        # hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus])
-        # hu_feature_matrix = self._concatenate_hu_matrices([intensity_hus, frangi_hus, distance_hus])
-        log_hu_feature_matrix = -1*xp.copysign(1.0, hu_feature_matrix)*xp.log10(xp.abs(hu_feature_matrix))
+        log_hu_feature_matrix = -1 * xp.copysign(1.0, intensity_hus) * xp.log10(xp.abs(intensity_hus))
         log_hu_feature_matrix[xp.isinf(log_hu_feature_matrix)] = xp.nan
 
         return stats_feature_matrix, log_hu_feature_matrix
 
     def _get_distance_mask(self, t):
-        marker_frame_pre = np.array(self.im_marker_memmap[t-1]) > 0
+        marker_frame_pre = np.array(self.im_marker_memmap[t - 1]) > 0
         marker_indices_pre = np.argwhere(marker_frame_pre)
         marker_indices_pre_scaled = marker_indices_pre * self.scaling
         marker_frame_post = np.array(self.im_marker_memmap[t]) > 0
@@ -272,17 +261,17 @@ class HuMomentTracking:
         mean_vals = xp.zeros(depth)
         std_vals = xp.zeros(depth)
 
-        # Calculate mean values slice by slice
+        # calculate mean values slice by slice
         for d in range(depth):
             slice_m = m[:, :, d]
             mean_vals[d] = xp.sum(slice_m * mask) / sum_mask
 
-        # Calculate std values slice by slice
+        # calculate std values slice by slice
         for d in range(depth):
             slice_m = m[:, :, d]
             std_vals[d] = xp.sqrt(xp.sum((slice_m - mean_vals[d]) ** 2 * mask) / sum_mask)
 
-        # Normalize and set to infinity where mask is 0
+        # normalize and set to infinity where mask is 0
         for d in range(depth):
             slice_m = m[:, :, d]
             slice_m -= mean_vals[d]
@@ -293,18 +282,19 @@ class HuMomentTracking:
 
     def _get_cost_matrix(self, t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
         distance_matrix, distance_mask = self._get_distance_mask(t)
-        z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis], distance_mask).astype(xp.float16)
+        z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis],
+                                                         distance_mask).astype(xp.float16)
         del distance_matrix
         stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
-        z_score_stats_matrix = (self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2]).astype(xp.float16)
+        z_score_stats_matrix = (self._zscore_normalize(stats_matrix, distance_mask) / stats_matrix.shape[2]).astype(
+            xp.float16)
         del stats_matrix
         hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
         z_score_hu_matrix = (self._zscore_normalize(hu_matrix, distance_mask) / hu_matrix.shape[2]).astype(xp.float16)
         del hu_matrix, distance_mask
-        z_score_matrix = xp.concatenate((z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix), axis=2).astype(xp.float16)
-        # z_score_matrix = xp.concatenate((z_score_stats_matrix, z_score_hu_matrix), axis=2)
+        z_score_matrix = xp.concatenate((z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix),
+                                        axis=2).astype(xp.float16)
         cost_matrix = xp.nansum(z_score_matrix, axis=2).astype(xp.float16)
-        # cost_matrix[distance_mask == 0] = xp.inf
 
         return cost_matrix
 
@@ -312,11 +302,11 @@ class HuMomentTracking:
         candidates = []
         cost_cutoff = 1
 
-        # Find row-wise minimums
+        # find row-wise minimums
         row_min_idx = xp.argmin(cost_matrix, axis=1)
         row_min_val = xp.min(cost_matrix, axis=1)
 
-        # Find column-wise minimums
+        # find column-wise minimums
         col_min_idx = xp.argmin(cost_matrix, axis=0)
         col_min_val = xp.min(cost_matrix, axis=0)
 
@@ -324,7 +314,7 @@ class HuMomentTracking:
         col_matches = []
         costs = []
 
-        # Store each row's and column's minimums as candidates for matching
+        # store each row's and column's minimums as candidates for matching
         for i, (r_idx, r_val) in enumerate(zip(row_min_idx, row_min_val)):
             if r_val > cost_cutoff:
                 continue
@@ -362,28 +352,6 @@ class HuMomentTracking:
             marker_indices = np.argwhere(self.im_marker_memmap[t])[row_indices]
             vecs = np.array(marker_indices) - np.array(pre_marker_indices)
 
-            # import napari
-            # viewer = napari.Viewer()
-            # tracks = []
-            # track_props = {'costs': []}
-            # for track_num, (coord, vec) in enumerate(zip(pre_marker_indices, vecs)):
-            #     if self.im_info.no_z:
-            #         tracks.append([track_num, 0, coord[0], coord[1]])
-            #         tracks.append([track_num, 1, coord[0] + vec[0], coord[1] + vec[1]])
-            #     else:
-            #         tracks.append([track_num, 0, coord[0], coord[1], coord[2]])
-            #         tracks.append([track_num, 1, coord[0] + vec[0], coord[1] + vec[1], coord[2] + vec[2]])
-            #     curr_cost = costs[track_num]
-            #     # curr_cost = min(curr_cost, 0)
-            #     curr_cost = max(curr_cost, -1.5)
-            #     track_props['costs'].append(curr_cost)
-            #     track_props['costs'].append(curr_cost)
-            #
-            # viewer.add_image(self.im_memmap[:t+1], name='im', colormap='viridis')
-            # viewer.add_points(marker_indices, size=1, face_color='red', name='current')
-            # viewer.add_points(pre_marker_indices, size=1, face_color='cyan', name='previous')
-            # viewer.add_tracks(tracks, properties=track_props, )
-
             pre_stats_vecs = stats_vecs
             pre_hu_vecs = hu_vecs
 
@@ -391,15 +359,16 @@ class HuMomentTracking:
             if self.im_info.no_z:
                 idx0_y, idx0_x = pre_marker_indices.T
                 vec_y, vec_x = vecs.T
-                frame_vector_array = np.concatenate((np.array([t-1]*len(vec_y))[:, np.newaxis],
+                frame_vector_array = np.concatenate((np.array([t - 1] * len(vec_y))[:, np.newaxis],
                                                      idx0_y[:, np.newaxis], idx0_x[:, np.newaxis],
                                                      vec_y[:, np.newaxis], vec_x[:, np.newaxis],
                                                      costs[:, np.newaxis]), axis=1)
             else:
                 idx0_z, idx0_y, idx0_x = pre_marker_indices.T
                 vec_z, vec_y, vec_x = vecs.T
-                frame_vector_array = np.concatenate((np.array([t-1]*len(vec_z))[:, np.newaxis],
-                                                     idx0_z[:, np.newaxis], idx0_y[:, np.newaxis], idx0_x[:, np.newaxis],
+                frame_vector_array = np.concatenate((np.array([t - 1] * len(vec_z))[:, np.newaxis],
+                                                     idx0_z[:, np.newaxis], idx0_y[:, np.newaxis],
+                                                     idx0_x[:, np.newaxis],
                                                      vec_z[:, np.newaxis], vec_y[:, np.newaxis], vec_x[:, np.newaxis],
                                                      costs[:, np.newaxis]), axis=1)
             if flow_vector_array is None:

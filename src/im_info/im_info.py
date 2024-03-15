@@ -7,6 +7,7 @@ from src import logger
 import numpy as np
 from typing import Union, Type
 
+
 class ImInfo:
     def __init__(self, im_path: str,
                  output_dirpath: str = None,
@@ -94,6 +95,7 @@ class ImInfo:
         try:
             tifffile.memmap(self.im_path, mode='r')
         except (ValueError, tifffile.tifffile.TiffFileError):
+            logger.warning(f'Could not create memmap for {self.im_path}. Loading into memory instead.')
             self._get_ome_tif()
             self.im_path = self.pipeline_paths['ome']
             self.extension = '.ome.tif'
@@ -143,18 +145,21 @@ class ImInfo:
                 self.dim_sizes['T'] = self.metadata.images[0].pixels.time_increment
             elif self.metadata_type is None:
                 tag_names = {tag_value.name: tag_code for tag_code, tag_value in self.metadata.items()}
+
                 if 'XResolution' in tag_names:
                     self.dim_sizes['X'] = self.metadata[tag_names['XResolution']].value[1] \
                                           / self.metadata[tag_names['XResolution']].value[0]
                 else:
-                    logger.warning('No XResolution tag found, assuming X dimension is 1 micron.')
-                    self.dim_sizes['X'] = 1
+                    logger.warning('No XResolution tag found.')
+                    self.dim_sizes['X'] = None
+
                 if 'YResolution' in tag_names:
                     self.dim_sizes['Y'] = self.metadata[tag_names['YResolution']].value[1] \
                                           / self.metadata[tag_names['YResolution']].value[0]
                 else:
-                    logger.warning('No YResolution tag found, assuming Y dimension is 1 micron.')
-                    self.dim_sizes['Y'] = 1
+                    logger.warning('No YResolution tag found.')
+                    self.dim_sizes['Y'] = None
+
                 if 'ResolutionUnit' in tag_names:
                     if self.metadata[tag_names['ResolutionUnit']].value == tifffile.TIFF.RESUNIT.CENTIMETER:
                         self.dim_sizes['X'] *= 1E-2 * 1E6
@@ -163,25 +168,27 @@ class ImInfo:
                     if 'ZResolution' in tag_names:
                         self.dim_sizes['Z'] = 1 / self.metadata[tag_names['ZResolution']].value[0]
                     else:
-                        logger.warning('No ZResolution tag found, assuming Z dimension is 1 micron.')
-                        self.dim_sizes['Z'] = 1
+                        logger.warning('No ZResolution tag found.')
+                        self.dim_sizes['Z'] = None
                 else:
-                    logger.warning('No ZResolution tag found, assuming Z dimension is 1 micron.')
-                    self.dim_sizes['Z'] = 1
+                    logger.warning('No ZResolution tag found.')
+                    self.dim_sizes['Z'] = None
+
                 if 'T' in self.axes:
                     if 'FrameRate' in tag_names:
                         self.dim_sizes['T'] = 1 / self.metadata[tag_names['FrameRate']].value[0]
                 else:
-                    logger.warning('No FrameRate tag found, assuming T dimension is 1 second.')
-                    self.dim_sizes['T'] = 1
-                logger.warning(f'File is not an ImageJ or OME type, estimated dimension sizes: {self.dim_sizes}')
+                    logger.warning('No FrameRate tag found.')
+                    self.dim_sizes['T'] = None
+
+                logger.warning(f'File is not an ImageJ or OME type, found dimension sizes: {self.dim_sizes}')
             elif self.metadata_type == 'nd2':
                 try:
                     timestamps = self.metadata.recorded_data['Time [s]']
                     self.dim_sizes['T'] = timestamps[-1] / len(timestamps)
                 except KeyError:
-                    logger.warning('No time data found in ND2 file, assuming 1 second per frame.')
-                    self.dim_sizes['T'] = 1
+                    logger.warning('No time data found in ND2 file.')
+                    self.dim_sizes['T'] = None
                 self.dim_sizes['X'] = self.metadata.volume.axesCalibration[0]
                 self.dim_sizes['Y'] = self.metadata.volume.axesCalibration[1]
                 self.dim_sizes['Z'] = self.metadata.volume.axesCalibration[2]
@@ -190,12 +197,12 @@ class ImInfo:
                 logger.error('No X dimension found.')
                 raise ValueError
             if self.dim_sizes['X'] != self.dim_sizes['Y']:
-                logger.warning('X and Y dimensions do not match. Rectangular pixels not supported, '
+                logger.warning('X and Y dimensions do not match. Non-square pixels not supported, '
                                'so unexpected results and wrong measurements will occur.')
             if 'T' in self.axes:
                 if self.dim_sizes['T'] is None:
-                    logger.warning('No FrameRate tag found, assuming T dimension is 1 second.')
-                    self.dim_sizes['T'] = 1
+                    logger.warning('No FrameRate tag found.')
+                    self.dim_sizes['T'] = None
         except Exception as e:
             logger.error(f"Error loading metadata for image {self.im_path}: {str(e)}")
             self.metadata = {}
@@ -238,7 +245,6 @@ class ImInfo:
             if len(self.axes) != len(self.shape):
                 logger.error(f"Dimension order {self.axes} does not match the number of dimensions in the image "
                              f"({len(self.shape)}).")
-                # raise error
                 raise ValueError
 
     def _load_metadata(self):
@@ -260,7 +266,8 @@ class ImInfo:
         if self.axes not in accepted_axes:
             # todo, have user optionally specify axes
             logger.warning(f"File dimension order is in unknown order {self.axes} with {len(self.shape)} dimensions. \n"
-                           f"Please specify the order of the dimensions in the run. \n"
+                           f"Please specify the order of the dimensions in the run with the "
+                           f"'dimension_order' parameter. \n"
                            f"Accepted dimensions are: {accepted_axes}.")
             raise ValueError
 
@@ -269,7 +276,7 @@ class ImInfo:
             path_im: str, dtype: Union[Type, str] = 'float', data=None,
             shape: tuple = None,
             description: str = 'No description.',
-            return_memmap: bool = False, read_mode = 'r+'):
+            return_memmap: bool = False, read_mode='r+'):
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
         logger.debug(f'Saving axes as {axes}')
@@ -325,7 +332,6 @@ class ImInfo:
 
 
 if __name__ == "__main__":
-    # test_folder = r"D:\test_files\nelly_gav_tests"
     test_folder = r"D:\test_files\nelly_gav_tests"
     all_files = os.listdir(test_folder)
     all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]

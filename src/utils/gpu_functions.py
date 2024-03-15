@@ -2,7 +2,7 @@ from src import xp, device_type
 
 
 def otsu_effectiveness(image, inter_variance):
-    # Flatten image and create histogram
+    # flatten image and create histogram
     flattened_image = image.flatten()
     sigma_total_squared = xp.var(flattened_image)
     normalized_sigma_B_squared = inter_variance / sigma_total_squared
@@ -34,10 +34,10 @@ def otsu_threshold(matrix, nbins=256):
 
     return threshold, variance12[idx]
 
+
 def triangle_threshold(matrix, nbins=256):
     # gpu version of skimage.filters.threshold_triangle
     hist, bin_edges = xp.histogram(matrix.reshape(-1), bins=nbins, range=(xp.min(matrix), xp.max(matrix)))
-    # hist, bin_edges = xp.histogram(matrix.reshape(-1), bins=nbins, range=(matrix.min(), matrix.max()))
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.
     hist = hist / xp.sum(hist)
 
@@ -55,13 +55,13 @@ def triangle_threshold(matrix, nbins=256):
             # todo check this
         arg_low_level = nbins - arg_high_level - 1
         arg_peak_height = nbins - arg_peak_height - 1
-    del(arg_high_level)
+    del (arg_high_level)
 
     width = arg_peak_height - arg_low_level
     x1 = xp.arange(width)
     y1 = hist[x1 + arg_low_level]
 
-    norm = xp.sqrt(peak_height**2 + width**2)
+    norm = xp.sqrt(peak_height ** 2 + width ** 2)
     peak_height = peak_height / norm
     width = width / norm
 
@@ -72,4 +72,3 @@ def triangle_threshold(matrix, nbins=256):
         arg_level = nbins - arg_level - 1
 
     return bin_centers[arg_level]
-

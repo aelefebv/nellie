@@ -7,4 +7,3 @@ logger.basicConfig(
     datefmt="%Y-%m-%d | %H:%M:%S",
 )
 logger.getLogger('xmlschema').setLevel(logger.WARNING)
-

@@ -1,8 +1,9 @@
-from src.im_info.im_info import ImInfo
-from src import xp, ndi, logger, device_type
-from src.utils.general import get_reshaped_image
-from scipy.spatial import cKDTree, distance
 import numpy as np
+from scipy.spatial import cKDTree, distance
+
+from src import xp, ndi, logger, device_type
+from src.im_info.im_info import ImInfo
+from src.utils.general import get_reshaped_image
 
 
 class Markers:
@@ -41,7 +42,7 @@ class Markers:
         return sigma_vec
 
     def _set_default_sigmas(self):
-        logger.debug('Setting to sigma values.')
+        logger.debug('Setting sigma values.')
         min_sigma_step_size = 0.2
 
         self.sigma_min = self.min_radius_px / 2
@@ -74,25 +75,23 @@ class Markers:
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
         self.shape = self.label_memmap.shape
 
-        # im_marker_path = self.im_info.create_output_path('im_marker')
         im_marker_path = self.im_info.pipeline_paths['im_marker']
         self.im_marker_memmap = self.im_info.allocate_memory(im_marker_path, shape=self.shape,
-                                                            dtype='uint8',
-                                                            description='mocap marker image',
-                                                            return_memmap=True)
+                                                             dtype='uint8',
+                                                             description='mocap marker image',
+                                                             return_memmap=True)
 
-        # im_distance_path = self.im_info.create_output_path('im_distance')
         im_distance_path = self.im_info.pipeline_paths['im_distance']
         self.im_distance_memmap = self.im_info.allocate_memory(im_distance_path, shape=self.shape,
-                                                             dtype='float',
-                                                             description='distance transform image',
-                                                             return_memmap=True)
+                                                               dtype='float',
+                                                               description='distance transform image',
+                                                               return_memmap=True)
 
         im_border_path = self.im_info.pipeline_paths['im_border']
         self.im_border_memmap = self.im_info.allocate_memory(im_border_path, shape=self.shape,
-                                                                dtype='uint8',
-                                                                description='border image',
-                                                                return_memmap=True)
+                                                             dtype='uint8',
+                                                             description='border image',
+                                                             return_memmap=True)
 
     def _distance_im(self, mask):
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
@@ -103,12 +102,9 @@ class Markers:
         else:
             mask_coords = xp.argwhere(mask)
             border_mask_coords = xp.argwhere(border_mask)
-        # import tifffile
-        # tifffile.imwrite('border.tif', border_mask.get().astype('uint8')*255)
 
-        # print('Getting distance image')
         border_tree = cKDTree(border_mask_coords)
-        dist, _ = border_tree.query(mask_coords, k=1, distance_upper_bound=self.max_radius_px*2)
+        dist, _ = border_tree.query(mask_coords, k=1, distance_upper_bound=self.max_radius_px * 2)
         distances_im_frame = xp.zeros_like(mask, dtype='float32')
         if self.im_info.no_z:
             distances_im_frame[mask_coords[:, 0], mask_coords[:, 1]] = dist
@@ -116,7 +112,6 @@ class Markers:
             distances_im_frame[mask_coords[:, 0], mask_coords[:, 1], mask_coords[:, 2]] = dist
         # any inf pixels get set to upper bound
         distances_im_frame[distances_im_frame == xp.inf] = self.max_radius_px * 2
-        # tifffile.imwrite('distance.tif', distances_im_frame.get().astype('float32'))
         return distances_im_frame, border_mask
 
     def _remove_close_peaks(self, coord, check_im):
@@ -126,7 +121,7 @@ class Markers:
         else:
             intensities = check_im_max[coord[:, 0], coord[:, 1]]
 
-        # Sort to remove peaks that are too close by keeping the brightest peak
+        # sort to remove peaks that are too close by keeping the brightest peak
         idx_maxsort = np.argsort(-intensities)
 
         if device_type == 'cuda':
@@ -134,9 +129,8 @@ class Markers:
         else:
             coord_sorted = coord[idx_maxsort]
 
-        # print('Removing peaks that are too close')
         tree = cKDTree(coord_sorted)
-        min_dist = 2  # self.min_radius_px * 2
+        min_dist = 2
         indices = tree.query_ball_point(coord_sorted, r=min_dist, p=2, workers=-1)
         rejected_peaks_indices = set()
         naccepted = 0
@@ -151,7 +145,6 @@ class Markers:
                 candidates = [c for c, d in zip(candidates, dist)
                               if d < min_dist]
 
-                # candidates.remove(keep)
                 rejected_peaks_indices.update(candidates)
                 naccepted += 1
 
@@ -160,40 +153,28 @@ class Markers:
         return cleaned_coords
 
     def _local_max_peak(self, use_im, mask, distance_im):
-        # mask = use_im > 0
         lapofg = xp.empty(((len(self.sigmas),) + use_im.shape), dtype=float)
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
             current_lapofg = -ndi.gaussian_laplace(use_im, sigma_vec) * xp.mean(s) ** 2
-            # current_lapofg = current_lapofg * mask
             current_lapofg[current_lapofg < 0] = 0
             lapofg[i] = current_lapofg
 
-        # import tifffile
-        # tifffile.imwrite('lapofg.tif', lapofg.get().astype('float32'))
-
         filt_footprint = xp.ones((3,) * (use_im.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
-        # tifffile.imwrite('max_filt.tif', max_filt.get().astype('float32'))
         peaks = xp.empty(lapofg.shape, dtype=bool)
         for filt_slice, max_filt_slice in enumerate(max_filt):
-            # thresh = triangle_threshold(max_filt_slice[max_filt_slice > 0])
-            # max_filt_mask = xp.asarray(max_filt_slice > thresh)
-            # peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
-            peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice))# * max_filt_mask
+            peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice))  # * max_filt_mask
         distance_mask = distance_im > 0
         peaks = peaks * mask * distance_mask
-        # tifffile.imwrite('peaks.tif', peaks.get().astype('uint8')*255)
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
         coords_idx = xp.argwhere(coords)
-
         return coords_idx
 
     def _run_frame(self, t):
         logger.info(f'Running motion capture marking, volume {t}/{self.num_t - 1}')
         intensity_frame = xp.asarray(self.im_memmap[t])
-        # frangi_frame = xp.asarray(self.im_frangi_memmap[t])
         mask_frame = xp.asarray(self.label_memmap[t] > 0)
         distance_im, border_mask = self._distance_im(mask_frame)
         if self.use_im == 'distance':
@@ -203,12 +184,6 @@ class Markers:
         peak_coords = self._remove_close_peaks(peak_coords, intensity_frame)
         peak_im = xp.zeros_like(mask_frame)
         peak_im[tuple(peak_coords.T)] = 1
-        # peak_im[tuple(cleaned_coords.T)] = 1
-        # marker_frame = self._local_max_peak(distance_im)
-        # if self.im_info.no_z:
-        #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1])
-        # else:
-        #     xp.ix_(peak_coords[:, 0], peak_coords[:, 1], peak_coords[:, 2])
         if device_type == "cuda":
             return peak_im.get(), distance_im.get(), border_mask.get()
         else:
@@ -218,7 +193,6 @@ class Markers:
         for t in range(self.num_t):
             marker_frame = self._run_frame(t)
             self.im_marker_memmap[t], self.im_distance_memmap[t], self.im_border_memmap[t] = marker_frame
-            # save self.im_marker_memmap and self.im_distance_memmap to respective paths
             self.im_marker_memmap.flush()
             self.im_distance_memmap.flush()
             self.im_border_memmap.flush()

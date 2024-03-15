@@ -1,6 +1,8 @@
 import heapq
+
 import numpy as np
 from scipy.spatial import cKDTree
+
 from src import logger
 from src.im_info.im_info import ImInfo
 from src.tracking.flow_interpolation import FlowInterpolator
@@ -90,7 +92,7 @@ class VoxelReassigner:
             match_next_tuple = tuple(match_next)
             if match_next_tuple not in vox_next_dict.keys():
                 vox_next_dict[match_next_tuple] = [[], []]
-            vox_next_dict[match_next_tuple] [0].append(distances[match_idx])
+            vox_next_dict[match_next_tuple][0].append(distances[match_idx])
             vox_next_dict[match_next_tuple][1].append(vox_prev_matches[match_idx])
 
         # now assign matches based on the t1 voxel's closest (in distance) matched t0 voxel
@@ -104,27 +106,8 @@ class VoxelReassigner:
             min_idx = np.argmin(distance_match_list)
             vox_prev_matches_final.append(vox_prev_match_list[min_idx])
             vox_next_matches_final.append(match_next_tuple)
-        #
-        # vox_prev_dict = {}
-        # for match_idx, match_prev in enumerate(vox_prev_matches):
-        #     match_prev_tuple = tuple(match_prev)
-        #     if match_prev_tuple not in vox_prev_dict.keys():
-        #         vox_prev_dict[match_prev_tuple] = [[], []]
-        #     vox_prev_dict[match_prev_tuple][0].append(distances[match_idx])
-        #     vox_prev_dict[match_prev_tuple][1].append(vox_next_matches[match_idx])
-        #
-        # vox_prev_matches_final_2 = []
-        # vox_next_matches_final_2 = []
-        # for match_prev_tuple, (distance_match_list, vox_next_match_list) in vox_prev_dict.items():
-        #     if len(distance_match_list) == 1:
-        #         vox_prev_matches_final_2.append(match_prev_tuple)
-        #         vox_next_matches_final_2.append(vox_next_match_list[0])
-        #         continue
-        #     min_idx = np.argmin(distance_match_list)
-        #     vox_prev_matches_final_2.append(match_prev_tuple)
-        #     vox_next_matches_final_2.append(vox_next_match_list[min_idx])
 
-        # Create a priority queue with (distance, prev_voxel, next_voxel) tuples
+        # create a priority queue with (distance, prev_voxel, next_voxel) tuples
         priority_queue = [(distances[i], tuple(vox_prev_matches[i]), tuple(vox_next_matches[i]))
                           for i in range(len(distances))]
         heapq.heapify(priority_queue)  # Convert list to a heap in-place
@@ -135,20 +118,17 @@ class VoxelReassigner:
         vox_next_matches_final = []
 
         while priority_queue:
-            # Pop the smallest distance tuple from the heap
+            # pop the smallest distance tuple from the heap
             distance, prev_voxel, next_voxel = heapq.heappop(priority_queue)
 
             if prev_voxel not in assigned_prev or next_voxel not in assigned_next:
-                # If neither of the voxels has been assigned, then assign them
+                # if neither of the voxels has been assigned, then assign them
                 vox_prev_matches_final.append(prev_voxel)
                 vox_next_matches_final.append(next_voxel)
                 assigned_prev.add(prev_voxel)
                 assigned_next.add(next_voxel)
 
         return vox_prev_matches_final, vox_next_matches_final
-
-
-        # return vox_prev_matches_final_1, vox_next_matches_final_1
 
     def _distance_threshold(self, vox_prev_matched, vox_next_matched):
         distances = np.linalg.norm((vox_prev_matched - vox_next_matched) * self.flow_interpolator_fw.scaling, axis=1)
@@ -181,10 +161,8 @@ class VoxelReassigner:
         vox_next_matches = np.concatenate([vox_next_matches_fw, vox_next_matches_bw])
         distances = np.concatenate([distances_fw, distances_bw])
 
-        vox_prev_matches_unique, vox_next_matches_unique = self._assign_unique_matches(vox_prev_matches, vox_next_matches, distances)
-
-        # return vox_prev_matches_unique, vox_next_matches_unique
-
+        vox_prev_matches_unique, vox_next_matches_unique = self._assign_unique_matches(vox_prev_matches,
+                                                                                       vox_next_matches, distances)
 
         vox_next_matches_unique = np.array(vox_next_matches_unique)
         vox_next_matched_tuples = set([tuple(coord) for coord in vox_next_matches_unique])
@@ -232,14 +210,12 @@ class VoxelReassigner:
         self.obj_label_memmap = get_reshaped_image(obj_label_memmap, self.num_t, self.im_info)
         self.shape = self.branch_label_memmap.shape
 
-        # reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
         reassigned_branch_label_path = self.im_info.pipeline_paths['im_branch_label_reassigned']
         self.reassigned_branch_memmap = self.im_info.allocate_memory(reassigned_branch_label_path, shape=self.shape,
                                                                      dtype='int32',
                                                                      description='branch label reassigned',
                                                                      return_memmap=True)
 
-        # reassigned_label_path = self.im_info.create_output_path('im_instance_label_reassigned')
         reassigned_obj_label_path = self.im_info.pipeline_paths['im_obj_label_reassigned']
         self.reassigned_obj_memmap = self.im_info.allocate_memory(reassigned_obj_label_path, shape=self.shape,
                                                                   dtype='int32',
@@ -247,7 +223,7 @@ class VoxelReassigner:
                                                                   return_memmap=True)
 
     def _run_frame(self, t, all_mask_coords, reassigned_memmap):
-        logger.info(f'Reassigning pixels in frame {t+1} of {self.num_t - 1}')
+        logger.info(f'Reassigning pixels in frame {t + 1} of {self.num_t - 1}')
 
         vox_prev = all_mask_coords[t]
         vox_next = all_mask_coords[t + 1]
@@ -261,9 +237,6 @@ class VoxelReassigner:
         matched_next = matched_next.astype('uint16')
 
         self.running_matches.append([matched_prev, matched_next])
-
-        # save the matches to a npy file
-        # np.save(self.voxel_matches_path, np.array([matched_prev, matched_next]))
 
         reassigned_memmap[t + 1][tuple(matched_next.T)] = reassigned_memmap[t][tuple(matched_prev.T)]
 
@@ -305,18 +278,10 @@ if __name__ == "__main__":
     run_obj = VoxelReassigner(im_info, num_t=num_t)
     run_obj.run()
 
-    # import os
-    # top_dir = r"D:\test_files\nelly_gav_tests"
-    # # get all non-folder files
-    # all_files = os.listdir(top_dir)
-    # all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
-    # for file_num, tif_file in enumerate(all_files):
-    #     im_info = ImInfo(tif_file)
-    #     print(f'Processing file {file_num + 1} of {len(all_files)}')
-    #     im_info.create_output_path('im_instance_label')
-    #     run_obj = VoxelReassigner(im_info)
-    #     run_obj.run()
     import pickle
+
+    # This section seems random, but it allows for finding links between any level of the hierarchy to any
+    #  other level in the hierarchy at any time point via lots of dot products.
     edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
 
     mask_01 = run_obj.obj_label_memmap[:2] > 0
@@ -397,7 +362,6 @@ if __name__ == "__main__":
     mask_nodes[0][tuple(mask_voxels_0.T)] = node_labels_0 + 1
     new_node_labels_1 = max_idx_n[node_labels_1]
     mask_nodes[1][tuple(mask_voxels_1.T)] = new_node_labels_1 + 1
-
 
     # # todo useful for getting continuous tracks for voxels
     # matches_t0_t1 = run_obj.running_matches[0][1]

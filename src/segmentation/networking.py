@@ -1,11 +1,11 @@
+import numpy as np
+import skimage.measure
+import skimage.morphology as morph
+from scipy.spatial import cKDTree
+
 from src import xp, ndi, logger, device_type
 from src.im_info.im_info import ImInfo
 from src.utils.general import get_reshaped_image
-import skimage.morphology as morph
-import numpy as np
-from scipy.spatial import cKDTree
-import skimage.measure
-
 from src.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
@@ -44,7 +44,6 @@ class Network:
 
         self.clean_skel = True if clean_skel is None else clean_skel
 
-
         self.sigmas = None
 
         self.debug = None
@@ -58,7 +57,7 @@ class Network:
         else:
             depth, height, width = skel_labels.shape
 
-        true_coords = np.argwhere(skel_labels>0)
+        true_coords = np.argwhere(skel_labels > 0)
 
         pixels_to_delete = []
         for coord in true_coords:
@@ -71,15 +70,15 @@ class Network:
                 if z == 0 or z == depth - 1:
                     continue
             if y == 0 or y == height - 1 or x == 0 or x == width - 1:
-                continue  # Skip boundary voxels
+                continue  # skip boundary voxels
 
-            # Extract 3x3x3 neighborhood
+            # extract 3x3x3 neighborhood
             if self.im_info.no_z:
                 label_neighborhood = skel_labels[y - 1:y + 2, x - 1:x + 2]
             else:
                 label_neighborhood = skel_labels[z - 1:z + 2, y - 1:y + 2, x - 1:x + 2]
 
-            # Get labels of set voxels in the neighborhood
+            # get labels of set voxels in the neighborhood
             labels_in_neighborhood = label_neighborhood[label_neighborhood > 0]
 
             if len(set(labels_in_neighborhood.tolist())) > 1:
@@ -113,9 +112,6 @@ class Network:
 
             label_coords = xp.argwhere(gpu_frame == label)
             label_intensities = frangi_frame[tuple(label_coords.T)]
-            # max_intensity = xp.max(label_intensities)
-            # if max_intensity < thresh:
-            #     continue
             # centroid is where label_intensities is maximal
             centroid = label_coords[xp.argmax(label_intensities)]
 
@@ -124,26 +120,21 @@ class Network:
         return skel_frame
 
     def _skeletonize(self, label_frame, frangi_frame):
-        # gpu_frame = xp.array(frame)
-        # test = self._remove_connected_label_pixels(cpu_frame)
         cpu_frame = np.array(label_frame)
         gpu_frame = xp.array(label_frame)
 
         skel = xp.array(morph.skeletonize(cpu_frame > 0).astype('bool'))
 
         if self.clean_skel:
-            # masked_frangi = ndi.gaussian_filter(frangi_frame, sigma=0.5) * skel
-            masked_frangi = ndi.median_filter(frangi_frame, size=3) * (gpu_frame>0)# * skel
+            masked_frangi = ndi.median_filter(frangi_frame, size=3) * (gpu_frame > 0)  # * skel
             thresh_otsu, _ = otsu_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
-            thresh_otsu = 10**thresh_otsu
+            thresh_otsu = 10 ** thresh_otsu
             thresh_tri = triangle_threshold(xp.log10(masked_frangi[masked_frangi > 0]))
-            thresh_tri = 10**thresh_tri
+            thresh_tri = 10 ** thresh_tri
             thresh = min(thresh_otsu, thresh_tri)
             cleaned_skel = (masked_frangi > thresh) * skel
-            # skel = morph.skeletonize(test > 0).astype('bool')
 
             skel_labels = gpu_frame * cleaned_skel
-            # unique_labels = xp.unique(skel_labels)
             label_sizes = xp.bincount(skel_labels.ravel())
 
             above_threshold = label_sizes > 1
@@ -153,7 +144,6 @@ class Network:
             mask[skel_labels == 0] = False
 
             skel_labels = gpu_frame * mask
-        # skel_labels, _ = ndi.label(cleaned_skel)
         else:
             skel_labels = gpu_frame * skel
             thresh = 0
@@ -181,15 +171,6 @@ class Network:
         self.sigmas = list(xp.arange(self.sigma_min, self.sigma_max, sigma_step_size))
         logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
-    # def _relabel_objects(self, label_frame, skel_frame):
-    #     # the non-0 pixels in label_frame will be relabelled based on the nearest skeleton pixel's label
-    #     skel_coords = np.argwhere(skel_frame > 0)
-    #     skel_tree = cKDTree(skel_coords)
-    #     label_coords = np.argwhere(label_frame > 0)
-    #     _, nearest_skel_indices = skel_tree.query(label_coords, k=1)
-    #     nearest_skel_labels = skel_frame[tuple(skel_coords[nearest_skel_indices].T)]
-    #     label_frame[tuple(np.transpose(label_coords))] = nearest_skel_labels
-
     def _relabel_objects(self, branch_skel_labels, label_frame):
         if self.im_info.no_z:
             structure = xp.ones((3, 3))
@@ -201,7 +182,7 @@ class Network:
         label_mask = xp.array(label_frame > 0).astype('uint8')
         skel_border = (ndi.binary_dilation(skel_mask, iterations=1, structure=structure) ^ skel_mask) * label_mask
         skel_label_mask = (branch_skel_labels > 0)
-        
+
         if device_type == 'cuda':
             skel_label_mask = skel_label_mask.get()
 
@@ -239,7 +220,8 @@ class Network:
             vox_matched = np.argwhere(relabelled_labels_mask_cpu)
             relabelled_mask = relabelled_labels_mask.astype('uint8')
             # add unmatched matches to coords_matched
-            skel_border = (ndi.binary_dilation(relabelled_mask, iterations=1, structure=structure) - relabelled_mask) * label_mask
+            skel_border = (ndi.binary_dilation(relabelled_mask, iterations=1,
+                                               structure=structure) - relabelled_mask) * label_mask
 
             if device_type == 'cuda':
                 vox_next_unmatched = np.argwhere(skel_border.get())
@@ -270,8 +252,6 @@ class Network:
         peaks = xp.empty(lapofg.shape, dtype=bool)
         max_filt_mask = mask
         for filt_slice, max_filt_slice in enumerate(max_filt):
-            # thresh = 10**triangle_threshold(xp.log10(max_filt_slice[max_filt_slice > 0]))
-            # max_filt_mask = xp.asarray(max_filt_slice > thresh) * mask
             peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice)) * max_filt_mask
         # get the coordinates of all true pixels in peaks
         coords = xp.max(peaks, axis=0)
@@ -301,7 +281,7 @@ class Network:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for skeletonization.')
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])#, read_type='r+')
+        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])  # , read_type='r+')
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
@@ -311,25 +291,23 @@ class Network:
         self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
         self.shape = self.label_memmap.shape
 
-        # im_skel_path = self.im_info.create_output_path('im_skel')
         im_skel_path = self.im_info.pipeline_paths['im_skel']
         self.skel_memmap = self.im_info.allocate_memory(im_skel_path, shape=self.shape,
-                                                                  dtype='uint16',
-                                                                  description='skeleton image',
-                                                                  return_memmap=True)
+                                                        dtype='uint16',
+                                                        description='skeleton image',
+                                                        return_memmap=True)
 
-        # im_pixel_class = self.im_info.create_output_path('im_pixel_class')
         im_pixel_class = self.im_info.pipeline_paths['im_pixel_class']
         self.pixel_class_memmap = self.im_info.allocate_memory(im_pixel_class, shape=self.shape,
-                                                                dtype='uint8',
-                                                                description='pixel class image',
-                                                                return_memmap=True)
+                                                               dtype='uint8',
+                                                               description='pixel class image',
+                                                               return_memmap=True)
 
         im_skel_relabelled = self.im_info.pipeline_paths['im_skel_relabelled']
         self.skel_relabelled_memmap = self.im_info.allocate_memory(im_skel_relabelled, shape=self.shape,
-                                                               dtype='uint32',
-                                                               description='skeleton relabelled image',
-                                                               return_memmap=True)
+                                                                   dtype='uint32',
+                                                                   description='skeleton relabelled image',
+                                                                   return_memmap=True)
 
     def _get_branch_skel_labels(self, pixel_class):
         # get the labels of the skeleton pixels that are not junctions or background
@@ -345,16 +323,10 @@ class Network:
     def _run_frame(self, t):
         logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
         label_frame = self.label_memmap[t]
-        # mask_frame = xp.array(label_frame) > 0
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         skel_frame, thresh = self._skeletonize(label_frame, frangi_frame)
         skel = self._remove_connected_label_pixels(skel_frame)
         skel = self._add_missing_skeleton_labels(skel, label_frame, frangi_frame, thresh)
-        # if self.im_info.no_z:
-        #     structure = xp.ones((3, 3))
-        # else:
-        #     structure = xp.ones((3, 3, 3))
-        # final_skel, _ = ndi.label(skel > 0, structure=structure)
         if device_type == 'cuda':
             skel = skel.get()
 
@@ -384,7 +356,6 @@ class Network:
     def _run_networking(self):
         for t in range(self.num_t):
             skel, pixel_class, skel_relabelled_memmap = self._run_frame(t)
-            # pixel_class = self._clean_junctions(pixel_class)
             if self.im_info.no_t:
                 if device_type == 'cuda':
                     self.skel_memmap[:] = skel[:].get()
@@ -403,18 +374,10 @@ class Network:
                     self.skel_memmap[t] = skel
                     self.pixel_class_memmap[t] = pixel_class
                     self.skel_relabelled_memmap[t] = skel_relabelled_memmap
-            # intensity_frame = xp.asarray(self.im_frangi_memmap[t])
-            # label_frame = xp.asarray(self.label_memmap[t])
-            # intensity_frame = xp.asarray(self.im_memmap[t])
-            # coords3d = self._local_max_peak(intensity_frame, xp.asarray(label_frame > 0))
-            # self.network_memmap[t] = frame
-            # self.debug = frame
-            # break
 
     def run(self):
         self._get_t()
         self._allocate_memory()
-        # self._set_default_sigmas()
         self._run_networking()
 
 
@@ -423,35 +386,3 @@ if __name__ == "__main__":
     im_info = ImInfo(im_path)
     skel = Network(im_info, num_t=3)
     skel.run()
-
-    # import os
-    # test_folder = r"D:\test_files\beading"
-    # # test_folder = r"D:\test_files\nelly_tests"
-    # # test_folder = r"D:\test_files\julius_examples"
-    # all_files = os.listdir(test_folder)
-    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    # im_infos = []
-    # for file in all_files:
-    #     im_path = os.path.join(test_folder, file)
-    #     im_info = ImInfo(im_path)
-    #     # im_info = ImInfo(im_path, dim_sizes={'T': 0, 'X': 0.11, 'Y': 0.11, 'Z': 0.1})
-    #     im_info.create_output_path('im_instance_label')
-    #     im_info.create_output_path('im_frangi')
-    #     im_infos.append(im_info)
-    #
-    # skeletonis = []
-    # for im_info in im_infos[:1]:
-    #     # skel = Network(im_info)
-    #     # skel = Network(im_info, num_t=4)
-    #     skel = Network(im_info)
-    #     skel.run()
-    #     skeletonis.append(skel)
-
-    # # check if viewer exists as a variable
-    # if 'viewer' not in locals():
-    #     import napari
-    #     viewer = napari.Viewer()
-    # # viewer.add_points(skeletonis[0].debug.get(), name='debug', size=1, face_color='red')
-    # # viewer.add_points(skeletonis[1].debug.get(), name='debug', size=1, face_color='red')
-    # viewer.add_image(skeletonis[0].debug.get(), name='im')
-    # viewer.add_image(skeletonis[1].debug.get(), name='im')

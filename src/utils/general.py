@@ -1,7 +1,7 @@
 from src import logger, xp
 
 
-def get_reshaped_image(im, num_t = None, im_info = None):
+def get_reshaped_image(im, num_t=None, im_info=None):
     logger.debug('Reshaping image.')
     im_to_return = im
     if im_info.no_z:
