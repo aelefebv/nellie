@@ -54,7 +54,6 @@ napari-plugin-engine==0.2.0
 napari-plugin-manager==0.1.0a2
 napari-svg==0.1.10
 nd2==0.9.0
--e git+https://github.com/aelefebv/nellie.git@3644dcd8e075e970c378af7206974cb64e8236d6#egg=nellie
 nest-asyncio==1.6.0
 networkx==3.2.1
 npe2==0.7.4
