@@ -110,11 +110,11 @@ class Hierarchy:
         end = time.time()
         i_time = end - start
 
-        logger.debug("Voxel analysis took", v_time, "seconds")
-        logger.debug("Node analysis took", n_time, "seconds")
-        logger.debug("Branch analysis took", b_time, "seconds")
-        logger.debug("Component analysis took", c_time, "seconds")
-        logger.debug("Image analysis took", i_time, "seconds")
+        logger.debug(f"Voxel analysis took {v_time} seconds")
+        logger.debug(f"Node analysis took {n_time} seconds")
+        logger.debug(f"Branch analysis took {b_time} seconds")
+        logger.debug(f"Component analysis took {c_time} seconds")
+        logger.debug(f"Image analysis took {i_time} seconds")
 
     def _save_dfs(self):
         voxel_features, voxel_headers = create_feature_array(self.voxels)

@@ -37,7 +37,7 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 if __name__ == "__main__":
     ## Single file run
-    im_path = "/Users/austin/test_files/nelly/ND Stimulation Parallel 12.nd2"
+    im_path = r"D:\test_files\nelly_tests_2d3d\test.ome.tif"
     im_info = run(im_path, remove_edges=False, ch=0, num_t=3)
 
     # ## Directory bactch run
