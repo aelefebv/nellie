@@ -2,9 +2,9 @@ name: nellie
 display_name: Nellie
 contributions:
   commands:
-    - id: nellie_napari.loader
+    - id: nellie.loader
       title: Nellie
       python_name: nellie_napari:NellieLoader
   widgets:
-    - command: nellie_napari.loader
+    - command: nellie.loader
       display_name: Nellie
