@@ -1,0 +1,10 @@
+name: nellie
+display_name: Nellie
+contributions:
+  commands:
+    - id: nellie_napari.loader
+      title: Nellie
+      python_name: nellie_napari:NellieLoader
+  widgets:
+    - command: nellie_napari.loader
+      display_name: Nellie
