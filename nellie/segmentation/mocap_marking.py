@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.spatial import cKDTree, distance
 
-from src import xp, ndi, logger, device_type
-from src.im_info.im_info import ImInfo
-from src.utils.general import get_reshaped_image
+from nellie import xp, ndi, logger, device_type
+from nellie.im_info.im_info import ImInfo
+from nellie.utils.general import get_reshaped_image
 
 
 class Markers:

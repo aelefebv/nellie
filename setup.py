@@ -11,21 +11,6 @@ setup(
     author_email='austin.e.lefebvre@gmail.com',
     url='https://github.com/aelefebv/nelly',
     install_requires=[
-        'numpy',  # List all dependencies here
-        'tifffile',
-        'nd2',
-        'ome-types',
-        'scipy',
-        'scikit-learn',
-        'pandas',
-        'umap-learn',
-        'scikit-learn',
-        'matplotlib',
-        'napari[all]',
-        'plotly',
-        'seaborn',
-        'scikit-image',
-        # 'cupy-cuda11x',
     ],
     python_requires='>=3.9',
 )

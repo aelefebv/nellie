@@ -1,4 +1,4 @@
-from src import xp, device_type
+from nellie import xp, device_type
 
 
 def otsu_effectiveness(image, inter_variance):

@@ -4,10 +4,10 @@ import numpy as np
 from scipy import spatial
 from skimage.measure import regionprops
 
-from src import logger
-from src.im_info.im_info import ImInfo
-from src.tracking.flow_interpolation import FlowInterpolator
-from src.utils.general import get_reshaped_image
+from nellie import logger
+from nellie.im_info.im_info import ImInfo
+from nellie.tracking.flow_interpolation import FlowInterpolator
+from nellie.utils.general import get_reshaped_image
 import pandas as pd
 import time
 

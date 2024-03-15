@@ -1,11 +1,11 @@
-from src.feature_extraction.hierarchical import Hierarchy
-from src.im_info.im_info import ImInfo
-from src.segmentation.filtering import Filter
-from src.segmentation.labelling import Label
-from src.segmentation.mocap_marking import Markers
-from src.segmentation.networking import Network
-from src.tracking.hu_tracking import HuMomentTracking
-from src.tracking.voxel_reassignment import VoxelReassigner
+from nellie.feature_extraction.hierarchical import Hierarchy
+from nellie.im_info.im_info import ImInfo
+from nellie.segmentation.filtering import Filter
+from nellie.segmentation.labelling import Label
+from nellie.segmentation.mocap_marking import Markers
+from nellie.segmentation.networking import Network
+from nellie.tracking.hu_tracking import HuMomentTracking
+from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 
 def run(im_path, num_t=None, remove_edges=True, ch=0):

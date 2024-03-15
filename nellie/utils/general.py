@@ -1,4 +1,4 @@
-from src import logger, xp
+from nellie import logger, xp
 
 
 def get_reshaped_image(im, num_t=None, im_info=None):

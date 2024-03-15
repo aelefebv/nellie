@@ -3,10 +3,10 @@ import skimage.measure
 import skimage.morphology as morph
 from scipy.spatial import cKDTree
 
-from src import xp, ndi, logger, device_type
-from src.im_info.im_info import ImInfo
-from src.utils.general import get_reshaped_image
-from src.utils.gpu_functions import triangle_threshold, otsu_threshold
+from nellie import xp, ndi, logger, device_type
+from nellie.im_info.im_info import ImInfo
+from nellie.utils.general import get_reshaped_image
+from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
 class Network:

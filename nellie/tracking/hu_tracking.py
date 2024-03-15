@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.spatial.distance import cdist
 
-from src import xp, ndi, logger
-from src.im_info.im_info import ImInfo
-from src.utils.general import get_reshaped_image
+from nellie import xp, ndi, logger
+from nellie.im_info.im_info import ImInfo
+from nellie.utils.general import get_reshaped_image
 
 
 class HuMomentTracking:

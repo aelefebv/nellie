@@ -1,12 +1,12 @@
 from itertools import combinations_with_replacement
 
-from src import logger
-from src.im_info.im_info import ImInfo
-from src.utils.general import get_reshaped_image, bbox
+from nellie import logger
+from nellie.im_info.im_info import ImInfo
+from nellie.utils.general import get_reshaped_image, bbox
 import numpy as np
-from src import ndi, xp, device_type
+from nellie import ndi, xp, device_type
 
-from src.utils.gpu_functions import triangle_threshold, otsu_threshold
+from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
 class Filter:

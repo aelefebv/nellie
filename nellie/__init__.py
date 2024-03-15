@@ -1,4 +1,4 @@
-from src.utils.base_logger import logger
+from nellie.utils.base_logger import logger
 import platform
 
 device_type = 'cpu'
@@ -9,7 +9,7 @@ if platform.system() == 'Darwin':
     #     import torch
     #     # For Mac GPUs with MPS support
     #     if torch.backends.mps.is_available():
-    #         import src.utils.torch_xp as xp
+    #         import nellie.utils.torch_xp as xp
     #         device_type = 'mps'
     #         logger.warning('GPU packages detected, running via GPU.')
     #     else:

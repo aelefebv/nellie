@@ -3,7 +3,7 @@ import os
 import tifffile
 import nd2
 import ome_types
-from src import logger
+from nellie import logger
 import numpy as np
 from typing import Union, Type
 
