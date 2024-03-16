@@ -245,8 +245,8 @@ class NellieLoader(QWidget):
         self.process_button.clicked.connect(self.open_nellie_viewer)
 
     def disable_buttons(self):
-        self.process_button.setEnabled(False)
-        self.analysis_button.setEnabled(False)
+        # self.process_button.setEnabled(False)
+        # self.analysis_button.setEnabled(False)
         self.time_input.setEnabled(False)
         self.channel_input.setEnabled(False)
         self.remove_edges_checkbox.setEnabled(False)
