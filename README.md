@@ -2,6 +2,7 @@
 ## Installation
 *Note: May take several minutes*
 
+Choose one, and only one!
 ### Installation CPU (Mac, Windows, Linux):
 ```bash
 pip install git+https://github.com/aelefebv/nellie.git
@@ -12,6 +13,11 @@ pip install git+https://github.com/aelefebv/nellie.git
 pip install cupy-cuda12x git+https://github.com/aelefebv/nellie.git 	
 ```
 Mac Metal GPU-acceleration coming... eventually.
+### Installation via Napari plugin manager:
+If not already installed, install Napari: https://napari.org/stable/tutorials/fundamentals/installation
+1. Open Napari
+2. Go to ```Plugins > Install/Uninstall Plugins...```
+3. Search for Nellie and click ```Install```
 
 ## Usage
 ### Running Nellie's processing pipeline
@@ -29,7 +35,7 @@ Mac Metal GPU-acceleration coming... eventually.
     - Steps can only be run once its previous step has been run.
     - Likewise, visualizations can only be opened once its respective step has been run.
 6. All intermediate files and output csvs will be saved to ```[image_directory]/nellie_output/```.
-   - A separate ```.csv``` is created for each level of the organellar hierarchy.
+   - A separate .csv is created for each level of the organellar hierarchy.
 7. Once features have been exported, Nellie will automatically detect this, and allow analysis to be run via:
    - ```Open Nellie Analyzer``` from the original or processor window.
    - Analysis at this point is optionally, but can be helpful for visualizing, and selectively exporting data.
@@ -39,14 +45,14 @@ Mac Metal GPU-acceleration coming... eventually.
 2. Once the ```Nellie Analyzer``` window is open, select the hierarchy level you want to visualize from the dropdown.
 3. Select the level-specific feature you want to visualize from the new dropdown.
 4. A histogram of all the data will be displayed.
-   - This histogram can be directly exported via the ```Save graph``` button. A ```.png``` will be saved to ```[image_directory]/nellie_output/graphs/``` with the current datetime.
-   - The values of the histogram can be exported via the ```Export graph data``` button. A ```.csv``` will be saved to ```[image_directory]/nellie_output/graphs/``` with the current datetime.
+   - This histogram can be directly exported via the ```Save graph``` button. A .png will be saved to ```[image_directory]/nellie_output/graphs/``` with the current datetime.
+   - The values of the histogram can be exported via the ```Export graph data``` button. A .csv will be saved to ```[image_directory]/nellie_output/graphs/``` with the current datetime.
    - The histogram's x-axis can be viewed in log10 scale via the ```Log scale``` checkbox.
-   - By default, the histogram shows lines at the ```mean +/- 1 standard deviation```. This can instead be switched to ```median and quartiles``` via the ```Median view``` checkbox.
+   - By default, the histogram shows lines at the mean +/- 1 standard deviation. This can instead be switched to median and quartiles via the ```Median view``` checkbox.
 5. Press the ```Overlay mask``` button to colormap the organelle mask based on your selected feature.
    - Once overlaid, toggle the ```Timepoint data``` checkbox to allow you to select a specific timepoint to visualize via the slider.
 
 ## Other features
 - Nellie's plugin offers an ```Easy screenshot``` feature:
   - Press the button under ```Easy screenshot``` or hit Ctrl/Cmd-Shift-E after clicking your image.
-  - The ```.png``` will be saved to ```[image_directory]/nellie_output/screenshots/``` with the current datetime.
+  - The .png will be saved to ```[image_directory]/nellie_output/screenshots/``` with the current datetime.
