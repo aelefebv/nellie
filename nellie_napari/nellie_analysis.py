@@ -288,6 +288,7 @@ class NellieAnalysis(QWidget):
         self.label_mask_layer.refresh()
         self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
         self.match_t_toggle.setEnabled(True)
+        self.viewer.reset_view()
 
     def on_t_change(self, event):
         if self.match_t:
