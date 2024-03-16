@@ -270,9 +270,10 @@ class NellieAnalysis(QWidget):
         layer_name = f'{self.selected_level} {self.dropdown_attr.currentText()}'
         if 'reassigned' in self.dropdown_attr.currentText():
             # make the label_mask_layer a label layer
-            self.label_mask_layer = self.viewer.add_labels(self.label_mask.astype('uint64'))
+            self.label_mask_layer = self.viewer.add_labels(self.label_mask.astype('uint64'), scale=self.scale, name=layer_name)
         else:
-            self.label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1, colormap='turbo')
+            self.label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
+                                                          colormap='turbo', scale=self.scale)
             perc98 = np.nanpercentile(self.attr_data, 98)
             perc2 = np.nanpercentile(self.attr_data, 2)
             if perc2 == perc98:
@@ -283,7 +284,6 @@ class NellieAnalysis(QWidget):
         if not self.im_info.no_z:
             # if the layer isn't in 3D view, make it 3d view
             self.viewer.dims.ndisplay = 3
-            self.label_mask_layer.scale = self.scale
             self.label_mask_layer.interpolation3d = 'nearest'
         self.label_mask_layer.refresh()
         self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
