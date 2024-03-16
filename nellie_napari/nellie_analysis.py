@@ -283,8 +283,8 @@ class NellieAnalysis(QWidget):
         if not self.im_info.no_z:
             # if the layer isn't in 3D view, make it 3d view
             self.viewer.dims.ndisplay = 3
-            self.label_mask_layer.scale = self.scale
             self.label_mask_layer.interpolation3d = 'nearest'
+        self.label_mask_layer.scale = self.scale
         self.label_mask_layer.refresh()
         self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
         self.match_t_toggle.setEnabled(True)
