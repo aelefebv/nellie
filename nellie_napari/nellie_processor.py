@@ -22,13 +22,14 @@ import tifffile
 from nellie_napari.nellie_analysis import NellieAnalysis
 
 
-class NellieViewer(QWidget):
-    def __init__(self, parent=None):
+class NellieProcessor(QWidget):
+    def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
         super().__init__(parent)
+        self.nellie = nellie
+        self.viewer = napari_viewer
         self.im_info = None
         self.num_t = None
         self.remove_edges = False
-        self.viewer = None
         self.nellie_analyzer = None
 
         self.scale = (1, 1, 1)

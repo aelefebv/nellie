@@ -12,8 +12,10 @@ import datetime
 
 
 class NellieAnalysis(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
         super().__init__(parent)
+        self.nellie = nellie
+        self.viewer = napari_viewer
         self.im_info = None
         self.num_t = None
         self.viewer = None
@@ -275,10 +277,10 @@ class NellieAnalysis(QWidget):
             self.label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
                                                           colormap='turbo', scale=self.scale)
             perc98 = np.nanpercentile(self.attr_data, 98)
-            perc2 = np.nanpercentile(self.attr_data, 2)
-            if perc2 == perc98:
-                perc2 -= perc2 * 0.1
-            contrast_limits = [perc2, perc98]
+            min_val = np.nanmin(self.attr_data)
+            if min_val == perc98:
+                perc98 = min_val + (np.abs(min_val) * 0.01)
+            contrast_limits = [min_val, perc98]
             self.label_mask_layer.contrast_limits = contrast_limits
         self.label_mask_layer.name = layer_name
         if not self.im_info.no_z:
