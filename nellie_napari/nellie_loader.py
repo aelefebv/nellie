@@ -6,6 +6,7 @@ from napari.utils.notifications import show_info
 from nellie.im_info.im_info import ImInfo
 from tifffile import tifffile
 
+from nellie.utils.general import get_reshaped_image
 from nellie_napari import NellieViewer
 from nellie_napari.batch_mode import BatchMode
 from nellie_napari.nellie_analysis import NellieAnalysis
@@ -103,23 +104,30 @@ class NellieLoader(QWidget):
 
         self.set_dims_button = QPushButton(text="Set dimension order")
         self.set_dims_button.clicked.connect(self.handleDimOrderChanged)
+        self.set_dims_button.setEnabled(False)
 
         self.set_res_button = QPushButton(text="Set new resolutions")
         self.set_res_button.clicked.connect(self.handleResChanged)
+        self.set_res_button.setEnabled(False)
+
+        self.open_im_button = QPushButton(text="Open scaled image")
+        self.open_im_button.clicked.connect(self.open_im)
+        self.open_im_button.setEnabled(False)
 
 
         self.layout().addWidget(self.filepath_button, 1, 0, 1, 1)
         self.layout().addWidget(self.folder_button, 1, 1, 1, 1)
         self.layout().addWidget(QLabel("Dimension order: "), 2, 0, 1, 1)
         self.layout().addWidget(self.dim_order_button, 2, 1, 1, 1)
-        self.layout().addWidget(self.set_dims_button, 3, 1, 1, 1)
+        self.layout().addWidget(self.set_dims_button, 3, 0, 1, 1)
         self.layout().addWidget(self.label_t, 4, 0, 1, 1)
         self.layout().addWidget(self.dim_t_button, 4, 1, 1, 1)
         self.layout().addWidget(self.label_z, 5, 0, 1, 1)
         self.layout().addWidget(self.dim_z_button, 5, 1, 1, 1)
         self.layout().addWidget(self.label_xy, 6, 0, 1, 1)
         self.layout().addWidget(self.dim_xy_button, 6, 1, 1, 1)
-        self.layout().addWidget(self.set_res_button, 7, 1, 1, 1)
+        self.layout().addWidget(self.set_res_button, 7, 0, 1, 1)
+        self.layout().addWidget(self.open_im_button, 7, 1, 1, 1)
         self.layout().addWidget(self.filepath_text, 45, 0, 1, 2)
         self.layout().addWidget(self.channel_label, 46, 0)
         self.layout().addWidget(self.channel_input, 46, 1)
@@ -140,6 +148,23 @@ class NellieLoader(QWidget):
 
         self.valid_files = []
         self.valid_analysis_files = []
+
+    def open_im(self):
+        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
+        im_memmap_loaded = get_reshaped_image(im_memmap, 2, self.im_info)
+        if self.im_info.no_z:
+            scale = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+        else:
+            scale = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+        self.viewer.add_image(im_memmap_loaded, name=self.im_info.basename_no_ext,
+                              scale=scale, blending='additive')
+        self.viewer.scale_bar.visible = True
+        self.viewer.scale_bar.unit = 'um'
+        # set dims to 3d
+        if self.im_info.no_z:
+            self.viewer.dims.ndisplay = 2
+        else:
+            self.viewer.dims.ndisplay = 3
 
     def handleResChanged(self, text):
         if self.dim_t is not None:
@@ -212,6 +237,7 @@ class NellieLoader(QWidget):
             raise e
 
     def check_dims(self):
+        self.set_dims_button.setEnabled(True)
         self.dim_order_button.setEnabled(True)
         self.dim_order_button.setText(self.im_info.axes)
         accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
@@ -227,9 +253,11 @@ class NellieLoader(QWidget):
         self.dim_order_button.setStyleSheet("background-color: green")
 
     def check_axes(self):
+        self.set_res_button.setEnabled(True)
         self.dim_t_button.setEnabled(True)
         self.dim_z_button.setEnabled(True)
         self.dim_xy_button.setEnabled(True)
+        self.dims_valid = True
         if self.im_info.no_t:
             self.dim_t_button.setEnabled(False)
         elif self.im_info.dim_sizes['T'] is not None:
@@ -239,6 +267,7 @@ class NellieLoader(QWidget):
             self.dim_t_button.setStyleSheet("background-color: green")
         else:
             self.dim_t_button.setStyleSheet("background-color: red")
+            self.dims_valid = False
 
         if self.im_info.no_z:
             self.dim_z_button.setEnabled(False)
@@ -248,6 +277,7 @@ class NellieLoader(QWidget):
             self.dim_z_button.setStyleSheet("background-color: green")
         else:
             self.dim_z_button.setStyleSheet("background-color: red")
+            self.dims_valid = False
 
         if self.im_info.dim_sizes['X'] is not None:
             self.dim_xy_button.setText(str(self.im_info.dim_sizes['X']))
@@ -259,6 +289,7 @@ class NellieLoader(QWidget):
             self.dim_xy_button.setStyleSheet("background-color: green")
         else:
             self.dim_xy_button.setStyleSheet("background-color: red")
+            self.dims_valid = False
 
     def initialize_single_file(self):
         if self.dim_sizes_changed:
@@ -273,12 +304,18 @@ class NellieLoader(QWidget):
         self.dim_order = self.im_info.axes
         self.check_dims()
         self.check_axes()
+        if not self.dims_valid or not self.im_info.axes_valid:
+            return
+        print(self.im_info.no_t, self.im_info.no_c, self.im_info.no_z)
+        print(self.im_info.axes, self.im_info.shape)
 
+        self.open_im_button.setEnabled(True)
 
         if self.im_info.no_t:
             self.num_frames_max = 1
         else:  # the index of self.im_info.shape that corresponds to the index of 'T' in self.im_info.axes
             self.num_frames_max = self.im_info.shape[self.im_info.axes.index('T')]
+
 
         if self.im_info.no_c:
             self.num_channels = 1
@@ -288,6 +325,8 @@ class NellieLoader(QWidget):
         self.screenshot_button.setEnabled(True)
         self.process_button.setText("Open Nellie Processor")
         self.analysis_button.setText("Open Nellie Analyzer")
+        self.post_file_selection()
+
 
     def initialize_folder(self, filepath):
         if self.dim_sizes_changed:
@@ -311,6 +350,12 @@ class NellieLoader(QWidget):
         self.dim_order = self.im_info.axes
         self.check_dims()
         self.check_axes()
+
+        if not self.dims_valid or not self.im_info.axes_valid:
+            return
+
+        self.open_im_button.setEnabled(True)
+
 
         if self.im_info.no_t:
             self.num_frames_max = 1
@@ -359,10 +404,12 @@ class NellieLoader(QWidget):
 
         self.filepath_button.setEnabled(False)
         self.folder_button.setEnabled(False)
-        self.time_input.setRange(1, self.num_frames_max)
-        self.time_input.setValue(self.num_frames_max)
-        self.channel_input.setRange(0, self.num_channels - 1)
-        self.channel_input.setValue(0)
+        if self.num_frames_max is not None:
+            self.time_input.setRange(1, self.num_frames_max)
+            self.time_input.setValue(self.num_frames_max)
+        if self.num_channels > 1:
+            self.channel_input.setRange(0, self.num_channels - 1)
+            self.channel_input.setValue(0)
 
     def select_folder(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select folder")
@@ -379,7 +426,7 @@ class NellieLoader(QWidget):
         show_info(f"Selected folder: {filename}")
         self.filepath_text.setText(f"Selected folder: {filename}")
 
-        self.post_file_selection()
+        # self.post_file_selection()
         self.process_button.clicked.connect(self.run_batch_processing)
 
     def select_filepath(self):
