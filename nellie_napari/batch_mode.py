@@ -134,7 +134,7 @@ class BatchMode(QWidget):
             self.all_marked = True
         if self.check_all_exists('flow_vector_array'):
             self.all_tracked = True
-        if self.check_all_exists('im_instance_label_reassigned'):
+        if self.check_all_exists('im_branch_label_reassigned'):
             self.all_reassigned = True
 
     def check_all_exists(self, filepath_name):

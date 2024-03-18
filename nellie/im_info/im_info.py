@@ -19,8 +19,12 @@ class ImInfo:
                  ):
         self.im_path = im_path
         self.ch = ch or 0
+
         self.dim_sizes = dim_sizes
+
         self.axes = dimension_order
+        self.axes_valid = True
+
         self.output_suffix = output_suffix
 
         self.extension = os.path.splitext(self.im_path)[1]
@@ -68,18 +72,6 @@ class ImInfo:
         self.create_output_path('voxel_matches', ext='.npy')
         self.create_output_path('im_branch_label_reassigned')
         self.create_output_path('im_obj_label_reassigned')
-        self.create_output_path('organelle_label_features', ext='.csv')
-        self.create_output_path('branch_label_features', ext='.csv')
-        self.create_output_path('organelle_skeleton_features', ext='.csv')
-        self.create_output_path('branch_skeleton_features', ext='.csv')
-        self.create_output_path('organelle_motility_features', ext='.csv')
-        self.create_output_path('branch_motility_features', ext='.csv')
-        self.create_output_path('rel_ang_vel_mag_12')
-        self.create_output_path('rel_lin_vel_mag_12')
-        self.create_output_path('rel_ang_acc_mag')
-        self.create_output_path('rel_lin_acc_mag')
-        self.create_output_path('graph_features', ext='.csv')
-        self.create_output_path('graph_edges', ext='.csv')
         self.create_output_path('features_voxels', ext='.csv')
         self.create_output_path('features_nodes', ext='.csv')
         self.create_output_path('features_branches', ext='.csv')
@@ -269,7 +261,8 @@ class ImInfo:
                            f"Please specify the order of the dimensions in the run with the "
                            f"'dimension_order' parameter. \n"
                            f"Accepted dimensions are: {accepted_axes}.")
-            raise ValueError
+            self.axes_valid = False
+            # raise ValueError
 
     def allocate_memory(
             self,
@@ -332,11 +325,15 @@ class ImInfo:
 
 
 if __name__ == "__main__":
-    test_folder = r"D:\test_files\nelly_gav_tests"
-    all_files = os.listdir(test_folder)
-    all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
-    im_infos = []
-    for file in all_files:
-        im_path = os.path.join(test_folder, file)
-        im_info = ImInfo(im_path)
-        im_infos.append(im_info)
+    test_path = "/Users/austin/test_files/nelly_3d/test_no_metadata.tif"
+    # test_path = "/Users/austin/test_files/nelly_3d/test.ome.tif"
+    im_info = ImInfo(test_path)
+    # test_folder = r"D:\test_files\nelly_gav_tests"
+    # test_folder = "/Users/austin/test_files/nelly_3d"#/test.ome.tif"
+    # all_files = os.listdir(test_folder)
+    # all_files = [file for file in all_files if not os.path.isdir(os.path.join(test_folder, file))]
+    # im_infos = []
+    # for file in all_files:
+    #     im_path = os.path.join(test_folder, file)
+    #     im_info = ImInfo(im_path)
+    #     im_infos.append(im_info)
