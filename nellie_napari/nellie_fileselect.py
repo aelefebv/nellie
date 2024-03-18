@@ -78,7 +78,7 @@ class NellieFileSelect(QWidget):
         # screenshot button
         self.screenshot_button = QPushButton(text="Ctrl/Cmd-Shift-E")
         self.screenshot_button.clicked.connect(self.screenshot)
-        self.screenshot_button.setEnabled(False)
+        self.screenshot_button.setEnabled(True)
         self.viewer.bind_key('Ctrl-Shift-E', self.screenshot, overwrite=True)
 
         # dims buttons
@@ -113,9 +113,10 @@ class NellieFileSelect(QWidget):
         self.set_res_button.clicked.connect(self.handleResChanged)
         self.set_res_button.setEnabled(False)
 
-        self.open_im_button = QPushButton(text="Open scaled image")
-        self.open_im_button.clicked.connect(self.open_im)
-        self.open_im_button.setEnabled(False)
+        self.open_preview_button = QPushButton(text="Open preview")
+        self.open_preview_button.setToolTip("Open two timepoints to check for valid dimension order and resolutions.")
+        self.open_preview_button.clicked.connect(self.open_im)
+        self.open_preview_button.setEnabled(False)
 
 
         self.layout().addWidget(self.filepath_button, 1, 0, 1, 1)
@@ -130,7 +131,7 @@ class NellieFileSelect(QWidget):
         self.layout().addWidget(self.label_xy, 6, 0, 1, 1)
         self.layout().addWidget(self.dim_xy_button, 6, 1, 1, 1)
         self.layout().addWidget(self.set_res_button, 7, 0, 1, 1)
-        self.layout().addWidget(self.open_im_button, 7, 1, 1, 1)
+        self.layout().addWidget(self.open_preview_button, 7, 1, 1, 1)
         self.layout().addWidget(self.filepath_text, 45, 0, 1, 2)
         self.layout().addWidget(self.channel_label, 46, 0)
         self.layout().addWidget(self.channel_input, 46, 1)
@@ -256,15 +257,17 @@ class NellieFileSelect(QWidget):
         self.dim_order_button.setStyleSheet("background-color: green")
 
     def check_axes(self):
+        # by default enable all the res buttons
         self.set_res_button.setEnabled(True)
         self.dim_t_button.setEnabled(True)
         self.dim_z_button.setEnabled(True)
         self.dim_xy_button.setEnabled(True)
+
         self.dims_valid = True
+
         if self.im_info.no_t:
             self.dim_t_button.setEnabled(False)
         elif self.im_info.dim_sizes['T'] is not None:
-            # self.dim_t_button.setText(str(self.im_info.dim_sizes['T']))
             self.dim_t_button.setText(str(self.im_info.dim_sizes['T']))
             self.dim_t = self.im_info.dim_sizes['T']
             self.dim_t_button.setStyleSheet("background-color: green")
@@ -294,40 +297,54 @@ class NellieFileSelect(QWidget):
             self.dim_xy_button.setStyleSheet("background-color: red")
             self.dims_valid = False
 
-    def initialize_single_file(self):
+    def check_manual_params(self):
         if self.dim_sizes_changed:
             dim_sizes = self.dim_sizes
         else:
             dim_sizes = None
+
         if self.dim_order is None:
             dim_order = ''
         else:
             dim_order = self.dim_order
-        self.im_info = ImInfo(self.filepath, ch=self.channel_input.value(), dimension_order=dim_order, dim_sizes=dim_sizes)
-        self.dim_order = self.im_info.axes
+        return dim_sizes, dim_order
+
+    def check_im_info_valid(self):
+        self.open_preview_button.setEnabled(False)
         self.check_dims()
         self.check_axes()
         if not self.dims_valid or not self.im_info.axes_valid:
-            return
-        print(self.im_info.no_t, self.im_info.no_c, self.im_info.no_z)
-        print(self.im_info.axes, self.im_info.shape)
+            return False
+        self.open_preview_button.setEnabled(True)
+        return True
 
-        self.open_im_button.setEnabled(True)
-
+    def set_max_frames(self):
         if self.im_info.no_t:
             self.num_frames_max = 1
         else:  # the index of self.im_info.shape that corresponds to the index of 'T' in self.im_info.axes
             self.num_frames_max = self.im_info.shape[self.im_info.axes.index('T')]
 
-
+    def set_num_channels(self):
         if self.im_info.no_c:
             self.num_channels = 1
         else:  # the index of self.im_info.shape that corresponds to the index of 'C' in self.im_info.axes
             self.num_channels = self.im_info.shape[self.im_info.axes.index('C')]
 
-        self.screenshot_button.setEnabled(True)
-        self.process_button.setText("Open Nellie Processor")
-        self.analysis_button.setText("Open Nellie Analyzer")
+    def initialize_single_file(self):
+        # open the file and load its info
+        dim_sizes, dim_order = self.check_manual_params()
+        self.im_info = ImInfo(self.filepath, ch=self.channel_input.value(), dimension_order=dim_order, dim_sizes=dim_sizes)
+        self.dim_order = self.im_info.axes
+
+        # check if the dimension order and axes resolutions are valid
+        if not self.check_im_info_valid():
+            show_info("Dimension order or axes resolutions are invalid..")
+            return
+
+        # set variables
+        self.set_max_frames()
+        self.set_num_channels()
+
         self.post_file_selection()
 
     def initialize_folder(self, filepath):
@@ -356,7 +373,7 @@ class NellieFileSelect(QWidget):
         if not self.dims_valid or not self.im_info.axes_valid:
             return
 
-        self.open_im_button.setEnabled(True)
+        self.open_preview_button.setEnabled(True)
 
 
         if self.im_info.no_t:
@@ -377,8 +394,10 @@ class NellieFileSelect(QWidget):
     def check_analysis_valid(self):
         if self.single:
             if os.path.exists(self.im_info.pipeline_paths['adjacency_maps']):
+                self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
                 return True
             else:
+                self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
                 return False
 
         else:
@@ -393,14 +412,15 @@ class NellieFileSelect(QWidget):
             #     return False
 
     def post_file_selection(self):
-        self.time_input.setEnabled(True)
+        # enable variable selection
+        if not self.im_info.no_t:
+            self.time_input.setEnabled(True)
         if not self.im_info.no_c:
             self.channel_input.setEnabled(True)
-        self.process_button.setEnabled(True)
-        if self.check_analysis_valid():
-            self.analysis_button.setEnabled(True)
-        else:
-            self.analysis_button.setEnabled(False)
+
+        self.nellie.setTabEnabled(self.nellie.processor_tab, True)
+        self.check_analysis_valid()
+
         self.reset_button.setEnabled(True)
         self.remove_edges_checkbox.setEnabled(True)
 
@@ -438,8 +458,8 @@ class NellieFileSelect(QWidget):
             return None
 
         self.filepath = filepath
-
         self.single = True
+
         self.initialize_single_file()
         filename = os.path.basename(self.filepath)
         show_info(f"Selected file: {filename}")
@@ -500,50 +520,58 @@ class NellieFileSelect(QWidget):
         self.batch_mode.enable_buttons()
 
     def reset(self):
-        self.filepath = None
-        self.im_info = None
-        self.num_frames_max = None
-        self.num_channels = 1
-        self.time_input.setValue(1)
-        self.time_input.setEnabled(False)
-        self.channel_input.setValue(0)
-        self.channel_input.setEnabled(False)
-        self.filepath_button.setEnabled(True)
-        self.filepath_text.setText("No file selected.")
-        self.folder_button.setEnabled(True)
-        self.process_button.setEnabled(False)
-        self.analysis_button.setEnabled(False)
-        self.reset_button.setEnabled(False)
-        self.remove_edges_checkbox.setEnabled(False)
-        self.screenshot_button.setEnabled(False)
-
-        self.valid_files = []
-        self.valid_analysis_files = []
-        self.single = None
-        self.remove_edges_checkbox.setChecked(False)
-
-        # remove all dock widgets that are open
-        try:
-            self.viewer.window.remove_dock_widget(self.nellie_viewer)
-            del self.nellie_viewer
-            self.nellie_viewer = None
-        except:
-            pass
-        try:
-            self.viewer.window.remove_dock_widget(self.batch_mode)
-            del self.batch_mode
-            self.batch_mode = None
-        except:
-            pass
-        try:
-            self.viewer.window.remove_dock_widget(self.nellie_analyzer)
-            del self.nellie_analyzer
-            self.nellie_analyzer = None
-        except:
-            pass
+        # switch to nellie's file_select tab
+        self.nellie.setCurrentIndex(self.nellie.file_select_tab)
+        self.nellie.reset()
+        # self.filepath = None
+        # self.im_info = None
+        # self.num_frames_max = None
+        # self.num_channels = 1
+        # self.time_input.setValue(1)
+        # self.time_input.setEnabled(False)
+        # self.channel_input.setValue(0)
+        # self.channel_input.setEnabled(False)
+        # self.filepath_button.setEnabled(True)
+        # self.filepath_text.setText("No file selected.")
+        # self.folder_button.setEnabled(True)
+        # self.process_button.setEnabled(False)
+        # self.analysis_button.setEnabled(False)
+        # self.reset_button.setEnabled(False)
+        # self.remove_edges_checkbox.setEnabled(False)
+        # self.screenshot_button.setEnabled(False)
+        #
+        # self.valid_files = []
+        # self.valid_analysis_files = []
+        # self.single = None
+        # self.remove_edges_checkbox.setChecked(False)
+        #
+        # # remove all dock widgets that are open
+        # try:
+        #     self.viewer.window.remove_dock_widget(self.nellie_viewer)
+        #     del self.nellie_viewer
+        #     self.nellie_viewer = None
+        # except:
+        #     pass
+        # try:
+        #     self.viewer.window.remove_dock_widget(self.batch_mode)
+        #     del self.batch_mode
+        #     self.batch_mode = None
+        # except:
+        #     pass
+        # try:
+        #     self.viewer.window.remove_dock_widget(self.nellie_analyzer)
+        #     del self.nellie_analyzer
+        #     self.nellie_analyzer = None
+        # except:
+        #     pass
 
     def change_channel(self):
         if self.single:
             self.initialize_single_file()
         else:
             self.initialize_folder(self.filepath)
+
+if __name__ == "__main__":
+    import napari
+    viewer = napari.Viewer()
+    napari.run()

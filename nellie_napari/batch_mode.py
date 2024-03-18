@@ -1,4 +1,5 @@
 import os
+import napari
 
 from qtpy.QtWidgets import QWidget, QPushButton, QLabel, QVBoxLayout
 from nellie.feature_extraction.hierarchical import Hierarchy
@@ -11,12 +12,13 @@ from nellie.segmentation.filtering import Filter
 
 
 class BatchMode(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
         super().__init__(parent)
+        self.nellie = nellie
+        self.viewer = napari_viewer
         self.valid_files = None
         self.num_t = None
         self.remove_edges = None
-        self.viewer = None
 
         self.im_info = None
 
