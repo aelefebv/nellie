@@ -4,7 +4,9 @@ setup(
     name='nellie',
     version='0.0.1',
     packages=find_packages(),
-    package_data={"nellie_napari": ["napari.yaml"]},
+    package_data={
+        "nellie_napari": ["napari.yaml", "logo.png"],
+    },
     description='woaaaah',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
