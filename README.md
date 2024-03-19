@@ -3,7 +3,7 @@
 
 <img src="nellie_napari/logo.png" width="200px" align="left" /> *bioRxiv* 
 
-  [Preprint Link](https://github.com/aelefebv/nellie) | [Cite](##reference)
+  [Preprint Link](https://github.com/aelefebv/nellie) | [Cite](#reference)
 
 **Abstract:** The analysis of dynamic organelles remains a formidable challenge, though key to understanding biological processes. We introduce Nellie, an automated and unbiased pipeline for segmentation, tracking, and feature extraction of diverse intracellular structures. Nellie adapts to image metadata, eliminating user input. Nellie’s preprocessing pipeline enhances structural contrast on multiple intracellular scales allowing for robust hierarchical segmentation of sub-organellar regions. Internal motion capture markers are generated and tracked via a radius-adaptive pattern matching scheme, and used as guides for sub-voxel flow interpolation. Nellie extracts a plethora of features at multiple hierarchical levels for deep and customizable analysis. Nellie features a Napari-based GUI that allows for code-free operation and visualization, while its modular open-source codebase invites customization by experienced users. 
 
