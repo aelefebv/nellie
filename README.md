@@ -7,10 +7,7 @@
 
 **Abstract:** The analysis of dynamic organelles remains a formidable challenge, though key to understanding biological processes. We introduce Nellie, an automated and unbiased pipeline for segmentation, tracking, and feature extraction of diverse intracellular structures. Nellie adapts to image metadata, eliminating user input. Nellie’s preprocessing pipeline enhances structural contrast on multiple intracellular scales allowing for robust hierarchical segmentation of sub-organellar regions. Internal motion capture markers are generated and tracked via a radius-adaptive pattern matching scheme, and used as guides for sub-voxel flow interpolation. Nellie extracts a plethora of features at multiple hierarchical levels for deep and customizable analysis. Nellie features a Napari-based GUI that allows for code-free operation and visualization, while its modular open-source codebase invites customization by experienced users. 
 
-**Nellie's pipeline and Napari plugin are both very much in early stages,** therefore I highly encourage any and all feedback: 
-
-[Github Issues](https://github.com/aelefebv/nellie/issues/new) | [email](mailto:austin.e.lefebvre+nellie@gmail.com) | [X](https://twitter.com/Austin_Lefebvre) | wherever else you can find me!
-
+**Nellie's pipeline and Napari plugin are both very much in early stages,** therefore [I highly encourage any and all feedback](#getting-help)
 
 https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
 
@@ -41,6 +38,11 @@ pip install cupy-cudaXXx
 - Mac Metal GPU-acceleration coming... eventually.
 
 ## Usage
+### General data preparation
+- It is strongly recommended to have your data in a parsable format, such as .ome.tif, .nd2, or other raw data files from microscopes.
+  - Importing into ImageJ/FIJI and saving via BioFormats with the proper image dimensions should do the trick.
+  - If the metadata cannot be parse, you will have to manually enter it.
+- It is also recommended to crop your image as much as possible to reduce processing time and memory usage, though, unless you have massive lightsheet data, it should be pretty fast.
 
 https://github.com/aelefebv/nellie/assets/26515909/372d07a8-15a0-4926-8594-108dd4b97280
 
@@ -103,6 +105,18 @@ https://github.com/aelefebv/nellie/assets/26515909/7f4f09a4-3687-4635-988d-e1d16
 - Nellie's plugin offers an ```Easy screenshot``` feature:
   - Press the button under ```Easy screenshot``` or hit Ctrl/Cmd-Shift-E after clicking your image.
   - The .png will be saved to ```[image_directory]/nellie_output/screenshots/``` with the current datetime.
+
+## Getting Help
+A few options are available for getting help with Nellie:
+
+[Github Issues](https://github.com/aelefebv/nellie/issues/new) | [email](mailto:austin.e.lefebvre+nellie@gmail.com) | [X](https://twitter.com/Austin_Lefebvre) | wherever else you can find me!
+
+To avoid any unnecessary back-and-forth, please include any/all (if possible) of the following information in your bug report:
+- What kind of computer do you have, and what are its specs?
+- Send me screenshots of what is not working.
+- Send me any error logs in your terminal.
+- Send me the file you ran (if possible).
+- Any other information that might be helpful
 
 ## License
 Nellie © 2024 by [Austin E. Y. T. Lefebvre](https://github.com/aelefebv) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
