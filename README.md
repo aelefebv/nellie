@@ -99,3 +99,18 @@ https://github.com/aelefebv/nellie/assets/26515909/7f4f09a4-3687-4635-988d-e1d16
 - Nellie's plugin offers an ```Easy screenshot``` feature:
   - Press the button under ```Easy screenshot``` or hit Ctrl/Cmd-Shift-E after clicking your image.
   - The .png will be saved to ```[image_directory]/nellie_output/screenshots/``` with the current datetime.
+
+## Reference
+If you used Nelly or found this work useful in your own research, please cite our [bioRxiv preprint](https://github.com/aelefebv/nellie):
+
+Lefebvre, A. E. Y. T., Sturm, G., et. al. Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy. bioRxiv (2024). doi TBD
+
+```
+@article{lefebvre2024nellie,
+  title={Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy},
+  author={Lefebvre, Austin EYT and Sturm, Gabriel and Lin, Ting-Yu and Stoops, Emily and Lopez, Magdalena and Kaufmann-Malaga, Benjamin and Hake, Kayley},
+  journal={bioRxiv},
+  publisher={bioRxiv},
+  year={2024}
+}
+```
