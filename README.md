@@ -1,7 +1,9 @@
 # Nellie
 Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
 
-https://github.com/aelefebv/nellie/assets/26515909/395d13db-2e44-4ffe-828f-287727d45b28
+
+https://github.com/aelefebv/nellie/assets/26515909/1574ad99-a694-42bf-94c2-15619383422c
+
 
 ## Installation
 
