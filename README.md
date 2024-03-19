@@ -106,8 +106,8 @@ https://github.com/aelefebv/nellie/assets/26515909/7f4f09a4-3687-4635-988d-e1d16
   - Press the button under ```Easy screenshot``` or hit Ctrl/Cmd-Shift-E after clicking your image.
   - The .png will be saved to ```[image_directory]/nellie_output/screenshots/``` with the current datetime.
 
-## Getting Help
-A few options are available for getting help with Nellie:
+## Feedback / Getting Help
+A few options are available for providing feedback or getting help with Nellie:
 
 [Github Issues](https://github.com/aelefebv/nellie/issues/new) | [email](mailto:austin.e.lefebvre+nellie@gmail.com) | [X](https://twitter.com/Austin_Lefebvre) | wherever else you can find me!
 
