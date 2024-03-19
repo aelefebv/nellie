@@ -25,6 +25,9 @@ class LabelTracks:
     def run(self, label_num=11, start_frame=0, end_frame=None, min_track_num=0, skip_coords=1, max_distance_um=0.5):
         if end_frame is None:
             end_frame = self.num_t
+        num_frames = self.label_memmap.shape[0] - 1
+        if start_frame > num_frames:
+            return [], {}
         coords = np.argwhere(self.label_memmap[start_frame] == label_num).astype(float)
         if coords.shape[0] == 0:
             return [], {}
@@ -35,7 +38,7 @@ class LabelTracks:
         if start_frame < end_frame:
             tracks, track_properties = interpolate_all_forward(coords, start_frame, end_frame, self.im_info,
                                                                min_track_num, max_distance_um=max_distance_um)
-        new_end_frame = max(0, end_frame - start_frame)
+        new_end_frame = 0  # max(0, end_frame - start_frame)
         if start_frame > 0:
             tracks_bw, track_properties_bw = interpolate_all_backward(coords_copy, start_frame, new_end_frame,
                                                                       self.im_info, min_track_num,

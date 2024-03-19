@@ -343,6 +343,8 @@ class NellieFileSelect(QWidget):
     def select_folder(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select folder")
         self.validate_path(filepath)
+        if self.filepath is None:
+            return
         self.single = False
 
         self.initialize_folder(filepath)
@@ -361,6 +363,8 @@ class NellieFileSelect(QWidget):
     def select_filepath(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Select file")
         self.validate_path(filepath)
+        if self.filepath is None:
+            return
         self.single = True
 
         self.initialize_single_file()

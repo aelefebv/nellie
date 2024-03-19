@@ -157,7 +157,7 @@ class NellieVisualizer(QWidget):
         elif layer == self.im_obj_label_reassigned_layer:
             label_path = self.nellie.im_info.pipeline_paths['im_obj_label_reassigned']
         else:
-            label_path = None
+            return
 
         label_tracks = LabelTracks(im_info=self.nellie.im_info, num_t=self.num_t, label_im_path=label_path)
         label_tracks.initialize()
@@ -173,9 +173,13 @@ class NellieVisualizer(QWidget):
                     if property not in all_props.keys():
                         all_props[property] = []
                     all_props[property] += track_properties[property]
+                if len(tracks) == 0:
+                    break
                 max_track_num = max([track[0] for track in tracks])+1
         else:
             all_tracks, all_props = label_tracks.run(label_num=label, start_frame=pos[0], end_frame=None)
+        if len(all_tracks) == 0:
+            return
         self.viewer.add_tracks(all_tracks, properties=all_props, name=f'tracks: {label}', scale=self.scale)
         self.viewer.layers.selection.active = layer
         self.check_file_existence()

@@ -196,7 +196,8 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, m
     flow_interpx = FlowInterpolator(im_info, forward=False, max_distance_um=max_distance_um)
     tracks = []
     track_properties = {'frame_num': []}
-    frame_range = np.arange(end_t + 1, start_t + 1)[::-1]
+    frame_range = list(np.arange(end_t, start_t + 1))[::-1]
+    print(end_t, start_t, frame_range)
     for t in frame_range:
         final_vector = flow_interpx.interpolate_coord(coords, t)
         if final_vector is None or len(final_vector) == 0:
