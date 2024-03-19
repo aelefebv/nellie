@@ -68,7 +68,8 @@ https://github.com/aelefebv/nellie/assets/26515909/6a2ea765-1df3-4210-9f1c-60ee8
 4. To visualize tracks, open and select one of the segmentation layers.
 5. ```Alt+Click``` on a label to visualize the track of that selected organelle/branch across all timepoints.
    - If the segmentation labels are selected, it will generate tracks for all voxels in the selected timepoint only.
-   - If the reassigned labels are selected, it will generate tracks for all voxels across all timepoints.
+   - If the reassigned labels are selected, you can choose to generate tracks for all voxels across all timepoints.
+   - You can skip voxels to track so that the area is not too crowded by tracks.
    - *Note: If you have a 3D image, toggle to 2D mode via the ```Toggle 2D/3D view``` at the bottom left before ```Alt+Click```ing (eventually I'll get it to work while in 3D mode).
 
 ### Using Nellie's analysis plugin
