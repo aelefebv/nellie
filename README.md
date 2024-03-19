@@ -2,7 +2,7 @@
 Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
 
 
-https://github.com/aelefebv/nellie/assets/26515909/1574ad99-a694-42bf-94c2-15619383422c
+https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
 
 
 ## Installation
@@ -31,7 +31,9 @@ pip install cupy-cudaXXx
 - Mac Metal GPU-acceleration coming... eventually.
 
 ## Usage
-https://github.com/aelefebv/nellie/assets/26515909/6a2ea765-1df3-4210-9f1c-60ee8e3d0228
+
+https://github.com/aelefebv/nellie/assets/26515909/372d07a8-15a0-4926-8594-108dd4b97280
+
 ### Running Nellie's processing pipeline
 1. Start Napari (open a Terminal and type napari)
     ```bash
@@ -74,9 +76,7 @@ https://github.com/aelefebv/nellie/assets/26515909/6a2ea765-1df3-4210-9f1c-60ee8
 
 ### Using Nellie's analysis plugin
 
-
-https://github.com/aelefebv/nellie/assets/26515909/b93f90b3-53bd-40da-a8bf-a9a5c9c1cf4a
-
+https://github.com/aelefebv/nellie/assets/26515909/7f4f09a4-3687-4635-988d-e1d16ad2a4af
 
 1. Follow the previous processing steps, you only need to do this once per file as long as you don't move or delete the files.
 2. Open the ```Analyze``` tab, select the hierarchy level you want to visualize from the dropdown.
