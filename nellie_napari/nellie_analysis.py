@@ -142,6 +142,9 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
+        self.dropdown.setCurrentIndex(1)
+        self.dropdown_attr.setCurrentIndex(1)
+
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
