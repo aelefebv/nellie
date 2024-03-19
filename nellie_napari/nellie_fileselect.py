@@ -325,7 +325,7 @@ class NellieFileSelect(QWidget):
         if not self.im_info.no_c and self.num_channels > 1:
             self.nellie.processor.channel_input.setEnabled(True)
             self.nellie.processor.channel_input.setRange(0, self.num_channels - 1)
-            self.nellie.processor.channel_input.setValue(0)
+            self.nellie.processor.channel_input.setValue(self.nellie.processor.channel_input.value())
         else:
             self.nellie.processor.channel_input.setEnabled(False)
             self.nellie.processor.channel_input.setRange(0, 0)
