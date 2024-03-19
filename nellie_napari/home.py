@@ -22,7 +22,7 @@ class Home(QWidget):
         logo_label = QLabel(self)
         pixmap = QPixmap(logo_path)
         logo_label.setPixmap(
-            pixmap.scaled(200, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation))  # Adjust size as needed
+            pixmap.scaled(300, 300, Qt.KeepAspectRatio))#, Qt.SmoothTransformation))  # Adjust size as needed
         logo_label.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(logo_label)
 
