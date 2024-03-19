@@ -1,23 +1,30 @@
 # Nellie
-## Installation
-*Note: May take several minutes*
+Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
 
-Choose one, and only one!
-### Installation CPU (Mac, Windows, Linux):
-```bash
-pip install git+https://github.com/aelefebv/nellie.git
-```
-### Installation NVIDIA GPU (Windows, Linux):
-- replace ```cupy-cuda12x``` with the appropriate version for your CUDA version (https://docs.cupy.dev/en/stable/install.html)
-```bash
-pip install cupy-cuda12x git+https://github.com/aelefebv/nellie.git 	
-```
-Mac Metal GPU-acceleration coming... eventually.
-### Installation via Napari plugin manager:
+## Installation
+
+**Notes:**
+- It is recommended to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
+- May take several minutes to install.
+- Choose one of the following methods, and only one!
+### Via Napari plugin manager:
 If not already installed, install Napari: https://napari.org/stable/tutorials/fundamentals/installation
 1. Open Napari
 2. Go to ```Plugins > Install/Uninstall Plugins...```
 3. Search for Nellie and click ```Install```
+### Via PIP:
+```bash
+pip install git+https://github.com/aelefebv/nellie.git
+```
+### Installation NVIDIA GPU (Windows, Linux):
+Follow one of the above methods, then run the following:
+```bash
+pip install cupy-cudaXXx
+```
+- replace ```cupy-cudaXXx``` with the [appropriate version](https://docs.cupy.dev/en/stable/install.html#installing-cupy) for your CUDA version.
+  - i.e. ```cupy-cuda11x``` for CUDA 11.x or ```cupy-cuda12x``` for CUDA 12.x
+- if you don't have CUDA installed, [go here](https://docs.cupy.dev/en/stable/install.html).
+- Mac Metal GPU-acceleration coming... eventually.
 
 ## Usage
 ### Running Nellie's processing pipeline
