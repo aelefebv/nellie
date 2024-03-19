@@ -175,6 +175,13 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
+        analysis_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
+        if os.path.exists(analysis_path):
+            self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
+            self.nellie.analyzer.post_init()
+        else:
+            self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
+
 
     def run_preprocessing(self):
         preprocessing = Filter(im_info=self.nellie.im_info, num_t=self.num_t, remove_edges=self.remove_edges)

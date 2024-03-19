@@ -263,6 +263,7 @@ class NellieFileSelect(QWidget):
         dim_sizes, dim_order = self.check_manual_params()
         # open the file and load its info
         self.im_info = ImInfo(self.filepath, ch=self.nellie.processor.channel_input.value(), dimension_order=dim_order, dim_sizes=dim_sizes)
+        self.nellie.im_info = self.im_info
         self.dim_order = self.im_info.axes
 
         # check if the dimension order and axes resolutions are valid
@@ -284,6 +285,7 @@ class NellieFileSelect(QWidget):
             except:
                 pass
         self.im_info = self.valid_files[0]
+        self.nellie.im_info = self.im_info
 
         if not self.check_im_info_valid():
             return
@@ -294,6 +296,7 @@ class NellieFileSelect(QWidget):
         self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
         if self.single and os.path.exists(self.im_info.pipeline_paths['adjacency_maps']):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
+            self.nellie.analyzer.post_init()
 
     def disable_file_selection(self):
         self.filepath_button.setEnabled(False)

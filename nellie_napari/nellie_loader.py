@@ -63,7 +63,7 @@ class NellieLoader(QTabWidget):
         self.im_info = None
 
     def file_ready(self):
-        self.im_info = self.file_select.im_info
+        # self.im_info = self.file_select.im_info
         self.processor.post_init()
         self.visualizer.post_init()
 

@@ -16,9 +16,8 @@ class NellieAnalysis(QWidget):
         super().__init__(parent)
         self.nellie = nellie
         self.viewer = napari_viewer
-        self.im_info = None
+
         self.num_t = None
-        self.viewer = None
         self.canvas = FigureCanvasQTAgg()
         self.canvas.figure.set_layout_engine("constrained")
 
@@ -78,6 +77,8 @@ class NellieAnalysis(QWidget):
         self.df = None
 
     def post_init(self):
+        self.num_t = self.nellie.processor.time_input.value()
+
         self._create_dropdown_selection()
 
         self.log_scale_checkbox = QCheckBox("Log scale")
@@ -134,17 +135,17 @@ class NellieAnalysis(QWidget):
         self.layout.addWidget(self.overlay_button, self.layout_anchors['table'][0]-1, 2)
         self.layout.addWidget(self.match_t_toggle, self.layout_anchors['table'][0]-1, 3)
 
-        if self.im_info.no_z:
-            self.scale = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+        if self.nellie.im_info.no_z:
+            self.scale = (self.nellie.im_info.dim_sizes['Y'], self.nellie.im_info.dim_sizes['X'])
         else:
-            self.scale = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+            self.scale = (self.nellie.im_info.dim_sizes['Z'], self.nellie.im_info.dim_sizes['Y'], self.nellie.im_info.dim_sizes['X'])
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        export_dir = self.im_info.graph_dir
+        export_dir = self.nellie.im_info.graph_dir
         if not os.path.exists(export_dir):
             os.makedirs(export_dir)
         text = f"{dt}-{self.selected_level}-{self.dropdown_attr.currentText()}"
@@ -154,7 +155,7 @@ class NellieAnalysis(QWidget):
             timepoints = self.time_col[self.df['t'] == current_t]
         else:
             timepoints = self.time_col
-        text += self.im_info.basename_no_ext
+        text += self.nellie.im_info.basename_no_ext
         export_path = os.path.join(export_dir, f"{text}.csv")
         df_to_save = pd.DataFrame({'t': timepoints, self.dropdown_attr.currentText(): self.attr_data})
         df_to_save.to_csv(export_path)
@@ -164,13 +165,13 @@ class NellieAnalysis(QWidget):
 
     def save_graph(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        export_dir = self.im_info.graph_dir
+        export_dir = self.nellie.im_info.graph_dir
         if not os.path.exists(export_dir):
             os.makedirs(export_dir)
         text = f"{dt}-{self.selected_level}_{self.dropdown_attr.currentText()}"
         if self.match_t:
             text += f"_T{self.viewer.dims.current_step[0]}"
-        text += self.im_info.basename_no_ext
+        text += self.nellie.im_info.basename_no_ext
         export_path = os.path.join(export_dir, f"{text}.png")
         self.canvas.figure.savefig(export_path, dpi=300)
         show_info(f"Graph saved to {export_path}")
@@ -183,13 +184,13 @@ class NellieAnalysis(QWidget):
         # get the coordinates of where the mouse is hovering
         pos = self.viewer.cursor.position
         matched_row = None
-        if self.im_info.no_z:
+        if self.nellie.im_info.no_z:
             t, y, x = int(np.round(pos[0])), int(np.round(pos[1])), int(np.round(pos[2]))
         else:
             # todo, gonna be more complicated than this I think
             t, z, y, x = int(np.round(pos[0])), int(np.round(pos[1])), int(np.round(pos[2])), int(np.round(pos[3]))
         # find corresponding coord in self.label_coords
-        if self.im_info.no_z:
+        if self.nellie.im_info.no_z:
             t_coords = self.label_coords[t]
             match = np.where((t_coords[:, 0] == y) & (t_coords[:, 1] == x))
             if len(match[0]) == 0:
@@ -225,8 +226,8 @@ class NellieAnalysis(QWidget):
 
     def overlay(self):
         if self.label_mask is None:
-            label_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-            self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.im_info) > 0).astype(float)
+            label_mask = self.nellie.im_info.get_im_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
+            self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
             # self.label_mask_layer = self.viewer.add_image(self.label_mask, name='objects', opacity=1, colormap='turbo')
             if self.num_t is None:
                 self.num_t = self.label_mask.shape[0]
@@ -238,7 +239,7 @@ class NellieAnalysis(QWidget):
                 self.label_mask[t] *= np.nan
 
         if self.adjacency_maps is None:
-            pkl_path = self.im_info.pipeline_paths['adjacency_maps']
+            pkl_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
             # load pkl file
             with open(pkl_path, 'rb') as f:
                 self.adjacency_maps = pickle.load(f)
@@ -283,7 +284,7 @@ class NellieAnalysis(QWidget):
             contrast_limits = [min_val, perc98]
             self.label_mask_layer.contrast_limits = contrast_limits
         self.label_mask_layer.name = layer_name
-        if not self.im_info.no_z:
+        if not self.nellie.im_info.no_z:
             # if the layer isn't in 3D view, make it 3d view
             self.viewer.dims.ndisplay = 3
             self.label_mask_layer.interpolation3d = 'nearest'
@@ -328,11 +329,11 @@ class NellieAnalysis(QWidget):
         self.get_csvs()
 
     def get_csvs(self):
-        self.voxel_df = pd.read_csv(self.im_info.pipeline_paths['features_voxels'])
-        self.node_df = pd.read_csv(self.im_info.pipeline_paths['features_nodes'])
-        self.branch_df = pd.read_csv(self.im_info.pipeline_paths['features_branches'])
-        self.organelle_df = pd.read_csv(self.im_info.pipeline_paths['features_components'])
-        self.image_df = pd.read_csv(self.im_info.pipeline_paths['features_image'])
+        self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
+        self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
+        self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
+        self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
+        self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
 
         # self.voxel_time_col = voxel_df['t']
         # self.voxel_df_idxs = voxel_df[voxel_df.columns[0]]
