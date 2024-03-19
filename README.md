@@ -8,7 +8,7 @@ https://github.com/aelefebv/nellie/assets/26515909/1574ad99-a694-42bf-94c2-15619
 ## Installation
 
 **Notes:**
-- It is recommended to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
+- It is recommended (but usually not required) to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
 - May take several minutes to install.
 - Choose one of the following methods, and only one!
 ### Via Napari plugin manager:
