@@ -104,6 +104,10 @@ https://github.com/aelefebv/nellie/assets/26515909/7f4f09a4-3687-4635-988d-e1d16
   - Press the button under ```Easy screenshot``` or hit Ctrl/Cmd-Shift-E after clicking your image.
   - The .png will be saved to ```[image_directory]/nellie_output/screenshots/``` with the current datetime.
 
+## License
+Nellie is distributed under the terms of the [CC-BY v4.0](https://creativecommons.org/licenses/by/4.0/) license, "Nellie" is free and open source software.
+
+
 ## Reference
 If you used Nelly or found this work useful in your own research, please cite our [bioRxiv preprint](https://github.com/aelefebv/nellie):
 
