@@ -1,7 +1,7 @@
 # Nellie
 ## Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
 
-<img src="nellie_napari/logo.png" width="350px" align="left" /> *bioRxiv* 
+<img src="nellie_napari/logo.png" width="200px" align="left" /> *bioRxiv* 
 
   [Preprint Link](https://github.com/aelefebv/nellie) | [Cite](#reference)
 
