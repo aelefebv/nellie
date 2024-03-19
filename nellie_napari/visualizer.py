@@ -61,7 +61,7 @@ class NellieVisualizer(QWidget):
         self.skip_vox_label = QLabel("Track every N voxel. N=")
 
         self.skip_vox = QSpinBox()
-        self.skip_vox.setRange(1, 100)
+        self.skip_vox.setRange(1, 10000)
         self.skip_vox.setValue(5)
         self.skip_vox.setEnabled(False)
 
