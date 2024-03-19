@@ -17,6 +17,7 @@ class NellieFileSelect(QWidget):
         self.nellie = nellie
         self.filepath = None
         self.im_info = None
+        self.im_info_valid = False
 
         self.num_frames_max = None
         self.num_channels = 1
@@ -102,9 +103,6 @@ class NellieFileSelect(QWidget):
         self.nellie_analyzer = None
 
         self.single = None
-
-        self.valid_files = []
-        self.valid_analysis_files = []
 
     def open_preview(self):
         im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
@@ -239,10 +237,10 @@ class NellieFileSelect(QWidget):
         self.check_dims()
         self.check_axes()
         if not self.dims_valid:
-            show_info("Dimension order is invalid.")
+            show_info("Axes resolutions not set.")
             return False
         if not self.im_info.axes_valid:
-            show_info("Axes resolutions not set.")
+            show_info("Dimension order is invalid.")
             return False
         self.open_preview_button.setEnabled(True)
         return True
@@ -267,8 +265,7 @@ class NellieFileSelect(QWidget):
         self.dim_order = self.im_info.axes
 
         # check if the dimension order and axes resolutions are valid
-        if not self.check_im_info_valid():
-            return
+        self.im_info_valid = self.check_im_info_valid()
 
         self.post_file_selection()
 
@@ -276,20 +273,24 @@ class NellieFileSelect(QWidget):
         dim_sizes, dim_order = self.check_manual_params()
         # open the folder and load all the files it can
         filenames = os.listdir(filepath)
-        self.valid_files = []
+        self.nellie.valid_files = []
         for filename in filenames:
             try:
                 im_info = ImInfo(os.path.join(filepath, filename), ch=self.nellie.processor.channel_input.value(),
                                  dim_sizes=dim_sizes, dimension_order=dim_order)
-                self.valid_files.append(im_info)
+                self.nellie.valid_files.append(im_info)
             except:
                 pass
-        self.im_info = self.valid_files[0]
         self.nellie.im_info = self.im_info
 
-        if not self.check_im_info_valid():
-            return
+        self.im_info_valid = True
+        for file in self.nellie.valid_files:
+            self.im_info = file
+            if not self.check_im_info_valid():
+                self.im_info_valid = False
+                break
 
+        self.im_info = self.nellie.valid_files[0]
         self.post_file_selection()
 
     def check_analysis_valid(self):
@@ -304,14 +305,21 @@ class NellieFileSelect(QWidget):
 
     def enable_time_options(self):
         self.nellie.processor.time_input.setEnabled(False)
+        self.nellie.batch_mode.time_input.setEnabled(False)
         if not self.im_info.no_t and self.num_frames_max is not None:
             if self.single:
                 self.nellie.processor.time_input.setEnabled(True)
-            self.nellie.processor.time_input.setRange(1, self.num_frames_max)
-            self.nellie.processor.time_input.setValue(self.num_frames_max)
+                self.nellie.processor.time_input.setRange(1, self.num_frames_max)
+                self.nellie.processor.time_input.setValue(self.num_frames_max)
+            else:
+                self.nellie.batch_mode.time_input.setEnabled(True)
+                self.nellie.batch_mode.time_input.setRange(1, self.num_frames_max)
+                self.nellie.batch_mode.time_input.setValue(self.num_frames_max)
         else:
             self.nellie.processor.time_input.setRange(self.num_frames_max, self.num_frames_max)
             self.nellie.processor.time_input.setValue(self.num_frames_max)
+            self.nellie.batch_mode.time_input.setRange(self.num_frames_max, self.num_frames_max)
+            self.nellie.batch_mode.time_input.setValue(self.num_frames_max)
 
     def enable_channel_options(self):
         if not self.im_info.no_c and self.num_channels > 1:
@@ -332,6 +340,8 @@ class NellieFileSelect(QWidget):
         self.disable_file_selection()
         self.enable_channel_options()
         self.enable_time_options()
+        if not self.im_info_valid:
+            return
         if self.single:
             self.nellie.setTabEnabled(self.nellie.processor_tab, True)
             self.nellie.setTabEnabled(self.nellie.visualizer_tab, True)

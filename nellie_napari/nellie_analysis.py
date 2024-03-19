@@ -278,7 +278,7 @@ class NellieAnalysis(QWidget):
             self.label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
                                                           colormap='turbo', scale=self.scale)
             perc98 = np.nanpercentile(self.attr_data, 98)
-            min_val = np.nanmin(self.attr_data)
+            min_val = np.nanmin(self.attr_data) - (np.abs(np.nanmin(self.attr_data)) * 0.01)
             if min_val == perc98:
                 perc98 = min_val + (np.abs(min_val) * 0.01)
             contrast_limits = [min_val, perc98]
@@ -421,6 +421,7 @@ class NellieAnalysis(QWidget):
     def plot_data(self, title):
         self.canvas.figure.clear()
         ax = self.canvas.figure.add_subplot(111)
+        self.data_to_plot = self.data_to_plot.replace([np.inf, -np.inf], np.nan)
         try:
             if self.hist_reset:
                 nbins = int(len(self.attr_data) ** 0.5)  # pretty nbins
@@ -433,7 +434,9 @@ class NellieAnalysis(QWidget):
                 hist_max = self.hist_max.value()
                 ax.hist(self.data_to_plot, bins=nbins, range=(hist_min, hist_max))
         except ValueError:
-            pass
+            nbins = 10
+            hist_min = 0
+            hist_max = 1
         if self.is_median:
             full_title = f"{title}\n\nQuartiles: {self.perc25:.4f}, {self.median:.4f}, {self.perc75:.4f}"
         else:

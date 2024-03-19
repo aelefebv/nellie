@@ -28,6 +28,7 @@ class NellieLoader(QTabWidget):
         self.add_tabs()
 
         self.im_info = None
+        self.valid_files = []
 
     def add_tabs(self):
         self.home_tab = self.addTab(self.home, "Home")

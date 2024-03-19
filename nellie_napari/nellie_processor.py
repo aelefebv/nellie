@@ -20,7 +20,6 @@ class NellieProcessor(QWidget):
         self.viewer = napari_viewer
 
         self.remove_edges = False
-        self.nellie_analyzer = None
 
         # Label above the spinner box
         self.channel_label = QLabel("Channel to analyze:")
