@@ -14,13 +14,11 @@ class Home(QWidget):
         self.nellie = nellie
         self.viewer = napari_viewer
 
-
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
 
         # Logo
-        current_file_directory = os.path.dirname(os.path.abspath(__file__))
-        logo_path = os.path.join(current_file_directory, "logo.png")
+        logo_path = os.path.join(os.path.dirname(__file__), 'nellie_logo.png')
         logo_label = QLabel(self)
         pixmap = QPixmap(logo_path)
         logo_label.setPixmap(
