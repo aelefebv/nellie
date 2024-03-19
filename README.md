@@ -26,23 +26,42 @@ If not already installed, install Napari: https://napari.org/stable/tutorials/fu
     napari
     ```
 2. Go to 
-```Plugins > Nellie (nellie)```
-3. Select a file to process and/or analyze or a folder to batch process.
-   - if you have multiple fluorescence channels, select the channel you want to process/analyze.
-   - if the metadata does not fill in, it did not detect any from your image, and you must manually enter it or reformat your image and try again.
-4. Click ```Open Nellie Processor``` to open the processor window.
+```Plugins > Nellie (nellie)``` then to the ```File select``` tab.
+3. Click ```Select File``` of ```Select Folder``` to select your image(s).
+   - If the metadata boxes do not fill in automatically and turn red, this means Nellie did not detect that metadata portion from your image, and you must manually enter it or reformat your image and try again.
+     - The metadata slot will appear green if it is in the correct format.
+   - *Note, if you are batch processing, the metadata must be the same for all images if any of them are in an incorrect format (this will be fixed eventually). If they are different, but all pass validation, then it will process fine.
+   - You can preview 2 time points of your image via the ```Open preview``` button once the metadata is filled in to ensure it looks correct.
+4. Click the ```Process``` tab.
+   - If you have multiple fluorescence channels, select the channel you want to process/analyze.
+   - If you only want to analyze up to a certain timepoint, you can set this in slider. By default it will run all timepoints.
+   - If you have odd noise on the edges of your image, check the ```Remove image edges``` checkbox.
 5. You can run the full pipeline with ```Run Nellie```, or run individual steps below.
     - Steps can only be run once its previous step has been run.
-    - Likewise, visualizations can only be opened once its respective step has been run.
+    - Likewise, visualizations in the ```Visualization``` tab can only be opened once its respective step has been run.
 6. All intermediate files and output csvs will be saved to ```[image_directory]/nellie_output/```.
    - A separate .csv is created for each level of the organellar hierarchy.
-7. Once features have been exported, Nellie will automatically detect this, and allow analysis to be run via:
-   - ```Open Nellie Analyzer``` from the original or processor window.
-   - Analysis at this point is optionally, but can be helpful for visualizing, and selectively exporting data.
+7. Once features have been exported, Nellie will automatically detect this, and allow analysis via the ```Analyze``` tab.
+   - Analysis at this point is optional, but can be helpful for visualizing, and selectively exporting data.
+
+### Using Nellie's visualization plugin
+1. Follow the previous processing steps, you only need to do this once per file as long as you don't move or delete the files.
+2. Open the ```Visualization``` tab
+3. Select a visualization from the list.
+   1. ```Raw```: Visualize the raw data for the processed channel.
+   2. ```Preprocessed```: Visualize the contrast-enhanced data.
+   3. ```Segmentation```: Visualize the organelle and branch instance segmentation masks.
+   4. ```Mocap Markers```: Visualize the mocap markers used for waypoints.
+   5. ```Reassigned Labels```: Visualize the organelle and branch instance segmentation masks where voxels are reassigned based on the first timepoint.
+4. To visualize tracks, open and select one of the segmentation layers.
+5. ```Alt+Click``` on a label to visualize the track of that selected organelle/branch across all timepoints.
+   - If the segmentation labels are selected, it will generate tracks for all voxels in the selected timepoint only.
+   - If the reassigned labels are selected, it will generate tracks for all voxels across all timepoints.
+   - *Note: If you have a 3D image, toggle to 2D mode via the ```Toggle 2D/3D view``` at the bottom left before ```Alt+Click```ing (eventually I'll get it to work while in 3D mode).
 
 ### Using Nellie's analysis plugin
-1. Follow the previous processing steps, you only need to do this once per file.
-2. Once the ```Nellie Analyzer``` window is open, select the hierarchy level you want to visualize from the dropdown.
+1. Follow the previous processing steps, you only need to do this once per file as long as you don't move or delete the files.
+2. Open the ```Analyze``` tab, select the hierarchy level you want to visualize from the dropdown.
 3. Select the level-specific feature you want to visualize from the new dropdown.
 4. A histogram of all the data will be displayed.
    - This histogram can be directly exported via the ```Save graph``` button. A .png will be saved to ```[image_directory]/nellie_output/graphs/``` with the current datetime.
