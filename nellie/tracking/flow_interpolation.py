@@ -80,7 +80,6 @@ class FlowInterpolator:
         for i in range(len(distances)):
             if i not in good_coords:
                 continue
-            print(distances, pos)
             distance_return[i] = distances[pos][:k_all[pos]]
             nearby_idxs_return[i] = nearby_idxs[pos][:k_all[pos]]
             pos += 1
