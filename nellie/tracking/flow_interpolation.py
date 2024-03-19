@@ -70,12 +70,17 @@ class FlowInterpolator:
         if max_k == 0:
             return [], []
         distances, nearby_idxs = self.current_tree.query(scaled_coords[good_coords], k=max_k, p=2, workers=-1)
+        # if the first index is scalar, wrap the whole list in another list
+        if len(distances.shape) == 1:
+            distances = [distances]
+            nearby_idxs = [nearby_idxs]
         distance_return = [[] for _ in range(len(coords))]
         nearby_idxs_return = [[] for _ in range(len(coords))]
         pos = 0
         for i in range(len(distances)):
             if i not in good_coords:
                 continue
+            print(distances, pos)
             distance_return[i] = distances[pos][:k_all[pos]]
             nearby_idxs_return[i] = nearby_idxs[pos][:k_all[pos]]
             pos += 1
