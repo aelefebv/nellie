@@ -18,7 +18,7 @@ class Home(QWidget):
         self.setLayout(self.layout)
 
         # Logo
-        logo_path = os.path.join(os.path.dirname(__file__), 'nellie_logo.png')
+        logo_path = os.path.join(os.path.dirname(__file__), 'logo.png')
         logo_label = QLabel(self)
         pixmap = QPixmap(logo_path)
         logo_label.setPixmap(
