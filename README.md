@@ -31,6 +31,7 @@ pip install cupy-cudaXXx
 - Mac Metal GPU-acceleration coming... eventually.
 
 ## Usage
+https://github.com/aelefebv/nellie/assets/26515909/6a2ea765-1df3-4210-9f1c-60ee8e3d0228
 ### Running Nellie's processing pipeline
 1. Start Napari (open a Terminal and type napari)
     ```bash
@@ -71,6 +72,11 @@ pip install cupy-cudaXXx
    - *Note: If you have a 3D image, toggle to 2D mode via the ```Toggle 2D/3D view``` at the bottom left before ```Alt+Click```ing (eventually I'll get it to work while in 3D mode).
 
 ### Using Nellie's analysis plugin
+
+
+https://github.com/aelefebv/nellie/assets/26515909/b93f90b3-53bd-40da-a8bf-a9a5c9c1cf4a
+
+
 1. Follow the previous processing steps, you only need to do this once per file as long as you don't move or delete the files.
 2. Open the ```Analyze``` tab, select the hierarchy level you want to visualize from the dropdown.
 3. Select the level-specific feature you want to visualize from the new dropdown.
