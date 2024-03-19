@@ -19,7 +19,6 @@ class BatchMode(QWidget):
         self.viewer = napari_viewer
         self.nellie.valid_files = None
         self.num_t = None
-        self.remove_edges = None
 
         self.im_info = None
 
@@ -129,7 +128,7 @@ class BatchMode(QWidget):
     def run_preprocessing(self):
         for file in self.nellie.valid_files:
             try:
-                preprocessing = Filter(file, self.num_t, remove_edges=self.remove_edges)
+                preprocessing = Filter(file, self.num_t, remove_edges=self.remove_edges_checkbox.isChecked())
                 preprocessing.run()
             except Exception as e:
                 show_info(f"Error in preprocessing {file.filename}: {e}")

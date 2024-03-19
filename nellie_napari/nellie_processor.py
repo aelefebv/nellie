@@ -19,8 +19,6 @@ class NellieProcessor(QWidget):
         self.nellie = nellie
         self.viewer = napari_viewer
 
-        self.remove_edges = False
-
         # Label above the spinner box
         self.channel_label = QLabel("Channel to analyze:")
 
@@ -183,7 +181,8 @@ class NellieProcessor(QWidget):
 
 
     def run_preprocessing(self):
-        preprocessing = Filter(im_info=self.nellie.im_info, num_t=self.num_t, remove_edges=self.remove_edges)
+        preprocessing = Filter(im_info=self.nellie.im_info, num_t=self.num_t,
+                               remove_edges=self.remove_edges_checkbox.isChecked())
         preprocessing.run()
 
         self.check_file_existence()
