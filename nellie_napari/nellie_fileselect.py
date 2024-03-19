@@ -38,32 +38,10 @@ class NellieFileSelect(QWidget):
         self.folder_button.clicked.connect(self.select_folder)
         self.folder_button.setEnabled(True)
 
-        # Label above the spinner box
-        self.channel_label = QLabel("Channel to analyze:")
-
-        self.channel_input = QSpinBox()
-        self.channel_input.setRange(0, 0)
-        self.channel_input.setValue(0)
-        self.channel_input.setEnabled(False)
-        self.channel_input.valueChanged.connect(self.change_channel)
-
-        # Label above the spinner box
-        self.time_label = QLabel("Number of temporal frames:")
-
-        self.time_input = QSpinBox()
-        self.time_input.setRange(1, 1)
-        self.time_input.setValue(1)
-        self.time_input.setEnabled(False)
-
         # reset button
         self.reset_button = QPushButton(text="Reset")
         self.reset_button.clicked.connect(self.reset)
         self.reset_button.setEnabled(True)
-
-        # Checkbox for 'Remove edges'
-        self.remove_edges_checkbox = QCheckBox("Remove image edges")
-        self.remove_edges_checkbox.setEnabled(False)
-        self.remove_edges_checkbox.setToolTip("Originally for Snouty deskewed images. If you see weird image edge artifacts, enable this.")
 
         # dims buttons
         self.label_t = QLabel("T resolution (s):")
@@ -103,28 +81,21 @@ class NellieFileSelect(QWidget):
         self.open_preview_button.setEnabled(False)
 
 
-        self.layout().addWidget(self.filepath_text, 1, 0, 1, 2)
-        self.layout().addWidget(self.filepath_button, 2, 0, 1, 1)
-        self.layout().addWidget(self.folder_button, 2, 1, 1, 1)
+        self.layout().addWidget(self.filepath_button, 1, 0, 1, 1)
+        self.layout().addWidget(self.folder_button, 1, 1, 1, 1)
+        self.layout().addWidget(self.filepath_text, 2, 0, 1, 2)
         self.layout().addWidget(QLabel("Dimension order: "), 3, 0, 1, 1)
         self.layout().addWidget(self.dim_order_button, 3, 1, 1, 1)
-        self.layout().addWidget(self.set_dims_button, 4, 0, 1, 1)
+        self.layout().addWidget(self.set_dims_button, 4, 1, 1, 1)
         self.layout().addWidget(self.label_t, 5, 0, 1, 1)
         self.layout().addWidget(self.dim_t_button, 5, 1, 1, 1)
         self.layout().addWidget(self.label_z, 6, 0, 1, 1)
         self.layout().addWidget(self.dim_z_button, 6, 1, 1, 1)
         self.layout().addWidget(self.label_xy, 7, 0, 1, 1)
         self.layout().addWidget(self.dim_xy_button, 7, 1, 1, 1)
-        self.layout().addWidget(self.set_res_button, 8, 0, 1, 1)
-        self.layout().addWidget(self.channel_label, 46, 0)
-        self.layout().addWidget(self.channel_input, 46, 1)
-        self.layout().addWidget(self.time_label, 47, 0)
-        self.layout().addWidget(self.time_input, 47, 1)
-        self.layout().addWidget(self.remove_edges_checkbox, 48, 1)
+        self.layout().addWidget(self.set_res_button, 8, 1, 1, 1)
         self.layout().addWidget(self.open_preview_button, 49, 0, 1, 2)
         self.layout().addWidget(self.reset_button, 50, 0, 2, 2)
-        # self.layout().addWidget(QLabel("\nEasy screenshot"), 50, 0, 1, 2)
-        # self.layout().addWidget(self.screenshot_button, 51, 0, 1, 2)
 
         self.nellie_viewer = None
         self.batch_mode = None
@@ -291,8 +262,7 @@ class NellieFileSelect(QWidget):
     def initialize_single_file(self):
         dim_sizes, dim_order = self.check_manual_params()
         # open the file and load its info
-        self.im_info = ImInfo(self.filepath, ch=self.channel_input.value(), dimension_order=dim_order, dim_sizes=dim_sizes)
-        self.nellie.im_info = self.im_info
+        self.im_info = ImInfo(self.filepath, ch=self.nellie.processor.channel_input.value(), dimension_order=dim_order, dim_sizes=dim_sizes)
         self.dim_order = self.im_info.axes
 
         # check if the dimension order and axes resolutions are valid
@@ -308,13 +278,12 @@ class NellieFileSelect(QWidget):
         self.valid_files = []
         for filename in filenames:
             try:
-                im_info = ImInfo(os.path.join(filepath, filename), ch=self.channel_input.value(),
+                im_info = ImInfo(os.path.join(filepath, filename), ch=self.nellie.processor.channel_input.value(),
                                  dim_sizes=dim_sizes, dimension_order=dim_order)
                 self.valid_files.append(im_info)
             except:
                 pass
         self.im_info = self.valid_files[0]
-        self.nellie.im_info = self.im_info
 
         if not self.check_im_info_valid():
             return
@@ -331,25 +300,25 @@ class NellieFileSelect(QWidget):
         self.folder_button.setEnabled(False)
 
     def enable_time_options(self):
-        self.time_input.setEnabled(False)
+        self.nellie.processor.time_input.setEnabled(False)
         if not self.im_info.no_t and self.num_frames_max is not None:
             if self.single:
-                self.time_input.setEnabled(True)
-            self.time_input.setRange(1, self.num_frames_max)
-            self.time_input.setValue(self.num_frames_max)
+                self.nellie.processor.time_input.setEnabled(True)
+            self.nellie.processor.time_input.setRange(1, self.num_frames_max)
+            self.nellie.processor.time_input.setValue(self.num_frames_max)
         else:
-            self.time_input.setRange(self.num_frames_max, self.num_frames_max)
-            self.time_input.setValue(self.num_frames_max)
+            self.nellie.processor.time_input.setRange(self.num_frames_max, self.num_frames_max)
+            self.nellie.processor.time_input.setValue(self.num_frames_max)
 
     def enable_channel_options(self):
         if not self.im_info.no_c and self.num_channels > 1:
-            self.channel_input.setEnabled(True)
-            self.channel_input.setRange(0, self.num_channels - 1)
-            self.channel_input.setValue(0)
+            self.nellie.processor.channel_input.setEnabled(True)
+            self.nellie.processor.channel_input.setRange(0, self.num_channels - 1)
+            self.nellie.processor.channel_input.setValue(0)
         else:
-            self.channel_input.setEnabled(False)
-            self.channel_input.setRange(0, 0)
-            self.channel_input.setValue(0)
+            self.nellie.processor.channel_input.setEnabled(False)
+            self.nellie.processor.channel_input.setRange(0, 0)
+            self.nellie.processor.channel_input.setValue(0)
 
     def post_file_selection(self):
         self.set_max_frames()
@@ -357,17 +326,19 @@ class NellieFileSelect(QWidget):
 
         # set valid tabs and buttons to be enabled
         self.check_analysis_valid()
-        self.remove_edges_checkbox.setEnabled(True)
         self.disable_file_selection()
         self.enable_channel_options()
         self.enable_time_options()
         if self.single:
             self.nellie.setTabEnabled(self.nellie.processor_tab, True)
+            self.nellie.setTabEnabled(self.nellie.visualizer_tab, True)
             self.nellie.setTabEnabled(self.nellie.batch_tab, False)
         else:
             self.nellie.setTabEnabled(self.nellie.processor_tab, False)
+            self.nellie.setTabEnabled(self.nellie.visualizer_tab, False)
             self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
             self.nellie.setTabEnabled(self.nellie.batch_tab, True)
+        self.nellie.file_ready()
 
     def select_folder(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select folder")
@@ -402,12 +373,6 @@ class NellieFileSelect(QWidget):
     def reset(self):
         # switch to nellie's file_select tab
         self.nellie.reset()
-
-    def change_channel(self):
-        if self.single:
-            self.initialize_single_file()
-        else:
-            self.initialize_folder(self.filepath)
 
 
 if __name__ == "__main__":
