@@ -74,6 +74,12 @@ class NellieVisualizer(QWidget):
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
+    def check_3d(self):
+        if not self.nellie.im_info.no_z and self.viewer.dims.ndim != 3:
+            # ndimensions should be 3 for viewer
+            self.viewer.dims.ndim = 3
+            self.viewer.dims.ndisplay = 3
+
     def check_for_raw(self):
         self.raw_button.setEnabled(False)
         try:
@@ -93,7 +99,7 @@ class NellieVisualizer(QWidget):
         if self.nellie.im_info.no_z:
             self.scale = (dim_sizes['Y'], dim_sizes['X'])
         else:
-            self.scale = (dim_sizes['T'], dim_sizes['Y'], dim_sizes['X'])
+            self.scale = (dim_sizes['Z'], dim_sizes['Y'], dim_sizes['X'])
 
     def open_preprocess_image(self):
         im_frangi = self.nellie.im_info.get_im_memmap(self.nellie.im_info.pipeline_paths['im_frangi'])

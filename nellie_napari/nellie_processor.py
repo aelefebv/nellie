@@ -94,16 +94,16 @@ class NellieProcessor(QWidget):
         self.layout.addWidget(self.time_input, 1, 1)
         self.layout.addWidget(self.remove_edges_checkbox, 2, 1)
 
-        self.layout.addWidget(QLabel("Run full pipeline"), 42, 0, 1, 1)
-        self.layout.addWidget(self.run_button, 43, 0, 1, 1)
+        self.layout.addWidget(QLabel("Run full pipeline"), 42, 0, 1, 2)
+        self.layout.addWidget(self.run_button, 43, 0, 1, 2)
 
-        self.layout.addWidget(QLabel("Run individual steps / Visualize"), 44, 0, 1, 1)
-        self.layout.addWidget(self.preprocess_button, 45, 0, 1, 1)
-        self.layout.addWidget(self.segment_button, 46, 0, 1, 1)
-        self.layout.addWidget(self.mocap_button, 47, 0, 1, 1)
-        self.layout.addWidget(self.track_button, 48, 0, 1, 1)
-        self.layout.addWidget(self.feature_export_button, 49, 0, 1, 1)
-        self.layout.addWidget(self.reassign_button, 50, 0, 1, 1)
+        self.layout.addWidget(QLabel("Run individual steps / Visualize"), 44, 0, 1, 2)
+        self.layout.addWidget(self.preprocess_button, 45, 0, 1, 2)
+        self.layout.addWidget(self.segment_button, 46, 0, 1, 2)
+        self.layout.addWidget(self.mocap_button, 47, 0, 1, 2)
+        self.layout.addWidget(self.track_button, 48, 0, 1, 2)
+        self.layout.addWidget(self.feature_export_button, 49, 0, 1, 2)
+        self.layout.addWidget(self.reassign_button, 50, 0, 1, 2)
 
         self.im_memmap = None
         self.raw_layer = None
@@ -120,16 +120,14 @@ class NellieProcessor(QWidget):
         self.tracks = []
 
     def post_init(self):
-        self.check_for_raw()
+        if not self.check_for_raw():
+            return
         self.check_file_existence()
-
-    def check_3d(self):
-        if not self.nellie.im_info.no_z and self.viewer.dims.ndim != 3:
-            # ndimensions should be 3 for viewer
-            self.viewer.dims.ndim = 3
-            self.viewer.dims.ndisplay = 3
+        self.remove_edges_checkbox.setEnabled(True)
         
     def check_file_existence(self):
+        self.nellie.visualizer.check_file_existence()
+
         # set all other buttons to disabled first
         self.segment_button.setEnabled(False)
         self.mocap_button.setEnabled(False)
@@ -235,6 +233,7 @@ class NellieProcessor(QWidget):
             self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.nellie.im_info)
             self.preprocess_button.setEnabled(True)
             self.run_button.setEnabled(True)
+            return True
         except Exception as e:
             logger.error(e)
             show_info(f"Could not open raw image: {e}")
