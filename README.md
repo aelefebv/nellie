@@ -1,5 +1,11 @@
 # Nellie
-Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
+## Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
+
+<img src="nellie_napari/logo.png" width="200px" align="left" /> *bioRxiv* 
+
+  [Preprint Link](https://github.com/aelefebv/nellie) | [Cite](##reference)
+
+**Abstract:** The analysis of dynamic organelles remains a formidable challenge, though key to understanding biological processes. We introduce Nellie, an automated and unbiased pipeline for segmentation, tracking, and feature extraction of diverse intracellular structures. Nellie adapts to image metadata, eliminating user input. Nellie’s preprocessing pipeline enhances structural contrast on multiple intracellular scales allowing for robust hierarchical segmentation of sub-organellar regions. Internal motion capture markers are generated and tracked via a radius-adaptive pattern matching scheme, and used as guides for sub-voxel flow interpolation. Nellie extracts a plethora of features at multiple hierarchical levels for deep and customizable analysis. Nellie features a Napari-based GUI that allows for code-free operation and visualization, while its modular open-source codebase invites customization by experienced users. 
 
 
 https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
@@ -7,7 +13,7 @@ https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4
 
 ## Installation
 
-**Notes:**
+**Notes:** 
 - It is recommended (but usually not required) to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
 - May take several minutes to install.
 - Choose one of the following methods, and only one!
