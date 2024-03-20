@@ -139,3 +139,17 @@ Lefebvre, A. E. Y. T., Sturm, G., et. al. Nellie: Automated organelle segmentati
   year={2024}
 }
 ```
+
+## More fun examples
+### Microtubule growing ends:
+
+https://github.com/aelefebv/nellie/assets/26515909/88578dc9-f5c5-4188-a0e2-4e37037a44a9
+
+### Endoplasmic reticulum:
+
+https://github.com/aelefebv/nellie/assets/26515909/db76d388-a9cc-4650-b93d-69d357ace418
+
+### Peroxisomes:
+
+https://github.com/aelefebv/nellie/assets/26515909/58bda3cb-6489-4620-8584-a3728cd6b2ec
+
