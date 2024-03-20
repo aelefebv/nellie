@@ -9,8 +9,7 @@
 
 **Nellie's pipeline and Napari plugin are both very much in early stages,** therefore [I highly encourage any and all feedback](#getting-help)
 
-https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
-
+https://github.com/aelefebv/nellie/assets/26515909/1df8bf1b-7116-4d19-b5fb-9658f744675b
 
 ## Installation
 
@@ -38,6 +37,9 @@ pip install cupy-cudaXXx
 - Mac Metal GPU-acceleration coming... eventually.
 
 ## Usage
+
+https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
+
 ### General data preparation
 - It is strongly recommended to have your data in a parsable format, such as .ome.tif, .nd2, or other raw data files from microscopes.
   - Importing into ImageJ/FIJI and saving via BioFormats with the proper image dimensions should do the trick.
