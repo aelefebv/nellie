@@ -9,6 +9,8 @@
 
 **Nellie's pipeline and Napari plugin are both very much in early stages,** therefore [I highly encourage any and all feedback](#getting-help)
 
+## Example output intermediates
+
 https://github.com/aelefebv/nellie/assets/26515909/1df8bf1b-7116-4d19-b5fb-9658f744675b
 
 ## Installation
