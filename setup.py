@@ -7,6 +7,9 @@ setup(
     package_data={
         "nellie_napari": ["napari.yaml", "logo.png"],
     },
+    classifiers=[
+        'Framework :: napari',
+    ],
     description='Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
