@@ -18,17 +18,17 @@ https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4
 - It is recommended (but usually not required) to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
 - May take several minutes to install.
 - Choose one of the following methods, and only one!
-### Via Napari plugin manager:
+### Option 1. Via Napari plugin manager:
 If not already installed, install Napari: https://napari.org/stable/tutorials/fundamentals/installation
 1. Open Napari
 2. Go to ```Plugins > Install/Uninstall Plugins...```
 3. Search for Nellie and click ```Install```
-### Via PIP:
+### Option 2. Via PIP:
 ```bash
 pip install git+https://github.com/aelefebv/nellie.git
 ```
-### Installation NVIDIA GPU (Windows, Linux):
-Follow one of the above methods, then run the following:
+#### Option 2a for NVIDIA GPU acceleration, optional (Windows, Linux):
+To use GPU acceleration via NVIDIA GPUs, you also need to install cupy:
 ```bash
 pip install cupy-cudaXXx
 ```
