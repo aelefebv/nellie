@@ -40,6 +40,7 @@ pip install cupy-cudaXXx
 
 ## Usage
 The sample dataset shown below is in the repo, and can be downloaded [here](https://github.com/aelefebv/nellie/tree/main/sample_data).
+
 https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
 
 ### General data preparation
