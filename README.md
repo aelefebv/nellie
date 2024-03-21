@@ -20,6 +20,7 @@ https://github.com/aelefebv/nellie/assets/26515909/1df8bf1b-7116-4d19-b5fb-9658f
 - May take several minutes to install.
 - Choose one of the following methods, and only one!
 ### Option 1. Via Napari plugin manager:
+NOTE: Napari Hub may still be loading my plugin. If it's not on here yet, install via pip.
 If not already installed, install Napari: https://napari.org/stable/tutorials/fundamentals/installation
 1. Open Napari
 2. Go to ```Plugins > Install/Uninstall Plugins...```
