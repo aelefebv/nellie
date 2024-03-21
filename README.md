@@ -3,7 +3,7 @@
 
 <img src="https://github.com/aelefebv/nellie/assets/26515909/96b7a113-be60-4028-bcd9-b444bdb943f6" width="200px" align="left" /> *arXiv* 
 
-  [Preprint Link](https://github.com/aelefebv/nellie) | [Cite](#reference)
+  [Preprint Link](https://arxiv.org/abs/2403.13214) | [Cite](#reference)
 
 **Abstract:** The analysis of dynamic organelles remains a formidable challenge, though key to understanding biological processes. We introduce Nellie, an automated and unbiased pipeline for segmentation, tracking, and feature extraction of diverse intracellular structures. Nellie adapts to image metadata, eliminating user input. Nellie’s preprocessing pipeline enhances structural contrast on multiple intracellular scales allowing for robust hierarchical segmentation of sub-organellar regions. Internal motion capture markers are generated and tracked via a radius-adaptive pattern matching scheme, and used as guides for sub-voxel flow interpolation. Nellie extracts a plethora of features at multiple hierarchical levels for deep and customizable analysis. Nellie features a Napari-based GUI that allows for code-free operation and visualization, while its modular open-source codebase invites customization by experienced users. 
 
@@ -127,17 +127,18 @@ To avoid any unnecessary back-and-forth, please include any/all (if possible) of
 Nellie © 2024 by [Austin E. Y. T. Lefebvre](https://github.com/aelefebv) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 
 ## Reference
-If you used Nelly or found this work useful in your own research, please cite our [bioRxiv preprint](https://github.com/aelefebv/nellie):
+If you used Nelly or found this work useful in your own research, please cite our [arXiv preprint](https://arxiv.org/abs/2403.13214):
 
-Lefebvre, A. E. Y. T., Sturm, G., et. al. Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy. bioRxiv (2024). doi TBD
+Lefebvre, A. E. Y. T., Sturm, G., et. al. Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy, arXiv, 2024, https://arxiv.org/abs/2403.13214
 
 ```
-@article{lefebvre2024nellie,
-  title={Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy},
-  author={Lefebvre, Austin EYT and Sturm, Gabriel and Lin, Ting-Yu and Stoops, Emily and Lopez, Magdalena and Kaufmann-Malaga, Benjamin and Hake, Kayley},
-  journal={bioRxiv},
-  publisher={bioRxiv},
-  year={2024}
+@misc{lefebvre2024nellie,
+      title={Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy}, 
+      author={Austin E. Y. T. Lefebvre and Gabriel Sturm and Ting-Yu Lin and Emily Stoops and Magdalena Preciado Lopez and Benjamin Kaufmann-Malaga and Kayley Hake},
+      year={2024},
+      eprint={2403.13214},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
 }
 ```
 
