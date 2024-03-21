@@ -26,7 +26,7 @@ If not already installed, install Napari: https://napari.org/stable/tutorials/fu
 3. Search for Nellie and click ```Install```
 ### Option 2. Via PIP:
 ```bash
-pip install git+https://github.com/aelefebv/nellie.git
+pip install nellie
 ```
 #### Option 2a for NVIDIA GPU acceleration, optional (Windows, Linux):
 To use GPU acceleration via NVIDIA GPUs, you also need to install cupy:
