@@ -42,7 +42,7 @@ class Home(QWidget):
         self.layout.addWidget(QLabel("\n"))  # Add a bit of space
 
         # todo link to paper
-        github_link = QLabel("<a href='https://github.com/aelefebv/nellie'>Cite our paper!</a>")
+        github_link = QLabel("<a href='https://arxiv.org/abs/2403.13214'>Cite our paper!</a>")
         github_link.setOpenExternalLinks(True)
         github_link.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(github_link)
