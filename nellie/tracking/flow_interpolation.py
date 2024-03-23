@@ -10,7 +10,7 @@ class FlowInterpolator:
     def __init__(self, im_info: ImInfo, num_t=None, max_distance_um=0.5, forward=True):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
         if self.im_info.no_z:
@@ -159,6 +159,8 @@ class FlowInterpolator:
         return final_vectors
 
     def _initialize(self):
+        if self.im_info.no_t:
+            return
         self._get_t()
         self._allocate_memory()
 

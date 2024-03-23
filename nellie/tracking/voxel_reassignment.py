@@ -13,7 +13,7 @@ class VoxelReassigner:
     def __init__(self, im_info: ImInfo, num_t=None):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.flow_interpolator_fw = FlowInterpolator(im_info)
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
@@ -263,6 +263,8 @@ class VoxelReassigner:
                 break
 
     def run(self):
+        if self.im_info.no_t:
+            return
         self._get_t()
         self._allocate_memory()
         self._run_reassignment('branch')

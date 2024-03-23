@@ -272,9 +272,17 @@ class ImInfo:
             return_memmap: bool = False, read_mode='r+'):
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
+        if shape is None:
+            shape = self.shape
         logger.debug(f'Saving axes as {axes}')
         if 'T' not in axes:
             axes = 'T' + axes
+            self.axes = axes
+            if len(axes) != len(shape):
+                shape = (1,) + shape
+                self.shape = shape
+                if data is not None:
+                    data = np.expand_dims(data, axis=0)
         if data is None:
             assert shape is not None
             tifffile.imwrite(
@@ -313,6 +321,10 @@ class ImInfo:
             else:
                 im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
             # if ch is -1, get a max projection in the C dimension
+
+        if len(im_memmap.shape) != len(self.axes) and self.no_t:
+            # expand dims to match axes
+            im_memmap = np.expand_dims(im_memmap, axis=self.axes.index('T'))
         return im_memmap
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):

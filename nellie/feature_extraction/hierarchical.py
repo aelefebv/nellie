@@ -42,12 +42,12 @@ class Hierarchy:
         self.image = None
 
     def _get_t(self):
-        if self.num_t is None:
-            if self.im_info.no_t:
-                raise ValueError("No time dimension in image.")
+        if self.num_t is None and not self.im_info.no_t:
+            # if self.im_info.no_t:
+            #     raise ValueError("No time dimension in image.")
             self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
-        if self.num_t < 3:
-            raise ValueError("num_t must be at least 3")
+        # if self.num_t < 3:
+        #     raise ValueError("num_t must be at least 3")
         return self.num_t
 
     def _allocate_memory(self):
@@ -59,18 +59,19 @@ class Hierarchy:
         self.label_components = get_reshaped_image(label_components, self.num_t, self.im_info)
         label_branches = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
         self.label_branches = get_reshaped_image(label_branches, self.num_t, self.im_info)
-        im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_distance = get_reshaped_image(im_distance, self.num_t, self.im_info)
         im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
         self.im_skel = get_reshaped_image(im_skel, self.num_t, self.im_info)
         im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
         self.im_pixel_class = get_reshaped_image(im_pixel_class, self.num_t, self.im_info)
+        im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
+        self.im_distance = get_reshaped_image(im_distance, self.num_t, self.im_info)
         im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
         self.im_border_mask = get_reshaped_image(im_border_mask, self.num_t, self.im_info)
-        im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
-        self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
-        im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
-        self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
+        if not self.im_info.no_t:
+            im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
+            self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
+            im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
+            self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
 
         self.shape = self.im_raw.shape
 
@@ -684,7 +685,7 @@ class Voxels:
 
         return self._get_angular_velocity_3d(ra, rb)
 
-    def _run_frame(self, t):
+    def _run_frame(self, t=None):
         frame_coords = np.argwhere(self.hierarchy.label_components[t] > 0)
         self.coords.append(frame_coords)
 
@@ -710,6 +711,8 @@ class Voxels:
         self._get_motility_stats(t, frame_coords)
 
     def run(self):
+        if self.hierarchy.num_t is None:
+            self.hierarchy.num_t = 1
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
 
@@ -1011,9 +1014,12 @@ class Branches:
         reassigned_label = []
 
         for region in regions:
-            region_reassigned_labels = self.hierarchy.im_branch_reassigned[t][tuple(region.coords.T)]
-            # find which label is most common in the region via bin-counting
-            reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
+            if not self.hierarchy.im_info.no_t:
+                region_reassigned_labels = self.hierarchy.im_branch_reassigned[t][tuple(region.coords.T)]
+                # find which label is most common in the region via bin-counting
+                reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
+            else:
+                reassigned_label.append(np.nan)
             areas.append(region.area)
             # due to bug in skimage (at the time of writing: https://github.com/scikit-image/scikit-image/issues/6630)
             try:
@@ -1124,8 +1130,11 @@ class Components:
         reassigned_label = []
 
         for region in regions:
-            region_reassigned_labels = self.hierarchy.im_obj_reassigned[t][tuple(region.coords.T)]
-            reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
+            if not self.hierarchy.im_info.no_t:
+                region_reassigned_labels = self.hierarchy.im_obj_reassigned[t][tuple(region.coords.T)]
+                reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
+            else:
+                reassigned_label.append(np.nan)
             areas.append(region.area)
             try:
                 maj_axis = region.major_axis_length

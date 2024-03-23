@@ -170,7 +170,7 @@ class NellieProcessor(QWidget):
         else:
             self.reassign_button.setEnabled(False)
             self.feature_export_button.setEnabled(False)
-            return
+            # return
 
         analysis_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
         if os.path.exists(analysis_path):
