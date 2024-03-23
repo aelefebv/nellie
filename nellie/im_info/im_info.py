@@ -98,7 +98,7 @@ class ImInfo:
             return
         if self.extension == '.nd2':
             data = nd2.imread(self.im_path)
-        elif self.extension == '.tif':
+        elif self.extension == '.tif' or self.extension == '.tiff':
             # get only self.ch
             data = tifffile.imread(self.im_path)
         else:
@@ -241,7 +241,7 @@ class ImInfo:
 
     def _load_metadata(self):
         try:
-            if self.im_path.endswith('.tif'):
+            if self.im_path.endswith('.tif') or self.im_path.endswith('.tiff'):
                 self._load_tif()
             elif self.im_path.endswith('.nd2'):
                 self._load_nd2()

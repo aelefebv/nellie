@@ -37,7 +37,7 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 if __name__ == "__main__":
     # Single file run
-    im_path = r"D:\test_files\peroxi\deskewed-2022-10-27_22-15-54_000_hFB12_P5_CellLight_PerixosomeGFP_MitoRFP_v2_60volumes.ome.tif"
+    im_path = r"/Users/austin/Downloads/glu.ome.tiff"
     im_info = run(im_path, remove_edges=True, ch=0)
 
     # # Directory bactch run
