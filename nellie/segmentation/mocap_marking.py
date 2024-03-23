@@ -11,7 +11,7 @@ class Markers:
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None: # and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
@@ -65,6 +65,7 @@ class Markers:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for mocap marking.')
+
         label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
 
@@ -192,12 +193,17 @@ class Markers:
     def _run_mocap_marking(self):
         for t in range(self.num_t):
             marker_frame = self._run_frame(t)
-            self.im_marker_memmap[t], self.im_distance_memmap[t], self.im_border_memmap[t] = marker_frame
+            if self.im_marker_memmap.shape != self.shape and self.im_info.no_t:
+                self.im_marker_memmap[:], self.im_distance_memmap[:], self.im_border_memmap[:] = marker_frame
+            else:
+                self.im_marker_memmap[t], self.im_distance_memmap[t], self.im_border_memmap[t] = marker_frame
             self.im_marker_memmap.flush()
             self.im_distance_memmap.flush()
             self.im_border_memmap.flush()
 
     def run(self):
+        # if self.im_info.no_t:
+        #     return
         self._get_t()
         self._allocate_memory()
         self._set_default_sigmas()

@@ -11,7 +11,7 @@ class HuMomentTracking:
                  max_distance_um=1):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None:
+        if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
         if self.im_info.no_z:
@@ -381,6 +381,8 @@ class HuMomentTracking:
         np.save(self.flow_vector_array_path, flow_vector_array)
 
     def run(self):
+        if self.im_info.no_t:
+            return
         self._get_t()
         self._allocate_memory()
         self._run_hu_tracking()
