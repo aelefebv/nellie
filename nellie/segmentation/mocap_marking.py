@@ -11,7 +11,9 @@ class Markers:
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5):
         self.im_info = im_info
         self.num_t = num_t
-        if num_t is None: # and not self.im_info.no_t:
+        if self.im_info.no_t:
+            self.num_t = 1
+        elif num_t is None:  # and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
