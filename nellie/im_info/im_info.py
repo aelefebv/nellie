@@ -116,64 +116,77 @@ class ImInfo:
         if 'C' in self.axes and self.shape[self.axes.index('C')] > 1:
             self.no_c = False
 
+    def _get_tif_tag_metadata(self, metadata):
+        tag_names = {tag_value.name: tag_code for tag_code, tag_value in metadata.items()}
+
+        if 'XResolution' in tag_names:
+            self.dim_sizes['X'] = metadata[tag_names['XResolution']].value[1] \
+                                  / metadata[tag_names['XResolution']].value[0]
+        else:
+            logger.warning('No XResolution tag found.')
+            self.dim_sizes['X'] = None
+
+        if 'YResolution' in tag_names:
+            self.dim_sizes['Y'] = metadata[tag_names['YResolution']].value[1] \
+                                  / metadata[tag_names['YResolution']].value[0]
+        else:
+            logger.warning('No YResolution tag found.')
+            self.dim_sizes['Y'] = None
+
+        if 'ResolutionUnit' in tag_names:
+            if metadata[tag_names['ResolutionUnit']].value == tifffile.TIFF.RESUNIT.CENTIMETER:
+                self.dim_sizes['X'] *= 1E-2 * 1E6
+                self.dim_sizes['Y'] *= 1E-2 * 1E6
+        if 'Z' in self.axes:
+            if 'ZResolution' in tag_names:
+                self.dim_sizes['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
+            else:
+                logger.warning('No ZResolution tag found.')
+                self.dim_sizes['Z'] = None
+        else:
+            logger.warning('No ZResolution tag found.')
+            self.dim_sizes['Z'] = None
+
+        if 'T' in self.axes:
+            if 'FrameRate' in tag_names:
+                self.dim_sizes['T'] = 1 / metadata[tag_names['FrameRate']].value[0]
+        else:
+            logger.warning('No FrameRate tag found.')
+            self.dim_sizes['T'] = None
+
+    def _get_imagej_metadata(self, metadata):
+        if 'physicalsizex' in metadata:
+            self.dim_sizes['X'] = metadata['physicalsizex']
+        if 'physicalsizey' in metadata:
+            self.dim_sizes['Y'] = metadata['physicalsizey']
+        if 'spacing' in metadata:
+            self.dim_sizes['Z'] = metadata['spacing']
+        if 'finterval' in metadata:
+            self.dim_sizes['T'] = metadata['finterval']
+
     def _set_dim_sizes(self):
         if self.dim_sizes is not None:
             return
         try:
             self.dim_sizes = {'X': None, 'Y': None, 'Z': None, 'T': None}
             if self.metadata_type == 'imagej':
-                if 'physicalsizex' in self.metadata:
-                    self.dim_sizes['X'] = self.metadata['physicalsizex']
-                if 'physicalsizey' in self.metadata:
-                    self.dim_sizes['Y'] = self.metadata['physicalsizey']
-                if 'spacing' in self.metadata:
-                    self.dim_sizes['Z'] = self.metadata['spacing']
-                if 'finterval' in self.metadata:
-                    self.dim_sizes['T'] = self.metadata['finterval']
+                self._get_imagej_metadata(self.metadata)
+
             elif self.metadata_type == 'ome':
                 self.dim_sizes['X'] = self.metadata.images[0].pixels.physical_size_x
                 self.dim_sizes['Y'] = self.metadata.images[0].pixels.physical_size_y
                 self.dim_sizes['Z'] = self.metadata.images[0].pixels.physical_size_z
                 self.dim_sizes['T'] = self.metadata.images[0].pixels.time_increment
+            elif self.metadata_type == 'imagej_tif_tags':
+                self._get_tif_tag_metadata(self.metadata[1])
+                self._get_imagej_metadata(self.metadata[0])
+                logger.warning(f'File is an ImageJ type, but has weird metadata, '
+                               f'found dimension sizes: {self.dim_sizes}')
+
             elif self.metadata_type is None:
-                tag_names = {tag_value.name: tag_code for tag_code, tag_value in self.metadata.items()}
-
-                if 'XResolution' in tag_names:
-                    self.dim_sizes['X'] = self.metadata[tag_names['XResolution']].value[1] \
-                                          / self.metadata[tag_names['XResolution']].value[0]
-                else:
-                    logger.warning('No XResolution tag found.')
-                    self.dim_sizes['X'] = None
-
-                if 'YResolution' in tag_names:
-                    self.dim_sizes['Y'] = self.metadata[tag_names['YResolution']].value[1] \
-                                          / self.metadata[tag_names['YResolution']].value[0]
-                else:
-                    logger.warning('No YResolution tag found.')
-                    self.dim_sizes['Y'] = None
-
-                if 'ResolutionUnit' in tag_names:
-                    if self.metadata[tag_names['ResolutionUnit']].value == tifffile.TIFF.RESUNIT.CENTIMETER:
-                        self.dim_sizes['X'] *= 1E-2 * 1E6
-                        self.dim_sizes['Y'] *= 1E-2 * 1E6
-                if 'Z' in self.axes:
-                    if 'ZResolution' in tag_names:
-                        self.dim_sizes['Z'] = 1 / self.metadata[tag_names['ZResolution']].value[0]
-                    else:
-                        logger.warning('No ZResolution tag found.')
-                        self.dim_sizes['Z'] = None
-                else:
-                    logger.warning('No ZResolution tag found.')
-                    self.dim_sizes['Z'] = None
-
-                if 'T' in self.axes:
-                    if 'FrameRate' in tag_names:
-                        self.dim_sizes['T'] = 1 / self.metadata[tag_names['FrameRate']].value[0]
-                else:
-                    logger.warning('No FrameRate tag found.')
-                    self.dim_sizes['T'] = None
-
+                self._get_tif_tag_metadata(self.metadata)
                 logger.warning(f'File is not an ImageJ or OME type, found dimension sizes: {self.dim_sizes}')
+
             elif self.metadata_type == 'nd2':
                 try:
                     timestamps = self.metadata.recorded_data['Time [s]']
@@ -211,6 +224,9 @@ class ImInfo:
             elif tif.is_imagej:
                 self.metadata = tif.imagej_metadata
                 self.metadata_type = 'imagej'
+                if 'physicalsizex' not in self.metadata:
+                    self.metadata_type = 'imagej_tif_tags'
+                    self.metadata = [self.metadata, tif.pages[0].tags._dict]
             else:
                 self.metadata = tif.pages[0].tags._dict
                 self.metadata_type = None
@@ -278,11 +294,11 @@ class ImInfo:
         if 'T' not in axes:
             axes = 'T' + axes
             self.axes = axes
-            if len(axes) != len(shape):
-                shape = (1,) + shape
-                self.shape = shape
-                if data is not None:
-                    data = np.expand_dims(data, axis=0)
+        if len(axes) != len(shape):
+            shape = (1,) + shape
+            self.shape = shape
+            if data is not None:
+                data = np.expand_dims(data, axis=0)
         if data is None:
             assert shape is not None
             tifffile.imwrite(

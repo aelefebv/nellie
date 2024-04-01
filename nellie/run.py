@@ -37,7 +37,7 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 if __name__ == "__main__":
     # Single file run
-    im_path = r"/Users/austin/Downloads/glu.ome.tiff"
+    im_path = r"/Users/austin/Downloads/test.tif"
     im_info = run(im_path, remove_edges=False, ch=0)
 
     # # Directory bactch run
