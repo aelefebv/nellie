@@ -74,6 +74,7 @@ class Hierarchy:
             self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
 
         self.shape = self.im_raw.shape
+        # self.im_info.shape = self.shape
 
     def _get_hierarchies(self):
         self.voxels = Voxels(self)

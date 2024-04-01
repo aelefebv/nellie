@@ -280,6 +280,15 @@ class ImInfo:
             self.axes_valid = False
             # raise ValueError
 
+    def _ensure_t(self, data=None):
+        if 'T' not in self.axes:
+            self.axes = 'T' + self.axes
+        if len(self.axes) != len(self.shape):
+            self.shape = (1,) + self.shape
+            if data is not None:
+                data = np.expand_dims(data, axis=0)
+        return data
+
     def allocate_memory(
             self,
             path_im: str, dtype: Union[Type, str] = 'float', data=None,
@@ -288,17 +297,10 @@ class ImInfo:
             return_memmap: bool = False, read_mode='r+'):
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
+        logger.debug(f'Saving axes as {axes}')
+        data = self._ensure_t(data)
         if shape is None:
             shape = self.shape
-        logger.debug(f'Saving axes as {axes}')
-        if 'T' not in axes:
-            axes = 'T' + axes
-            self.axes = axes
-        if len(axes) != len(shape):
-            shape = (1,) + shape
-            self.shape = shape
-            if data is not None:
-                data = np.expand_dims(data, axis=0)
         if data is None:
             assert shape is not None
             tifffile.imwrite(
@@ -338,9 +340,10 @@ class ImInfo:
                 im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
             # if ch is -1, get a max projection in the C dimension
 
-        if len(im_memmap.shape) != len(self.axes) and self.no_t:
-            # expand dims to match axes
-            im_memmap = np.expand_dims(im_memmap, axis=self.axes.index('T'))
+        self._ensure_t(im_memmap)
+        # if len(im_memmap.shape) != len(self.axes) and self.no_t:
+        #     # expand dims to match axes
+        #     im_memmap = np.expand_dims(im_memmap, axis=self.axes.index('T'))
         return im_memmap
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
