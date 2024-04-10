@@ -244,8 +244,8 @@ class HuMomentTracking:
         marker_indices_post_scaled = marker_indices_post * self.scaling
 
         distance_matrix = cdist(marker_indices_post_scaled, marker_indices_pre_scaled)
-        distance_mask = xp.array(distance_matrix) < self.max_distance_um
-        distance_matrix = distance_matrix / self.max_distance_um  # normalize to furthest possible distance
+        distance_mask = xp.array(distance_matrix) < (self.max_distance_um * self.im_info.dim_sizes['T'])
+        distance_matrix = distance_matrix / (self.max_distance_um * self.im_info.dim_sizes['T'])  # normalize to furthest possible distance
         return distance_matrix, distance_mask
 
     def _get_difference_matrix(self, m1, m2):
