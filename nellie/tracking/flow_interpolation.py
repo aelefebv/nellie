@@ -19,6 +19,8 @@ class FlowInterpolator:
             self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
         self.max_distance_um = max_distance_um
+        self.max_distance_um = np.max([self.max_distance_um, 0.5])
+
         self.forward = forward
 
         self.shape = ()
@@ -62,9 +64,7 @@ class FlowInterpolator:
         # get all coords and distances within the radius of the coord
         # good coords are non-nan
         good_coords = np.where(~np.isnan(scaled_coords[:, 0]))[0]
-        nearby_idxs = self.current_tree.query_ball_point(scaled_coords[good_coords],
-                                                         self.max_distance_um * self.im_info.dim_sizes['T'],
-                                                         p=2)
+        nearby_idxs = self.current_tree.query_ball_point(scaled_coords[good_coords], self.max_distance_um, p=2)
         if len(nearby_idxs) == 0:
             return [], []
         k_all = [len(nearby_idxs[i]) for i in range(len(nearby_idxs))]

@@ -73,6 +73,9 @@ class Label:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))
 
         labels, _ = ndi.label(mask, structure=footprint)
+        # remove anything 3 pixels or under using bincounts
+        areas = xp.bincount(labels.ravel())[1:]
+        labels = xp.where(xp.isin(labels, xp.where(areas > 3)[0]), labels, 0)
         return mask, labels
 
     def _get_subtraction_mask(self, original_frame, labels_frame):

@@ -126,7 +126,7 @@ class Filter:
         return h_mask, hessian_matrices
 
     def _get_frob_mask(self, hessian_matrices):
-        rescaled_hessian = hessian_matrices / xp.sqrt(xp.max(xp.abs(hessian_matrices)))
+        rescaled_hessian = hessian_matrices / xp.max(xp.abs(hessian_matrices))
         frobenius_norm = xp.linalg.norm(rescaled_hessian, axis=0)
         frobenius_norm[xp.isinf(frobenius_norm)] = xp.max(frobenius_norm[~xp.isinf(frobenius_norm)])
         non_zero_frobenius = frobenius_norm[frobenius_norm > 0]
