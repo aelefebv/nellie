@@ -18,7 +18,7 @@ class FlowInterpolator:
         else:
             self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
-        self.max_distance_um = max_distance_um
+        self.max_distance_um = max_distance_um * im_info.dim_sizes['T']
         self.max_distance_um = np.max([self.max_distance_um, 0.5])
 
         self.forward = forward
