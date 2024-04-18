@@ -165,8 +165,11 @@ class VoxelReassigner:
                                                                                        vox_next_matches, distances)
 
         vox_next_matches_unique = np.array(vox_next_matches_unique)
+        if len(vox_next_matches_unique) == 0:
+            return [], []
         vox_next_matched_tuples = set([tuple(coord) for coord in vox_next_matches_unique])
         vox_next_unmatched = np.array([coord for coord in vox_next if tuple(coord) not in vox_next_matched_tuples])
+
         unmatched_diff = np.inf
         while unmatched_diff:
             num_unmatched = len(vox_next_unmatched)
