@@ -21,7 +21,8 @@ class Label:
 
         self.max_label_num = 0
 
-        self.min_z_radius_um = min(self.im_info.dim_sizes['Z'], 0.2)
+        if not self.im_info.no_z:
+            self.min_z_radius_um = min(self.im_info.dim_sizes['Z'], 0.2)
 
         self.semantic_mask_memmap = None
         self.instance_label_memmap = None
