@@ -136,7 +136,7 @@ class Label:
             labels = self._run_frame(t)
             if device_type == 'cuda':
                 labels = labels.get()
-            if self.im_info.no_t:
+            if self.im_info.no_t or self.num_t == 1:
                 self.instance_label_memmap[:] = labels[:]
             else:
                 self.instance_label_memmap[t, ...] = labels

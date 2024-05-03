@@ -44,12 +44,12 @@ if __name__ == "__main__":
     # Directory bactch run
     import os
     top_dirs = [
-        "/Users/austin/GitHub/nellie-simulations/motion/linear/outputs",
-        "/Users/austin/GitHub/nellie-simulations/motion/angular/outputs",
-        "/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs",
+        r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\multi_grid\outputs",
+        r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\separation\outputs",
+        r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\px_sizes\outputs",
         ]
     ch = 0
-    num_t = None
+    num_t = 1
     # get all non-folder files
     for top_dir in top_dirs:
         all_files = os.listdir(top_dir)
@@ -59,7 +59,7 @@ if __name__ == "__main__":
             # for ch in range(1):
             print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 1')
             im_info = ImInfo(tif_file, ch=ch)
-            if os.path.exists(im_info.pipeline_paths['adjacency_maps']):
+            if os.path.exists(im_info.pipeline_paths['im_skel_relabelled']):
                 print(f'Already exists, skipping.')
                 continue
             im_info = run(tif_file, remove_edges=False, ch=ch, num_t=num_t)

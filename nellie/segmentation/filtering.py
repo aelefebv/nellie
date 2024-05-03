@@ -248,7 +248,7 @@ class Filter:
             if device_type == 'cuda':
                 filtered_im = filtered_im.get()
 
-            if self.im_info.no_t:
+            if self.im_info.no_t or self.num_t == 1:
                 self.frangi_memmap[:] = filtered_im[:]
             else:
                 self.frangi_memmap[t, ...] = filtered_im
