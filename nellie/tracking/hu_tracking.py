@@ -19,7 +19,8 @@ class HuMomentTracking:
         else:
             self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
-        self.max_distance_um = max_distance_um
+        self.max_distance_um = max_distance_um * self.im_info.dim_sizes['T']
+        self.max_distance_um = xp.max([self.max_distance_um, 0.5])
 
         self.vector_start_coords = []
         self.vectors = []

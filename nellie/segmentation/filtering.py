@@ -126,13 +126,16 @@ class Filter:
         return h_mask, hessian_matrices
 
     def _get_frob_mask(self, hessian_matrices):
-        # todo, can we avoid rescaling? slowing down..
         rescaled_hessian = hessian_matrices / xp.max(xp.abs(hessian_matrices))
         frobenius_norm = xp.linalg.norm(rescaled_hessian, axis=0)
-        frobenius_norm[xp.isinf(frobenius_norm)] = 0
-        frob_triangle_thresh = triangle_threshold(frobenius_norm[frobenius_norm > 0])
-        frob_otsu_thresh, _ = otsu_threshold(frobenius_norm[frobenius_norm > 0])
-        frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
+        frobenius_norm[xp.isinf(frobenius_norm)] = xp.max(frobenius_norm[~xp.isinf(frobenius_norm)])
+        non_zero_frobenius = frobenius_norm[frobenius_norm > 0]
+        if len(non_zero_frobenius) == 0:
+            frobenius_threshold = 0
+        else:
+            frob_triangle_thresh = triangle_threshold(non_zero_frobenius)
+            frob_otsu_thresh, _ = otsu_threshold(non_zero_frobenius)
+            frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
         mask = frobenius_norm > frobenius_threshold
         return mask
 
@@ -201,6 +204,8 @@ class Filter:
             gamma_sq = 2 * gamma ** 2
 
             h_mask, hessian_matrices = self._compute_hessian(gauss_volume, mask=mask)
+            if len(hessian_matrices) == 0:
+                continue
             eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices.astype('float'))
 
             temp[h_mask] = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
@@ -236,18 +241,14 @@ class Filter:
     def _run_filter(self, mask=True):
         for t in range(self.num_t):
             frangi_frame = self._run_frame(t, mask=mask)
-            frangi_frame = self._mask_volume(frangi_frame)
-            if not self.im_info.no_z:  # helps with z anisotropy
-                log_frame = self._filter_log(frangi_frame, frangi_frame > 0)
-                log_frame[log_frame < 0] = 0
-                filtered_im = log_frame
-            else:
-                filtered_im = frangi_frame
+            if not xp.sum(frangi_frame):
+                frangi_frame = self._mask_volume(frangi_frame)
+            filtered_im = frangi_frame
 
             if device_type == 'cuda':
                 filtered_im = filtered_im.get()
 
-            if self.im_info.no_t:
+            if self.im_info.no_t or self.num_t == 1:
                 self.frangi_memmap[:] = filtered_im[:]
             else:
                 self.frangi_memmap[t, ...] = filtered_im

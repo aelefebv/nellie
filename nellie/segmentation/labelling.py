@@ -74,6 +74,10 @@ class Label:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))
 
         labels, _ = ndi.label(mask, structure=footprint)
+        # remove anything 4 pixels or under using bincounts
+        areas = xp.bincount(labels.ravel())[1:]
+        mask = xp.where(xp.isin(labels, xp.where(areas > 4)[0]+1), labels, 0) > 0
+        labels, _ = ndi.label(mask, structure=footprint)
         return mask, labels
 
     def _get_subtraction_mask(self, original_frame, labels_frame):
@@ -133,7 +137,7 @@ class Label:
             labels = self._run_frame(t)
             if device_type == 'cuda':
                 labels = labels.get()
-            if self.im_info.no_t:
+            if self.im_info.no_t or self.num_t == 1:
                 self.instance_label_memmap[:] = labels[:]
             else:
                 self.instance_label_memmap[t, ...] = labels

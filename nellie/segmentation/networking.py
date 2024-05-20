@@ -356,7 +356,7 @@ class Network:
     def _run_networking(self):
         for t in range(self.num_t):
             skel, pixel_class, skel_relabelled_memmap = self._run_frame(t)
-            if self.im_info.no_t:
+            if self.im_info.no_t or self.num_t == 1:
                 if device_type == 'cuda':
                     self.skel_memmap[:] = skel[:].get()
                     self.pixel_class_memmap[:] = pixel_class[:].get()

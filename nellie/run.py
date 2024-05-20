@@ -37,18 +37,29 @@ def run(im_path, num_t=None, remove_edges=True, ch=0):
 
 if __name__ == "__main__":
     # Single file run
-    im_path = r"/Users/austin/Downloads/test.tif"
-    im_info = run(im_path, remove_edges=False, ch=0)
+    # im_path = r"/Users/austin/Downloads/test.tif"
+    # im_path = r"/Users/austin/GitHub/nellie-simulations/motion/fission_fusion/outputs/fusion-std_fusion-std_512-t_0p5.ome.tif"
+    # im_info = run(im_path, remove_edges=False, ch=0)
 
-    # # Directory bactch run
-    # import os
-    # top_dir = r"D:\test_files\nellie_longer_smorgasbord"
-    # ch = 0
-    # num_t = None
-    # # get all non-folder files
-    # all_files = os.listdir(top_dir)
-    # all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
-    # for file_num, tif_file in enumerate(all_files):
-    #     # for ch in range(1):
-    #     print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 1')
-    #     im_info = run(tif_file, remove_edges=True, ch=ch, num_t=num_t)
+    # Directory bactch run
+    import os
+    top_dirs = [
+        r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\multi_grid\outputs",
+        r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\separation\outputs",
+        r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\px_sizes\outputs",
+        ]
+    ch = 0
+    num_t = 1
+    # get all non-folder files
+    for top_dir in top_dirs:
+        all_files = os.listdir(top_dir)
+        all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]
+        all_files = [file for file in all_files if file.endswith('.tif')]
+        for file_num, tif_file in enumerate(all_files):
+            # for ch in range(1):
+            print(f'Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 1')
+            im_info = ImInfo(tif_file, ch=ch)
+            if os.path.exists(im_info.pipeline_paths['im_skel_relabelled']):
+                print(f'Already exists, skipping.')
+                continue
+            im_info = run(tif_file, remove_edges=False, ch=ch, num_t=num_t)
