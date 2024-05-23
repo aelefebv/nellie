@@ -135,8 +135,8 @@ class ImInfo:
 
         if 'ResolutionUnit' in tag_names:
             if metadata[tag_names['ResolutionUnit']].value == tifffile.TIFF.RESUNIT.CENTIMETER:
-                self.dim_sizes['X'] *= 1E-2 * 1E6
-                self.dim_sizes['Y'] *= 1E-2 * 1E6
+                self.dim_sizes['X'] *= 1E-4 * 1E6
+                self.dim_sizes['Y'] *= 1E-4 * 1E6
         if 'Z' in self.axes:
             if 'ZResolution' in tag_names:
                 self.dim_sizes['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
@@ -297,6 +297,7 @@ class ImInfo:
             return_memmap: bool = False, read_mode='r+'):
         axes = self.axes
         axes = axes.replace('C', '') if 'C' in axes else axes
+
         logger.debug(f'Saving axes as {axes}')
         data = self._ensure_t(data)
         if shape is None:
@@ -307,6 +308,8 @@ class ImInfo:
                 path_im, shape=shape, dtype=dtype, bigtiff=True, metadata={"axes": axes}
             )
         else:
+            if len(axes) != len(data.shape) and data.shape[0] == 1:
+                data = data[0]
             tifffile.imwrite(
                 path_im, data, bigtiff=True, metadata={"axes": axes}
             )
