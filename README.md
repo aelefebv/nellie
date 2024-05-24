@@ -13,7 +13,7 @@
 
 https://github.com/aelefebv/nellie/assets/26515909/1df8bf1b-7116-4d19-b5fb-9658f744675b
 
-## Installation
+## Installation (~ 1 minute)
 
 **Notes:** 
 - It is recommended (but usually not required) to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
