@@ -47,7 +47,7 @@ https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4
 - It is strongly recommended to have your data in a parsable format, such as .ome.tif, .nd2, or other raw data files from microscopes.
   - Importing into ImageJ/FIJI and saving via BioFormats with the proper image dimensions should do the trick.
   - If the metadata cannot be parsed, you will have to manually enter it.
-- It is also recommended to crop your image as much as possible to reduce processing time and memory usage. But really, unless you have massive lightsheet data, it should be pretty fast.
+- It is also recommended to crop your image as much as possible to reduce processing time and memory usage. But really, unless you have massive lightsheet data, it should be pretty fast (seconds to minutes on a typical modern desktop computer).
 
 https://github.com/aelefebv/nellie/assets/26515909/372d07a8-15a0-4926-8594-108dd4b97280
 
@@ -122,6 +122,11 @@ To avoid any unnecessary back-and-forth, please include any/all (if possible) of
 - Send me any error logs in your terminal.
 - Send me the file you ran (if possible).
 - Any other information that might be helpful
+
+## Requirements
+Nellie has been tested on the following configurations:
+- Mac, Linux, and Windows operating systems
+- Python >= 3.9
 
 ## License
 Nellie © 2024 by [Austin E. Y. T. Lefebvre](https://github.com/aelefebv) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
