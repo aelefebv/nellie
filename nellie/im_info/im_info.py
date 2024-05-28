@@ -6,6 +6,7 @@ import ome_types
 from nellie import logger
 import numpy as np
 from typing import Union, Type
+import readlif.reader as lif
 
 
 class ImInfo:
@@ -115,6 +116,9 @@ class ImInfo:
             self.no_t = False
         if 'C' in self.axes and self.shape[self.axes.index('C')] > 1:
             self.no_c = False
+
+    def _get_lif_metadata(self, metadata):
+        pass
 
     def _get_tif_tag_metadata(self, metadata):
         tag_names = {tag_value.name: tag_code for tag_code, tag_value in metadata.items()}
@@ -255,12 +259,54 @@ class ImInfo:
                              f"({len(self.shape)}).")
                 raise ValueError
 
+    def _load_lif(self):
+        lif_file = lif.LifFile(self.im_path)
+        img_0 = lif_file.get_image(0)
+        # num_c = img_0.channels
+        num_t = img_0.dims.t
+        num_z = img_0.dims.z
+        bit_depth = img_0.bit_depth[0]
+        # matching numpy bit depth:
+        if bit_depth == 8:
+            dtype = np.uint8
+        elif bit_depth == 16:
+            dtype = np.uint16
+        else:
+            raise ValueError(f'Bit depth {bit_depth} not supported for lif files.')
+        if num_t > 1 and num_z > 1:
+            full_np = np.zeros((num_t, num_z, img_0.dims.y, img_0.dims.x), dtype=dtype)
+            self.axes = 'TZYX'
+            for t in range(num_t):
+                for z in range(num_z):
+                    full_np[t, z] = img_0.get_frame(t=t, z=z, c=self.ch)
+        elif num_t == 1 and num_z > 1:
+            full_np = np.zeros((num_z, img_0.dims.y, img_0.dims.x), dtype=dtype)
+            self.axes = 'ZYX'
+            for z in range(num_z):
+                full_np[z] = img_0.get_frame(z=z, c=self.ch)
+        elif num_t > 1 and num_z == 1:
+            full_np = np.zeros((num_t, img_0.dims.y, img_0.dims.x), dtype=dtype)
+            self.axes = 'TYX'
+            for t in range(num_t):
+                full_np[t] = img_0.get_frame(t=t, c=self.ch)
+        elif num_t == 1 and num_z == 1:
+            full_np = img_0.get_frame(c=self.ch)
+            self.axes = 'YX'
+        else:
+            raise ValueError(f'This LIF image is not supported.. found dims: {num_t}, {num_z}, {img_0.dims.y}, {img_0.dims.x}')
+
+        self.shape = full_np.shape
+        self.metadata = lif_file
+
+
     def _load_metadata(self):
         try:
             if self.im_path.endswith('.tif') or self.im_path.endswith('.tiff'):
                 self._load_tif()
             elif self.im_path.endswith('.nd2'):
                 self._load_nd2()
+            elif self.im_path.endswith('.lif'):
+                self._load_lif()
 
         except Exception as e:
             logger.error(f"Error loading file {self.im_path}")
