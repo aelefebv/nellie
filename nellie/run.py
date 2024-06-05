@@ -6,10 +6,14 @@ from nellie.segmentation.mocap_marking import Markers
 from nellie.segmentation.networking import Network
 from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
+import os
 
 
-def run(im_path, num_t=None, remove_edges=True, ch=0):
-    im_info = ImInfo(im_path, ch=ch)
+def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None):
+    im_info = ImInfo(im_path, ch=ch, output_dirpath=output_dirpath)
+    if os.path.exists(im_info.pipeline_paths['adjacency_maps']):
+        print(f'Already exists, skipping.')
+        return
 
     preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
     preprocessing.run()
