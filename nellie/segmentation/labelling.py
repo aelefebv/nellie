@@ -8,13 +8,14 @@ class Label:
     def __init__(self, im_info: ImInfo,
                  num_t=None,
                  threshold: float = 0,
-                 snr_cleaning=False):
+                 snr_cleaning=False, otsu_thresh_intensity=False):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.threshold = threshold
         self.snr_cleaning = snr_cleaning
+        self.otsu_thresh_intensity = otsu_thresh_intensity
 
         self.im_memmap = None
         self.frangi_memmap = None
@@ -125,6 +126,11 @@ class Label:
         logger.info(f'Running semantic segmentation, volume {t}/{self.num_t - 1}')
         original_in_mem = xp.asarray(self.im_memmap[t, ...])
         frangi_in_mem = xp.asarray(self.frangi_memmap[t, ...])
+        if self.otsu_thresh_intensity:
+            otsu_thresh, _ = otsu_threshold(original_in_mem[original_in_mem > 0])
+            mask = original_in_mem > otsu_thresh
+            original_in_mem *= mask
+            frangi_in_mem *= mask
         _, labels = self._get_labels(frangi_in_mem)
         if self.snr_cleaning:
             labels = self._get_object_snrs(original_in_mem, labels)

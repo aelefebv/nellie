@@ -9,7 +9,7 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 import os
 
 
-def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None):
+def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_thresh_intensity=False):
     im_info = ImInfo(im_path, ch=ch, output_dirpath=output_dirpath)
     if os.path.exists(im_info.pipeline_paths['adjacency_maps']):
         print(f'Already exists, skipping.')
@@ -18,7 +18,7 @@ def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None):
     preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
     preprocessing.run()
 
-    segmenting = Label(im_info, num_t)
+    segmenting = Label(im_info, num_t, otsu_thresh_intensity=otsu_thresh_intensity)
     segmenting.run()
 
     networking = Network(im_info, num_t)
