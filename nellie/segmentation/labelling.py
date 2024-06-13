@@ -69,7 +69,7 @@ class Label:
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
 
-        if not self.im_info.no_z and self.im_info.dim_sizes['Z'] < self.min_z_radius_um:
+        if not self.im_info.no_z and self.im_info.dim_sizes['Z'] >= self.min_z_radius_um:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
         elif self.im_info.no_z:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))

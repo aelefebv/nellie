@@ -24,7 +24,7 @@ class HuMomentTracking:
             self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
 
         self.max_distance_um = max_distance_um * self.im_info.dim_sizes['T']
-        self.max_distance_um = xp.max([self.max_distance_um, 0.5])
+        self.max_distance_um = xp.max(xp.array([self.max_distance_um, 0.5]))
 
         self.vector_start_coords = []
         self.vectors = []
@@ -248,8 +248,8 @@ class HuMomentTracking:
         marker_indices_post = np.argwhere(marker_frame_post)
         marker_indices_post_scaled = marker_indices_post * self.scaling
 
-        distance_matrix = cdist(marker_indices_post_scaled, marker_indices_pre_scaled)
-        distance_mask = xp.array(distance_matrix) < self.max_distance_um
+        distance_matrix = xp.array(cdist(marker_indices_post_scaled, marker_indices_pre_scaled))
+        distance_mask = distance_matrix < self.max_distance_um
         distance_matrix = distance_matrix / self.max_distance_um  # normalize to furthest possible distance
         return distance_matrix, distance_mask
 
