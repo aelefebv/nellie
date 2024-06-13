@@ -10,6 +10,10 @@ class Markers:
     def __init__(self, im_info: ImInfo, num_t=None,
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5):
         self.im_info = im_info
+
+        # if self.im_info.no_t:
+        #     return
+
         self.num_t = num_t
         if self.im_info.no_t:
             self.num_t = 1
