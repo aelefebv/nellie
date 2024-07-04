@@ -149,6 +149,7 @@ class Filter:
             chunk_size = total_voxels
 
         # iterate over chunks
+        # todo make chunk size dynamic based on available memory
         for start_idx in range(0, total_voxels, int(chunk_size)):
             end_idx = min(start_idx + chunk_size, total_voxels)
             gpu_chunk = xp.array(hessian_matrices[start_idx:end_idx])
@@ -263,7 +264,7 @@ class Filter:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
-    im_info = ImInfo(im_path)
-    filter_im = Filter(im_info, num_t=2)
+    im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
+    im_info = ImInfo(im_path, dim_sizes={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
+    filter_im = Filter(im_info)
     filter_im.run()

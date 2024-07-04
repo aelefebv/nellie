@@ -233,7 +233,7 @@ class ImInfo:
                 if 'C' in self.axes:
                     logger.error('Multichannel TIFF files must have ImageJ or OME metadata. Resubmit the'
                                  'file either with correct metadata or the single channel of interest.')
-            if self.axes == '':
+            if self.axes == '' or self.axes is None:
                 self.axes = tif.series[0].axes
             self.shape = tif.series[0].shape
             if len(self.axes) != len(self.shape):
@@ -285,8 +285,10 @@ class ImInfo:
             self.axes = 'T' + self.axes
         if len(self.axes) != len(self.shape):
             self.shape = (1,) + self.shape
-            if data is not None:
-                data = np.expand_dims(data, axis=0)
+            # if data is not None:
+            #     data = np.expand_dims(data, axis=0)
+        if data is not None and (len(data.shape) != len(self.shape)):
+            data = np.expand_dims(data, axis=0)
         return data
 
     def allocate_memory(
@@ -336,6 +338,7 @@ class ImInfo:
             else:
                 raise ValueError
 
+        im_memmap = self._ensure_t(im_memmap)
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
             if self.ch == -1:
                 im_memmap = np.max(im_memmap, axis=self.axes.index('C'))
@@ -343,7 +346,6 @@ class ImInfo:
                 im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
             # if ch is -1, get a max projection in the C dimension
 
-        self._ensure_t(im_memmap)
         # if len(im_memmap.shape) != len(self.axes) and self.no_t:
         #     # expand dims to match axes
         #     im_memmap = np.expand_dims(im_memmap, axis=self.axes.index('T'))

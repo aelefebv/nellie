@@ -149,6 +149,8 @@ class Hierarchy:
             num_nodes = len(self.nodes.nodes[t])
             v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
             for voxel, nodes in enumerate(self.voxels.node_labels[t]):
+                if len(nodes) == 0:
+                    continue
                 v_n_temp[voxel, nodes] = True
             v_n.append(v_n_temp)
         v_o = [self.voxels.component_labels[t][:, None] == self.components.component_label[t] for t in
@@ -208,15 +210,16 @@ def append_to_array(to_append):
     for feature, stats in to_append.items():
         if type(stats) is not dict:
             stats = {'raw': stats}
+            stats['raw'] = [np.array(stats['raw'])]
         for stat, vals in stats.items():
-            vals = np.array(vals)
-            if len(vals.shape) > 1:
-                for i in range(len(vals[0])):
-                    new_array.append(vals[:, i])
-                    new_headers.append(f'{feature}_{stat}_{i}')
-            else:
-                new_array.append(vals)
-                new_headers.append(f'{feature}_{stat}')
+            vals = np.array(vals)[0]
+            # if len(vals.shape) > 1:
+            #     for i in range(len(vals[0])):
+            #         new_array.append(vals[:, i])
+            #         new_headers.append(f'{feature}_{stat}_{i}')
+            # else:
+            new_array.append(vals)
+            new_headers.append(f'{feature}_{stat}')
     return new_array, new_headers
 
 
@@ -248,7 +251,7 @@ def create_feature_array(level, labels=None):
         to_append = attr_dict[t]
         time_array, new_headers = append_to_array(to_append)
         if labels is None:
-            labels_t = range(len(time_array[0]))
+            labels_t = np.array(range(len(time_array[0])))
         else:
             labels_t = labels[t]
         time_array.insert(0, labels_t)
@@ -281,42 +284,42 @@ class Voxels:
         self.vec01 = []
         self.vec12 = []
 
-        self.ang_acc = []
+        # self.ang_acc = []
         self.ang_acc_mag = []
         self.ang_vel_mag = []
-        self.ang_vel_orient = []
+        # self.ang_vel_orient = []
         self.ang_vel = []
-        self.lin_acc = []
+        # self.lin_acc = []
         self.lin_acc_mag = []
         self.lin_vel_mag = []
-        self.lin_vel_orient = []
+        # self.lin_vel_orient = []
         self.lin_vel = []
 
-        self.ang_acc_rel = []
-        self.ang_acc_rel_mag = []
+        # self.ang_acc_rel = []
+        self.ang_acc_mag_rel = []
         self.ang_vel_mag_rel = []
-        self.ang_vel_orient_rel = []
-        self.ang_vel_rel = []
-        self.lin_acc_rel = []
-        self.lin_acc_rel_mag = []
+        # self.ang_vel_orient_rel = []
+        # self.ang_vel_rel = []
+        # self.lin_acc_rel = []
+        self.lin_acc_mag_rel = []
         self.lin_vel_mag_rel = []
-        self.lin_vel_orient_rel = []
-        self.lin_vel_rel = []
+        # self.lin_vel_orient_rel = []
+        # self.lin_vel_rel = []
         self.directionality_rel = []
-        self.directionality_acc_rel = []
+        # self.directionality_acc_rel = []
 
-        self.ang_acc_com = []
-        self.ang_acc_com_mag = []
-        self.ang_vel_mag_com = []
-        self.ang_vel_orient_com = []
-        self.ang_vel_com = []
-        self.lin_acc_com = []
-        self.lin_acc_com_mag = []
-        self.lin_vel_mag_com = []
-        self.lin_vel_orient_com = []
-        self.lin_vel_com = []
-        self.directionality_com = []
-        self.directionality_acc_com = []
+        # self.ang_acc_com = []
+        # self.ang_acc_com_mag = []
+        # self.ang_vel_mag_com = []
+        # self.ang_vel_orient_com = []
+        # self.ang_vel_com = []
+        # self.lin_acc_com = []
+        # self.lin_acc_com_mag = []
+        # self.lin_vel_mag_com = []
+        # self.lin_vel_orient_com = []
+        # self.lin_vel_com = []
+        # self.directionality_com = []
+        # self.directionality_acc_com = []
 
         self.node_labels = []
         self.branch_labels = []
@@ -329,15 +332,21 @@ class Voxels:
         self.node_voxel_idxs = []
 
         self.stats_to_aggregate = [
-            "ang_acc", "ang_acc_com", "ang_acc_com_mag", "ang_acc_mag", "ang_acc_rel", "ang_acc_rel_mag",
-            "ang_vel", "ang_vel_com", "ang_vel_mag", "ang_vel_mag_com", "ang_vel_mag_rel",
-            "ang_vel_orient", "ang_vel_orient_com", "ang_vel_orient_rel", "ang_vel_rel",
-            "directionality_acc_com", "directionality_acc_rel", "directionality_com", "directionality_rel",
-            "lin_acc", "lin_acc_com", "lin_acc_com_mag", "lin_acc_mag", "lin_acc_rel", "lin_acc_rel_mag",
-            "lin_vel", "lin_vel_com", "lin_vel_mag", "lin_vel_mag_rel", "lin_vel_orient", "lin_vel_orient_com",
-            "lin_vel_orient_rel", "lin_vel_mag_com",
-            "lin_vel_rel", "intensity", "structure"
+            "lin_vel_mag", "lin_vel_mag_rel", "ang_vel_mag", "ang_vel_mag_rel",
+            "lin_acc_mag", "lin_acc_mag_rel", "ang_acc_mag", "ang_acc_mag_rel",
+            "directionality_rel", "structure", "intensity"
         ]
+
+        # self.stats_to_aggregate = [
+        #     "ang_acc", "ang_acc_com", "ang_acc_com_mag", "ang_acc_mag", "ang_acc_rel", "ang_acc_rel_mag",
+        #     "ang_vel", "ang_vel_com", "ang_vel_mag", "ang_vel_mag_com", "ang_vel_mag_rel",
+        #     "ang_vel_orient", "ang_vel_orient_com", "ang_vel_orient_rel", "ang_vel_rel",
+        #     "directionality_acc_com", "directionality_acc_rel", "directionality_com", "directionality_rel",
+        #     "lin_acc", "lin_acc_com", "lin_acc_com_mag", "lin_acc_mag", "lin_acc_rel", "lin_acc_rel_mag",
+        #     "lin_vel", "lin_vel_com", "lin_vel_mag", "lin_vel_mag_rel", "lin_vel_orient", "lin_vel_orient_com",
+        #     "lin_vel_orient_rel", "lin_vel_mag_com",
+        #     "lin_vel_rel", "intensity", "structure"
+        # ]
 
         self.features_to_save = self.stats_to_aggregate
 
@@ -376,37 +385,56 @@ class Voxels:
 
         self.node_dim2_lims.append(lims_dim2) if not self.hierarchy.im_info.no_z else None
 
-        frame_coord_nodes_idxs = []
-        # if a frame coord is within the bounding box of a skeleton pixel, add the skeleton pixel's
-        #  idx to the list for that frame coord
-        for i, frame_coord in enumerate(frame_coords):
-            if not self.hierarchy.im_info.no_z:
-                dim0_coord, dim1_coord, dim2_coord = frame_coord
-                dim2_mask = (lims_dim2[:, 0] <= dim2_coord) & (lims_dim2[:, 1] >= dim2_coord)
-            else:
-                dim0_coord, dim1_coord = frame_coord
-            dim0_mask = (lims_dim0[:, 0] <= dim0_coord) & (lims_dim0[:, 1] >= dim0_coord)
-            dim1_mask = (lims_dim1[:, 0] <= dim1_coord) & (lims_dim1[:, 1] >= dim1_coord)
-            mask = dim0_mask & dim1_mask & dim2_mask if not self.hierarchy.im_info.no_z else dim0_mask & dim1_mask
-            frame_coord_nodes_idxs.append(np.argwhere(mask).flatten())
+        # todo: takes up a lot of memory. Can loop but its slow. Is there a better way to solve both?
+        frame_coords = np.array(frame_coords)
+        if not self.hierarchy.im_info.no_z:
+            dim0_coords, dim1_coords, dim2_coords = frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]
+            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
+            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
+            dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (lims_dim2[:, 1][:, None] >= dim2_coords)
+            mask = dim0_mask & dim1_mask & dim2_mask
+        else:
+            dim0_coords, dim1_coords = frame_coords[:, 0], frame_coords[:, 1]
+            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
+            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
+            mask = dim0_mask & dim1_mask
+
+        # improve efficiency
+        frame_coord_nodes_idxs = [[] for _ in range(mask.shape[1])]
+        rows, cols = np.nonzero(mask)
+        for row, col in zip(rows, cols):
+            frame_coord_nodes_idxs[col].append(row)
+        frame_coord_nodes_idxs = [np.array(indices) for indices in frame_coord_nodes_idxs]
 
         self.node_labels.append(frame_coord_nodes_idxs)
 
-        # initialize an empty dictionary for frame_coord_nodes_idxs
-        node_voxel_idxs = []
+        frame_coords = np.array(frame_coords)
+        skeleton_pixels = np.array(skeleton_pixels)
 
-        for i, skeleton_px in enumerate(skeleton_pixels):
-            if not self.hierarchy.im_info.no_z:
-                bbox_voxels = np.argwhere(
-                    (lims_dim0[i, 0] <= frame_coords[:, 0]) & (lims_dim0[i, 1] >= frame_coords[:, 0]) &
-                    (lims_dim1[i, 0] <= frame_coords[:, 1]) & (lims_dim1[i, 1] >= frame_coords[:, 1]) &
-                    (lims_dim2[i, 0] <= frame_coords[:, 2]) & (lims_dim2[i, 1] >= frame_coords[:, 2]))
-            else:
-                bbox_voxels = np.argwhere(
-                    (lims_dim0[i, 0] <= frame_coords[:, 0]) & (lims_dim0[i, 1] >= frame_coords[:, 0]) &
-                    (lims_dim1[i, 0] <= frame_coords[:, 1]) & (lims_dim1[i, 1] >= frame_coords[:, 1]))
-            node_voxel_idxs.append(bbox_voxels.flatten())
+        dim0_coords, dim1_coords = frame_coords[:, 0], frame_coords[:, 1]
 
+        if not self.hierarchy.im_info.no_z:
+            dim2_coords = frame_coords[:, 2]
+
+        # Precompute masks for all skeleton pixels
+        if not self.hierarchy.im_info.no_z:
+            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
+            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
+            dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (lims_dim2[:, 1][:, None] >= dim2_coords)
+            mask = dim0_mask & dim1_mask & dim2_mask
+        else:
+            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
+            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
+            mask = dim0_mask & dim1_mask
+
+        # Initialize list to hold results
+        node_voxel_idxs = [[] for _ in range(skeleton_pixels.shape[0])]
+
+        # Use numpy broadcasting to find indices where mask is True and group them by skeleton pixel
+        for i in range(skeleton_pixels.shape[0]):
+            node_voxel_idxs[i] = np.nonzero(mask[i])[0]
+
+        # Append the result
         self.node_voxel_idxs.append(node_voxel_idxs)
 
     def _get_min_euc_dist(self, t, vec):
@@ -465,9 +493,9 @@ class Voxels:
             self.vec12.append(np.full((len(coords_1_px), dims), np.nan))
 
         coords_1 = coords_1_px * self.hierarchy.spacing
-        coords_com_1 = np.nanmean(coords_1, axis=0)
-        r1_rel_com = coords_1 - coords_com_1
-        r1_com_mag = np.linalg.norm(r1_rel_com, axis=1)
+        # coords_com_1 = np.nanmean(coords_1, axis=0)
+        # r1_rel_com = coords_1 - coords_com_1
+        # r1_com_mag = np.linalg.norm(r1_rel_com, axis=1)
 
         if len(vec01) and len(vec12):
             coords_0_px = coords_1_px - vec01_px
@@ -486,19 +514,19 @@ class Voxels:
             lin_vel_rel_01, lin_vel_mag_rel_01, lin_vel_orient_rel_01 = self._get_linear_velocity(r0_rel_01, r1_rel_01)
             ang_vel_rel_01, ang_vel_mag_rel_01, ang_vel_orient_rel_01 = self._get_angular_velocity(r0_rel_01, r1_rel_01)
 
-            coords_com_0 = np.nanmean(coords_0, axis=0)
-            r0_rel_com = coords_0 - coords_com_0
-            lin_vel_com_01, lin_vel_mag_com_01, lin_vel_orient_com_01 = self._get_linear_velocity(r0_rel_com,
-                                                                                                  r1_rel_com)
-            ang_vel_com_01, ang_vel_mag_com_01, ang_vel_orient_com_01 = self._get_angular_velocity(r0_rel_com,
-                                                                                                   r1_rel_com)
+            # coords_com_0 = np.nanmean(coords_0, axis=0)
+            # r0_rel_com = coords_0 - coords_com_0
+            # lin_vel_com_01, lin_vel_mag_com_01, lin_vel_orient_com_01 = self._get_linear_velocity(r0_rel_com,
+            #                                                                                       r1_rel_com)
+            # ang_vel_com_01, ang_vel_mag_com_01, ang_vel_orient_com_01 = self._get_angular_velocity(r0_rel_com,
+            #                                                                                        r1_rel_com)
 
-            r0_com_mag = np.linalg.norm(r0_rel_com, axis=1)
-            directionality_com_01 = np.abs(r0_com_mag - r1_com_mag) / (r0_com_mag + r1_com_mag)
+            # r0_com_mag = np.linalg.norm(r0_rel_com, axis=1)
+#             directionality_com_01 = np.abs(r0_com_mag - r1_com_mag) / (r0_com_mag + r1_com_mag)
 
-            r0_rel_mag_01 = np.linalg.norm(r0_rel_01, axis=1)
-            r1_rel_mag_01 = np.linalg.norm(r1_rel_01, axis=1)
-            directionality_rel_01 = np.abs(r0_rel_mag_01 - r1_rel_mag_01) / (r0_rel_mag_01 + r1_rel_mag_01)
+#             r0_rel_mag_01 = np.linalg.norm(r0_rel_01, axis=1)
+#             r1_rel_mag_01 = np.linalg.norm(r1_rel_01, axis=1)
+#             directionality_rel_01 = np.abs(r0_rel_mag_01 - r1_rel_mag_01) / (r0_rel_mag_01 + r1_rel_mag_01)
 
         if len(vec12):
             coords_2_px = coords_1_px + vec12_px
@@ -517,13 +545,13 @@ class Voxels:
             lin_vel_rel, lin_vel_mag_rel, lin_vel_orient_rel = self._get_linear_velocity(r1_rel_12, r2_rel_12)
             ang_vel_rel, ang_vel_mag_rel, ang_vel_orient_rel = self._get_angular_velocity(r1_rel_12, r2_rel_12)
 
-            coords_com_2 = np.nanmean(coords_2, axis=0)
-            r2_rel_com = coords_2 - coords_com_2
-            lin_vel_com, lin_vel_mag_com, lin_vel_orient_com = self._get_linear_velocity(r1_rel_com, r2_rel_com)
-            ang_vel_com, ang_vel_mag_com, ang_vel_orient_com = self._get_angular_velocity(r1_rel_com, r2_rel_com)
+            # coords_com_2 = np.nanmean(coords_2, axis=0)
+            # r2_rel_com = coords_2 - coords_com_2
+            # lin_vel_com, lin_vel_mag_com, lin_vel_orient_com = self._get_linear_velocity(r1_rel_com, r2_rel_com)
+            # ang_vel_com, ang_vel_mag_com, ang_vel_orient_com = self._get_angular_velocity(r1_rel_com, r2_rel_com)
 
-            r2_com_mag = np.linalg.norm(r2_rel_com, axis=1)
-            directionality_com = np.abs(r2_com_mag - r1_com_mag) / (r2_com_mag + r1_com_mag)
+            # r2_com_mag = np.linalg.norm(r2_rel_com, axis=1)
+#             directionality_com = np.abs(r2_com_mag - r1_com_mag) / (r2_com_mag + r1_com_mag)
 
             r2_rel_mag_12 = np.linalg.norm(r2_rel_12, axis=1)
             r1_rel_mag_12 = np.linalg.norm(r1_rel_12, axis=1)
@@ -532,51 +560,51 @@ class Voxels:
             # vectors of nans
             lin_vel = np.full((len(coords_1), dims), np.nan)
             lin_vel_mag = np.full(len(coords_1), np.nan)
-            lin_vel_orient = np.full((len(coords_1), dims), np.nan)
+            # lin_vel_orient = np.full((len(coords_1), dims), np.nan)
             ang_vel_mag = np.full(len(coords_1), np.nan)
             lin_vel_rel = np.full((len(coords_1), dims), np.nan)
             lin_vel_mag_rel = np.full(len(coords_1), np.nan)
-            lin_vel_orient_rel = np.full((len(coords_1), dims), np.nan)
+#             lin_vel_orient_rel = np.full((len(coords_1), dims), np.nan)
             ang_vel_mag_rel = np.full(len(coords_1), np.nan)
-            lin_vel_com = np.full((len(coords_1), dims), np.nan)
-            lin_vel_mag_com = np.full(len(coords_1), np.nan)
-            lin_vel_orient_com = np.full((len(coords_1), dims), np.nan)
-            ang_vel_mag_com = np.full(len(coords_1), np.nan)
-            directionality_com = np.full(len(coords_1), np.nan)
+#             lin_vel_com = np.full((len(coords_1), dims), np.nan)
+#             lin_vel_mag_com = np.full(len(coords_1), np.nan)
+#             lin_vel_orient_com = np.full((len(coords_1), dims), np.nan)
+#             ang_vel_mag_com = np.full(len(coords_1), np.nan)
+#             directionality_com = np.full(len(coords_1), np.nan)
             directionality_rel = np.full(len(coords_1), np.nan)
             if dims == 3:
                 ang_vel = np.full((len(coords_1), dims), np.nan)
-                ang_vel_orient = np.full((len(coords_1), dims), np.nan)
+#                 ang_vel_orient = np.full((len(coords_1), dims), np.nan)
                 ang_vel_rel = np.full((len(coords_1), dims), np.nan)
-                ang_vel_orient_rel = np.full((len(coords_1), dims), np.nan)
-                ang_vel_com = np.full((len(coords_1), dims), np.nan)
-                ang_vel_orient_com = np.full((len(coords_1), dims), np.nan)
+#                 ang_vel_orient_rel = np.full((len(coords_1), dims), np.nan)
+#                 ang_vel_com = np.full((len(coords_1), dims), np.nan)
+#                 ang_vel_orient_com = np.full((len(coords_1), dims), np.nan)
             else:
                 ang_vel = np.full(len(coords_1), np.nan)
-                ang_vel_orient = np.full(len(coords_1), np.nan)
+#                 ang_vel_orient = np.full(len(coords_1), np.nan)
                 ang_vel_rel = np.full(len(coords_1), np.nan)
-                ang_vel_orient_rel = np.full(len(coords_1), np.nan)
-                ang_vel_com = np.full(len(coords_1), np.nan)
-                ang_vel_orient_com = np.full(len(coords_1), np.nan)
+#                 ang_vel_orient_rel = np.full(len(coords_1), np.nan)
+#                 ang_vel_com = np.full(len(coords_1), np.nan)
+#                 ang_vel_orient_com = np.full(len(coords_1), np.nan)
         self.lin_vel.append(lin_vel)
         self.lin_vel_mag.append(lin_vel_mag)
-        self.lin_vel_orient.append(lin_vel_orient)
+        # self.lin_vel_orient.append(lin_vel_orient)
         self.ang_vel.append(ang_vel)
         self.ang_vel_mag.append(ang_vel_mag)
-        self.ang_vel_orient.append(ang_vel_orient)
-        self.lin_vel_rel.append(lin_vel_rel)
+        # self.ang_vel_orient.append(ang_vel_orient)
+        # self.lin_vel_rel.append(lin_vel_rel)
         self.lin_vel_mag_rel.append(lin_vel_mag_rel)
-        self.lin_vel_orient_rel.append(lin_vel_orient_rel)
-        self.ang_vel_rel.append(ang_vel_rel)
+        # self.lin_vel_orient_rel.append(lin_vel_orient_rel)
+        # self.ang_vel_rel.append(ang_vel_rel)
         self.ang_vel_mag_rel.append(ang_vel_mag_rel)
-        self.ang_vel_orient_rel.append(ang_vel_orient_rel)
-        self.lin_vel_com.append(lin_vel_com)
-        self.lin_vel_mag_com.append(lin_vel_mag_com)
-        self.lin_vel_orient_com.append(lin_vel_orient_com)
-        self.ang_vel_com.append(ang_vel_com)
-        self.ang_vel_mag_com.append(ang_vel_mag_com)
-        self.ang_vel_orient_com.append(ang_vel_orient_com)
-        self.directionality_com.append(directionality_com)
+        # self.ang_vel_orient_rel.append(ang_vel_orient_rel)
+        # self.lin_vel_com.append(lin_vel_com)
+        # self.lin_vel_mag_com.append(lin_vel_mag_com)
+        # self.lin_vel_orient_com.append(lin_vel_orient_com)
+        # self.ang_vel_com.append(ang_vel_com)
+        # self.ang_vel_mag_com.append(ang_vel_mag_com)
+        # self.ang_vel_orient_com.append(ang_vel_orient_com)
+        # self.directionality_com.append(directionality_com)
         self.directionality_rel.append(directionality_rel)
 
         if len(vec01) and len(vec12):
@@ -586,56 +614,56 @@ class Voxels:
             lin_acc_rel = (lin_vel_rel - lin_vel_rel_01) / self.hierarchy.im_info.dim_sizes['T']
             lin_acc_rel_mag = np.linalg.norm(lin_acc_rel, axis=1)
             ang_acc_rel = (ang_vel_rel - ang_vel_rel_01) / self.hierarchy.im_info.dim_sizes['T']
-            lin_acc_com = (lin_vel_com - lin_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
-            lin_acc_com_mag = np.linalg.norm(lin_acc_com, axis=1)
-            ang_acc_com = (ang_vel_com - ang_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
+            # lin_acc_com = (lin_vel_com - lin_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
+            # lin_acc_com_mag = np.linalg.norm(lin_acc_com, axis=1)
+#             ang_acc_com = (ang_vel_com - ang_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
             if self.hierarchy.im_info.no_z:
                 ang_acc_mag = np.abs(ang_acc)
                 ang_acc_rel_mag = np.abs(ang_acc_rel)
-                ang_acc_com_mag = np.abs(ang_acc_com)
+#                 ang_acc_com_mag = np.abs(ang_acc_com)
             else:
                 ang_acc_mag = np.linalg.norm(ang_acc, axis=1)
                 ang_acc_rel_mag = np.linalg.norm(ang_acc_rel, axis=1)
-                ang_acc_com_mag = np.linalg.norm(ang_acc_com, axis=1)
+#                 ang_acc_com_mag = np.linalg.norm(ang_acc_com, axis=1)
             # directionality acceleration is the change of directionality based on
             #  directionality_com_01 and directionality_com
-            directionality_acc_com = np.abs(directionality_com - directionality_com_01)
-            directionality_acc_rel = np.abs(directionality_rel - directionality_rel_01)
+            # directionality_acc_com = np.abs(directionality_com - directionality_com_01)
+            # directionality_acc_rel = np.abs(directionality_rel - directionality_rel_01)
         else:
             # vectors of nans
-            lin_acc = np.full((len(coords_1), dims), np.nan)
+            # lin_acc = np.full((len(coords_1), dims), np.nan)
             lin_acc_mag = np.full(len(coords_1), np.nan)
             ang_acc_mag = np.full(len(coords_1), np.nan)
-            lin_acc_rel = np.full((len(coords_1), dims), np.nan)
+#             lin_acc_rel = np.full((len(coords_1), dims), np.nan)
             lin_acc_rel_mag = np.full(len(coords_1), np.nan)
             ang_acc_rel_mag = np.full(len(coords_1), np.nan)
-            lin_acc_com = np.full((len(coords_1), dims), np.nan)
-            lin_acc_com_mag = np.full(len(coords_1), np.nan)
-            ang_acc_com_mag = np.full(len(coords_1), np.nan)
-            directionality_acc_com = np.full(len(coords_1), np.nan)
-            directionality_acc_rel = np.full(len(coords_1), np.nan)
-            if dims == 3:
-                ang_acc = np.full((len(coords_1), dims), np.nan)
-                ang_acc_rel = np.full((len(coords_1), dims), np.nan)
-                ang_acc_com = np.full((len(coords_1), dims), np.nan)
-            else:
-                ang_acc = np.full(len(coords_1), np.nan)
-                ang_acc_rel = np.full(len(coords_1), np.nan)
-                ang_acc_com = np.full(len(coords_1), np.nan)
-        self.lin_acc.append(lin_acc)
+#             lin_acc_com = np.full((len(coords_1), dims), np.nan)
+#             lin_acc_com_mag = np.full(len(coords_1), np.nan)
+#             ang_acc_com_mag = np.full(len(coords_1), np.nan)
+#             directionality_acc_com = np.full(len(coords_1), np.nan)
+#             directionality_acc_rel = np.full(len(coords_1), np.nan)
+#             if dims == 3:
+#                 ang_acc = np.full((len(coords_1), dims), np.nan)
+#                 ang_acc_rel = np.full((len(coords_1), dims), np.nan)
+#                 ang_acc_com = np.full((len(coords_1), dims), np.nan)
+#             else:
+#                 ang_acc = np.full(len(coords_1), np.nan)
+#                 ang_acc_rel = np.full(len(coords_1), np.nan)
+#                 ang_acc_com = np.full(len(coords_1), np.nan)
+        # self.lin_acc.append(lin_acc)
         self.lin_acc_mag.append(lin_acc_mag)
-        self.ang_acc.append(ang_acc)
+#         self.ang_acc.append(ang_acc)
         self.ang_acc_mag.append(ang_acc_mag)
-        self.lin_acc_rel.append(lin_acc_rel)
-        self.lin_acc_rel_mag.append(lin_acc_rel_mag)
-        self.ang_acc_rel.append(ang_acc_rel)
-        self.ang_acc_rel_mag.append(ang_acc_rel_mag)
-        self.lin_acc_com.append(lin_acc_com)
-        self.lin_acc_com_mag.append(lin_acc_com_mag)
-        self.ang_acc_com.append(ang_acc_com)
-        self.ang_acc_com_mag.append(ang_acc_com_mag)
-        self.directionality_acc_com.append(directionality_acc_com)
-        self.directionality_acc_rel.append(directionality_acc_rel)
+#         self.lin_acc_rel.append(lin_acc_rel)
+        self.lin_acc_mag_rel.append(lin_acc_rel_mag)
+#         self.ang_acc_rel.append(ang_acc_rel)
+        self.ang_acc_mag_rel.append(ang_acc_rel_mag)
+#         self.lin_acc_com.append(lin_acc_com)
+#         self.lin_acc_com_mag.append(lin_acc_com_mag)
+#         self.ang_acc_com.append(ang_acc_com)
+#         self.ang_acc_com_mag.append(ang_acc_com_mag)
+#         self.directionality_acc_com.append(directionality_acc_com)
+#         self.directionality_acc_rel.append(directionality_acc_rel)
 
     def _get_linear_velocity(self, ra, rb):
         lin_disp = rb - ra
@@ -720,44 +748,58 @@ class Voxels:
 
 def aggregate_stats_for_class(child_class, t, list_of_idxs):
     # initialize a dictionary to hold lists of aggregated stats for each stat name
+    # aggregate_stats = {
+    #     stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": [],
+    #                 "sum": []} for
+    #     stat_name in child_class.stats_to_aggregate if stat_name != 'reassigned_label'}
     aggregate_stats = {
-        stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": [],
-                    "sum": []} for
-        stat_name in child_class.stats_to_aggregate if stat_name != 'reassigned_label'}
+        stat_name: {
+            "mean": [], "std_dev": [], "min": [], "max": [], "sum": []} for
+        stat_name in child_class.stats_to_aggregate if stat_name != 'reassigned_label'
+    }
 
+    largest_idx = max([len(idxs) for idxs in list_of_idxs])
     for stat_name in child_class.stats_to_aggregate:
         if stat_name == 'reassigned_label':
             continue
         # access the relevant attribute for the current time frame
-        stat_array = getattr(child_class, stat_name)[t]
+        stat_array = np.array(getattr(child_class, stat_name)[t])
 
-        for idxs in list_of_idxs:
-            stat_values = np.array(stat_array)[idxs]
-            if stat_values.size == 0:
-                # if there are no values for the current node, append a list of nans to each list in the aggregate_stats dictionary
-                for key in aggregate_stats[stat_name].keys():
-                    aggregate_stats[stat_name][key].append(np.nan)
-                continue
+        # add a column of nans to the end of the stat array
+        if len(stat_array.shape) > 1:
+            continue  # just skip these... probably no one will use them
+            # nan_vector = np.full((1, stat_array.shape[1]), np.nan)
+            # stat_array = np.vstack([stat_array, nan_vector])
+        else:
+            stat_array = np.append(stat_array, np.nan)
 
-            # calculate various statistics for the subset
-            mean = np.nanmean(stat_values, axis=0)
-            std_dev = np.nanstd(stat_values, axis=0)
-            quartiles = np.nanquantile(stat_values, [0.25, 0.5, 0.75], axis=0)
-            min_val = np.nanmin(stat_values, axis=0)
-            max_val = np.nanmax(stat_values, axis=0)
-            range_val = max_val - min_val
-            sum_val = np.nansum(stat_values, axis=0)
+        # create a big np array of all the idxs in list of idxs
+        idxs_array = np.full((len(list_of_idxs), largest_idx), len(stat_array) - 1, dtype=int)
+        for i, idxs in enumerate(list_of_idxs):
+            idxs_array[i, :len(idxs)] = idxs
 
-            # append the calculated statistics to their respective lists in the aggregate_stats dictionary
-            aggregate_stats[stat_name]["mean"].append(mean)
-            aggregate_stats[stat_name]["std_dev"].append(std_dev)
-            aggregate_stats[stat_name]["25%"].append(quartiles[0])
-            aggregate_stats[stat_name]["50%"].append(quartiles[1])  # median
-            aggregate_stats[stat_name]["75%"].append(quartiles[2])
-            aggregate_stats[stat_name]["min"].append(min_val)
-            aggregate_stats[stat_name]["max"].append(max_val)
-            aggregate_stats[stat_name]["range"].append(range_val)
-            aggregate_stats[stat_name]["sum"].append(sum_val)
+        # populate the idxs_array with the values from the stat_array at the indices in idxs_array
+        stat_values = stat_array[idxs_array.astype(int)]
+
+        # calculate various statistics for the subset
+        mean = np.nanmean(stat_values, axis=1)
+        std_dev = np.nanstd(stat_values, axis=1)
+        # quartiles = np.nanquantile(stat_values, [0.25, 0.5, 0.75], axis=1)
+        min_val = np.nanmin(stat_values, axis=1)
+        max_val = np.nanmax(stat_values, axis=1)
+        # range_val = max_val - min_val
+        sum_val = np.nansum(stat_values, axis=1)
+
+        # append the calculated statistics to their respective lists in the aggregate_stats dictionary
+        aggregate_stats[stat_name]["mean"].append(mean)
+        aggregate_stats[stat_name]["std_dev"].append(std_dev)
+        # aggregate_stats[stat_name]["25%"].append(quartiles[0])
+        # aggregate_stats[stat_name]["50%"].append(quartiles[1])  # median
+        # aggregate_stats[stat_name]["75%"].append(quartiles[2])
+        aggregate_stats[stat_name]["min"].append(min_val)
+        aggregate_stats[stat_name]["max"].append(max_val)
+        # aggregate_stats[stat_name]["range"].append(range_val)
+        aggregate_stats[stat_name]["sum"].append(sum_val)
 
     return aggregate_stats
 
@@ -772,7 +814,7 @@ class Nodes:
         # add voxel aggregate metrics
         self.aggregate_voxel_metrics = []
         # add node metrics
-        self.thickness = []
+        self.node_thickness = []
         self.divergence = []
         self.convergence = []
         self.vergere = []
@@ -783,7 +825,7 @@ class Nodes:
 
         self.stats_to_aggregate = [
             "divergence", "convergence", "vergere", "lin_magnitude_variability", "ang_magnitude_variability",
-            "lin_direction_uniformity", "ang_direction_uniformity", "thickness",
+            "lin_direction_uniformity", "ang_direction_uniformity", "node_thickness",
         ]
 
         self.features_to_save = self.stats_to_aggregate
@@ -803,7 +845,7 @@ class Nodes:
 
     def _get_node_stats(self, t):
         radius = distance_check(self.hierarchy.im_border_mask[t], self.nodes[t], self.hierarchy.spacing)
-        self.thickness.append(radius * 2)
+        self.node_thickness.append(radius * 2)
 
         divergence = []
         convergence = []
@@ -893,15 +935,15 @@ class Branches:
         self.aggregate_voxel_metrics = []
         self.aggregate_node_metrics = []
         # add branch metrics
-        self.length = []
-        self.thickness = []
-        self.aspect_ratio = []
-        self.tortuosity = []
-        self.area = []
-        self.axis_length_maj = []
-        self.axis_length_min = []
-        self.extent = []
-        self.solidity = []
+        self.branch_length = []
+        self.branch_thickness = []
+        self.branch_aspect_ratio = []
+        self.branch_tortuosity = []
+        self.branch_area = []
+        self.branch_axis_length_maj = []
+        self.branch_axis_length_min = []
+        self.branch_extent = []
+        self.branch_solidity = []
         self.reassigned_label = []
 
         self.branch_idxs = []
@@ -909,8 +951,8 @@ class Branches:
         self.image_name = []
 
         self.stats_to_aggregate = [
-            "length", "thickness", "aspect_ratio", "tortuosity", "area", "axis_length_maj", "axis_length_min",
-            "extent", "solidity", "reassigned_label"
+            "branch_length", "branch_thickness", "branch_aspect_ratio", "branch_tortuosity", "branch_area", "branch_axis_length_maj", "branch_axis_length_min",
+            "branch_extent", "branch_solidity", "reassigned_label"
         ]
 
     def _get_aggregate_stats(self, t):
@@ -941,12 +983,12 @@ class Branches:
         # all coords idxs should be within 1 pixel of each other
         neighbor_coords_0 = self.branch_idxs[t][neighbor_idxs[:, 0]]
         neighbor_coords_1 = self.branch_idxs[t][neighbor_idxs[:, 1]]
-        assert np.all(np.abs(neighbor_coords_0 - neighbor_coords_1) <= 1)
+        # assert np.all(np.abs(neighbor_coords_0 - neighbor_coords_1) <= 1)
 
         # labels should be the exact same
         neighbor_labels_0 = self.hierarchy.im_skel[t][tuple(neighbor_coords_0.T)]
         neighbor_labels_1 = self.hierarchy.im_skel[t][tuple(neighbor_coords_1.T)]
-        assert np.all(neighbor_labels_0 == neighbor_labels_1)
+        # assert np.all(neighbor_labels_0 == neighbor_labels_1)
 
         scaled_coords_0 = neighbor_coords_0 * self.hierarchy.spacing
         scaled_coords_1 = neighbor_coords_1 * self.hierarchy.spacing
@@ -977,7 +1019,7 @@ class Branches:
             else:
                 tortuosity[i] = 1
 
-        self.tortuosity.append(tortuosity)
+        self.branch_tortuosity.append(tortuosity)
 
         radii = distance_check(self.hierarchy.im_border_mask[t], self.branch_idxs[t], self.hierarchy.spacing)
         lone_tip_radii = radii[lone_tips]
@@ -1002,9 +1044,9 @@ class Branches:
 
         aspect_ratios = label_lengths / median_thickenss
 
-        self.aspect_ratio.append(aspect_ratios)
-        self.thickness.append(median_thickenss)
-        self.length.append(label_lengths)
+        self.branch_aspect_ratio.append(aspect_ratios)
+        self.branch_thickness.append(median_thickenss)
+        self.branch_length.append(label_lengths)
 
         regions = regionprops(self.hierarchy.label_branches[t], spacing=self.hierarchy.spacing)
         areas = []
@@ -1033,11 +1075,11 @@ class Branches:
             axis_length_min.append(min_axis)
             extent.append(region.extent)
             solidity.append(region.solidity)
-        self.area.append(areas)
-        self.axis_length_maj.append(axis_length_maj)
-        self.axis_length_min.append(axis_length_min)
-        self.extent.append(extent)
-        self.solidity.append(solidity)
+        self.branch_area.append(areas)
+        self.branch_axis_length_maj.append(axis_length_maj)
+        self.branch_axis_length_min.append(axis_length_min)
+        self.branch_extent.append(extent)
+        self.branch_solidity.append(solidity)
         self.reassigned_label.append(reassigned_label)
 
     def _run_frame(self, t):
@@ -1089,17 +1131,17 @@ class Components:
         self.aggregate_node_metrics = []
         self.aggregate_branch_metrics = []
         # add component metrics
-        self.area = []
-        self.axis_length_maj = []
-        self.axis_length_min = []
-        self.extent = []
-        self.solidity = []
+        self.organelle_area = []
+        self.organelle_axis_length_maj = []
+        self.organelle_axis_length_min = []
+        self.organelle_extent = []
+        self.organelle_solidity = []
         self.reassigned_label = []
 
         self.image_name = []
 
         self.stats_to_aggregate = [
-            "area", "axis_length_maj", "axis_length_min", "extent", "solidity", "reassigned_label",
+            "organelle_area", "organelle_axis_length_maj", "organelle_axis_length_min", "organelle_extent", "organelle_solidity", "reassigned_label",
         ]
 
     def _get_aggregate_stats(self, t):
@@ -1147,11 +1189,11 @@ class Components:
             axis_length_min.append(min_axis)
             extent.append(region.extent)
             solidity.append(region.solidity)
-        self.area.append(areas)
-        self.axis_length_maj.append(axis_length_maj)
-        self.axis_length_min.append(axis_length_min)
-        self.extent.append(extent)
-        self.solidity.append(solidity)
+        self.organelle_area.append(areas)
+        self.organelle_axis_length_maj.append(axis_length_maj)
+        self.organelle_axis_length_min.append(axis_length_min)
+        self.organelle_extent.append(extent)
+        self.organelle_solidity.append(solidity)
         self.reassigned_label.append(reassigned_label)
 
     def _run_frame(self, t):
@@ -1215,9 +1257,11 @@ class Image:
 
 
 if __name__ == "__main__":
-    im_path = "/Users/austin/test_files/nelly/ND Stimulation Parallel 12.nd2"
+
+    im_path = r"F:\60x_568mito_488phal_dapi_siDRP12_w1iSIM-561_s1 - Stage1 _1_-1.tif"
+    # im_info = run(im_path, remove_edges=False, ch=0)
     im_info = ImInfo(im_path)
-    num_t = 3
+    num_t = 1
 
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()

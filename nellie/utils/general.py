@@ -8,6 +8,8 @@ def get_reshaped_image(im, num_t=None, im_info=None):
         ndim = 2
     else:
         ndim = 3
+    # if 'C' in im_info.axes:
+    #     im_to_return = xp.moveaxis(im_to_return, 0, -1
     if 'T' not in im_info.axes or (len(im_info.axes) > ndim and len(im_to_return.shape) == ndim):
         im_to_return = im_to_return[None, ...]
         logger.debug(f'Adding time dimension to image, shape is now {im_to_return.shape}.')
