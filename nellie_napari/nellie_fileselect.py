@@ -1,12 +1,7 @@
-import datetime
 import os
-
 import napari
-from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QSpinBox, QCheckBox, QLineEdit, QMessageBox, \
-    QFileDialog
+from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QLineEdit, QFileDialog
 from napari.utils.notifications import show_info
-from tifffile import tifffile
-
 from nellie.im_info.im_info import ImInfo
 from nellie.utils.general import get_reshaped_image
 
@@ -260,7 +255,8 @@ class NellieFileSelect(QWidget):
     def initialize_single_file(self):
         dim_sizes, dim_order = self.check_manual_params()
         # open the file and load its info
-        self.im_info = ImInfo(self.filepath, ch=self.nellie.processor.channel_input.value(), dimension_order=dim_order, dim_sizes=dim_sizes)
+        self.im_info = ImInfo(self.filepath, ch=self.nellie.processor.channel_input.value(),
+                              dimension_order=dim_order, dim_sizes=dim_sizes)
         self.nellie.im_info = self.im_info
         self.dim_order = self.im_info.axes
 
@@ -273,8 +269,13 @@ class NellieFileSelect(QWidget):
         dim_sizes, dim_order = self.check_manual_params()
         # open the folder and load all the files it can
         filenames = os.listdir(filepath)
+        # only get filenames that end if .tif, .tiff, .ndi, .nd2, .czi, .lif
+        valid_filetypes = ['.tif', '.tiff', '.ndi', '.nd2', '.czi', '.lif']
+        filenames = [filename for filename in filenames if os.path.splitext(filename)[1] in valid_filetypes]
+
         self.nellie.valid_files = []
         for filename in filenames:
+            show_info(f"Checking file {filename}.")
             try:
                 im_info = ImInfo(os.path.join(filepath, filename), ch=self.nellie.processor.channel_input.value(),
                                  dim_sizes=dim_sizes, dimension_order=dim_order)
@@ -288,6 +289,7 @@ class NellieFileSelect(QWidget):
             self.im_info = file
             if not self.check_im_info_valid():
                 self.im_info_valid = False
+                show_info(f"Invalid dimension order or axes resolutions for file {file.basename_no_ext}.")
                 break
 
         self.im_info = self.nellie.valid_files[0]
@@ -295,7 +297,7 @@ class NellieFileSelect(QWidget):
 
     def check_analysis_valid(self):
         self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
-        if self.single and os.path.exists(self.im_info.pipeline_paths['adjacency_maps']):
+        if self.single and os.path.exists(self.im_info.pipeline_paths['features_image']):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
             self.nellie.analyzer.post_init()
 
@@ -304,32 +306,35 @@ class NellieFileSelect(QWidget):
         self.folder_button.setEnabled(False)
 
     def enable_time_options(self):
-        self.nellie.processor.time_input.setEnabled(False)
-        self.nellie.batch_mode.time_input.setEnabled(False)
-        if not self.im_info.no_t and self.num_frames_max is not None:
-            if self.single:
-                self.nellie.processor.time_input.setEnabled(True)
-                self.nellie.processor.time_input.setRange(1, self.num_frames_max)
-                self.nellie.processor.time_input.setValue(self.num_frames_max)
-            else:
-                self.nellie.batch_mode.time_input.setEnabled(True)
-                self.nellie.batch_mode.time_input.setRange(1, self.num_frames_max)
-                self.nellie.batch_mode.time_input.setValue(self.num_frames_max)
+        if self.single:
+            tab = self.nellie.processor_tab
         else:
-            self.nellie.processor.time_input.setRange(self.num_frames_max, self.num_frames_max)
-            self.nellie.processor.time_input.setValue(self.num_frames_max)
-            self.nellie.batch_mode.time_input.setRange(self.num_frames_max, self.num_frames_max)
-            self.nellie.batch_mode.time_input.setValue(self.num_frames_max)
+            tab = self.nellie.batch_tab
+
+        tab.time_input.setEnabled(False)
+
+        if not self.im_info.no_t and self.num_frames_max is not None:
+            tab.time_input.setEnabled(True)
+            tab.time_input.setRange(1, self.num_frames_max)
+            tab.time_input.setValue(self.num_frames_max)
+        else:
+            tab.time_input.setRange(self.num_frames_max, self.num_frames_max)
+            tab.time_input.setValue(self.num_frames_max)
 
     def enable_channel_options(self):
-        if not self.im_info.no_c and self.num_channels > 1:
-            self.nellie.processor.channel_input.setEnabled(True)
-            self.nellie.processor.channel_input.setRange(0, self.num_channels - 1)
-            self.nellie.processor.channel_input.setValue(self.nellie.processor.channel_input.value())
+        if self.single:
+            tab = self.nellie.processor_tab
         else:
-            self.nellie.processor.channel_input.setEnabled(False)
-            self.nellie.processor.channel_input.setRange(0, 0)
-            self.nellie.processor.channel_input.setValue(0)
+            tab = self.nellie.batch_tab
+
+        if not self.im_info.no_c and self.num_channels > 1:
+            tab.channel_input.setEnabled(True)
+            tab.channel_input.setRange(0, self.num_channels - 1)
+            tab.channel_input.setValue(self.nellie.processor.channel_input.value())
+        else:
+            tab.channel_input.setEnabled(False)
+            tab.channel_input.setRange(0, 0)
+            tab.channel_input.setValue(0)
 
     def post_file_selection(self):
         self.set_max_frames()

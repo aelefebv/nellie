@@ -4,8 +4,9 @@ from qtpy.QtCore import Qt
 import napari
 import os
 import datetime
-import tifffile
+import numpy as np
 from napari.utils.notifications import show_info
+import matplotlib.image
 
 
 class Home(QWidget):
@@ -41,7 +42,6 @@ class Home(QWidget):
 
         self.layout.addWidget(QLabel("\n"))  # Add a bit of space
 
-        # todo link to paper
         github_link = QLabel("<a href='https://arxiv.org/abs/2403.13214'>Cite our paper!</a>")
         github_link.setOpenExternalLinks(True)
         github_link.setAlignment(Qt.AlignCenter)
@@ -82,8 +82,9 @@ class Home(QWidget):
 
         # Save the screenshot
         try:
-            # save as png to file_path using tifffile
-            tifffile.imwrite(file_path, screenshot)
+            # save as png to file_path using imsave
+            screenshot = np.ascontiguousarray(screenshot)
+            matplotlib.image.imsave(file_path, screenshot, format="png")
             show_info(f"Screenshot saved to {file_path}")
         except Exception as e:
             QMessageBox.warning(None, "Error", f"Failed to save screenshot: {str(e)}")
