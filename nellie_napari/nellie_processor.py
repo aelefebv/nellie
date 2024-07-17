@@ -64,7 +64,6 @@ class NellieProcessor(QWidget):
         self.mocap_button.clicked.connect(self.run_mocap)
         self.mocap_button.setEnabled(False)
 
-
         # Run tracking button
         self.track_button = QPushButton(text="Run tracking")
         self.track_button.clicked.connect(self.run_tracking)
@@ -73,7 +72,6 @@ class NellieProcessor(QWidget):
         # Run reassign button
         self.reassign_button = QPushButton(text="Run voxel reassignment")
         self.reassign_button.clicked.connect(self.run_reassign)
-
         self.reassign_button.setEnabled(False)
 
         # Run feature extraction button
@@ -103,18 +101,6 @@ class NellieProcessor(QWidget):
         self.layout.addWidget(self.reassign_button, 50, 0, 1, 2)
 
         self.im_memmap = None
-        self.raw_layer = None
-        self.ray_layer = None
-        self.ray_near_far = None
-        self.point_layer = None
-
-        self.animation_timer = None
-        self.animation_start_time = None
-        self.current_angles = None
-        self.start_angle = None
-        self.tracked_coords = None
-        self.track_layer = None
-        self.tracks = []
 
     def post_init(self):
         if not self.check_for_raw():

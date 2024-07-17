@@ -60,6 +60,7 @@ class ImInfo:
         self._check_memmappable()
 
     def _create_output_paths(self):
+        self.create_output_path('ome')
         self.create_output_path('im_frangi')
         self.create_output_path('im_instance_label')
         self.create_output_path('im_skel')
@@ -86,15 +87,17 @@ class ImInfo:
     def _check_memmappable(self):
         try:
             tifffile.memmap(self.im_path, mode='r')
+            self.pipeline_paths['ome'] = self.im_path
         except (ValueError, tifffile.tifffile.TiffFileError):
-            logger.warning(f'Could not create memmap for {self.im_path}. Loading into memory instead.')
+            logger.warning(f'Could not create memmap for {self.im_path}. Creating a new OME TIFF file if none exists.')
             self._get_ome_tif()
-            self.im_path = self.pipeline_paths['ome']
             self.extension = '.ome.tif'
+        self.im_path = self.pipeline_paths['ome']
 
     def _get_ome_tif(self):
-        ome_path = self.create_output_path('ome')
+        ome_path = self.pipeline_paths['ome']
         if os.path.isfile(ome_path):
+            logger.info(f'Found existing OME TIFF file at {ome_path}.')
             return
         if self.extension == '.nd2':
             data = nd2.imread(self.im_path)

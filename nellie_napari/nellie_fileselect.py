@@ -307,9 +307,9 @@ class NellieFileSelect(QWidget):
 
     def enable_time_options(self):
         if self.single:
-            tab = self.nellie.processor_tab
+            tab = self.nellie.processor
         else:
-            tab = self.nellie.batch_tab
+            tab = self.nellie.batch_mode
 
         tab.time_input.setEnabled(False)
 
@@ -323,9 +323,9 @@ class NellieFileSelect(QWidget):
 
     def enable_channel_options(self):
         if self.single:
-            tab = self.nellie.processor_tab
+            tab = self.nellie.processor
         else:
-            tab = self.nellie.batch_tab
+            tab = self.nellie.batch_mode
 
         if not self.im_info.no_c and self.num_channels > 1:
             tab.channel_input.setEnabled(True)
