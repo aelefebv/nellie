@@ -145,7 +145,6 @@ class NellieAnalysis(QWidget):
         self.dropdown.setCurrentIndex(1)
         self.dropdown_attr.setCurrentIndex(1)
 
-
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         export_dir = self.nellie.im_info.graph_dir
@@ -225,7 +224,6 @@ class NellieAnalysis(QWidget):
             self.click_match_table.setItem(0, i, QTableWidgetItem(item))
         self.layout.addWidget(self.click_match_table, self.layout_anchors['table'][0], self.layout_anchors['table'][1], 1, 4)
         self.click_match_table.setVerticalHeaderLabels([f"{t, y, x}\nCSV row"])
-
 
     def overlay(self):
         if self.label_mask is None:
@@ -362,6 +360,10 @@ class NellieAnalysis(QWidget):
         # add a None option
         self.dropdown_attr.addItem("None")
         for col in self.df.columns[::-1]:
+            if "raw" not in col:
+                continue
+            # remove "_raw" from the column name
+            # col = col[:-4]
             self.dropdown_attr.addItem(col)
         self.layout.addWidget(self.dropdown_attr, self.layout_anchors['dropdown'][0], self.layout_anchors['dropdown'][1] + 1)
         self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
