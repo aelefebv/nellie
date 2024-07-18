@@ -155,10 +155,12 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(True)
         else:
             self.reassign_button.setEnabled(False)
-            self.feature_export_button.setEnabled(False)
-            # return
+            self.feature_export_button.setEnabled(True)
+            if self.num_t > 1:
+                self.feature_export_button.setEnabled(False)
+                return
 
-        analysis_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
+        analysis_path = self.nellie.im_info.pipeline_paths['features_image']
         if os.path.exists(analysis_path):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
             self.nellie.analyzer.post_init()
