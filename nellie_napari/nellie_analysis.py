@@ -398,8 +398,12 @@ class NellieAnalysis(QWidget):
         # only real data
         data = data.dropna()
         self.data_to_plot = data
+
+        # todo only enable when mean is selected
         self.mean = np.nanmean(data)
         self.std = np.nanstd(data)
+
+        # todo only enable when median is selected
         self.median = np.nanmedian(data)
         self.perc75 = np.nanpercentile(data, 75)
         self.perc25 = np.nanpercentile(data, 25)
@@ -481,8 +485,8 @@ class NellieAnalysis(QWidget):
             self.log_scale = True
         else:
             self.log_scale = False
-        # self.plot_data(self.dropdown_attr.currentText())
         self.on_attr_selected(self.dropdown_attr.currentIndex())
+
 
 if __name__ == "__main__":
     import napari
