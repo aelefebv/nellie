@@ -99,7 +99,6 @@ class NellieVisualizer(QWidget):
     def check_for_raw(self):
         self.raw_button.setEnabled(False)
         try:
-            # todo implement lazy loading if wanted
             im_memmap = self.nellie.im_info.get_im_memmap(self.nellie.im_info.im_path)
             self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.nellie.im_info)
             self.raw_button.setEnabled(True)
