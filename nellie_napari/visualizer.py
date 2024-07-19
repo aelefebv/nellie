@@ -82,6 +82,8 @@ class NellieVisualizer(QWidget):
         self.layout.addWidget(self.skip_vox, 6, 1, 1, 1)
         self.layout.addWidget(self.track_all_frames, 7, 0, 1, 1)
 
+        self.initialized = False
+
     def post_init(self):
         if not self.check_for_raw():
             return
@@ -89,6 +91,7 @@ class NellieVisualizer(QWidget):
         self.set_scale()
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
+        self.initialized = True
 
     def check_3d(self):
         if not self.nellie.im_info.no_z and self.viewer.dims.ndim != 3:

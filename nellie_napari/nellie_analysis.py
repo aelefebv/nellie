@@ -75,6 +75,7 @@ class NellieAnalysis(QWidget):
         }
 
         self.df = None
+        self.initialized = False
 
     def post_init(self):
         self.num_t = self.nellie.processor.time_input.value()
@@ -142,8 +143,10 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
-        self.dropdown.setCurrentIndex(1)
-        self.dropdown_attr.setCurrentIndex(1)
+        self.dropdown.setCurrentIndex(3)  # Organelle
+        self.dropdown_attr.setCurrentIndex(6)  # Volume/Area
+
+        self.initialized = True
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -219,7 +222,10 @@ class NellieAnalysis(QWidget):
         self.click_match_table.setRowCount(1)
         items = [f"{voxel_idx}", f"{node_idx}", f"{branch_idx}", f"{organelle_idx}", f"{image_idx}"]
         self.click_match_table.setColumnCount(len(items))
-        self.click_match_table.setHorizontalHeaderLabels(["Voxel", "Nodes", "Branch", "Organelle", "Image"])
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            self.click_match_table.setHorizontalHeaderLabels(["Voxel", "Nodes", "Branch", "Organelle", "Image"])
+        else:
+            self.click_match_table.setHorizontalHeaderLabels(["Voxel", "Branch", "Organelle", "Image"])
         for i, item in enumerate(items):
             self.click_match_table.setItem(0, i, QTableWidgetItem(item))
         self.layout.addWidget(self.click_match_table, self.layout_anchors['table'][0], self.layout_anchors['table'][1], 1, 4)
@@ -243,7 +249,27 @@ class NellieAnalysis(QWidget):
             pkl_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
             # load pkl file
             with open(pkl_path, 'rb') as f:
-                self.adjacency_maps = pickle.load(f)
+                adjacency_slices = pickle.load(f)
+            self.adjacency_maps = {'n_v': [], 'b_v': [], 'o_v': []}
+            for t in range(len(adjacency_slices['v_n'])):
+                adjacency_slice = adjacency_slices['v_n'][t]
+                adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+                self.adjacency_maps['n_v'].append(adjacency_matrix.T)
+            for t in range(len(adjacency_slices['v_b'])):
+                adjacency_slice = adjacency_slices['v_b'][t]
+                adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+                self.adjacency_maps['b_v'].append(adjacency_matrix.T)
+            for t in range(len(adjacency_slices['v_o'])):
+                adjacency_slice = adjacency_slices['v_o'][t]
+                adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+                self.adjacency_maps['o_v'].append(adjacency_matrix.T)
+            # adjacency_slice = adjacency_slices['v_b'][t]
+            # adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1))
+            # adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+
         if self.attr_data is None:
             return
 
@@ -254,14 +280,14 @@ class NellieAnalysis(QWidget):
             if self.selected_level == 'voxel':
                 self.label_mask[t][tuple(self.label_coords[t].T)] = t_attr_data
                 continue
-            elif self.selected_level == 'node':
+            elif self.selected_level == 'node' and len(self.adjacency_maps['n_v']) > 0:
                 adjacency_mask = np.array(self.adjacency_maps['n_v'][t])
             elif self.selected_level == 'branch':
                 adjacency_mask = np.array(self.adjacency_maps['b_v'][t])
             elif self.selected_level == 'organelle':
                 adjacency_mask = np.array(self.adjacency_maps['o_v'][t])
-            elif self.selected_level == 'image':
-                adjacency_mask = np.array(self.adjacency_maps['i_v'][t])
+            # elif self.selected_level == 'image':
+            #     adjacency_mask = np.array(self.adjacency_maps['i_v'][t])
             else:
                 return
             reshaped_t_attr = t_attr_data.values.reshape(-1, 1)
@@ -290,7 +316,7 @@ class NellieAnalysis(QWidget):
             self.viewer.dims.ndisplay = 3
             self.label_mask_layer.interpolation3d = 'nearest'
         self.label_mask_layer.refresh()
-        self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
+        # self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
         self.match_t_toggle.setEnabled(True)
         self.viewer.reset_view()
 
@@ -317,7 +343,10 @@ class NellieAnalysis(QWidget):
         self.dropdown = QComboBox()
 
         # Add options to the dropdown
-        options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
+        else:
+            options = ['none', 'voxel', 'branch', 'organelle', 'image']
         for option in options:
             self.dropdown.addItem(option)
 
@@ -327,11 +356,12 @@ class NellieAnalysis(QWidget):
         # Connect the dropdown's signal to a method to handle selection changes
         self.dropdown.currentIndexChanged.connect(self.on_level_selected)
 
-        self.get_csvs()
+        # self.get_csvs()
 
     def get_csvs(self):
         self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
-        self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
         self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
         self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
         self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
@@ -343,15 +373,29 @@ class NellieAnalysis(QWidget):
         # This method is called whenever a radio button is selected
         # 'button' parameter is the clicked radio button
         self.selected_level = self.dropdown.itemText(index)
+        self.overlay_button.setEnabled(True)
         if self.selected_level == 'voxel':
+            if self.voxel_df is None:
+                self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
             self.df = self.voxel_df
         elif self.selected_level == 'node':
+            if self.node_df is None:
+                if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+                    self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
             self.df = self.node_df
         elif self.selected_level == 'branch':
+            if self.branch_df is None:
+                self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
             self.df = self.branch_df
         elif self.selected_level == 'organelle':
+            if self.organelle_df is None:
+                self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
             self.df = self.organelle_df
         elif self.selected_level == 'image':
+            # turn off overlay button
+            self.overlay_button.setEnabled(False)
+            if self.image_df is None:
+                self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
             self.df = self.image_df
         else:
             return
@@ -360,8 +404,8 @@ class NellieAnalysis(QWidget):
         # add a None option
         self.dropdown_attr.addItem("None")
         for col in self.df.columns[::-1]:
-            if "raw" not in col:
-                continue
+            # if "raw" not in col:
+            #     continue
             # remove "_raw" from the column name
             # col = col[:-4]
             self.dropdown_attr.addItem(col)

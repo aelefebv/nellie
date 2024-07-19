@@ -102,11 +102,14 @@ class NellieProcessor(QWidget):
 
         self.im_memmap = None
 
+        self.initialized = False
+
     def post_init(self):
         if not self.check_for_raw():
             return
         self.check_file_existence()
         self.remove_edges_checkbox.setEnabled(True)
+        self.initialized = True
         
     def check_file_existence(self):
         self.nellie.visualizer.check_file_existence()
@@ -163,7 +166,6 @@ class NellieProcessor(QWidget):
         analysis_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
         if os.path.exists(analysis_path):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
-            self.nellie.analyzer.post_init()
         else:
             self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
 

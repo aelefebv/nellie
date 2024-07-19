@@ -1,3 +1,4 @@
+from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QTabWidget
 
 from nellie_napari import NellieProcessor
@@ -26,6 +27,7 @@ class NellieLoader(QTabWidget):
         self.batch_tab = None
 
         self.add_tabs()
+        self.currentChanged.connect(self.on_tab_change)  # Connect the signal to the slot
 
         self.im_info = None
         self.valid_files = []
@@ -63,10 +65,26 @@ class NellieLoader(QTabWidget):
 
         self.im_info = None
 
-    def file_ready(self):
-        # self.im_info = self.file_select.im_info
-        self.processor.post_init()
-        self.visualizer.post_init()
+    # def file_ready(self):
+    #     # self.im_info = self.file_select.im_info
+    #     self.processor.post_init()
+    #     self.visualizer.post_init()
+
+    def on_tab_change(self, index):
+        if index == self.analysis_tab:  # Check if the Analyze tab is selected
+            if not self.analyzer.initialized:
+                show_info("Initializing analysis tab")
+                self.analyzer.post_init()
+        elif index == self.processor_tab:
+            if not self.processor.initialized:
+                show_info("Initializing processor tab")
+                self.processor.post_init()
+        elif index == self.visualizer_tab:
+            if not self.visualizer.initialized:
+                show_info("Initializing visualizer tab")
+                self.visualizer.post_init()
+        else:
+            return
 
 
 if __name__ == "__main__":

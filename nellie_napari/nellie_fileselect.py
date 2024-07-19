@@ -299,7 +299,7 @@ class NellieFileSelect(QWidget):
         self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
         if self.single and os.path.exists(self.im_info.pipeline_paths['features_image']):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
-            self.nellie.analyzer.post_init()
+            # self.nellie.analyzer.post_init()
 
     def disable_file_selection(self):
         self.filepath_button.setEnabled(False)
@@ -356,7 +356,7 @@ class NellieFileSelect(QWidget):
             self.nellie.setTabEnabled(self.nellie.visualizer_tab, False)
             self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
             self.nellie.setTabEnabled(self.nellie.batch_tab, True)
-        self.nellie.file_ready()
+        # self.nellie.file_ready()
 
     def select_folder(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select folder")

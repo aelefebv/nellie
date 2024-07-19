@@ -7,19 +7,20 @@ from skimage.measure import regionprops
 from nellie import logger
 from nellie.im_info.im_info import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
-from nellie.utils.general import get_reshaped_image
 import pandas as pd
 import time
 
 
 class Hierarchy:
-    def __init__(self, im_info: ImInfo, num_t: int):
+    def __init__(self, im_info: ImInfo, num_t: int, skip_nodes=True):
         self.im_info = im_info
         self.num_t = num_t
         if self.im_info.no_z:
             self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
         else:
             self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+
+        self.skip_nodes = skip_nodes
 
         self.im_raw = None
         self.im_struct = None
@@ -33,7 +34,7 @@ class Hierarchy:
         self.flow_interpolator_fw = FlowInterpolator(im_info)
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
 
-        self.shape = None
+        # self.shape = None
 
         self.voxels = None
         self.nodes = None
@@ -51,29 +52,31 @@ class Hierarchy:
         return self.num_t
 
     def _allocate_memory(self):
-        im_raw = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_raw = get_reshaped_image(im_raw, self.num_t, self.im_info)
-        im_struct = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_struct = get_reshaped_image(im_struct, self.num_t, self.im_info)
-        label_components = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_components = get_reshaped_image(label_components, self.num_t, self.im_info)
-        label_branches = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        self.label_branches = get_reshaped_image(label_branches, self.num_t, self.im_info)
-        im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
-        self.im_skel = get_reshaped_image(im_skel, self.num_t, self.im_info)
-        im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
-        self.im_pixel_class = get_reshaped_image(im_pixel_class, self.num_t, self.im_info)
-        im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_distance = get_reshaped_image(im_distance, self.num_t, self.im_info)
-        im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
-        self.im_border_mask = get_reshaped_image(im_border_mask, self.num_t, self.im_info)
+        # getting reshaped image will load the image into memory.. should probably do this case by case
+        self.im_raw = self.im_info.get_im_memmap(self.im_info.pipeline_paths['ome'])
+        self.im_struct = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.label_components = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.label_branches = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
+        self.im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
+        self.im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
+        self.im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
         if not self.im_info.no_t:
-            im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
-            self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
-            im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
-            self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
+            self.im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
+            self.im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
 
-        self.shape = self.im_raw.shape
+        #     self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
+        #     self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
+        # self.im_raw = get_reshaped_image(im_raw, self.num_t, self.im_info)
+        # self.im_struct = get_reshaped_image(im_struct, self.num_t, self.im_info)
+        # self.label_components = get_reshaped_image(label_components, self.num_t, self.im_info)
+        # self.label_branches = get_reshaped_image(label_branches, self.num_t, self.im_info)
+        # self.im_skel = get_reshaped_image(im_skel, self.num_t, self.im_info)
+        # self.im_pixel_class = get_reshaped_image(im_pixel_class, self.num_t, self.im_info)
+        # self.im_distance = get_reshaped_image(im_distance, self.num_t, self.im_info)
+        # self.im_border_mask = get_reshaped_image(im_border_mask, self.num_t, self.im_info)
+
+        # self.shape = self.im_raw.shape
         # self.im_info.shape = self.shape
 
     def _get_hierarchies(self):
@@ -123,9 +126,10 @@ class Hierarchy:
         voxel_df = pd.DataFrame(voxel_features, columns=voxel_headers)
         voxel_df.to_csv(self.im_info.pipeline_paths['features_voxels'], index=True)
 
-        node_features, node_headers = create_feature_array(self.nodes)
-        node_df = pd.DataFrame(node_features, columns=node_headers)
-        node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=True)
+        if not self.skip_nodes:
+            node_features, node_headers = create_feature_array(self.nodes)
+            node_df = pd.DataFrame(node_features, columns=node_headers)
+            node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=True)
 
         branch_features, branch_headers = create_feature_array(self.branches, self.branches.branch_label)
         branch_df = pd.DataFrame(branch_features, columns=branch_headers)
@@ -141,55 +145,68 @@ class Hierarchy:
 
     def _save_adjacency_maps(self):
         # edge list:
-        v_b = [self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t] for t in
-               range(len(self.voxels.time))]
         v_n = []
+        v_b = []
+        v_o = []
+        # v_i = []
         for t in range(len(self.voxels.time)):
             num_voxels = len(self.voxels.coords[t])
-            num_nodes = len(self.nodes.nodes[t])
-            v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
-            for voxel, nodes in enumerate(self.voxels.node_labels[t]):
-                if len(nodes) == 0:
-                    continue
-                v_n_temp[voxel, nodes] = True
-            v_n.append(v_n_temp)
-        v_o = [self.voxels.component_labels[t][:, None] == self.components.component_label[t] for t in
-               range(len(self.voxels.time))]
-        v_i = [np.ones((len(self.voxels.coords[t]), 1), dtype=bool) for t in range(len(self.voxels.time))]
+            if not self.skip_nodes:
+                num_nodes = len(self.nodes.nodes[t])
+                v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
+                for voxel, nodes in enumerate(self.voxels.node_labels[t]):
+                    if len(nodes) == 0:
+                        continue
+                    v_n_temp[voxel, nodes] = True
+                v_n.append(np.argwhere(v_n_temp))
 
-        n_v = [v_n[t].T for t in range(len(self.voxels.time))]
-        n_b = [self.nodes.branch_label[t][:, None] == self.branches.branch_label[t] for t in
-               range(len(self.nodes.time))]
-        n_o = [self.nodes.component_label[t][:, None] == self.components.component_label[t] for t in
-               range(len(self.nodes.time))]
-        n_i = [np.ones((len(self.nodes.nodes[t]), 1), dtype=bool) for t in range(len(self.nodes.time))]
+            v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
+            v_b.append(np.argwhere(v_b_matrix))
 
-        b_v = [v_b[t].T for t in range(len(self.voxels.time))]
-        b_n = [n_b[t].T for t in range(len(self.nodes.time))]
-        b_o = [self.branches.component_label[t][:, None] == self.components.component_label[t] for t in
-               range(len(self.branches.time))]
-        b_i = [np.ones((len(self.branches.branch_label[t]), 1), dtype=bool) for t in
-               range(len(self.branches.time))]
+            v_o_matrix = self.voxels.component_labels[t][:, None] == self.components.component_label[t]
+            v_o.append(np.argwhere(v_o_matrix))
 
-        o_v = [v_o[t].T for t in range(len(self.voxels.time))]
-        o_n = [n_o[t].T for t in range(len(self.nodes.time))]
-        o_b = [b_o[t].T for t in range(len(self.branches.time))]
-        o_i = [np.ones((len(self.components.component_label[t]), 1), dtype=bool) for t in
-               range(len(self.components.time))]
+            # v_i_matrix = np.ones((len(self.voxels.coords[t]), 1), dtype=bool)
+            # v_i.append(np.argwhere(v_i_matrix))
 
-        i_v = [v_i[t].T for t in range(len(self.voxels.time))]
-        i_n = [n_i[t].T for t in range(len(self.nodes.time))]
-        i_b = [b_i[t].T for t in range(len(self.branches.time))]
-        i_o = [o_i[t].T for t in range(len(self.components.time))]
+        n_b = []
+        n_o = []
+        # n_i = []
+        if not self.skip_nodes:
+            for t in range(len(self.nodes.time)):
+                n_b_matrix = self.nodes.branch_label[t][:, None] == self.branches.branch_label[t]
+                n_b.append(np.argwhere(n_b_matrix))
+
+                n_o_matrix = self.nodes.component_label[t][:, None] == self.components.component_label[t]
+                n_o.append(np.argwhere(n_o_matrix))
+
+                # n_i_matrix = np.ones((len(self.nodes.nodes[t]), 1), dtype=bool)
+                # n_i.append(np.argwhere(n_i_matrix))
+
+        b_o = []
+        # b_i = []
+        for t in range(len(self.branches.time)):
+            b_o_matrix = self.branches.component_label[t][:, None] == self.components.component_label[t]
+            b_o.append(np.argwhere(b_o_matrix))
+
+            # b_i_matrix = np.ones((len(self.branches.branch_label[t]), 1), dtype=bool)
+            # b_i.append(np.argwhere(b_i_matrix))
+
+        # o_i = []
+        # for t in range(len(self.components.time)):
+        #     o_i_matrix = np.ones((len(self.components.component_label[t]), 1), dtype=bool)
+        #     o_i.append(np.argwhere(o_i_matrix))
 
         # create a dict with all the edges
         # could also link voxels between t frames
         edges = {
-            "v_b": v_b, "v_n": v_n, "v_o": v_o, "v_i": v_i,
-            "n_v": n_v, "n_b": n_b, "n_o": n_o, "n_i": n_i,
-            "b_v": b_v, "b_n": b_n, "b_o": b_o, "b_i": b_i,
-            "o_v": o_v, "o_n": o_n, "o_b": o_b, "o_i": o_i,
-            "i_v": i_v, "i_n": i_n, "i_b": i_b, "i_o": i_o,
+            "v_b": v_b, "v_n": v_n, "v_o": v_o,  # "v_i": v_i,
+            # "n_v": n_v,
+            "n_b": n_b, "n_o": n_o,  # "n_i": n_i,
+            # "b_v": b_v, "b_n": b_n,
+            "b_o": b_o,  # "b_i": b_i,
+            # "o_v": o_v, "o_n": o_n, "o_b": o_b,  # "o_i": o_i,
+            # "i_v": i_v, "i_n": i_n, "i_b": i_b,  # "i_o": i_o,
         }
         # pickle and save
         with open(self.im_info.pipeline_paths['adjacency_maps'], "wb") as f:
@@ -321,7 +338,6 @@ class Voxels:
         # self.directionality_com = []
         # self.directionality_acc_com = []
 
-        self.node_labels = []
         self.branch_labels = []
         self.component_labels = []
         self.image_name = []
@@ -385,38 +401,47 @@ class Voxels:
 
         self.node_dim2_lims.append(lims_dim2) if not self.hierarchy.im_info.no_z else None
 
-        # todo: takes up a lot of memory. Can loop but its slow. Is there a better way to solve both?
         frame_coords = np.array(frame_coords)
-        if not self.hierarchy.im_info.no_z:
-            dim0_coords, dim1_coords, dim2_coords = frame_coords[:, 0], frame_coords[:, 1], frame_coords[:, 2]
-            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
-            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
-            dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (lims_dim2[:, 1][:, None] >= dim2_coords)
-            mask = dim0_mask & dim1_mask & dim2_mask
-        else:
-            dim0_coords, dim1_coords = frame_coords[:, 0], frame_coords[:, 1]
-            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
-            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
-            mask = dim0_mask & dim1_mask
+        # process frame coords in chunks of 1000 max
+        chunk_size = 10000
+        num_chunks = int(np.ceil(len(frame_coords) / chunk_size))
+        chunk_node_voxel_idxs = {idx: [] for idx in range(len(skeleton_pixels))}
+        chunk_nodes_idxs = []
+        for chunk_num in range(num_chunks):
+            logger.debug(f"Processing chunk {chunk_num + 1} of {num_chunks}")
+            start = chunk_num * chunk_size
+            end = min((chunk_num + 1) * chunk_size, len(frame_coords))
+            chunk_frame_coords = frame_coords[start:end]
 
-        # improve efficiency
-        frame_coord_nodes_idxs = [[] for _ in range(mask.shape[1])]
-        rows, cols = np.nonzero(mask)
-        for row, col in zip(rows, cols):
-            frame_coord_nodes_idxs[col].append(row)
-        frame_coord_nodes_idxs = [np.array(indices) for indices in frame_coord_nodes_idxs]
+            if not self.hierarchy.im_info.no_z:
+                dim0_coords, dim1_coords, dim2_coords = chunk_frame_coords[:, 0], chunk_frame_coords[:, 1], chunk_frame_coords[:, 2]
+                dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
+                dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
+                dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (lims_dim2[:, 1][:, None] >= dim2_coords)
+                mask = dim0_mask & dim1_mask & dim2_mask
+            else:
+                dim0_coords, dim1_coords = chunk_frame_coords[:, 0], chunk_frame_coords[:, 1]
+                dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
+                dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
+                mask = dim0_mask & dim1_mask
 
-        self.node_labels.append(frame_coord_nodes_idxs)
+            # improve efficiency
+            frame_coord_nodes_idxs = [[] for _ in range(mask.shape[1])]
+            rows, cols = np.nonzero(mask)
+            for row, col in zip(rows, cols):
+                frame_coord_nodes_idxs[col].append(row)
+            frame_coord_nodes_idxs = [np.array(indices) for indices in frame_coord_nodes_idxs]
 
-        # Initialize list to hold results
-        node_voxel_idxs = [[] for _ in range(skeleton_pixels.shape[0])]
+            chunk_nodes_idxs.extend(frame_coord_nodes_idxs)
 
-        # Use numpy broadcasting to find indices where mask is True and group them by skeleton pixel
-        for i in range(skeleton_pixels.shape[0]):
-            node_voxel_idxs[i] = np.nonzero(mask[i])[0]
+            for i in range(skeleton_pixels.shape[0]):
+                chunk_node_voxel_idxs[i].extend(np.nonzero(mask[i])[0] + start)
 
         # Append the result
-        self.node_voxel_idxs.append(node_voxel_idxs)
+        # self.node_labels.append(chunk_nodes_idxs)
+        # convert chunk_node_voxel_idxs to a list of arrays
+        chunk_node_voxel_idxs = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
+        self.node_voxel_idxs.append(chunk_node_voxel_idxs)
 
     def _get_min_euc_dist(self, t, vec):
         euc_dist = np.linalg.norm(vec, axis=1)
@@ -717,7 +742,8 @@ class Voxels:
         im_name = np.ones(frame_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
-        self._get_node_info(t, frame_coords)
+        if not self.hierarchy.skip_nodes:
+            self._get_node_info(t, frame_coords)
         self._get_motility_stats(t, frame_coords)
 
     def run(self):
@@ -799,14 +825,15 @@ class Nodes:
         self.divergence = []
         self.convergence = []
         self.vergere = []
-        self.lin_magnitude_variability = []
-        self.ang_magnitude_variability = []
-        self.lin_direction_uniformity = []
-        self.ang_direction_uniformity = []
+        # self.lin_magnitude_variability = []
+        # self.ang_magnitude_variability = []
+        # self.lin_direction_uniformity = []
+        # self.ang_direction_uniformity = []
 
         self.stats_to_aggregate = [
-            "divergence", "convergence", "vergere", "lin_magnitude_variability", "ang_magnitude_variability",
-            "lin_direction_uniformity", "ang_direction_uniformity", "node_thickness",
+            "divergence", "convergence", "vergere", "node_thickness",
+            # "lin_magnitude_variability", "ang_magnitude_variability",
+            # "lin_direction_uniformity", "ang_direction_uniformity",
         ]
 
         self.features_to_save = self.stats_to_aggregate
@@ -831,10 +858,10 @@ class Nodes:
         divergence = []
         convergence = []
         vergere = []
-        lin_mag_variability = []
-        ang_mag_variability = []
-        lin_dir_uniformity = []
-        ang_dir_uniformity = []
+        # lin_mag_variability = []
+        # ang_mag_variability = []
+        # lin_dir_uniformity = []
+        # ang_dir_uniformity = []
         for i, node in enumerate(self.nodes[t]):
             vox_idxs = self.voxel_idxs[t][i]
             dist_vox_node = self.hierarchy.voxels.coords[t][vox_idxs] - self.nodes[t][i]
@@ -851,29 +878,29 @@ class Nodes:
             # high vergere is a funnel point (converges then diverges)
             # low vergere is a dispersal point (diverges then converges)
 
-            lin_vel_mag = self.hierarchy.voxels.lin_vel_mag[t][vox_idxs]
-            lin_mag_variability.append(np.nanstd(lin_vel_mag))
-            ang_vel_mag = self.hierarchy.voxels.ang_vel_mag[t][vox_idxs]
-            ang_mag_variability.append(np.nanstd(ang_vel_mag))
-
-            lin_vel = self.hierarchy.voxels.lin_vel[t][vox_idxs]
-            lin_unit_vec = lin_vel / lin_vel_mag[:, np.newaxis]
-            lin_similarity_matrix = np.dot(lin_unit_vec, lin_unit_vec.T)
-            np.fill_diagonal(lin_similarity_matrix, np.nan)
-            lin_dir_uniformity.append(np.nanmean(lin_similarity_matrix))
-
-            ang_vel = self.hierarchy.voxels.ang_vel[t][vox_idxs]
-            ang_unit_vec = ang_vel / ang_vel_mag[:, np.newaxis]
-            ang_similarity_matrix = np.dot(ang_unit_vec, ang_unit_vec.T)
-            np.fill_diagonal(ang_similarity_matrix, np.nan)
-            ang_dir_uniformity.append(np.nanmean(ang_similarity_matrix))
+            # lin_vel_mag = self.hierarchy.voxels.lin_vel_mag[t][vox_idxs]
+            # lin_mag_variability.append(np.nanstd(lin_vel_mag))
+            # ang_vel_mag = self.hierarchy.voxels.ang_vel_mag[t][vox_idxs]
+            # ang_mag_variability.append(np.nanstd(ang_vel_mag))
+            #
+            # lin_vel = self.hierarchy.voxels.lin_vel[t][vox_idxs]
+            # lin_unit_vec = lin_vel / lin_vel_mag[:, np.newaxis]
+            # lin_similarity_matrix = np.dot(lin_unit_vec, lin_unit_vec.T)
+            # np.fill_diagonal(lin_similarity_matrix, np.nan)
+            # lin_dir_uniformity.append(np.nanmean(lin_similarity_matrix))
+            #
+            # ang_vel = self.hierarchy.voxels.ang_vel[t][vox_idxs]
+            # ang_unit_vec = ang_vel / ang_vel_mag[:, np.newaxis]
+            # ang_similarity_matrix = np.dot(ang_unit_vec, ang_unit_vec.T)
+            # np.fill_diagonal(ang_similarity_matrix, np.nan)
+            # ang_dir_uniformity.append(np.nanmean(ang_similarity_matrix))
         self.divergence.append(divergence)
         self.convergence.append(convergence)
         self.vergere.append(vergere)
-        self.lin_magnitude_variability.append(lin_mag_variability)
-        self.ang_magnitude_variability.append(ang_mag_variability)
-        self.lin_direction_uniformity.append(lin_dir_uniformity)
-        self.ang_direction_uniformity.append(ang_dir_uniformity)
+        # self.lin_magnitude_variability.append(lin_mag_variability)
+        # self.ang_magnitude_variability.append(ang_mag_variability)
+        # self.lin_direction_uniformity.append(lin_dir_uniformity)
+        # self.ang_direction_uniformity.append(ang_dir_uniformity)
 
     def _run_frame(self, t):
         frame_skel_coords = np.argwhere(self.hierarchy.im_pixel_class[t] > 0)
@@ -895,6 +922,8 @@ class Nodes:
         self._get_node_stats(t)
 
     def run(self):
+        if self.hierarchy.skip_nodes:
+            return
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
 
@@ -943,11 +972,12 @@ class Branches:
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 
-        node_labels = self.hierarchy.nodes.branch_label[t]
-        grouped_node_idxs = [np.argwhere(node_labels == label).flatten()
-                             for label in np.unique(node_labels) if label != 0]
-        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
-        self.aggregate_node_metrics.append(node_agg)
+        if not self.hierarchy.skip_nodes:
+            node_labels = self.hierarchy.nodes.branch_label[t]
+            grouped_node_idxs = [np.argwhere(node_labels == label).flatten()
+                                 for label in np.unique(node_labels) if label != 0]
+            node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
+            self.aggregate_node_metrics.append(node_agg)
 
     def _get_branch_stats(self, t):
         branch_idx_array_1 = np.array(self.branch_idxs[t])
@@ -1132,11 +1162,12 @@ class Components:
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 
-        node_labels = self.hierarchy.nodes.component_label[t]
-        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels) if
-                             label != 0]
-        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
-        self.aggregate_node_metrics.append(node_agg)
+        if not self.hierarchy.skip_nodes:
+            node_labels = self.hierarchy.nodes.component_label[t]
+            grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels) if
+                                 label != 0]
+            node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
+            self.aggregate_node_metrics.append(node_agg)
 
         branch_labels = self.hierarchy.branches.component_label[t]
         grouped_branch_idxs = [np.argwhere(branch_labels == label).flatten() for label in np.unique(voxel_labels) if
@@ -1215,8 +1246,9 @@ class Image:
                                               [np.arange(len(self.hierarchy.voxels.coords[t]))])
         self.aggregate_voxel_metrics.append(voxel_agg)
 
-        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, [np.arange(len(self.hierarchy.nodes.nodes[t]))])
-        self.aggregate_node_metrics.append(node_agg)
+        if not self.hierarchy.skip_nodes:
+            node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, [np.arange(len(self.hierarchy.nodes.nodes[t]))])
+            self.aggregate_node_metrics.append(node_agg)
 
         branch_agg = aggregate_stats_for_class(self.hierarchy.branches, t,
                                                [self.hierarchy.branches.branch_label[t].flatten() - 1])
