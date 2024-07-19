@@ -1,4 +1,4 @@
-from nellie.feature_extraction.hierarchical import Hierarchy
+from nellie.feature_extraction.hierarchical_2 import Hierarchy
 from nellie.im_info.im_info import ImInfo
 from nellie.segmentation.filtering import Filter
 from nellie.segmentation.labelling import Label
@@ -9,7 +9,7 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 
 def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_thresh_intensity=False, dim_sizes=None, threshold=None, dim_order=""):
-    im_info = ImInfo(im_path, ch=ch, output_dirpath=output_dirpath, dim_sizes=dim_sizes, dimension_order=dim_order)
+    im_info = ImInfo(im_path, num_t=num_t, ch=ch, output_dirpath=output_dirpath, dim_sizes=dim_sizes, dimension_order=dim_order)
     # preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
     # preprocessing.run()
     #

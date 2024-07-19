@@ -12,6 +12,7 @@ class ImInfo:
     def __init__(self, im_path: str,
                  output_dirpath: str = None,
                  screenshot_dirpath: str = None,
+                 num_t: int = None,
                  ch: int = None,
                  dim_sizes: dict = None,
                  dimension_order: str = '',
@@ -19,6 +20,7 @@ class ImInfo:
                  ):
         self.im_path = im_path
         self.ch = ch or 0
+        self.num_t = num_t
 
         self.dim_sizes = dim_sizes
 
@@ -85,14 +87,17 @@ class ImInfo:
             os.mkdir(self.output_dir)
 
     def _check_memmappable(self):
-        try:
-            tifffile.memmap(self.im_path, mode='r')
-            self.pipeline_paths['ome'] = self.im_path
-        except (ValueError, tifffile.tifffile.TiffFileError):
-            logger.warning(f'Could not create memmap for {self.im_path}. Creating a new OME TIFF file if none exists.')
-            self._get_ome_tif()
-            self.extension = '.ome.tif'
+        self._get_ome_tif()  # create a new copy of the data in a Nellie-compatible format
+        # try:
+        #     tifffile.memmap(self.im_path, mode='r')
+        #     # self.pipeline_paths['ome'] = self.im_path
+        # except (ValueError, tifffile.tifffile.TiffFileError):
+        #     logger.warning(f'Could not create memmap for {self.im_path}. Creating a new OME TIFF file if none exists.')
+        #     self.extension = '.ome.tif'
         self.im_path = self.pipeline_paths['ome']
+        # self.shape is the shape of the ome tif at self.im_path
+        with tifffile.TiffFile(self.im_path) as tif:
+            self.shape = tif.series[0].shape
 
     def _get_ome_tif(self):
         ome_path = self.pipeline_paths['ome']
@@ -101,9 +106,13 @@ class ImInfo:
             return
         if self.extension == '.nd2':
             data = nd2.imread(self.im_path)
+            if self.num_t is not None and not self.no_t and self.num_t < data.shape[0]:
+                data = data[:self.num_t]
         elif self.extension == '.tif' or self.extension == '.tiff':
             # get only self.ch
             data = tifffile.imread(self.im_path)
+            if self.num_t is not None and not self.no_t and self.num_t < data.shape[0]:
+                data = data[:self.num_t]
         else:
             logger.error(f'Filetype {self.extension} not supported. Please convert to .nd2 or .tif.')
             raise ValueError
@@ -286,8 +295,8 @@ class ImInfo:
     def _ensure_t(self, data=None):
         if 'T' not in self.axes:
             self.axes = 'T' + self.axes
-        if len(self.axes) != len(self.shape):
-            self.shape = (1,) + self.shape
+        # if len(self.axes) != len(self.shape):
+        #     self.shape = (1,) + self.shape
             # if data is not None:
             #     data = np.expand_dims(data, axis=0)
         if data is not None and (len(data.shape) != len(self.shape)):
