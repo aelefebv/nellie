@@ -250,7 +250,7 @@ class ImInfo:
             self.metadata = nd2_file.metadata.channels[self.ch]
             self.metadata.recorded_data = nd2_file.events(orient='list')
             self.metadata_type = 'nd2'
-            if self.axes == '':
+            if self.axes == '' or self.axes is None:
                 self.axes = ''.join(nd2_file.sizes.keys())
             self.shape = tuple(nd2_file.sizes.values())
             if len(self.axes) != len(self.shape):

@@ -8,25 +8,25 @@ from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 
-def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_thresh_intensity=False, dim_sizes=None, threshold=None, dim_order=None):
+def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_thresh_intensity=False, dim_sizes=None, threshold=None, dim_order=""):
     im_info = ImInfo(im_path, ch=ch, output_dirpath=output_dirpath, dim_sizes=dim_sizes, dimension_order=dim_order)
-    preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
-    preprocessing.run()
-
-    segmenting = Label(im_info, num_t, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
-    segmenting.run()
-
-    networking = Network(im_info, num_t)
-    networking.run()
-
-    mocap_marking = Markers(im_info, num_t)
-    mocap_marking.run()
-
-    hu_tracking = HuMomentTracking(im_info, num_t)
-    hu_tracking.run()
-
-    vox_reassign = VoxelReassigner(im_info, num_t)
-    vox_reassign.run()
+    # preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
+    # preprocessing.run()
+    #
+    # segmenting = Label(im_info, num_t, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
+    # segmenting.run()
+    #
+    # networking = Network(im_info, num_t)
+    # networking.run()
+    #
+    # mocap_marking = Markers(im_info, num_t)
+    # mocap_marking.run()
+    #
+    # hu_tracking = HuMomentTracking(im_info, num_t)
+    # hu_tracking.run()
+    #
+    # vox_reassign = VoxelReassigner(im_info, num_t)
+    # vox_reassign.run()
 
     hierarchy = Hierarchy(im_info, num_t)
     hierarchy.run()
@@ -36,12 +36,12 @@ def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_
 
 if __name__ == "__main__":
     # # Single file run
-    # # im_path = r"/Users/austin/Downloads/test.tif"
-    im_path = r"C:\Users\imageanalysis\Downloads\240531_dsDNA-TOM20-siMCU2_005_decon.ome.tiff"
-    # # im_info = run(im_path, remove_edges=False, ch=0)
+    im_path = r"/Users/austin/test_files/nellie_all_tests/ND Stimulation Parallel 12.nd2"
+    # im_path = r"C:\Users\imageanalysis\Downloads\240531_dsDNA-TOM20-siMCU2_005_decon.ome.tiff"
+    im_info = run(im_path, remove_edges=False, ch=0, num_t=5)
     # # im_info = run(im_path, remove_edges=False, ch=0, dim_sizes={'T': 1, 'Z': 1, 'Y': 0.0605, 'X': 0.0605}, otsu_thresh_intensity=True)
     # im_info = run(im_path, remove_edges=False, ch=1)
-    im_info = run(im_path, remove_edges=False, ch=1, dim_sizes={'T': 1, 'Z': 0.1, 'Y': 0.1, 'X': 0.1}, otsu_thresh_intensity=True)
+    # im_info = run(im_path, remove_edges=False, ch=1, dim_sizes={'T': 1, 'Z': 0.1, 'Y': 0.1, 'X': 0.1}, otsu_thresh_intensity=True)
 
     # import os
     # top_dir = r"F:\fert"
