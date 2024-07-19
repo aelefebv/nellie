@@ -12,13 +12,15 @@ import time
 
 
 class Hierarchy:
-    def __init__(self, im_info: ImInfo, num_t: int):
+    def __init__(self, im_info: ImInfo, num_t: int, skip_nodes=True):
         self.im_info = im_info
         self.num_t = num_t
         if self.im_info.no_z:
             self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
         else:
             self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+
+        self.skip_nodes = skip_nodes
 
         self.im_raw = None
         self.im_struct = None
@@ -124,9 +126,10 @@ class Hierarchy:
         voxel_df = pd.DataFrame(voxel_features, columns=voxel_headers)
         voxel_df.to_csv(self.im_info.pipeline_paths['features_voxels'], index=True)
 
-        node_features, node_headers = create_feature_array(self.nodes)
-        node_df = pd.DataFrame(node_features, columns=node_headers)
-        node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=True)
+        if not self.skip_nodes:
+            node_features, node_headers = create_feature_array(self.nodes)
+            node_df = pd.DataFrame(node_features, columns=node_headers)
+            node_df.to_csv(self.im_info.pipeline_paths['features_nodes'], index=True)
 
         branch_features, branch_headers = create_feature_array(self.branches, self.branches.branch_label)
         branch_df = pd.DataFrame(branch_features, columns=branch_headers)
@@ -148,13 +151,14 @@ class Hierarchy:
         # v_i = []
         for t in range(len(self.voxels.time)):
             num_voxels = len(self.voxels.coords[t])
-            num_nodes = len(self.nodes.nodes[t])
-            v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
-            for voxel, nodes in enumerate(self.voxels.node_labels[t]):
-                if len(nodes) == 0:
-                    continue
-                v_n_temp[voxel, nodes] = True
-            v_n.append(np.argwhere(v_n_temp))
+            if not self.skip_nodes:
+                num_nodes = len(self.nodes.nodes[t])
+                v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
+                for voxel, nodes in enumerate(self.voxels.node_labels[t]):
+                    if len(nodes) == 0:
+                        continue
+                    v_n_temp[voxel, nodes] = True
+                v_n.append(np.argwhere(v_n_temp))
 
             v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
             v_b.append(np.argwhere(v_b_matrix))
@@ -168,15 +172,16 @@ class Hierarchy:
         n_b = []
         n_o = []
         # n_i = []
-        for t in range(len(self.nodes.time)):
-            n_b_matrix = self.nodes.branch_label[t][:, None] == self.branches.branch_label[t]
-            n_b.append(np.argwhere(n_b_matrix))
+        if not self.skip_nodes:
+            for t in range(len(self.nodes.time)):
+                n_b_matrix = self.nodes.branch_label[t][:, None] == self.branches.branch_label[t]
+                n_b.append(np.argwhere(n_b_matrix))
 
-            n_o_matrix = self.nodes.component_label[t][:, None] == self.components.component_label[t]
-            n_o.append(np.argwhere(n_o_matrix))
+                n_o_matrix = self.nodes.component_label[t][:, None] == self.components.component_label[t]
+                n_o.append(np.argwhere(n_o_matrix))
 
-            # n_i_matrix = np.ones((len(self.nodes.nodes[t]), 1), dtype=bool)
-            # n_i.append(np.argwhere(n_i_matrix))
+                # n_i_matrix = np.ones((len(self.nodes.nodes[t]), 1), dtype=bool)
+                # n_i.append(np.argwhere(n_i_matrix))
 
         b_o = []
         # b_i = []
@@ -333,7 +338,6 @@ class Voxels:
         # self.directionality_com = []
         # self.directionality_acc_com = []
 
-        self.node_labels = []
         self.branch_labels = []
         self.component_labels = []
         self.image_name = []
@@ -434,7 +438,7 @@ class Voxels:
                 chunk_node_voxel_idxs[i].extend(np.nonzero(mask[i])[0] + start)
 
         # Append the result
-        self.node_labels.append(chunk_nodes_idxs)
+        # self.node_labels.append(chunk_nodes_idxs)
         # convert chunk_node_voxel_idxs to a list of arrays
         chunk_node_voxel_idxs = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
         self.node_voxel_idxs.append(chunk_node_voxel_idxs)
@@ -738,7 +742,8 @@ class Voxels:
         im_name = np.ones(frame_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
         self.image_name.append(im_name)
 
-        self._get_node_info(t, frame_coords)
+        if not self.hierarchy.skip_nodes:
+            self._get_node_info(t, frame_coords)
         self._get_motility_stats(t, frame_coords)
 
     def run(self):
@@ -917,6 +922,8 @@ class Nodes:
         self._get_node_stats(t)
 
     def run(self):
+        if self.hierarchy.skip_nodes:
+            return
         for t in range(self.hierarchy.num_t):
             self._run_frame(t)
 
@@ -965,11 +972,12 @@ class Branches:
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 
-        node_labels = self.hierarchy.nodes.branch_label[t]
-        grouped_node_idxs = [np.argwhere(node_labels == label).flatten()
-                             for label in np.unique(node_labels) if label != 0]
-        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
-        self.aggregate_node_metrics.append(node_agg)
+        if not self.hierarchy.skip_nodes:
+            node_labels = self.hierarchy.nodes.branch_label[t]
+            grouped_node_idxs = [np.argwhere(node_labels == label).flatten()
+                                 for label in np.unique(node_labels) if label != 0]
+            node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
+            self.aggregate_node_metrics.append(node_agg)
 
     def _get_branch_stats(self, t):
         branch_idx_array_1 = np.array(self.branch_idxs[t])
@@ -1154,11 +1162,12 @@ class Components:
         vox_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, grouped_vox_idxs)
         self.aggregate_voxel_metrics.append(vox_agg)
 
-        node_labels = self.hierarchy.nodes.component_label[t]
-        grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels) if
-                             label != 0]
-        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
-        self.aggregate_node_metrics.append(node_agg)
+        if not self.hierarchy.skip_nodes:
+            node_labels = self.hierarchy.nodes.component_label[t]
+            grouped_node_idxs = [np.argwhere(node_labels == label).flatten() for label in np.unique(voxel_labels) if
+                                 label != 0]
+            node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, grouped_node_idxs)
+            self.aggregate_node_metrics.append(node_agg)
 
         branch_labels = self.hierarchy.branches.component_label[t]
         grouped_branch_idxs = [np.argwhere(branch_labels == label).flatten() for label in np.unique(voxel_labels) if
@@ -1237,8 +1246,9 @@ class Image:
                                               [np.arange(len(self.hierarchy.voxels.coords[t]))])
         self.aggregate_voxel_metrics.append(voxel_agg)
 
-        node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, [np.arange(len(self.hierarchy.nodes.nodes[t]))])
-        self.aggregate_node_metrics.append(node_agg)
+        if not self.hierarchy.skip_nodes:
+            node_agg = aggregate_stats_for_class(self.hierarchy.nodes, t, [np.arange(len(self.hierarchy.nodes.nodes[t]))])
+            self.aggregate_node_metrics.append(node_agg)
 
         branch_agg = aggregate_stats_for_class(self.hierarchy.branches, t,
                                                [self.hierarchy.branches.branch_label[t].flatten() - 1])
