@@ -408,25 +408,6 @@ class Voxels:
 
         self.node_labels.append(frame_coord_nodes_idxs)
 
-        frame_coords = np.array(frame_coords)
-        skeleton_pixels = np.array(skeleton_pixels)
-
-        dim0_coords, dim1_coords = frame_coords[:, 0], frame_coords[:, 1]
-
-        if not self.hierarchy.im_info.no_z:
-            dim2_coords = frame_coords[:, 2]
-
-        # Precompute masks for all skeleton pixels
-        if not self.hierarchy.im_info.no_z:
-            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
-            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
-            dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (lims_dim2[:, 1][:, None] >= dim2_coords)
-            mask = dim0_mask & dim1_mask & dim2_mask
-        else:
-            dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (lims_dim0[:, 1][:, None] >= dim0_coords)
-            dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (lims_dim1[:, 1][:, None] >= dim1_coords)
-            mask = dim0_mask & dim1_mask
-
         # Initialize list to hold results
         node_voxel_idxs = [[] for _ in range(skeleton_pixels.shape[0])]
 

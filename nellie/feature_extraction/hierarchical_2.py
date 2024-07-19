@@ -7,7 +7,6 @@ from skimage.measure import regionprops
 from nellie import logger
 from nellie.im_info.im_info import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
-from nellie.utils.general import get_reshaped_image
 import pandas as pd
 import time
 
@@ -389,11 +388,12 @@ class Voxels:
 
         frame_coords = np.array(frame_coords)
         # process frame coords in chunks of 1000 max
-        chunk_size = 1000
+        chunk_size = 10000
         num_chunks = int(np.ceil(len(frame_coords) / chunk_size))
         chunk_node_voxel_idxs = {idx: [] for idx in range(len(skeleton_pixels))}
         chunk_nodes_idxs = []
         for chunk_num in range(num_chunks):
+            logger.debug(f"Processing chunk {chunk_num + 1} of {num_chunks}")
             start = chunk_num * chunk_size
             end = min((chunk_num + 1) * chunk_size, len(frame_coords))
             chunk_frame_coords = frame_coords[start:end]

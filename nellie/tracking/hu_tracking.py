@@ -225,6 +225,8 @@ class HuMomentTracking:
         marker_indices = xp.argwhere(marker_frame)
 
         region_bounds = self._get_im_bounds(marker_indices, distance_max_frame)
+        #todo deal with the max radius calculation if distance_max_frame is empty
+
         max_radius = int(xp.ceil(xp.max(distance_max_frame[marker_frame]))) * 2 + 1
 
         intensity_sub_volumes = self._get_sub_volumes(intensity_frame, region_bounds, max_radius)

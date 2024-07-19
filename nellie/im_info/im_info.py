@@ -295,10 +295,10 @@ class ImInfo:
     def _ensure_t(self, data=None):
         if 'T' not in self.axes:
             self.axes = 'T' + self.axes
-        # if len(self.axes) != len(self.shape):
-        #     self.shape = (1,) + self.shape
-            # if data is not None:
-            #     data = np.expand_dims(data, axis=0)
+        if len(self.axes) != len(self.shape):
+            self.shape = (1,) + self.shape
+            if data is not None:
+                data = np.expand_dims(data, axis=0)
         if data is not None and (len(data.shape) != len(self.shape)):
             data = np.expand_dims(data, axis=0)
         return data
