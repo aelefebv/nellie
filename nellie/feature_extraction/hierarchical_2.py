@@ -142,9 +142,10 @@ class Hierarchy:
 
     def _save_adjacency_maps(self):
         # edge list:
-        v_b = [self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t] for t in
-               range(len(self.voxels.time))]
         v_n = []
+        v_b = []
+        v_o = []
+        # v_i = []
         for t in range(len(self.voxels.time)):
             num_voxels = len(self.voxels.coords[t])
             num_nodes = len(self.nodes.nodes[t])
@@ -153,44 +154,54 @@ class Hierarchy:
                 if len(nodes) == 0:
                     continue
                 v_n_temp[voxel, nodes] = True
-            v_n.append(v_n_temp)
-        v_o = [self.voxels.component_labels[t][:, None] == self.components.component_label[t] for t in
-               range(len(self.voxels.time))]
-        v_i = [np.ones((len(self.voxels.coords[t]), 1), dtype=bool) for t in range(len(self.voxels.time))]
+            v_n.append(np.argwhere(v_n_temp))
 
-        n_v = [v_n[t].T for t in range(len(self.voxels.time))]
-        n_b = [self.nodes.branch_label[t][:, None] == self.branches.branch_label[t] for t in
-               range(len(self.nodes.time))]
-        n_o = [self.nodes.component_label[t][:, None] == self.components.component_label[t] for t in
-               range(len(self.nodes.time))]
-        n_i = [np.ones((len(self.nodes.nodes[t]), 1), dtype=bool) for t in range(len(self.nodes.time))]
+            v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
+            v_b.append(np.argwhere(v_b_matrix))
 
-        b_v = [v_b[t].T for t in range(len(self.voxels.time))]
-        b_n = [n_b[t].T for t in range(len(self.nodes.time))]
-        b_o = [self.branches.component_label[t][:, None] == self.components.component_label[t] for t in
-               range(len(self.branches.time))]
-        b_i = [np.ones((len(self.branches.branch_label[t]), 1), dtype=bool) for t in
-               range(len(self.branches.time))]
+            v_o_matrix = self.voxels.component_labels[t][:, None] == self.components.component_label[t]
+            v_o.append(np.argwhere(v_o_matrix))
 
-        o_v = [v_o[t].T for t in range(len(self.voxels.time))]
-        o_n = [n_o[t].T for t in range(len(self.nodes.time))]
-        o_b = [b_o[t].T for t in range(len(self.branches.time))]
-        o_i = [np.ones((len(self.components.component_label[t]), 1), dtype=bool) for t in
-               range(len(self.components.time))]
+            # v_i_matrix = np.ones((len(self.voxels.coords[t]), 1), dtype=bool)
+            # v_i.append(np.argwhere(v_i_matrix))
 
-        i_v = [v_i[t].T for t in range(len(self.voxels.time))]
-        i_n = [n_i[t].T for t in range(len(self.nodes.time))]
-        i_b = [b_i[t].T for t in range(len(self.branches.time))]
-        i_o = [o_i[t].T for t in range(len(self.components.time))]
+        n_b = []
+        n_o = []
+        # n_i = []
+        for t in range(len(self.nodes.time)):
+            n_b_matrix = self.nodes.branch_label[t][:, None] == self.branches.branch_label[t]
+            n_b.append(np.argwhere(n_b_matrix))
+
+            n_o_matrix = self.nodes.component_label[t][:, None] == self.components.component_label[t]
+            n_o.append(np.argwhere(n_o_matrix))
+
+            # n_i_matrix = np.ones((len(self.nodes.nodes[t]), 1), dtype=bool)
+            # n_i.append(np.argwhere(n_i_matrix))
+
+        b_o = []
+        # b_i = []
+        for t in range(len(self.branches.time)):
+            b_o_matrix = self.branches.component_label[t][:, None] == self.components.component_label[t]
+            b_o.append(np.argwhere(b_o_matrix))
+
+            # b_i_matrix = np.ones((len(self.branches.branch_label[t]), 1), dtype=bool)
+            # b_i.append(np.argwhere(b_i_matrix))
+
+        # o_i = []
+        # for t in range(len(self.components.time)):
+        #     o_i_matrix = np.ones((len(self.components.component_label[t]), 1), dtype=bool)
+        #     o_i.append(np.argwhere(o_i_matrix))
 
         # create a dict with all the edges
         # could also link voxels between t frames
         edges = {
-            "v_b": v_b, "v_n": v_n, "v_o": v_o, "v_i": v_i,
-            "n_v": n_v, "n_b": n_b, "n_o": n_o, "n_i": n_i,
-            "b_v": b_v, "b_n": b_n, "b_o": b_o, "b_i": b_i,
-            "o_v": o_v, "o_n": o_n, "o_b": o_b, "o_i": o_i,
-            "i_v": i_v, "i_n": i_n, "i_b": i_b, "i_o": i_o,
+            "v_b": v_b, "v_n": v_n, "v_o": v_o,  # "v_i": v_i,
+            # "n_v": n_v,
+            "n_b": n_b, "n_o": n_o,  # "n_i": n_i,
+            # "b_v": b_v, "b_n": b_n,
+            "b_o": b_o,  # "b_i": b_i,
+            # "o_v": o_v, "o_n": o_n, "o_b": o_b,  # "o_i": o_i,
+            # "i_v": i_v, "i_n": i_n, "i_b": i_b,  # "i_o": i_o,
         }
         # pickle and save
         with open(self.im_info.pipeline_paths['adjacency_maps'], "wb") as f:

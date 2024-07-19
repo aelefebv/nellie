@@ -36,8 +36,8 @@ def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_
 
 if __name__ == "__main__":
     # # Single file run
-    # im_path = r"/Users/austin/test_files/nellie_all_tests/ND Stimulation Parallel 12.nd2"
-    im_path = r"C:\Users\austin\Downloads\C3-PH8_RIML_1026RESO002.tif"
+    im_path = r"/Users/austin/test_files/nellie_all_tests/ND Stimulation Parallel 12.nd2"
+    # im_path = r"C:\Users\austin\Downloads\C3-PH8_RIML_1026RESO002.tif"
     im_info = run(im_path, remove_edges=False)
     # # im_info = run(im_path, remove_edges=False, ch=0, dim_sizes={'T': 1, 'Z': 1, 'Y': 0.0605, 'X': 0.0605}, otsu_thresh_intensity=True)
     # im_info = run(im_path, remove_edges=False, ch=1)
