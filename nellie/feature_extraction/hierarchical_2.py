@@ -424,6 +424,8 @@ class Voxels:
 
         # Append the result
         self.node_labels.append(chunk_nodes_idxs)
+        # convert chunk_node_voxel_idxs to a list of arrays
+        chunk_node_voxel_idxs = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
         self.node_voxel_idxs.append(chunk_node_voxel_idxs)
 
     def _get_min_euc_dist(self, t, vec):
@@ -807,14 +809,15 @@ class Nodes:
         self.divergence = []
         self.convergence = []
         self.vergere = []
-        self.lin_magnitude_variability = []
-        self.ang_magnitude_variability = []
-        self.lin_direction_uniformity = []
-        self.ang_direction_uniformity = []
+        # self.lin_magnitude_variability = []
+        # self.ang_magnitude_variability = []
+        # self.lin_direction_uniformity = []
+        # self.ang_direction_uniformity = []
 
         self.stats_to_aggregate = [
-            "divergence", "convergence", "vergere", "lin_magnitude_variability", "ang_magnitude_variability",
-            "lin_direction_uniformity", "ang_direction_uniformity", "node_thickness",
+            "divergence", "convergence", "vergere", "node_thickness",
+            # "lin_magnitude_variability", "ang_magnitude_variability",
+            # "lin_direction_uniformity", "ang_direction_uniformity",
         ]
 
         self.features_to_save = self.stats_to_aggregate
@@ -839,10 +842,10 @@ class Nodes:
         divergence = []
         convergence = []
         vergere = []
-        lin_mag_variability = []
-        ang_mag_variability = []
-        lin_dir_uniformity = []
-        ang_dir_uniformity = []
+        # lin_mag_variability = []
+        # ang_mag_variability = []
+        # lin_dir_uniformity = []
+        # ang_dir_uniformity = []
         for i, node in enumerate(self.nodes[t]):
             vox_idxs = self.voxel_idxs[t][i]
             dist_vox_node = self.hierarchy.voxels.coords[t][vox_idxs] - self.nodes[t][i]
@@ -859,29 +862,29 @@ class Nodes:
             # high vergere is a funnel point (converges then diverges)
             # low vergere is a dispersal point (diverges then converges)
 
-            lin_vel_mag = self.hierarchy.voxels.lin_vel_mag[t][vox_idxs]
-            lin_mag_variability.append(np.nanstd(lin_vel_mag))
-            ang_vel_mag = self.hierarchy.voxels.ang_vel_mag[t][vox_idxs]
-            ang_mag_variability.append(np.nanstd(ang_vel_mag))
-
-            lin_vel = self.hierarchy.voxels.lin_vel[t][vox_idxs]
-            lin_unit_vec = lin_vel / lin_vel_mag[:, np.newaxis]
-            lin_similarity_matrix = np.dot(lin_unit_vec, lin_unit_vec.T)
-            np.fill_diagonal(lin_similarity_matrix, np.nan)
-            lin_dir_uniformity.append(np.nanmean(lin_similarity_matrix))
-
-            ang_vel = self.hierarchy.voxels.ang_vel[t][vox_idxs]
-            ang_unit_vec = ang_vel / ang_vel_mag[:, np.newaxis]
-            ang_similarity_matrix = np.dot(ang_unit_vec, ang_unit_vec.T)
-            np.fill_diagonal(ang_similarity_matrix, np.nan)
-            ang_dir_uniformity.append(np.nanmean(ang_similarity_matrix))
+            # lin_vel_mag = self.hierarchy.voxels.lin_vel_mag[t][vox_idxs]
+            # lin_mag_variability.append(np.nanstd(lin_vel_mag))
+            # ang_vel_mag = self.hierarchy.voxels.ang_vel_mag[t][vox_idxs]
+            # ang_mag_variability.append(np.nanstd(ang_vel_mag))
+            #
+            # lin_vel = self.hierarchy.voxels.lin_vel[t][vox_idxs]
+            # lin_unit_vec = lin_vel / lin_vel_mag[:, np.newaxis]
+            # lin_similarity_matrix = np.dot(lin_unit_vec, lin_unit_vec.T)
+            # np.fill_diagonal(lin_similarity_matrix, np.nan)
+            # lin_dir_uniformity.append(np.nanmean(lin_similarity_matrix))
+            #
+            # ang_vel = self.hierarchy.voxels.ang_vel[t][vox_idxs]
+            # ang_unit_vec = ang_vel / ang_vel_mag[:, np.newaxis]
+            # ang_similarity_matrix = np.dot(ang_unit_vec, ang_unit_vec.T)
+            # np.fill_diagonal(ang_similarity_matrix, np.nan)
+            # ang_dir_uniformity.append(np.nanmean(ang_similarity_matrix))
         self.divergence.append(divergence)
         self.convergence.append(convergence)
         self.vergere.append(vergere)
-        self.lin_magnitude_variability.append(lin_mag_variability)
-        self.ang_magnitude_variability.append(ang_mag_variability)
-        self.lin_direction_uniformity.append(lin_dir_uniformity)
-        self.ang_direction_uniformity.append(ang_dir_uniformity)
+        # self.lin_magnitude_variability.append(lin_mag_variability)
+        # self.ang_magnitude_variability.append(ang_mag_variability)
+        # self.lin_direction_uniformity.append(lin_dir_uniformity)
+        # self.ang_direction_uniformity.append(ang_dir_uniformity)
 
     def _run_frame(self, t):
         frame_skel_coords = np.argwhere(self.hierarchy.im_pixel_class[t] > 0)
