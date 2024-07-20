@@ -1,5 +1,7 @@
 from itertools import combinations_with_replacement
 
+# import napari
+
 from nellie import logger
 from nellie.im_info.im_info import ImInfo
 from nellie.utils.general import get_reshaped_image, bbox
@@ -12,7 +14,7 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=True,
-                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5):
+                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, viewer=None):
         self.im_info = im_info
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
@@ -35,6 +37,8 @@ class Filter:
 
         self.alpha_sq = alpha_sq
         self.beta_sq = beta_sq
+
+        self.viewer = viewer
 
     def _get_t(self):
         if self.num_t is None:
@@ -241,6 +245,8 @@ class Filter:
 
     def _run_filter(self, mask=True):
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Preprocessing. Frame: {t + 1} of {self.num_t}.'
             frangi_frame = self._run_frame(t, mask=mask)
             if not xp.sum(frangi_frame):
                 frangi_frame = self._mask_volume(frangi_frame)

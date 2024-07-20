@@ -11,7 +11,8 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 class Network:
     def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1, clean_skel=None):
+                 min_radius_um=0.20, max_radius_um=1, clean_skel=None,
+                 viewer=None):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
@@ -47,6 +48,8 @@ class Network:
         self.sigmas = None
 
         self.debug = None
+
+        self.viewer = viewer
 
     def _remove_connected_label_pixels(self, skel_labels):
         if device_type == 'cuda':
@@ -355,6 +358,8 @@ class Network:
 
     def _run_networking(self):
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Extracting branches. Frame: {t + 1} of {self.num_t}.'
             skel, pixel_class, skel_relabelled_memmap = self._run_frame(t)
             if self.im_info.no_t or self.num_t == 1:
                 if device_type == 'cuda':

@@ -13,7 +13,8 @@ import time
 
 
 class Hierarchy:
-    def __init__(self, im_info: ImInfo, num_t: int, skip_nodes=True):
+    def __init__(self, im_info: ImInfo, num_t: int, skip_nodes=True,
+                 viewer=None):
         self.im_info = im_info
         self.num_t = num_t
         if self.im_info.no_z:
@@ -45,6 +46,8 @@ class Hierarchy:
         self.branches = None
         self.components = None
         self.image = None
+
+        self.viewer = viewer
 
     def _get_t(self):
         if self.num_t is None and not self.im_info.no_t:
@@ -128,6 +131,8 @@ class Hierarchy:
         logger.debug(f"Image analysis took {i_time} seconds")
 
     def _save_dfs(self):
+        if self.viewer is not None:
+            self.viewer.status = f'Saving features to csv files.'
         voxel_features, voxel_headers = create_feature_array(self.voxels)
         voxel_df = pd.DataFrame(voxel_features, columns=voxel_headers)
         voxel_df.to_csv(self.im_info.pipeline_paths['features_voxels'], index=True)
@@ -222,9 +227,12 @@ class Hierarchy:
         self._get_t()
         self._allocate_memory()
         self._get_hierarchies()
-        print("Saving dataframes and adjacency maps")
         self._save_dfs()
+        if self.viewer is not None:
+            self.viewer.status = f'Finalizing run.'
         self._save_adjacency_maps()
+        if self.viewer is not None:
+            self.viewer.status = f'Done!'
 
 
 def append_to_array(to_append):
@@ -757,6 +765,8 @@ class Voxels:
         if self.hierarchy.num_t is None:
             self.hierarchy.num_t = 1
         for t in range(self.hierarchy.num_t):
+            if self.hierarchy.viewer is not None:
+                self.hierarchy.viewer.status = f'Extracting voxel features. Frame: {t + 1} of {self.hierarchy.num_t}.'
             self._run_frame(t)
 
 
@@ -932,6 +942,8 @@ class Nodes:
         if self.hierarchy.skip_nodes:
             return
         for t in range(self.hierarchy.num_t):
+            if self.hierarchy.viewer is not None:
+                self.hierarchy.viewer.status = f'Extracting node features. Frame: {t + 1} of {self.hierarchy.num_t}.'
             self._run_frame(t)
 
 
@@ -1137,6 +1149,8 @@ class Branches:
 
     def run(self):
         for t in range(self.hierarchy.num_t):
+            if self.hierarchy.viewer is not None:
+                self.hierarchy.viewer.status = f'Extracting branch features. Frame: {t + 1} of {self.hierarchy.num_t}.'
             self._run_frame(t)
 
 
@@ -1235,6 +1249,8 @@ class Components:
 
     def run(self):
         for t in range(self.hierarchy.num_t):
+            if self.hierarchy.viewer is not None:
+                self.hierarchy.viewer.status = f'Extracting organelle features. Frame: {t + 1} of {self.hierarchy.num_t}.'
             self._run_frame(t)
 
 
@@ -1275,6 +1291,8 @@ class Image:
 
     def run(self):
         for t in range(self.hierarchy.num_t):
+            if self.hierarchy.viewer is not None:
+                self.hierarchy.viewer.status = f'Extracting image features. Frame: {t + 1} of {self.hierarchy.num_t}.'
             self._run_frame(t)
 
 

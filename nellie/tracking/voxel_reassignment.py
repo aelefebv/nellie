@@ -10,7 +10,8 @@ from nellie.utils.general import get_reshaped_image
 
 
 class VoxelReassigner:
-    def __init__(self, im_info: ImInfo, num_t=None):
+    def __init__(self, im_info: ImInfo, num_t=None,
+                 viewer=None):
         self.im_info = im_info
 
         if self.im_info.no_t:
@@ -31,6 +32,8 @@ class VoxelReassigner:
         self.reassigned_obj_memmap = None
 
         self.debug = None
+
+        self.viewer = viewer
 
     def _match_forward(self, flow_interpolator, vox_prev, vox_next, t):
         vectors_interpx_prev = flow_interpolator.interpolate_coord(vox_prev, t)
@@ -264,6 +267,8 @@ class VoxelReassigner:
         all_mask_coords = [np.argwhere(label_memmap[t] > 0) for t in range(self.num_t)]
 
         for t in range(self.num_t - 1):
+            if self.viewer is not None:
+                self.viewer.status = f'Reassigning voxels. Frame: {t + 1} of {self.num_t}.'
             no_matches = self._run_frame(t, all_mask_coords, reassigned_memmap)
 
             if no_matches:

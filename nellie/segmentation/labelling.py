@@ -8,7 +8,8 @@ class Label:
     def __init__(self, im_info: ImInfo,
                  num_t=None,
                  threshold=None,
-                 snr_cleaning=False, otsu_thresh_intensity=False):
+                 snr_cleaning=False, otsu_thresh_intensity=False,
+                 viewer=None):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
@@ -30,6 +31,8 @@ class Label:
         self.shape = ()
 
         self.debug = {}
+
+        self.viewer = viewer
 
     def _get_t(self):
         if self.num_t is None:
@@ -143,6 +146,8 @@ class Label:
 
     def _run_segmentation(self):
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Extracting organelles. Frame: {t + 1} of {self.num_t}.'
             labels = self._run_frame(t)
             if device_type == 'cuda':
                 labels = labels.get()

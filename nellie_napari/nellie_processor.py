@@ -1,7 +1,7 @@
 import os
 
 from napari.utils.notifications import show_info
-from qtpy.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QSpinBox, QCheckBox
+from qtpy.QtWidgets import QWidget, QPushButton, QLabel, QGridLayout, QSpinBox
 from nellie import logger
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.segmentation.filtering import Filter
@@ -11,6 +11,7 @@ from nellie.segmentation.networking import Network
 from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 from nellie.utils.general import get_reshaped_image
+from napari.qt.threading import thread_worker
 
 
 class NellieProcessor(QWidget):
@@ -104,6 +105,7 @@ class NellieProcessor(QWidget):
         self.initialized = True
         
     def check_file_existence(self):
+        self.pipeline = False
         self.nellie.visualizer.check_file_existence()
 
         # set all other buttons to disabled first
@@ -161,59 +163,129 @@ class NellieProcessor(QWidget):
         else:
             self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
 
+    @thread_worker
+    def _run_preprocessing(self):
+        show_info("Nellie in running: Preprocessing")
+        preprocessing = Filter(im_info=self.nellie.im_info, num_t=self.num_t,
+                               remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked(),
+                               viewer=self.viewer)
+        preprocessing.run()
+        return None
 
     def run_preprocessing(self):
-        preprocessing = Filter(im_info=self.nellie.im_info, num_t=self.num_t,
-                               remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked())
-        preprocessing.run()
+        worker = self._run_preprocessing()
+        worker.started.connect(self.turn_off_buttons)
+        if self.pipeline:
+            worker.finished.connect(self.run_segmentation)
+        # else:
+        worker.finished.connect(self.check_for_raw)
+        worker.finished.connect(self.check_file_existence)
+        worker.start()
 
-        self.check_file_existence()
-
-    def run_segmentation(self):
-        segmenting = Label(im_info=self.nellie.im_info, num_t=self.num_t)
+    @thread_worker
+    def _run_segmentation(self):
+        show_info("Nellie in running: Segmentation")
+        segmenting = Label(im_info=self.nellie.im_info, num_t=self.num_t, viewer=self.viewer)
         segmenting.run()
-        networking = Network(im_info=self.nellie.im_info, num_t=self.num_t)
+        networking = Network(im_info=self.nellie.im_info, num_t=self.num_t, viewer=self.viewer)
         networking.run()
 
-        self.check_file_existence()
+    def run_segmentation(self):
+        worker = self._run_segmentation()
+        worker.started.connect(self.turn_off_buttons)
+        if self.pipeline:
+            worker.finished.connect(self.run_mocap)
+        # else:
+        worker.finished.connect(self.check_for_raw)
+        worker.finished.connect(self.check_file_existence)
+        worker.start()
 
-    def run_mocap(self):
-        mocap_marking = Markers(im_info=self.nellie.im_info, num_t=self.num_t)
+
+    @thread_worker
+    def _run_mocap(self):
+        show_info("Nellie in running: Mocap Marking")
+        mocap_marking = Markers(im_info=self.nellie.im_info, num_t=self.num_t, viewer=self.viewer)
         mocap_marking.run()
 
-        self.check_file_existence()
+    def run_mocap(self):
+        worker = self._run_mocap()
+        worker.started.connect(self.turn_off_buttons)
+        if self.pipeline:
+            worker.finished.connect(self.run_tracking)
+        # else:
+        worker.finished.connect(self.check_for_raw)
+        worker.finished.connect(self.check_file_existence)
+        worker.start()
 
-    def run_tracking(self):
-        hu_tracking = HuMomentTracking(im_info=self.nellie.im_info, num_t=self.num_t)
+
+    @thread_worker
+    def _run_tracking(self):
+        show_info("Nellie in running: Tracking")
+        hu_tracking = HuMomentTracking(im_info=self.nellie.im_info, num_t=self.num_t, viewer=self.viewer)
         hu_tracking.run()
 
-        self.check_file_existence()
+    def run_tracking(self):
+        worker = self._run_tracking()
+        worker.started.connect(self.turn_off_buttons)
+        if self.pipeline:
+            worker.finished.connect(self.run_reassign)
+        # else:
+        worker.finished.connect(self.check_for_raw)
+        worker.finished.connect(self.check_file_existence)
+        worker.start()
 
-    def run_reassign(self):
-        vox_reassign = VoxelReassigner(im_info=self.nellie.im_info, num_t=self.num_t)
+    @thread_worker
+    def _run_reassign(self):
+        show_info("Nellie in running: Voxel Reassignment")
+        vox_reassign = VoxelReassigner(im_info=self.nellie.im_info, num_t=self.num_t, viewer=self.viewer)
         vox_reassign.run()
 
-        self.check_file_existence()
+    def run_reassign(self):
+        worker = self._run_reassign()
+        worker.started.connect(self.turn_off_buttons)
+        if self.pipeline:
+            worker.finished.connect(self.run_feature_export)
+        # else:
+        worker.finished.connect(self.check_for_raw)
+        worker.finished.connect(self.check_file_existence)
+        worker.start()
 
-    def run_feature_export(self):
+
+    @thread_worker
+    def _run_feature_export(self):
+        show_info("Nellie in running: Feature export")
         hierarchy = Hierarchy(im_info=self.nellie.im_info, num_t=self.num_t,
-                              skip_nodes= not bool(self.nellie.settings.analyze_node_level.isChecked()))
-        show_info(f"Skip nodes: { not bool(self.nellie.settings.analyze_node_level.isChecked())}")
+                              skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
+                              viewer=self.viewer)
         hierarchy.run()
 
-        self.nellie.analyzer.reset()
-        self.check_file_existence()
+    def run_feature_export(self):
+        worker = self._run_feature_export()
+        worker.started.connect(self.turn_off_buttons)
+        worker.finished.connect(self.check_for_raw)
+        worker.finished.connect(self.check_file_existence)
+        worker.start()
+
+    # @thread_worker
+    # def _run_nellie(self):
+    #     self.run_preprocessing(pipeline=True)
+    #     self.run_segmentation()
+    #     self.run_mocap()
+    #     self.run_tracking()
+    #     if self.nellie.settings.voxel_reassign.isChecked():
+    #         self.run_reassign()
+    #     self.run_feature_export()
+    #
+    #     # self.check_file_existence()
 
     def run_nellie(self):
+        self.pipeline = True
         self.run_preprocessing()
-        self.run_segmentation()
-        self.run_mocap()
-        self.run_tracking()
-        if self.nellie.settings.voxel_reassign.isChecked():
-            self.run_reassign()
-        self.run_feature_export()
-
-        self.check_file_existence()
+        # worker = self.run_preprocessing()
+        # worker.started.connect(self.turn_off_buttons)
+        # worker.finished.connect(self.check_for_raw)
+        # worker.finished.connect(self.check_file_existence)
+        # worker.start()
 
     def check_for_raw(self):
         self.preprocess_button.setEnabled(False)
@@ -240,128 +312,14 @@ class NellieProcessor(QWidget):
     def change_t(self):
         self.num_t = self.time_input.value()
 
-    # def find_closest_voxel(self, near2, far2):
-    #     near1, far1 = self.ray_near_far
-    #     time_point = near1[0]
-    #     near1 = near1[1:]
-    #     far1 = far1[1:]
-    #     near2 = near2[1:]
-    #     far2 = far2[1:]
-    #
-    #     p1 = np.array(near1)
-    #     d1 = np.array(far1) - p1
-    #
-    #     p2 = np.array(near2)
-    #     d2 = np.array(far2) - p2
-    #
-    #     show_info(f"{p1}, {d1}, {p2}, {d2}")
-    #
-    #     # normalize
-    #     d1 /= np.linalg.norm(d1)
-    #     d2 /= np.linalg.norm(d2)
-    #     show_info(f"{p1}, {d1}, {p2}, {d2}")
-    #
-    #     # cross
-    #     cross_d1_d2 = np.cross(d1, d2)
-    #
-    #     # check non-parallel
-    #     if np.linalg.norm(cross_d1_d2) < 1e-6:
-    #         logger.error("Rays are parallel or coincident.")
-    #         return
-    #
-    #     # Calculate the line segment connecting the two lines that is perpendicular to both
-    #     # This is done by solving the system of linear equations formed by the two lines
-    #     a = np.array([d1, -d2, cross_d1_d2]).T
-    #     b = p2 - p1
-    #     t, s, _ = np.linalg.solve(a, b)
-    #
-    #     # Calculate the closest points on the original lines
-    #     closest_point_on_line1 = p1 + d1 * t
-    #     closest_point_on_line2 = p2 + d2 * s
-    #
-    #     # Find the midpoint of the shortest line connecting the two rays
-    #     midpoint = (closest_point_on_line1 + closest_point_on_line2) / 2
-    #     # add time point to midpoint coords
-    #     midpoint = np.insert(midpoint, 0, time_point)
-    #     # Convert the midpoint to voxel coordinates (assumes the raw layer is the image)
-    #     voxel_coords = np.round(self.raw_layer.world_to_data(midpoint)).astype(int)
-    #     show_info(f"Midpoint: {midpoint}, Voxel coords: {voxel_coords}")
-    #     # self.point_layer = self.viewer.add_points(voxel_coords, name='midpoint', face_color='red', size=2)
-    #     self.tracked_coords = voxel_coords
-    #
-    #     # Check if the voxel_coords are within the bounds of the image
-    #     if np.all(voxel_coords >= 0) and np.all(voxel_coords < self.im_memmap.shape):
-    #         # Here you can do something with the voxel coordinates, like highlighting the voxel
-    #         logger.info(f"Closest voxel at: {voxel_coords}")
-    #     else:
-    #         logger.error("Calculated voxel coordinates are out of bounds.")
-
-    # def animate_camera_angle(self):
-    #     # Calculate the time elapsed since the start of the animation
-    #     time_elapsed = time.time() - self.animation_start_time
-    #     duration = 0.5  # Total duration of the animation in seconds
-    #
-    #     if time_elapsed < duration:
-    #         # Calculate the intermediate angle based on the elapsed time
-    #         fraction = time_elapsed / duration
-    #         delta_angle = 45 * fraction  # Change in angle should be 45 degrees
-    #         new_angle = self.start_angle + delta_angle
-    #
-    #         # Update the camera angle
-    #         self.viewer.camera.angles = (self.current_angles[0], self.current_angles[1], new_angle)
-    #     else:
-    #         # Animation is complete, set the final angle
-    #         self.viewer.camera.angles = (self.current_angles[0], self.current_angles[1], self.start_angle + 45)
-    #         self.animation_timer.stop()  # Stop the timer
-
-    # def get_tracks(self):
-    #     if self.tracked_coords is None:
-    #         return
-    #     t_current = self.tracked_coords[0]
-    #     coord_to_track = np.asarray([self.tracked_coords[1:]])
-    #     tracks_forward, track_props_forward = interpolate_all_forward(coord_to_track, t_current,
-    #                                                                   self.num_t - 1, self.nellie.im_info)
-    #     tracks_back, track_props_back = interpolate_all_backward(coord_to_track, t_current,
-    #                                                             1, self.nellie.im_info)
-    #     self.track_layer = self.viewer.add_tracks(tracks_forward, properties=track_props_forward, name='tracks', scale=self.scale)
-    #     self.track_layer = self.viewer.add_tracks(tracks_back, properties=track_props_back, name='tracks', scale=self.scale)
-
-    # def on_click(self, layer, event):  # https://napari.org/dev/guides/3D_interactivity.html
-    #     near, far = None, None
-    #     if event.button == 1 and event.is_dragging is False and 'Alt' in event.modifiers:
-    #         near, far = layer.get_ray_intersections(event.position, event.view_direction, event.dims_displayed)
-    #     if near is None or far is None:
-    #         return
-    #
-    #     # add line to viewer
-    #     if self.ray_layer is None:
-    #         self.ray_near_far = (near, far)
-    #         self.ray_layer = self.viewer.add_shapes(
-    #             np.asarray([[*near], [*far]]),
-    #             shape_type='line',
-    #             edge_color='red',
-    #             edge_width=1,
-    #             name='ray',
-    #             opacity=0.1, scale=self.scale
-    #         )
-    #         self.viewer.layers.selection.active = self.viewer.layers[0]
-    #
-    #         # Store the current angles and start angle for the animation
-    #         self.current_angles = self.viewer.camera.angles
-    #         self.start_angle = self.current_angles[2]
-    #
-    #         # Start the animation
-    #         self.animation_start_time = time.time()
-    #         self.animation_timer = QTimer()
-    #         self.animation_timer.timeout.connect(self.animate_camera_angle)
-    #         self.animation_timer.start(1000 // 60)  # Update at 60 FPS
-    #     else:
-    #         self.find_closest_voxel(near, far)
-    #         # remove ray layer
-    #         self.viewer.layers.remove(self.ray_layer)
-    #         self.ray_layer = None
-    #         self.ray_near_far = None
-    #         self.get_tracks()
+    def turn_off_buttons(self):
+        self.run_button.setEnabled(False)
+        self.preprocess_button.setEnabled(False)
+        self.segment_button.setEnabled(False)
+        self.mocap_button.setEnabled(False)
+        self.track_button.setEnabled(False)
+        self.reassign_button.setEnabled(False)
+        self.feature_export_button.setEnabled(False)
 
 
 if __name__ == "__main__":

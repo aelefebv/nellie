@@ -8,7 +8,8 @@ from nellie.utils.general import get_reshaped_image
 
 class HuMomentTracking:
     def __init__(self, im_info: ImInfo, num_t=None,
-                 max_distance_um=1):
+                 max_distance_um=1,
+                 viewer=None):
         self.im_info = im_info
 
         if self.im_info.no_t:
@@ -39,6 +40,8 @@ class HuMomentTracking:
         self.flow_vector_array_path = None
 
         self.debug = None
+
+        self.viewer = viewer
 
     def _calculate_normalized_moments(self, images):
         # I know the broadcasting is super confusing, but it makes it so much faster (400x)...
@@ -345,6 +348,8 @@ class HuMomentTracking:
         pre_hu_vecs = None
         flow_vector_array = None
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Tracking mocap markers. Frame: {t + 1} of {self.num_t}.'
             logger.debug(f'Running hu-moment tracking for frame {t + 1} of {self.num_t}')
             stats_vecs, hu_vecs = self._get_feature_matrix(t)
             # todo make distance weighting be dependent on number of seconds between frames (more uncertain with more time)

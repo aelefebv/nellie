@@ -358,6 +358,8 @@ class NellieFileSelect(QWidget):
             self.nellie.setTabEnabled(self.nellie.batch_tab, True)
 
         self.nellie.settings.remove_edges_checkbox.setEnabled(True)
+        self.nellie.processor.post_init()
+
 
 
     def select_folder(self):

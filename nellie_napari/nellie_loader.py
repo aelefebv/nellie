@@ -81,14 +81,13 @@ class NellieLoader(QTabWidget):
             if not self.analyzer.initialized:
                 show_info("Initializing analysis tab")
                 self.analyzer.post_init()
+        elif index == self.visualizer_tab:
+            if not self.visualizer.initialized:
+                show_info("Initializing visualizer tab")
+                self.visualizer.post_init()
         # elif index == self.processor_tab:
             # if not self.processor.initialized:
             #     show_info("Initializing processor tab")
-        self.processor.post_init()
-        # elif index == self.visualizer_tab:
-        #     if not self.visualizer.initialized:
-        #         show_info("Initializing visualizer tab")
-        self.visualizer.post_init()
         # elif index == self.settings_tab:
         #     if not self.settings.initialized:
         #         show_info("Initializing settings tab")
