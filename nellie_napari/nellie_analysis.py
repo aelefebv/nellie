@@ -261,13 +261,8 @@ class NellieAnalysis(QWidget):
             self.adjacency_maps = {'n_v': [], 'b_v': [], 'o_v': []}
             for t in range(len(adjacency_slices['v_n'])):
                 adjacency_slice = adjacency_slices['v_n'][t]
-                unique_px = np.unique(adjacency_slice[:, 0])
-                max_px = np.max(unique_px)
-                average_by_px = np.zeros(max_px+1)
-                first_idx_for_each_unique_px = np.searchsorted(adjacency_slice[:, 0], unique_px)
-                argwheres = adjacency_slice[first_idx_for_each_unique_px]
-                adjacency_matrix = np.zeros((max_px+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
-                adjacency_matrix[argwheres[:, 0], argwheres[:, 1]] = 1
+                adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
                 self.adjacency_maps['n_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_b'])):
                 adjacency_slice = adjacency_slices['v_b'][t]
