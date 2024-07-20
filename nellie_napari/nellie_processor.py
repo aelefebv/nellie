@@ -105,7 +105,6 @@ class NellieProcessor(QWidget):
         self.initialized = True
         
     def check_file_existence(self):
-        self.pipeline = False
         self.nellie.visualizer.check_file_existence()
 
         # set all other buttons to disabled first
@@ -200,7 +199,6 @@ class NellieProcessor(QWidget):
         worker.finished.connect(self.check_file_existence)
         worker.start()
 
-
     @thread_worker
     def _run_mocap(self):
         show_info("Nellie in running: Mocap Marking")
@@ -264,28 +262,15 @@ class NellieProcessor(QWidget):
         worker.started.connect(self.turn_off_buttons)
         worker.finished.connect(self.check_for_raw)
         worker.finished.connect(self.check_file_existence)
+        worker.finished.connect(self.turn_off_pipeline)
         worker.start()
 
-    # @thread_worker
-    # def _run_nellie(self):
-    #     self.run_preprocessing(pipeline=True)
-    #     self.run_segmentation()
-    #     self.run_mocap()
-    #     self.run_tracking()
-    #     if self.nellie.settings.voxel_reassign.isChecked():
-    #         self.run_reassign()
-    #     self.run_feature_export()
-    #
-    #     # self.check_file_existence()
+    def turn_off_pipeline(self):
+        self.pipeline = False
 
     def run_nellie(self):
         self.pipeline = True
         self.run_preprocessing()
-        # worker = self.run_preprocessing()
-        # worker.started.connect(self.turn_off_buttons)
-        # worker.finished.connect(self.check_for_raw)
-        # worker.finished.connect(self.check_file_existence)
-        # worker.start()
 
     def check_for_raw(self):
         self.preprocess_button.setEnabled(False)
@@ -312,6 +297,10 @@ class NellieProcessor(QWidget):
     def change_t(self):
         self.num_t = self.time_input.value()
 
+    def turn_on_buttons(self):
+        self.time_input.setEnabled(True)
+        self.channel_input.setEnabled(True)
+
     def turn_off_buttons(self):
         self.run_button.setEnabled(False)
         self.preprocess_button.setEnabled(False)
@@ -320,6 +309,9 @@ class NellieProcessor(QWidget):
         self.track_button.setEnabled(False)
         self.reassign_button.setEnabled(False)
         self.feature_export_button.setEnabled(False)
+
+        self.time_input.setEnabled(False)
+        self.channel_input.setEnabled(False)
 
 
 if __name__ == "__main__":

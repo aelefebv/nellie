@@ -240,6 +240,8 @@ class NellieAnalysis(QWidget):
         self.click_match_table.setVerticalHeaderLabels([f"{t, y, x}\nCSV row"])
 
     def overlay(self):
+        need to fix this: works for organelle masks, but branch could have missing idxs (e.g. example 1)
+        see "/Users/austin/test_files/nellie_all_tests/1.tif"
         if self.label_mask is None:
             label_mask = self.nellie.im_info.get_im_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
             self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
@@ -266,12 +268,12 @@ class NellieAnalysis(QWidget):
                 self.adjacency_maps['n_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_b'])):
                 adjacency_slice = adjacency_slices['v_b'][t]
-                adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
                 self.adjacency_maps['b_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_o'])):
                 adjacency_slice = adjacency_slices['v_o'][t]
-                adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
                 self.adjacency_maps['o_v'].append(adjacency_matrix.T)
             # adjacency_slice = adjacency_slices['v_b'][t]
@@ -303,7 +305,10 @@ class NellieAnalysis(QWidget):
             attributed_voxels = adjacency_mask * reshaped_t_attr
             attributed_voxels[~adjacency_mask] = np.nan
             voxel_attributes = np.nanmean(attributed_voxels, axis=0)
-            self.label_mask[t][tuple(self.label_coords[t].T)] = voxel_attributes
+            # if t > len(self.label_coords):
+            #     continue
+            if self.selected_level == 'branch':
+                self.label_mask[t][tuple(self.label_coords[t].T)] = voxel_attributes
 
         layer_name = f'{self.selected_level} {self.dropdown_attr.currentText()}'
         if 'reassigned' in self.dropdown_attr.currentText():
