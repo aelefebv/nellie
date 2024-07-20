@@ -38,12 +38,6 @@ class NellieProcessor(QWidget):
         self.time_input.valueChanged.connect(self.change_t)
         self.num_t = 1
 
-        # Checkbox for 'Remove edges'
-        self.remove_edges_checkbox = QCheckBox("Remove image edges")
-        self.remove_edges_checkbox.setEnabled(False)
-        self.remove_edges_checkbox.setToolTip(
-            "Originally for Snouty deskewed images. If you see weird image edge artifacts, enable this.")
-
         # Run im button
         self.run_button = QPushButton(text="Run Nellie")
         self.run_button.clicked.connect(self.run_nellie)
@@ -87,7 +81,6 @@ class NellieProcessor(QWidget):
         self.layout.addWidget(self.channel_input, 0, 1)
         self.layout.addWidget(self.time_label, 1, 0)
         self.layout.addWidget(self.time_input, 1, 1)
-        self.layout.addWidget(self.remove_edges_checkbox, 2, 1)
 
         self.layout.addWidget(QLabel("Run full pipeline"), 42, 0, 1, 2)
         self.layout.addWidget(self.run_button, 43, 0, 1, 2)
@@ -108,7 +101,6 @@ class NellieProcessor(QWidget):
         if not self.check_for_raw():
             return
         self.check_file_existence()
-        self.remove_edges_checkbox.setEnabled(True)
         self.initialized = True
         
     def check_file_existence(self):
@@ -172,7 +164,7 @@ class NellieProcessor(QWidget):
 
     def run_preprocessing(self):
         preprocessing = Filter(im_info=self.nellie.im_info, num_t=self.num_t,
-                               remove_edges=self.remove_edges_checkbox.isChecked())
+                               remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked())
         preprocessing.run()
 
         self.check_file_existence()
@@ -204,9 +196,12 @@ class NellieProcessor(QWidget):
         self.check_file_existence()
 
     def run_feature_export(self):
-        hierarchy = Hierarchy(im_info=self.nellie.im_info, num_t=self.num_t)
+        hierarchy = Hierarchy(im_info=self.nellie.im_info, num_t=self.num_t,
+                              skip_nodes= not bool(self.nellie.settings.analyze_node_level.isChecked()))
+        show_info(f"Skip nodes: { not bool(self.nellie.settings.analyze_node_level.isChecked())}")
         hierarchy.run()
 
+        self.nellie.analyzer.reset()
         self.check_file_existence()
 
     def run_nellie(self):
@@ -214,7 +209,8 @@ class NellieProcessor(QWidget):
         self.run_segmentation()
         self.run_mocap()
         self.run_tracking()
-        self.run_reassign()
+        if self.nellie.settings.voxel_reassign.isChecked():
+            self.run_reassign()
         self.run_feature_export()
 
         self.check_file_existence()

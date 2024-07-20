@@ -356,7 +356,9 @@ class NellieFileSelect(QWidget):
             self.nellie.setTabEnabled(self.nellie.visualizer_tab, False)
             self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
             self.nellie.setTabEnabled(self.nellie.batch_tab, True)
-        # self.nellie.file_ready()
+
+        self.nellie.settings.remove_edges_checkbox.setEnabled(True)
+
 
     def select_folder(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select folder")

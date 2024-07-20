@@ -1,3 +1,4 @@
+import os.path
 import pickle
 
 import numpy as np
@@ -30,6 +31,9 @@ class Hierarchy:
         self.label_components = None
         self.label_branches = None
         self.im_border_mask = None
+        self.im_pixel_class = None
+        self.im_obj_reassigned = None
+        self.im_branch_reassigned = None
 
         self.flow_interpolator_fw = FlowInterpolator(im_info)
         self.flow_interpolator_bw = FlowInterpolator(im_info, forward=False)
@@ -55,15 +59,17 @@ class Hierarchy:
         # getting reshaped image will load the image into memory.. should probably do this case by case
         self.im_raw = self.im_info.get_im_memmap(self.im_info.pipeline_paths['ome'])
         self.im_struct = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
+        self.im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
         self.label_components = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.label_branches = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        self.im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
-        self.im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
-        self.im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
+        self.im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
         if not self.im_info.no_t:
-            self.im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
-            self.im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
+            if os.path.exists(self.im_info.pipeline_paths['im_obj_label_reassigned']) and os.path.exists(
+                    self.im_info.pipeline_paths['im_branch_label_reassigned']):
+                self.im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
+                self.im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
 
         #     self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
         #     self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
@@ -338,6 +344,7 @@ class Voxels:
         # self.directionality_com = []
         # self.directionality_acc_com = []
 
+        self.node_labels = []
         self.branch_labels = []
         self.component_labels = []
         self.image_name = []
@@ -438,7 +445,7 @@ class Voxels:
                 chunk_node_voxel_idxs[i].extend(np.nonzero(mask[i])[0] + start)
 
         # Append the result
-        # self.node_labels.append(chunk_nodes_idxs)
+        self.node_labels.append(chunk_nodes_idxs)
         # convert chunk_node_voxel_idxs to a list of arrays
         chunk_node_voxel_idxs = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
         self.node_voxel_idxs.append(chunk_node_voxel_idxs)
@@ -1068,12 +1075,13 @@ class Branches:
         reassigned_label = []
 
         for region in regions:
+            reassigned_label_region = np.nan
             if not self.hierarchy.im_info.no_t:
-                region_reassigned_labels = self.hierarchy.im_branch_reassigned[t][tuple(region.coords.T)]
-                # find which label is most common in the region via bin-counting
-                reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
-            else:
-                reassigned_label.append(np.nan)
+                if self.hierarchy.im_branch_reassigned is not None:
+                    region_reassigned_labels = self.hierarchy.im_branch_reassigned[t][tuple(region.coords.T)]
+                    # find which label is most common in the region via bin-counting
+                    reassigned_label_region = np.argmax(np.bincount(region_reassigned_labels))
+            reassigned_label.append(reassigned_label_region)
             areas.append(region.area)
             # due to bug in skimage (at the time of writing: https://github.com/scikit-image/scikit-image/issues/6630)
             try:
@@ -1185,11 +1193,12 @@ class Components:
         reassigned_label = []
 
         for region in regions:
+            reassigned_label_region = np.nan
             if not self.hierarchy.im_info.no_t:
-                region_reassigned_labels = self.hierarchy.im_obj_reassigned[t][tuple(region.coords.T)]
-                reassigned_label.append(np.argmax(np.bincount(region_reassigned_labels)))
-            else:
-                reassigned_label.append(np.nan)
+                if self.hierarchy.im_obj_reassigned is not None:
+                    region_reassigned_labels = self.hierarchy.im_obj_reassigned[t][tuple(region.coords.T)]
+                    reassigned_label_region = np.argmax(np.bincount(region_reassigned_labels))
+            reassigned_label.append(reassigned_label_region)
             areas.append(region.area)
             try:
                 maj_axis = region.major_axis_length
