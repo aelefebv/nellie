@@ -1,5 +1,7 @@
 from itertools import combinations_with_replacement
 
+# import napari
+
 from nellie import logger
 from nellie.im_info.im_info import ImInfo
 from nellie.utils.general import get_reshaped_image, bbox
@@ -12,7 +14,7 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=True,
-                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5):
+                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, viewer=None):
         self.im_info = im_info
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
@@ -35,6 +37,8 @@ class Filter:
 
         self.alpha_sq = alpha_sq
         self.beta_sq = beta_sq
+
+        self.viewer = viewer
 
     def _get_t(self):
         if self.num_t is None:
@@ -149,6 +153,7 @@ class Filter:
             chunk_size = total_voxels
 
         # iterate over chunks
+        # todo make chunk size dynamic based on available memory
         for start_idx in range(0, total_voxels, int(chunk_size)):
             end_idx = min(start_idx + chunk_size, total_voxels)
             gpu_chunk = xp.array(hessian_matrices[start_idx:end_idx])
@@ -240,6 +245,8 @@ class Filter:
 
     def _run_filter(self, mask=True):
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Preprocessing. Frame: {t + 1} of {self.num_t}.'
             frangi_frame = self._run_frame(t, mask=mask)
             if not xp.sum(frangi_frame):
                 frangi_frame = self._mask_volume(frangi_frame)
@@ -263,7 +270,7 @@ class Filter:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_gav_tests\fibro_3.nd2"
-    im_info = ImInfo(im_path)
-    filter_im = Filter(im_info, num_t=2)
+    im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
+    im_info = ImInfo(im_path, dim_sizes={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
+    filter_im = Filter(im_info)
     filter_im.run()

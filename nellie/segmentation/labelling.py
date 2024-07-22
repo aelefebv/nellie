@@ -7,8 +7,9 @@ from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 class Label:
     def __init__(self, im_info: ImInfo,
                  num_t=None,
-                 threshold: float = 0,
-                 snr_cleaning=False, otsu_thresh_intensity=False):
+                 threshold=None,
+                 snr_cleaning=False, otsu_thresh_intensity=False,
+                 viewer=None):
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
@@ -30,6 +31,8 @@ class Label:
         self.shape = ()
 
         self.debug = {}
+
+        self.viewer = viewer
 
     def _get_t(self):
         if self.num_t is None:
@@ -126,9 +129,12 @@ class Label:
         logger.info(f'Running semantic segmentation, volume {t}/{self.num_t - 1}')
         original_in_mem = xp.asarray(self.im_memmap[t, ...])
         frangi_in_mem = xp.asarray(self.frangi_memmap[t, ...])
-        if self.otsu_thresh_intensity:
-            otsu_thresh, _ = otsu_threshold(original_in_mem[original_in_mem > 0])
-            mask = original_in_mem > otsu_thresh
+        if self.otsu_thresh_intensity or self.threshold is not None:
+            if self.otsu_thresh_intensity:
+                thresh, _ = otsu_threshold(original_in_mem[original_in_mem > 0])
+            else:
+                thresh = self.threshold
+            mask = original_in_mem > thresh
             original_in_mem *= mask
             frangi_in_mem *= mask
         _, labels = self._get_labels(frangi_in_mem)
@@ -140,6 +146,8 @@ class Label:
 
     def _run_segmentation(self):
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Extracting organelles. Frame: {t + 1} of {self.num_t}.'
             labels = self._run_frame(t)
             if device_type == 'cuda':
                 labels = labels.get()
@@ -158,7 +166,7 @@ class Label:
 
 
 if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_tests\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(im_path)
-    segment_unique = Label(im_info, num_t=2)
+    im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
+    im_info = ImInfo(im_path, dim_sizes={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
+    segment_unique = Label(im_info)
     segment_unique.run()

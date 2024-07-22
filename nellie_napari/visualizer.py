@@ -57,18 +57,6 @@ class NellieVisualizer(QWidget):
         self.open_reassign_button.clicked.connect(self.open_reassign_image)
         self.open_reassign_button.setEnabled(False)
 
-        # Label above the spinner box
-        self.skip_vox_label = QLabel("Track every N voxel. N=")
-
-        self.skip_vox = QSpinBox()
-        self.skip_vox.setRange(1, 10000)
-        self.skip_vox.setValue(5)
-        self.skip_vox.setEnabled(False)
-
-        # Track all frames
-        self.track_all_frames = QCheckBox("Track all frames' voxels")
-        self.track_all_frames.setChecked(True)
-        self.track_all_frames.setEnabled(False)
 
         self.layout = QGridLayout()
         self.setLayout(self.layout)
@@ -78,9 +66,8 @@ class NellieVisualizer(QWidget):
         self.layout.addWidget(self.open_segment_button, 3, 0, 1, 1)
         self.layout.addWidget(self.open_mocap_button, 4, 0, 1, 1)
         self.layout.addWidget(self.open_reassign_button, 5, 0, 1, 1)
-        self.layout.addWidget(self.skip_vox_label, 6, 0, 1, 1)
-        self.layout.addWidget(self.skip_vox, 6, 1, 1, 1)
-        self.layout.addWidget(self.track_all_frames, 7, 0, 1, 1)
+
+        self.initialized = False
 
     def post_init(self):
         if not self.check_for_raw():
@@ -89,6 +76,7 @@ class NellieVisualizer(QWidget):
         self.set_scale()
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
+        self.initialized = True
 
     def check_3d(self):
         if not self.nellie.im_info.no_z and self.viewer.dims.ndim != 3:
@@ -99,7 +87,6 @@ class NellieVisualizer(QWidget):
     def check_for_raw(self):
         self.raw_button.setEnabled(False)
         try:
-            # todo implement lazy loading if wanted
             im_memmap = self.nellie.im_info.get_im_memmap(self.nellie.im_info.im_path)
             self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.nellie.im_info)
             self.raw_button.setEnabled(True)
@@ -180,12 +167,12 @@ class NellieVisualizer(QWidget):
         all_tracks = []
         all_props = {}
         max_track_num = 0
-        if self.track_all_frames.isChecked() and (
+        if self.nellie.settings.track_all_frames.isChecked() and (
                 layer == self.im_branch_label_reassigned_layer or layer == self.im_obj_label_reassigned_layer):
             for frame in range(self.num_t):
                 tracks, track_properties = label_tracks.run(label_num=label, start_frame=frame, end_frame=None,
                                                             min_track_num=max_track_num,
-                                                            skip_coords=self.skip_vox.value())
+                                                            skip_coords=self.nellie.settings.skip_vox.value())
                 all_tracks += tracks
                 for property in track_properties.keys():
                     if property not in all_props.keys():
@@ -196,7 +183,7 @@ class NellieVisualizer(QWidget):
                 max_track_num = max([track[0] for track in tracks])+1
         else:
             all_tracks, all_props = label_tracks.run(label_num=label, start_frame=pos[0], end_frame=None,
-                                                     skip_coords=self.skip_vox.value())
+                                                     skip_coords=self.nellie.settings.skip_vox.value())
         if len(all_tracks) == 0:
             return
         self.viewer.add_tracks(all_tracks, properties=all_props, name=f'tracks: {label}', scale=self.scale)
@@ -250,13 +237,13 @@ class NellieVisualizer(QWidget):
         im_skel_relabelled_path = self.nellie.im_info.pipeline_paths['im_skel_relabelled']
         if os.path.exists(im_instance_label_path) and os.path.exists(im_skel_relabelled_path):
             self.open_segment_button.setEnabled(True)
-            self.skip_vox.setEnabled(True)
-            self.track_all_frames.setEnabled(True)
+            self.nellie.settings.skip_vox.setEnabled(True)
+            self.nellie.settings.track_all_frames.setEnabled(True)
             self.viewer.help = 'Alt + click a label to see its tracks'
         else:
             self.open_segment_button.setEnabled(False)
-            self.skip_vox.setEnabled(False)
-            self.track_all_frames.setEnabled(False)
+            self.nellie.settings.skip_vox.setEnabled(False)
+            self.nellie.settings.track_all_frames.setEnabled(False)
             return
 
         im_marker_path = self.nellie.im_info.pipeline_paths['im_marker']

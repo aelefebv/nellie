@@ -75,6 +75,15 @@ class NellieAnalysis(QWidget):
         }
 
         self.df = None
+        self.initialized = False
+
+    def reset(self):
+        self.initialized = False
+        self.voxel_df = None
+        self.node_df = None
+        self.branch_df = None
+        self.organelle_df = None
+        self.image_df = None
 
     def post_init(self):
         self.num_t = self.nellie.processor.time_input.value()
@@ -142,9 +151,10 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
-        self.dropdown.setCurrentIndex(1)
-        self.dropdown_attr.setCurrentIndex(1)
+        self.dropdown.setCurrentIndex(3)  # Organelle
+        self.dropdown_attr.setCurrentIndex(6)  # Volume/Area
 
+        self.initialized = True
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -220,17 +230,22 @@ class NellieAnalysis(QWidget):
         self.click_match_table.setRowCount(1)
         items = [f"{voxel_idx}", f"{node_idx}", f"{branch_idx}", f"{organelle_idx}", f"{image_idx}"]
         self.click_match_table.setColumnCount(len(items))
-        self.click_match_table.setHorizontalHeaderLabels(["Voxel", "Nodes", "Branch", "Organelle", "Image"])
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            self.click_match_table.setHorizontalHeaderLabels(["Voxel", "Nodes", "Branch", "Organelle", "Image"])
+        else:
+            self.click_match_table.setHorizontalHeaderLabels(["Voxel", "Branch", "Organelle", "Image"])
         for i, item in enumerate(items):
             self.click_match_table.setItem(0, i, QTableWidgetItem(item))
         self.layout.addWidget(self.click_match_table, self.layout_anchors['table'][0], self.layout_anchors['table'][1], 1, 4)
         self.click_match_table.setVerticalHeaderLabels([f"{t, y, x}\nCSV row"])
 
-
     def overlay(self):
+        # need to fix this: works for organelle masks, but branch could have missing idxs (e.g. example 1)
+        # see "/Users/austin/test_files/nellie_all_tests/1.tif"
         if self.label_mask is None:
             label_mask = self.nellie.im_info.get_im_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
-            self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
+            # self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
+            self.label_mask = (label_mask > 0).astype(float)
             # self.label_mask_layer = self.viewer.add_image(self.label_mask, name='objects', opacity=1, colormap='turbo')
             if self.num_t is None:
                 self.num_t = self.label_mask.shape[0]
@@ -245,7 +260,37 @@ class NellieAnalysis(QWidget):
             pkl_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
             # load pkl file
             with open(pkl_path, 'rb') as f:
-                self.adjacency_maps = pickle.load(f)
+                adjacency_slices = pickle.load(f)
+            self.adjacency_maps = {'n_v': [], 'b_v': [], 'o_v': []}
+            for t in range(len(adjacency_slices['v_n'])):
+                adjacency_slice = adjacency_slices['v_n'][t]
+                num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
+                # max_node = np.max(adjacency_slice[:, 1]) + 1
+                min_node = np.min(adjacency_slice[:, 1])
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_node] = 1
+                self.adjacency_maps['n_v'].append(adjacency_matrix.T)
+            for t in range(len(adjacency_slices['v_b'])):
+                adjacency_slice = adjacency_slices['v_b'][t]
+                max_branch = np.max(adjacency_slice[:, 1]) + 1
+                min_branch = np.min(adjacency_slice[:, 1])
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), max_branch), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_branch] = 1
+                self.adjacency_maps['b_v'].append(adjacency_matrix.T)
+            for t in range(len(adjacency_slices['v_o'])):
+                # organelles are indexed consecutively over the whole timelapse rather than per timepoint, so different
+                #  way to construct the matrices
+                adjacency_slice = adjacency_slices['v_o'][t]
+                num_organelles = np.unique(adjacency_slice[:, 1]).shape[0]
+                min_organelle = np.min(adjacency_slice[:, 1])
+                # adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), num_organelles), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_organelle] = 1
+                self.adjacency_maps['o_v'].append(adjacency_matrix.T)
+            # adjacency_slice = adjacency_slices['v_b'][t]
+            # adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1))
+            # adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+
         if self.attr_data is None:
             return
 
@@ -256,14 +301,14 @@ class NellieAnalysis(QWidget):
             if self.selected_level == 'voxel':
                 self.label_mask[t][tuple(self.label_coords[t].T)] = t_attr_data
                 continue
-            elif self.selected_level == 'node':
+            elif self.selected_level == 'node' and len(self.adjacency_maps['n_v']) > 0:
                 adjacency_mask = np.array(self.adjacency_maps['n_v'][t])
             elif self.selected_level == 'branch':
                 adjacency_mask = np.array(self.adjacency_maps['b_v'][t])
             elif self.selected_level == 'organelle':
                 adjacency_mask = np.array(self.adjacency_maps['o_v'][t])
-            elif self.selected_level == 'image':
-                adjacency_mask = np.array(self.adjacency_maps['i_v'][t])
+            # elif self.selected_level == 'image':
+            #     adjacency_mask = np.array(self.adjacency_maps['i_v'][t])
             else:
                 return
             reshaped_t_attr = t_attr_data.values.reshape(-1, 1)
@@ -271,28 +316,44 @@ class NellieAnalysis(QWidget):
             attributed_voxels = adjacency_mask * reshaped_t_attr
             attributed_voxels[~adjacency_mask] = np.nan
             voxel_attributes = np.nanmean(attributed_voxels, axis=0)
+            # if t > len(self.label_coords):
+            #     continue
+            # if self.selected_level == 'branch':
+                # self.label_mask[t][tuple(self.skel_label_coords[t].T)] = voxel_attributes
+            # else:
             self.label_mask[t][tuple(self.label_coords[t].T)] = voxel_attributes
 
         layer_name = f'{self.selected_level} {self.dropdown_attr.currentText()}'
-        if 'reassigned' in self.dropdown_attr.currentText():
-            # make the label_mask_layer a label layer
-            self.label_mask_layer = self.viewer.add_labels(self.label_mask.astype('uint64'), scale=self.scale, name=layer_name)
-        else:
-            self.label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
-                                                          colormap='turbo', scale=self.scale)
+        if 'reassigned' not in self.dropdown_attr.currentText():
+            # label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
+            #                                               colormap='turbo', scale=self.scale)
             perc98 = np.nanpercentile(self.attr_data, 98)
             min_val = np.nanmin(self.attr_data) - (np.abs(np.nanmin(self.attr_data)) * 0.01)
             if min_val == perc98:
                 perc98 = min_val + (np.abs(min_val) * 0.01)
             contrast_limits = [min_val, perc98]
-            self.label_mask_layer.contrast_limits = contrast_limits
-        self.label_mask_layer.name = layer_name
+            # label_mask_layer.contrast_limits = contrast_limits
+        # label_mask_layer.name = layer_name
         if not self.nellie.im_info.no_z:
             # if the layer isn't in 3D view, make it 3d view
             self.viewer.dims.ndisplay = 3
-            self.label_mask_layer.interpolation3d = 'nearest'
-        self.label_mask_layer.refresh()
-        self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
+            # label_mask_layer.interpolation3d = 'nearest'
+        # label_mask_layer.refresh()
+        # self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
+        if 'reassigned' in self.dropdown_attr.currentText():
+            # make the label_mask_layer a label layer
+                self.viewer.add_labels(self.label_mask.copy().astype('uint64'), scale=self.scale, name=layer_name)
+        else:
+            if not self.nellie.im_info.no_z:
+                self.viewer.add_image(self.label_mask.copy(), name=layer_name, opacity=1,
+                                                              colormap='turbo', scale=self.scale,
+                                                              contrast_limits=contrast_limits,
+                                                            interpolation3d='nearest')
+            else:
+                self.viewer.add_image(self.label_mask.copy(), name=layer_name, opacity=1,
+                                                          colormap='turbo', scale=self.scale,
+                                                          contrast_limits=contrast_limits, interpolation2d='nearest')
+
         self.match_t_toggle.setEnabled(True)
         self.viewer.reset_view()
 
@@ -315,11 +376,14 @@ class NellieAnalysis(QWidget):
         self.on_attr_selected(self.dropdown_attr.currentIndex())
 
     def _create_dropdown_selection(self):
-        # Create the dropdown menu
+        # Create the dropdown menuF
         self.dropdown = QComboBox()
 
         # Add options to the dropdown
-        options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
+        else:
+            options = ['none', 'voxel', 'branch', 'organelle', 'image']
         for option in options:
             self.dropdown.addItem(option)
 
@@ -329,11 +393,12 @@ class NellieAnalysis(QWidget):
         # Connect the dropdown's signal to a method to handle selection changes
         self.dropdown.currentIndexChanged.connect(self.on_level_selected)
 
-        self.get_csvs()
+        # self.get_csvs()
 
     def get_csvs(self):
         self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
-        self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
         self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
         self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
         self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
@@ -345,15 +410,29 @@ class NellieAnalysis(QWidget):
         # This method is called whenever a radio button is selected
         # 'button' parameter is the clicked radio button
         self.selected_level = self.dropdown.itemText(index)
+        self.overlay_button.setEnabled(True)
         if self.selected_level == 'voxel':
+            if self.voxel_df is None:
+                self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
             self.df = self.voxel_df
         elif self.selected_level == 'node':
+            if self.node_df is None:
+                if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+                    self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
             self.df = self.node_df
         elif self.selected_level == 'branch':
+            if self.branch_df is None:
+                self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
             self.df = self.branch_df
         elif self.selected_level == 'organelle':
+            if self.organelle_df is None:
+                self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
             self.df = self.organelle_df
         elif self.selected_level == 'image':
+            # turn off overlay button
+            self.overlay_button.setEnabled(False)
+            if self.image_df is None:
+                self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
             self.df = self.image_df
         else:
             return
@@ -362,6 +441,10 @@ class NellieAnalysis(QWidget):
         # add a None option
         self.dropdown_attr.addItem("None")
         for col in self.df.columns[::-1]:
+            # if "raw" not in col:
+            #     continue
+            # remove "_raw" from the column name
+            # col = col[:-4]
             self.dropdown_attr.addItem(col)
         self.layout.addWidget(self.dropdown_attr, self.layout_anchors['dropdown'][0], self.layout_anchors['dropdown'][1] + 1)
         self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
@@ -398,8 +481,12 @@ class NellieAnalysis(QWidget):
         # only real data
         data = data.dropna()
         self.data_to_plot = data
+
+        # todo only enable when mean is selected
         self.mean = np.nanmean(data)
         self.std = np.nanstd(data)
+
+        # todo only enable when median is selected
         self.median = np.nanmedian(data)
         self.perc75 = np.nanpercentile(data, 75)
         self.perc25 = np.nanpercentile(data, 25)
@@ -481,8 +568,8 @@ class NellieAnalysis(QWidget):
             self.log_scale = True
         else:
             self.log_scale = False
-        # self.plot_data(self.dropdown_attr.currentText())
         self.on_attr_selected(self.dropdown_attr.currentIndex())
+
 
 if __name__ == "__main__":
     import napari

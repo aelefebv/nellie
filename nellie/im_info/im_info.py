@@ -12,6 +12,7 @@ class ImInfo:
     def __init__(self, im_path: str,
                  output_dirpath: str = None,
                  screenshot_dirpath: str = None,
+                 num_t: int = None,
                  ch: int = None,
                  dim_sizes: dict = None,
                  dimension_order: str = '',
@@ -19,6 +20,7 @@ class ImInfo:
                  ):
         self.im_path = im_path
         self.ch = ch or 0
+        self.num_t = num_t
 
         self.dim_sizes = dim_sizes
 
@@ -60,6 +62,7 @@ class ImInfo:
         self._check_memmappable()
 
     def _create_output_paths(self):
+        self.create_output_path('ome')
         self.create_output_path('im_frangi')
         self.create_output_path('im_instance_label')
         self.create_output_path('im_skel')
@@ -84,23 +87,32 @@ class ImInfo:
             os.mkdir(self.output_dir)
 
     def _check_memmappable(self):
-        try:
-            tifffile.memmap(self.im_path, mode='r')
-        except (ValueError, tifffile.tifffile.TiffFileError):
-            logger.warning(f'Could not create memmap for {self.im_path}. Loading into memory instead.')
-            self._get_ome_tif()
-            self.im_path = self.pipeline_paths['ome']
-            self.extension = '.ome.tif'
+        self._get_ome_tif()  # create a new copy of the data in a Nellie-compatible format
+        # try:
+        #     tifffile.memmap(self.im_path, mode='r')
+        #     # self.pipeline_paths['ome'] = self.im_path
+        # except (ValueError, tifffile.tifffile.TiffFileError):
+        #     logger.warning(f'Could not create memmap for {self.im_path}. Creating a new OME TIFF file if none exists.')
+        #     self.extension = '.ome.tif'
+        self.im_path = self.pipeline_paths['ome']
+        # self.shape is the shape of the ome tif at self.im_path
+        with tifffile.TiffFile(self.im_path) as tif:
+            self.shape = tif.series[0].shape
 
     def _get_ome_tif(self):
-        ome_path = self.create_output_path('ome')
+        ome_path = self.pipeline_paths['ome']
         if os.path.isfile(ome_path):
+            logger.info(f'Found existing OME TIFF file at {ome_path}.')
             return
         if self.extension == '.nd2':
             data = nd2.imread(self.im_path)
+            if self.num_t is not None and not self.no_t and self.num_t < data.shape[0]:
+                data = data[:self.num_t]
         elif self.extension == '.tif' or self.extension == '.tiff':
             # get only self.ch
             data = tifffile.imread(self.im_path)
+            if self.num_t is not None and not self.no_t and self.num_t < data.shape[0]:
+                data = data[:self.num_t]
         else:
             logger.error(f'Filetype {self.extension} not supported. Please convert to .nd2 or .tif.')
             raise ValueError
@@ -233,7 +245,7 @@ class ImInfo:
                 if 'C' in self.axes:
                     logger.error('Multichannel TIFF files must have ImageJ or OME metadata. Resubmit the'
                                  'file either with correct metadata or the single channel of interest.')
-            if self.axes == '':
+            if self.axes == '' or self.axes is None:
                 self.axes = tif.series[0].axes
             self.shape = tif.series[0].shape
             if len(self.axes) != len(self.shape):
@@ -247,7 +259,7 @@ class ImInfo:
             self.metadata = nd2_file.metadata.channels[self.ch]
             self.metadata.recorded_data = nd2_file.events(orient='list')
             self.metadata_type = 'nd2'
-            if self.axes == '':
+            if self.axes == '' or self.axes is None:
                 self.axes = ''.join(nd2_file.sizes.keys())
             self.shape = tuple(nd2_file.sizes.values())
             if len(self.axes) != len(self.shape):
@@ -267,10 +279,18 @@ class ImInfo:
             raise e
 
         if 'Q' in self.axes:
-            # change to T
-            self.axes = self.axes.replace('Q', 'T')
+            # find the Q indices in the axes
+            idxs_not_TZC = [i for i, ax in enumerate(self.axes) if ax not in ['T', 'Z', 'C']]
+            q_idxs = [i for i, ax in enumerate(self.axes) if ax == 'Q']
+            replace_with = ['T', 'Z', 'C']
+            if (len(idxs_not_TZC) - len(q_idxs)) > 3:
+                logger.error(f"Too many Q dimensions found in axes {self.axes}.")
+                raise ValueError
+            # replace the Q dimensions with T, Z, C, in that order
+            for i, q_idx in enumerate(q_idxs):
+                self.axes = self.axes[:q_idx] + replace_with[i] + self.axes[q_idx + 1:]
 
-        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
+        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'ZTYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
         if self.axes not in accepted_axes:
             # todo, have user optionally specify axes
             logger.warning(f"File dimension order is in unknown order {self.axes} with {len(self.shape)} dimensions. \n"
@@ -287,6 +307,8 @@ class ImInfo:
             self.shape = (1,) + self.shape
             if data is not None:
                 data = np.expand_dims(data, axis=0)
+        if data is not None and (len(data.shape) != len(self.shape)):
+            data = np.expand_dims(data, axis=0)
         return data
 
     def allocate_memory(
@@ -336,6 +358,7 @@ class ImInfo:
             else:
                 raise ValueError
 
+        im_memmap = self._ensure_t(im_memmap)
         if ('C' in self.axes) and (len(im_memmap.shape) == len(self.axes)):
             if self.ch == -1:
                 im_memmap = np.max(im_memmap, axis=self.axes.index('C'))
@@ -343,7 +366,6 @@ class ImInfo:
                 im_memmap = np.take(im_memmap, self.ch, axis=self.axes.index('C'))
             # if ch is -1, get a max projection in the C dimension
 
-        self._ensure_t(im_memmap)
         # if len(im_memmap.shape) != len(self.axes) and self.no_t:
         #     # expand dims to match axes
         #     im_memmap = np.expand_dims(im_memmap, axis=self.axes.index('T'))

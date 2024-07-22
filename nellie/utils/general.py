@@ -1,13 +1,15 @@
 from nellie import logger, xp
 
 
-def get_reshaped_image(im, num_t=None, im_info=None):
+def get_reshaped_image(im, num_t=None, im_info=None, t_slice=None):
     logger.debug('Reshaping image.')
     im_to_return = im
     if im_info.no_z:
         ndim = 2
     else:
         ndim = 3
+    # if 'C' in im_info.axes:
+    #     im_to_return = xp.moveaxis(im_to_return, 0, -1
     if 'T' not in im_info.axes or (len(im_info.axes) > ndim and len(im_to_return.shape) == ndim):
         im_to_return = im_to_return[None, ...]
         logger.debug(f'Adding time dimension to image, shape is now {im_to_return.shape}.')
@@ -15,6 +17,9 @@ def get_reshaped_image(im, num_t=None, im_info=None):
         num_t = min(num_t, im_to_return.shape[0])
         im_to_return = im_to_return[:num_t, ...]
         logger.debug(f'{num_t} timepoints found, shape is now {im_to_return.shape}.')
+    elif t_slice is not None:
+        im_to_return = im_to_return[t_slice:t_slice + 1, ...]  # t: t + 1 to keep the time dimension
+        logger.debug(f'Using time slice {t_slice}, shape is now {im_to_return.shape}.')
     return im_to_return
 
 

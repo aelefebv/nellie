@@ -215,7 +215,9 @@ class BatchMode(QWidget):
             self.feature_export_button.setEnabled(True)
         else:
             self.reassign_button.setEnabled(False)
-            self.feature_export_button.setEnabled(False)
+            self.feature_export_button.setEnabled(True)
+            if self.num_t > 1:
+                self.feature_export_button.setEnabled(False)
 
 
 if __name__ == "__main__":

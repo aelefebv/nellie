@@ -8,7 +8,8 @@ from nellie.utils.general import get_reshaped_image
 
 class Markers:
     def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5):
+                 min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5,
+                 viewer=None):
         self.im_info = im_info
 
         # if self.im_info.no_t:
@@ -39,6 +40,8 @@ class Markers:
         self.im_border_memmap = None
 
         self.debug = None
+
+        self.viewer = viewer
 
     def _get_sigma_vec(self, sigma):
         if self.im_info.no_z:
@@ -198,6 +201,8 @@ class Markers:
 
     def _run_mocap_marking(self):
         for t in range(self.num_t):
+            if self.viewer is not None:
+                self.viewer.status = f'Mocap marking. Frame: {t + 1} of {self.num_t}.'
             marker_frame = self._run_frame(t)
             if self.im_marker_memmap.shape != self.shape and self.im_info.no_t:
                 self.im_marker_memmap[:], self.im_distance_memmap[:], self.im_border_memmap[:] = marker_frame
