@@ -279,10 +279,18 @@ class ImInfo:
             raise e
 
         if 'Q' in self.axes:
-            # change to T
-            self.axes = self.axes.replace('Q', 'T')
+            # find the Q indices in the axes
+            idxs_not_TZC = [i for i, ax in enumerate(self.axes) if ax not in ['T', 'Z', 'C']]
+            q_idxs = [i for i, ax in enumerate(self.axes) if ax == 'Q']
+            replace_with = ['T', 'Z', 'C']
+            if (len(idxs_not_TZC) - len(q_idxs)) > 3:
+                logger.error(f"Too many Q dimensions found in axes {self.axes}.")
+                raise ValueError
+            # replace the Q dimensions with T, Z, C, in that order
+            for i, q_idx in enumerate(q_idxs):
+                self.axes = self.axes[:q_idx] + replace_with[i] + self.axes[q_idx + 1:]
 
-        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
+        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'ZTYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
         if self.axes not in accepted_axes:
             # todo, have user optionally specify axes
             logger.warning(f"File dimension order is in unknown order {self.axes} with {len(self.shape)} dimensions. \n"
