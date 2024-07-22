@@ -58,7 +58,7 @@ class NellieFileSelect(QWidget):
 
         self.dim_order_button = QLineEdit(self)
         self.dim_order_button.setText("Select file.")
-        self.dim_order_button.setToolTip("Accepted axes: ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']")
+        self.dim_order_button.setToolTip("Accepted axes: ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'ZTYX', 'YX', 'CYX', 'CZYX', 'ZCYX']")
         self.dim_order = None
         self.dim_order_button.setEnabled(False)
         # self.dim_order_button.textChanged.connect(self.handleDimOrderChanged)
@@ -162,7 +162,7 @@ class NellieFileSelect(QWidget):
         self.set_dims_button.setEnabled(True)
         self.dim_order_button.setEnabled(True)
         self.dim_order_button.setText(self.im_info.axes)
-        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
+        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'ZTYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
         if self.dim_order not in accepted_axes:
             self.im_info.axes_valid = False
         else:

@@ -376,7 +376,7 @@ class NellieAnalysis(QWidget):
         self.on_attr_selected(self.dropdown_attr.currentIndex())
 
     def _create_dropdown_selection(self):
-        # Create the dropdown menu
+        # Create the dropdown menuF
         self.dropdown = QComboBox()
 
         # Add options to the dropdown
