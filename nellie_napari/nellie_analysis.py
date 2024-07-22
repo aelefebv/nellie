@@ -240,11 +240,12 @@ class NellieAnalysis(QWidget):
         self.click_match_table.setVerticalHeaderLabels([f"{t, y, x}\nCSV row"])
 
     def overlay(self):
-        need to fix this: works for organelle masks, but branch could have missing idxs (e.g. example 1)
-        see "/Users/austin/test_files/nellie_all_tests/1.tif"
+        # need to fix this: works for organelle masks, but branch could have missing idxs (e.g. example 1)
+        # see "/Users/austin/test_files/nellie_all_tests/1.tif"
         if self.label_mask is None:
             label_mask = self.nellie.im_info.get_im_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
-            self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
+            # self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
+            self.label_mask = (label_mask > 0).astype(float)
             # self.label_mask_layer = self.viewer.add_image(self.label_mask, name='objects', opacity=1, colormap='turbo')
             if self.num_t is None:
                 self.num_t = self.label_mask.shape[0]
@@ -263,18 +264,28 @@ class NellieAnalysis(QWidget):
             self.adjacency_maps = {'n_v': [], 'b_v': [], 'o_v': []}
             for t in range(len(adjacency_slices['v_n'])):
                 adjacency_slice = adjacency_slices['v_n'][t]
-                adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
-                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+                num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
+                # max_node = np.max(adjacency_slice[:, 1]) + 1
+                min_node = np.min(adjacency_slice[:, 1])
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_node] = 1
                 self.adjacency_maps['n_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_b'])):
                 adjacency_slice = adjacency_slices['v_b'][t]
-                adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
-                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+                max_branch = np.max(adjacency_slice[:, 1]) + 1
+                min_branch = np.min(adjacency_slice[:, 1])
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), max_branch), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_branch] = 1
                 self.adjacency_maps['b_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_o'])):
+                # organelles are indexed consecutively over the whole timelapse rather than per timepoint, so different
+                #  way to construct the matrices
                 adjacency_slice = adjacency_slices['v_o'][t]
-                adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
-                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1
+                num_organelles = np.unique(adjacency_slice[:, 1]).shape[0]
+                min_organelle = np.min(adjacency_slice[:, 1])
+                # adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), num_organelles), dtype=bool)
+                adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_organelle] = 1
                 self.adjacency_maps['o_v'].append(adjacency_matrix.T)
             # adjacency_slice = adjacency_slices['v_b'][t]
             # adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1))
@@ -307,29 +318,42 @@ class NellieAnalysis(QWidget):
             voxel_attributes = np.nanmean(attributed_voxels, axis=0)
             # if t > len(self.label_coords):
             #     continue
-            if self.selected_level == 'branch':
-                self.label_mask[t][tuple(self.label_coords[t].T)] = voxel_attributes
+            # if self.selected_level == 'branch':
+                # self.label_mask[t][tuple(self.skel_label_coords[t].T)] = voxel_attributes
+            # else:
+            self.label_mask[t][tuple(self.label_coords[t].T)] = voxel_attributes
 
         layer_name = f'{self.selected_level} {self.dropdown_attr.currentText()}'
-        if 'reassigned' in self.dropdown_attr.currentText():
-            # make the label_mask_layer a label layer
-            self.label_mask_layer = self.viewer.add_labels(self.label_mask.astype('uint64'), scale=self.scale, name=layer_name)
-        else:
-            self.label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
-                                                          colormap='turbo', scale=self.scale)
+        if 'reassigned' not in self.dropdown_attr.currentText():
+            # label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
+            #                                               colormap='turbo', scale=self.scale)
             perc98 = np.nanpercentile(self.attr_data, 98)
             min_val = np.nanmin(self.attr_data) - (np.abs(np.nanmin(self.attr_data)) * 0.01)
             if min_val == perc98:
                 perc98 = min_val + (np.abs(min_val) * 0.01)
             contrast_limits = [min_val, perc98]
-            self.label_mask_layer.contrast_limits = contrast_limits
-        self.label_mask_layer.name = layer_name
+            # label_mask_layer.contrast_limits = contrast_limits
+        # label_mask_layer.name = layer_name
         if not self.nellie.im_info.no_z:
             # if the layer isn't in 3D view, make it 3d view
             self.viewer.dims.ndisplay = 3
-            self.label_mask_layer.interpolation3d = 'nearest'
-        self.label_mask_layer.refresh()
+            # label_mask_layer.interpolation3d = 'nearest'
+        # label_mask_layer.refresh()
         # self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)
+        if 'reassigned' in self.dropdown_attr.currentText():
+            # make the label_mask_layer a label layer
+                self.viewer.add_labels(self.label_mask.copy().astype('uint64'), scale=self.scale, name=layer_name)
+        else:
+            if not self.nellie.im_info.no_z:
+                self.viewer.add_image(self.label_mask.copy(), name=layer_name, opacity=1,
+                                                              colormap='turbo', scale=self.scale,
+                                                              contrast_limits=contrast_limits,
+                                                            interpolation3d='nearest')
+            else:
+                self.viewer.add_image(self.label_mask.copy(), name=layer_name, opacity=1,
+                                                          colormap='turbo', scale=self.scale,
+                                                          contrast_limits=contrast_limits, interpolation2d='nearest')
+
         self.match_t_toggle.setEnabled(True)
         self.viewer.reset_view()
 

@@ -163,19 +163,38 @@ class Hierarchy:
         for t in range(len(self.voxels.time)):
             num_voxels = len(self.voxels.coords[t])
             if not self.skip_nodes:
-                num_nodes = len(self.nodes.nodes[t])
-                v_n_temp = np.zeros((num_voxels, num_nodes), dtype=bool)
+                # num_nodes = len(self.nodes.nodes[t])
+                # max_frame_nodes = np.max(self.nodes.nodes[t])
+                max_frame_nodes = len(self.nodes.nodes[t])
+                v_n_temp = np.zeros((num_voxels, max_frame_nodes), dtype=bool)
                 for voxel, nodes in enumerate(self.voxels.node_labels[t]):
                     if len(nodes) == 0:
                         continue
-                    v_n_temp[voxel, nodes] = True
+                    v_n_temp[voxel, nodes-1] = True
                 v_n.append(np.argwhere(v_n_temp))
 
-            v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
-            v_b.append(np.argwhere(v_b_matrix))
+            # num_branches = len(self.branches.branch_label[t])
+            max_frame_branches = np.max(self.voxels.branch_labels[t])
+            v_b_temp = np.zeros((num_voxels, max_frame_branches), dtype=bool)
+            for voxel, branches in enumerate(self.voxels.branch_labels[t]):
+                if branches == 0:
+                    continue
+                v_b_temp[voxel, branches-1] = True
+            v_b.append(np.argwhere(v_b_temp))
 
-            v_o_matrix = self.voxels.component_labels[t][:, None] == self.components.component_label[t]
-            v_o.append(np.argwhere(v_o_matrix))
+            v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
+            # v_b.append(np.argwhere(v_b_matrix))
+
+            # num_organelles = len(self.components.component_label[t])
+            max_frame_organelles = np.max(self.voxels.component_labels[t])
+            v_o_temp = np.zeros((num_voxels, max_frame_organelles+1), dtype=bool)
+            for voxel, components in enumerate(self.voxels.component_labels[t]):
+                if components == 0:
+                    continue
+                v_o_temp[voxel, components] = True
+            v_o.append(np.argwhere(v_o_temp))
+            # v_o_matrix = self.voxels.component_labels[t][:, None] == self.components.component_label[t]
+            # v_o.append(np.argwhere(v_o_matrix))
 
             # v_i_matrix = np.ones((len(self.voxels.coords[t]), 1), dtype=bool)
             # v_i.append(np.argwhere(v_i_matrix))
