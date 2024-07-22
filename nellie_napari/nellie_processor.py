@@ -97,6 +97,7 @@ class NellieProcessor(QWidget):
         self.im_memmap = None
 
         self.initialized = False
+        self.pipeline = False
 
     def post_init(self):
         if not self.check_for_raw():

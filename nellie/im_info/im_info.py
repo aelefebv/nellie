@@ -282,7 +282,7 @@ class ImInfo:
             # change to T
             self.axes = self.axes.replace('Q', 'T')
 
-        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'ZCYX']
+        accepted_axes = ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'YX', 'CYX', 'CZYX', 'CTZYX', 'ZCYX']
         if self.axes not in accepted_axes:
             # todo, have user optionally specify axes
             logger.warning(f"File dimension order is in unknown order {self.axes} with {len(self.shape)} dimensions. \n"
