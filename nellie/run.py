@@ -40,7 +40,7 @@ if __name__ == "__main__":
     im_info = run(im_path, remove_edges=False, num_t=5)
     # im_info = run(im_path, remove_edges=False, ch=1, dim_sizes={'T': 1, 'Z': 0.1, 'Y': 0.1, 'X': 0.1}, otsu_thresh_intensity=True)
 
-    # Directory bactch run
+    # Directory batch run
     # import os
     # top_dirs = [
     #     r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\multi_grid\outputs",

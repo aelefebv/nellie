@@ -19,6 +19,7 @@ class ImInfo:
                  output_suffix: str = '',
                  ):
         self.im_path = im_path
+
         self.ch = ch or 0
         self.num_t = num_t
 
@@ -41,6 +42,12 @@ class ImInfo:
         self.graph_dir = os.path.join(self.output_dir, 'graphs')
         self.graph_dir = self.graph_dir + self.output_suffix
 
+        self.pipeline_paths = {}
+        self._create_output_paths()
+        if os.path.isfile(self.pipeline_paths['ome']):
+            logger.info(f'Found existing OME TIFF file at {self.pipeline_paths['ome']}.')
+            self.im_path = self.pipeline_paths['ome']
+
         self.shape = ()
         self.metadata = None
         self.metadata_type = None
@@ -56,8 +63,6 @@ class ImInfo:
 
         self._create_output_dir()
 
-        self.pipeline_paths = {}
-        self._create_output_paths()
 
         self._check_memmappable()
 
@@ -317,8 +322,14 @@ class ImInfo:
             shape: tuple = None,
             description: str = 'No description.',
             return_memmap: bool = False, read_mode='r+'):
+        if 'C' in self.axes:
+            # only grab the non-channel axes
+            self.shape = tuple([self.shape[i] for i in range(len(self.shape)) if self.axes[i] != 'C'])
+            self.axes = self.axes.replace('C', '')
+            # grab only data for the self.ch channel
+            # if data is not None:
+            #     data = np.take(data, self.ch, axis=self.axes.index('C'))
         axes = self.axes
-        axes = axes.replace('C', '') if 'C' in axes else axes
 
         logger.debug(f'Saving axes as {axes}')
         data = self._ensure_t(data)
