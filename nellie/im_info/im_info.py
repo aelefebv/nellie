@@ -45,7 +45,7 @@ class ImInfo:
         self.pipeline_paths = {}
         self._create_output_paths()
         if os.path.isfile(self.pipeline_paths['ome']):
-            logger.info(f'Found existing OME TIFF file at {self.pipeline_paths['ome']}.')
+            logger.info(f'Found existing OME TIFF file at {self.pipeline_paths["ome"]}.')
             self.im_path = self.pipeline_paths['ome']
 
         self.shape = ()
