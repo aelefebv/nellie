@@ -1,7 +1,10 @@
 import os
 import napari
+import ome_types
 from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QLineEdit, QFileDialog
 from napari.utils.notifications import show_info
+from tifffile import tifffile
+
 from nellie.im_info.im_info import ImInfo
 from nellie.utils.general import get_reshaped_image
 
@@ -16,6 +19,7 @@ class NellieFileSelect(QWidget):
 
         self.num_frames_max = None
         self.num_channels = 1
+        self.channel_selected = 0
 
         self.viewer = napari_viewer
         self.viewer.title = 'Nellie Napari'
@@ -237,8 +241,22 @@ class NellieFileSelect(QWidget):
         if not self.im_info.axes_valid:
             show_info("Dimension order is invalid.")
             return False
+        if self.dims_valid and self.im_info.axes_valid:
+            ome_xml = tifffile.tiffcomment(self.im_info.im_path)
+            ome = ome_types.from_xml(ome_xml, parser="lxml")
+            ome.images[0].pixels.physical_size_x = self.dim_sizes['X']
+            ome.images[0].pixels.physical_size_y = self.dim_sizes['Y']
+            ome.images[0].pixels.physical_size_z = self.dim_sizes['Z']
+            ome.images[0].pixels.time_increment = self.dim_sizes['T']
+            ome_xml = ome.to_xml()
+            tifffile.tiffcomment(self.im_info.im_path, ome_xml)
         self.open_preview_button.setEnabled(True)
         return True
+
+    def change_channel_init(self):
+        self.dim_sizes = {'T': None, 'Z': None, 'X': None, 'Y': None}
+        self.dim_sizes_changed = False
+        self.dim_order = None
 
     def set_max_frames(self):
         if self.im_info.no_t:
@@ -327,14 +345,16 @@ class NellieFileSelect(QWidget):
         else:
             tab = self.nellie.batch_mode
 
-        if not self.im_info.no_c and self.num_channels > 1:
-            tab.channel_input.setEnabled(True)
-            tab.channel_input.setRange(0, self.num_channels - 1)
-            tab.channel_input.setValue(self.nellie.processor.channel_input.value())
-        else:
-            tab.channel_input.setEnabled(False)
-            tab.channel_input.setRange(0, 0)
-            tab.channel_input.setValue(0)
+        # if not self.im_info.no_c and self.num_channels > 1:
+        # if self.im_info.num_channels_original > 1:
+        tab.channel_input.setEnabled(True)
+        tab.channel_input.setRange(0, self.im_info.num_channels_original - 1)
+        tab.channel_input.setValue(self.nellie.processor.channel_input.value())
+        tab.channel_input.setValue(self.channel_selected)
+        # else:
+        #     tab.channel_input.setEnabled(False)
+        #     tab.channel_input.setRange(0, 0)
+        #     tab.channel_input.setValue(0)
 
     def post_file_selection(self):
         self.set_max_frames()

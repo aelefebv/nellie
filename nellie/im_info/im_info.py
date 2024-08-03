@@ -21,6 +21,7 @@ class ImInfo:
         self.im_path = im_path
 
         self.ch = ch or 0
+        self.num_channels_original = 1
         self.num_t = num_t
 
         self.dim_sizes = dim_sizes
@@ -62,7 +63,6 @@ class ImInfo:
         self._check_axes()
 
         self._create_output_dir()
-
 
         self._check_memmappable()
 
@@ -108,6 +108,7 @@ class ImInfo:
         ome_path = self.pipeline_paths['ome']
         if os.path.isfile(ome_path):
             logger.info(f'Found existing OME TIFF file at {ome_path}.')
+            self.no_c = True
             return
         if self.extension == '.nd2':
             data = nd2.imread(self.im_path)
@@ -123,6 +124,7 @@ class ImInfo:
             raise ValueError
         if not self.no_c:
             data = np.take(data, self.ch, axis=self.axes.index('C'))
+            self.no_c = True
         self.allocate_memory(ome_path, data=data)
 
     def _check_axes(self):
@@ -194,6 +196,7 @@ class ImInfo:
                 self.dim_sizes['Y'] = self.metadata.images[0].pixels.physical_size_y
                 self.dim_sizes['Z'] = self.metadata.images[0].pixels.physical_size_z
                 self.dim_sizes['T'] = self.metadata.images[0].pixels.time_increment
+                # self.num_channels_original = self.metadata.images[0].pixels.size_c
             elif self.metadata_type == 'imagej_tif_tags':
                 self._get_tif_tag_metadata(self.metadata[1])
                 self._get_imagej_metadata(self.metadata[0])
@@ -308,10 +311,13 @@ class ImInfo:
     def _ensure_t(self, data=None):
         if 'T' not in self.axes:
             self.axes = 'T' + self.axes
-        if len(self.axes) != len(self.shape):
             self.shape = (1,) + self.shape
             if data is not None:
                 data = np.expand_dims(data, axis=0)
+        # if len(self.axes) != len(self.shape):
+            # self.shape = (1,) + self.shape
+            # if data is not None:
+            #     data = np.expand_dims(data, axis=0)
         if data is not None and (len(data.shape) != len(self.shape)):
             data = np.expand_dims(data, axis=0)
         return data
@@ -325,6 +331,8 @@ class ImInfo:
         if 'C' in self.axes:
             # only grab the non-channel axes
             self.shape = tuple([self.shape[i] for i in range(len(self.shape)) if self.axes[i] != 'C'])
+            self.num_channels_original = self.shape[self.axes.index('C')]
+            print(f'Original number of channels: {self.num_channels_original}')
             self.axes = self.axes.replace('C', '')
             # grab only data for the self.ch channel
             # if data is not None:
@@ -352,6 +360,7 @@ class ImInfo:
         ome.images[0].pixels.physical_size_y = self.dim_sizes['Y']
         ome.images[0].pixels.physical_size_z = self.dim_sizes['Z']
         ome.images[0].pixels.time_increment = self.dim_sizes['T']
+        # ome.images[0].pixels.size_c = self.num_channels_original
         ome.images[0].description = description
         ome.images[0].pixels.type = dtype  # note: numpy uses 8 bits as smallest, so 'bit' type does nothing for bool.
         ome_xml = ome.to_xml()

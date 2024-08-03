@@ -291,6 +291,7 @@ class NellieProcessor(QWidget):
 
     def change_channel(self):
         if self.nellie.file_select.single:
+            self.nellie.file_select.change_channel_init()
             self.nellie.file_select.initialize_single_file()
         else:
             self.nellie.file_select.initialize_folder(self.nellie.file_select.filepath)
