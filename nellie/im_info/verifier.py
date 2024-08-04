@@ -23,7 +23,9 @@ class FileInfo:
         self.shape = None
         self.dim_sizes = None
         self.ch = 0
+
         self.good_dims = False
+        self.good_axes = False
 
     def _find_tif_metadata(self):
         with tifffile.TiffFile(self.filepath) as tif:
@@ -122,22 +124,18 @@ class FileInfo:
 
     def _check_axes(self):
         if len(self.shape) != len(self.axes):
-            self.good_dims = False
             self.change_axes('Q' * len(self.shape))
+        if 'Q' in self.axes:
+            self.good_axes = False
+            return
+        self.good_axes = True
 
     def _check_dim_sizes(self):
-        if 'Z' in self.axes and self.dim_sizes['Z'] is None:
-            self.good_dims = False
-            return
-        if 'T' in self.axes and self.dim_sizes['T'] is None:
-            self.good_dims = False
-            return
-        if self.dim_sizes['X'] is None or self.dim_sizes['Y'] is None:
-            self.good_dims = False
-            return
-        if 'Q' in self.axes:
-            self.good_dims = False
-            return
+        check_dims = ['X', 'Y', 'Z', 'T']
+        for dim in check_dims:
+            if dim in self.axes and self.dim_sizes[dim] is None:
+                self.good_dims = False
+                return
         self.good_dims = True
 
     def change_axes(self, new_axes):
@@ -145,6 +143,12 @@ class FileInfo:
             raise ValueError('New axes must have the same length as the shape of the data')
         self.axes = new_axes
         self._check_axes()
+        self._check_dim_sizes()
+
+    def change_dim_size(self, dim, new_size):
+        if dim not in self.dim_sizes:
+            raise ValueError('Invalid dimension')
+        self.dim_sizes[dim] = new_size
         self._check_dim_sizes()
 
 
@@ -166,10 +170,25 @@ if __name__ == "__main__":
     file_info = FileInfo(test_file)
     file_info.find_metadata()
     file_info.load_metadata()
-    print(file_info.metadata_type)
-    print(file_info.axes)
-    print(file_info.shape)
-    print(file_info.dim_sizes)
+    print(f'{file_info.metadata_type=}')
+    print(f'{file_info.axes=}')
+    print(f'{file_info.shape=}')
+    print(f'{file_info.dim_sizes=}')
+    print(f'{file_info.good_axes=}')
+    print(f'{file_info.good_dims=}')
+
     file_info.change_axes('TZYX')
-    print(file_info.axes)
-    print(file_info.good_dims)
+    print('\nAxes changed')
+    print(f'{file_info.axes=}')
+    print(f'{file_info.dim_sizes=}')
+    print(f'{file_info.good_axes=}')
+    print(f'{file_info.good_dims=}')
+
+    file_info.change_dim_size('T', 0.5)
+    file_info.change_dim_size('Z', 0.2)
+    print('\nDim sizes changed')
+    print(f'{file_info.axes=}')
+    print(f'{file_info.dim_sizes=}')
+    print(f'{file_info.good_axes=}')
+    print(f'{file_info.good_dims=}')
+
