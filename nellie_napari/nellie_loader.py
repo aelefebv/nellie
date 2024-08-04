@@ -5,7 +5,7 @@ from nellie_napari import NellieProcessor
 from nellie_napari.batch_mode import BatchMode
 from nellie_napari.home import Home
 from nellie_napari.nellie_analysis import NellieAnalysis
-from nellie_napari.nellie_fileselect import NellieFileSelect
+from nellie_napari.nellie_fileselect_2 import NellieFileSelect
 from nellie_napari.settings import Settings
 from nellie_napari.visualizer import NellieVisualizer
 
@@ -71,11 +71,6 @@ class NellieLoader(QTabWidget):
 
         self.im_info = None
 
-    # def file_ready(self):
-    #     # self.im_info = self.file_select.im_info
-    #     self.processor.post_init()
-    #     self.visualizer.post_init()
-
     def on_tab_change(self, index):
         if index == self.analysis_tab:  # Check if the Analyze tab is selected
             if not self.analyzer.initialized:
@@ -85,15 +80,7 @@ class NellieLoader(QTabWidget):
             if not self.visualizer.initialized:
                 show_info("Initializing visualizer tab")
                 self.visualizer.post_init()
-        # elif index == self.processor_tab:
-            # if not self.processor.initialized:
-            #     show_info("Initializing processor tab")
-        # elif index == self.settings_tab:
-        #     if not self.settings.initialized:
-        #         show_info("Initializing settings tab")
         self.settings.post_init()
-        # else:
-        #     return
 
 
 if __name__ == "__main__":
