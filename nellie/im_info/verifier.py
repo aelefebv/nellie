@@ -1,6 +1,7 @@
 import os
 
 import nd2
+import numpy as np
 import ome_types
 from tifffile import tifffile
 
@@ -177,6 +178,34 @@ class FileInfo:
         self._check_axes()
         self._check_dim_res()
         self.select_temporal_range()
+
+    def save_ome_tiff(self, output_path):
+        if not self.good_axes or not self.good_dims:
+            raise ValueError('Cannot save file with invalid axes or dimensions')
+
+        grab data, get only wanted channel and time points, save as ome tif (with .ome.tif extension)
+        if no 'T', add a 'T' at the beginning
+
+        axes = self.axes
+        data = tifffile.imread(self.filepath)
+        if 'T' not in self.axes:
+            data = data[np.newaxis, ...]
+            axes = 'T' + self.axes
+        if 'C' in axes:
+            data = np.take(data, self.ch, axis=axes.index('C'))
+            axes = axes.replace('C', '')
+        tifffile.imwrite(
+            output_path, data, bigtiff=True, metadata={"axes": axes}
+        )
+        ome_xml = tifffile.tiffcomment(output_path)
+        ome = ome_types.from_xml(ome_xml, parser="lxml")
+        ome.images[0].pixels.physical_size_x = self.dim_res['X']
+        ome.images[0].pixels.physical_size_y = self.dim_res['Y']
+        ome.images[0].pixels.physical_size_z = self.dim_res['Z']
+        ome.images[0].pixels.time_increment = self.dim_res['T']
+        ome.images[0].pixels.type = data.dtype
+        ome_xml = ome.to_xml()
+        tifffile.tiffcomment(output_path, ome_xml)
 
 
 if __name__ == "__main__":
