@@ -8,15 +8,8 @@ from tifffile import tifffile
 from nellie import logger
 
 
-# takes in a file path
-# if not already an ome-tiff with correct metadata
-# returns a message saying so
-
-# user then has to correct metadata (if not correct).
-# Once correct, they can tell it to save the file as an ome-tiff
-
 class FileInfo:
-    def __init__(self, filepath):
+    def __init__(self, filepath, output_dir=None):
         self.filepath = filepath
         self.metadata = None
         self.metadata_type = None
@@ -24,12 +17,21 @@ class FileInfo:
         self.shape = None
         self.dim_res = None
 
+        self.input_dir = os.path.dirname(filepath)
+        self.basename = os.path.basename(filepath)
+        self.filename_no_ext = os.path.splitext(self.basename)[0]
+        self.extension = os.path.splitext(filepath)[1]
+        self.output_dir = output_dir or os.path.join(self.input_dir, 'nellie_output')
+        if not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+        self.output_path = None
         self.good_dims = False
         self.good_axes = False
 
         self.ch = 0
         self.t_start = 0
         self.t_end = None
+        self.dtype = None
 
     def _find_tif_metadata(self):
         with tifffile.TiffFile(self.filepath) as tif:
@@ -165,47 +167,75 @@ class FileInfo:
 
     def select_temporal_range(self, start=0, end=None):
         if not self.good_dims or not self.good_axes:
-            raise ValueError('Must have both valid axes and dimensions to select temporal range')
+            return
+            # raise ValueError('Must have both valid axes and dimensions to select temporal range')
         if 'T' not in self.axes:
             return
             # raise KeyError('No time dimension to select')
         self.t_start = start
         self.t_end = end
         if self.t_end is None:
-            self.t_end = self.shape[self.axes.index('T')]
+            self.t_end = self.shape[self.axes.index('T')] - 1
+        self._get_output_path()
 
     def _validate(self):
         self._check_axes()
         self._check_dim_res()
         self.select_temporal_range()
+        self._get_output_path()
 
-    def save_ome_tiff(self, output_path):
+    def read_file(self):
+        if self.extension == '.nd2':
+            data = nd2.imread(self.filepath)
+        elif self.extension == '.tif' or self.extension == '.tiff':
+            try:
+                data = tifffile.memmap(self.filepath)
+            except:
+                data = tifffile.imread(self.filepath)
+        else:
+            logger.error(f'Filetype {self.extension} not supported. Please convert to .nd2 or .tif.')
+            raise ValueError
+        self.dtype = data.dtype
+        return data
+
+    def _get_output_path(self):
+        t_text = f'-t{self.t_start}_to_{self.t_end}' if 'T' in self.axes else ''
+        self.output_path = os.path.join(
+            self.output_dir,
+            f'{self.filename_no_ext}'
+            f'-ch{self.ch}'
+            f'{t_text}'
+            f'.ome.tif'
+        )
+
+    def save_ome_tiff(self):
         if not self.good_axes or not self.good_dims:
             raise ValueError('Cannot save file with invalid axes or dimensions')
 
-        grab data, get only wanted channel and time points, save as ome tif (with .ome.tif extension)
-        if no 'T', add a 'T' at the beginning
-
         axes = self.axes
-        data = tifffile.imread(self.filepath)
+        data = self.read_file()
         if 'T' not in self.axes:
             data = data[np.newaxis, ...]
             axes = 'T' + self.axes
+        else:
+            data = np.take(data, range(self.t_start, self.t_end + 1), axis=self.axes.index('T'))
         if 'C' in axes:
             data = np.take(data, self.ch, axis=axes.index('C'))
             axes = axes.replace('C', '')
+
         tifffile.imwrite(
-            output_path, data, bigtiff=True, metadata={"axes": axes}
+            self.output_path, data, bigtiff=True, metadata={"axes": axes}
         )
-        ome_xml = tifffile.tiffcomment(output_path)
-        ome = ome_types.from_xml(ome_xml, parser="lxml")
+
+        ome_xml = tifffile.tiffcomment(self.output_path)
+        ome = ome_types.from_xml(ome_xml)
         ome.images[0].pixels.physical_size_x = self.dim_res['X']
         ome.images[0].pixels.physical_size_y = self.dim_res['Y']
         ome.images[0].pixels.physical_size_z = self.dim_res['Z']
         ome.images[0].pixels.time_increment = self.dim_res['T']
-        ome.images[0].pixels.type = data.dtype
+        ome.images[0].pixels.type = data.dtype.name
         ome_xml = ome.to_xml()
-        tifffile.tiffcomment(output_path, ome_xml)
+        tifffile.tiffcomment(self.output_path, ome_xml)
 
 
 if __name__ == "__main__":
@@ -222,7 +252,7 @@ if __name__ == "__main__":
     #     print(file_info.dim_res)
     #     print('\n\n')
 
-    test_file = all_paths[2]
+    test_file = all_paths[1]
     file_info = FileInfo(test_file)
     file_info.find_metadata()
     file_info.load_metadata()
@@ -244,6 +274,7 @@ if __name__ == "__main__":
 
     file_info.change_dim_res('T', 0.5)
     file_info.change_dim_res('Z', 0.2)
+
     print('Dimension resolutions changed')
     print(f'{file_info.axes=}')
     print(f'{file_info.dim_res=}')
@@ -252,13 +283,15 @@ if __name__ == "__main__":
     print('\n')
 
     # print(f'{file_info.ch=}')
-    # file_info.change_selected_channel(1)
+    # file_info.change_selected_channel(3)
     # print('Channel changed')
     # print(f'{file_info.ch=}')
 
-    print(f'{file_info.t_start=}')
-    print(f'{file_info.t_end=}')
-    file_info.select_temporal_range(1, 3)
-    print('Temporal range selected')
-    print(f'{file_info.t_start=}')
-    print(f'{file_info.t_end=}')
+    # print(f'{file_info.t_start=}')
+    # print(f'{file_info.t_end=}')
+    # file_info.select_temporal_range(1, 3)
+    # print('Temporal range selected')
+    # print(f'{file_info.t_start=}')
+    # print(f'{file_info.t_end=}')
+
+    file_info.save_ome_tiff()
