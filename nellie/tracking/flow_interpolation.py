@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.spatial import cKDTree
+from tifffile import tifffile
 
 from nellie import logger
-from nellie.im_info.im_info import ImInfo
-from nellie.utils.general import get_reshaped_image
+from nellie.im_info.verifier import ImInfo
 
 
 class FlowInterpolator:
@@ -18,11 +18,11 @@ class FlowInterpolator:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
         if self.im_info.no_z:
-            self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+            self.scaling = (im_info.dim_res['Y'], im_info.dim_res['X'])
         else:
-            self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+            self.scaling = (im_info.dim_res['Z'], im_info.dim_res['Y'], im_info.dim_res['X'])
 
-        self.max_distance_um = max_distance_um * im_info.dim_sizes['T']
+        self.max_distance_um = max_distance_um * im_info.dim_res['T']
         self.max_distance_um = np.max(np.array([self.max_distance_um, 0.5]))
 
         self.forward = forward
@@ -44,8 +44,7 @@ class FlowInterpolator:
     def _allocate_memory(self):
         logger.debug('Allocating memory for mocap marking.')
 
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
+        self.im_memmap = tifffile.memmap(self.im_info.im_path)
         self.shape = self.im_memmap.shape
 
         flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
@@ -240,10 +239,8 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, m
 if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     im_info = ImInfo(im_path)
-    label_memmap = im_info.get_im_memmap(im_info.pipeline_paths['im_instance_label'])
-    label_memmap = get_reshaped_image(label_memmap, im_info=im_info)
-    im_memmap = im_info.get_im_memmap(im_info.im_path)
-    im_memmap = get_reshaped_image(im_memmap, im_info=im_info)
+    label_memmap = tifffile.memmap(im_info.pipeline_paths['im_instance_label'])
+    im_memmap = tifffile.memmap(im_info.im_path)
 
     import napari
     viewer = napari.Viewer()

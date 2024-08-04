@@ -2,6 +2,7 @@ import heapq
 
 import numpy as np
 from scipy.spatial import cKDTree
+from tifffile import tifffile
 
 from nellie import logger
 from nellie.im_info.im_info import ImInfo
@@ -214,20 +215,18 @@ class VoxelReassigner:
         logger.debug('Allocating memory for voxel reassignment.')
         self.voxel_matches_path = self.im_info.pipeline_paths['voxel_matches']
 
-        branch_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        obj_label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.branch_label_memmap = get_reshaped_image(branch_label_memmap, self.num_t, self.im_info)
-        self.obj_label_memmap = get_reshaped_image(obj_label_memmap, self.num_t, self.im_info)
+        self.branch_label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.obj_label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.shape = self.branch_label_memmap.shape
 
         reassigned_branch_label_path = self.im_info.pipeline_paths['im_branch_label_reassigned']
-        self.reassigned_branch_memmap = self.im_info.allocate_memory(reassigned_branch_label_path, shape=self.shape,
+        self.reassigned_branch_memmap = self.im_info.allocate_memory(reassigned_branch_label_path,
                                                                      dtype='int32',
                                                                      description='branch label reassigned',
                                                                      return_memmap=True)
 
         reassigned_obj_label_path = self.im_info.pipeline_paths['im_obj_label_reassigned']
-        self.reassigned_obj_memmap = self.im_info.allocate_memory(reassigned_obj_label_path, shape=self.shape,
+        self.reassigned_obj_memmap = self.im_info.allocate_memory(reassigned_obj_label_path,
                                                                   dtype='int32',
                                                                   description='object label reassigned',
                                                                   return_memmap=True)

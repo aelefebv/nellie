@@ -1,6 +1,7 @@
+from tifffile import tifffile
+
 from nellie import xp, ndi, logger, device_type
-from nellie.im_info.im_info import ImInfo
-from nellie.utils.general import get_reshaped_image
+from nellie.im_info.verifier import ImInfo
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 
 
@@ -24,7 +25,7 @@ class Label:
         self.max_label_num = 0
 
         if not self.im_info.no_z:
-            self.min_z_radius_um = min(self.im_info.dim_sizes['Z'], 0.2)
+            self.min_z_radius_um = min(self.im_info.dim_res['Z'], 0.2)
 
         self.semantic_mask_memmap = None
         self.instance_label_memmap = None
@@ -45,15 +46,12 @@ class Label:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for semantic segmentation.')
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
-
-        frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.frangi_memmap = get_reshaped_image(frangi_memmap, self.num_t, self.im_info)
+        self.im_memmap = tifffile.memmap(self.im_info.im_path)
+        self.frangi_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
         self.shape = self.frangi_memmap.shape
 
         im_instance_label_path = self.im_info.pipeline_paths['im_instance_label']
-        self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path, shape=self.shape,
+        self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path,
                                                                   dtype='int32',
                                                                   description='instance segmentation',
                                                                   return_memmap=True)
@@ -72,7 +70,7 @@ class Label:
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
 
-        if not self.im_info.no_z and self.im_info.dim_sizes['Z'] >= self.min_z_radius_um:
+        if not self.im_info.no_z and self.im_info.dim_res['Z'] >= self.min_z_radius_um:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
         elif self.im_info.no_z:
             mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))
@@ -167,6 +165,6 @@ class Label:
 
 if __name__ == "__main__":
     im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
-    im_info = ImInfo(im_path, dim_sizes={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
+    im_info = ImInfo(im_path, dim_res={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
     segment_unique = Label(im_info)
     segment_unique.run()

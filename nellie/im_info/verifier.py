@@ -242,6 +242,8 @@ class ImInfo:
     def __init__(self, file_info: FileInfo):
         self.file_info = file_info
         self.im_path = file_info.output_path
+        if not os.path.exists(self.im_path):
+            file_info.save_ome_tiff()
         self.im = tifffile.memmap(self.im_path)
         self.output_dir = file_info.output_dir
 
@@ -313,12 +315,14 @@ class ImInfo:
             tifffile.imwrite(
                 output_path, shape=self.shape, dtype=dtype, bigtiff=True, metadata={"axes": self.axes}
             )
-        tifffile.imwrite(
-            output_path, data, bigtiff=True, metadata={"axes": self.axes}
-        )
+        else:
+            dtype = dtype or data.dtype.name
+            tifffile.imwrite(
+                output_path, data, bigtiff=True, metadata={"axes": self.axes}
+            )
         ome = self.ome_metadata
         ome.images[0].description = description
-        ome.images[0].pixels.type = data.dtype.name
+        ome.images[0].pixels.type = dtype
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(output_path, ome_xml)
         if return_memmap:

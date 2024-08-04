@@ -1,9 +1,9 @@
 import numpy as np
 from scipy.spatial import cKDTree, distance
+from tifffile import tifffile
 
 from nellie import xp, ndi, logger, device_type
-from nellie.im_info.im_info import ImInfo
-from nellie.utils.general import get_reshaped_image
+from nellie.im_info.verifier import ImInfo
 
 
 class Markers:
@@ -21,12 +21,12 @@ class Markers:
         elif num_t is None:  # and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         if not self.im_info.no_z:
-            self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
+            self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
+        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
         self.max_radius_um = max_radius_um
 
-        self.min_radius_px = self.min_radius_um / self.im_info.dim_sizes['X']
-        self.max_radius_px = self.max_radius_um / self.im_info.dim_sizes['X']
+        self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
+        self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']
         self.use_im = use_im
         self.num_sigma = num_sigma
 
@@ -75,30 +75,25 @@ class Markers:
     def _allocate_memory(self):
         logger.debug('Allocating memory for mocap marking.')
 
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
-
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
-
-        im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
+        self.label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.im_memmap = tifffile.memmap(self.im_info.im_path)
+        self.im_frangi_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
         self.shape = self.label_memmap.shape
 
         im_marker_path = self.im_info.pipeline_paths['im_marker']
-        self.im_marker_memmap = self.im_info.allocate_memory(im_marker_path, shape=self.shape,
+        self.im_marker_memmap = self.im_info.allocate_memory(im_marker_path,
                                                              dtype='uint8',
                                                              description='mocap marker image',
                                                              return_memmap=True)
 
         im_distance_path = self.im_info.pipeline_paths['im_distance']
-        self.im_distance_memmap = self.im_info.allocate_memory(im_distance_path, shape=self.shape,
+        self.im_distance_memmap = self.im_info.allocate_memory(im_distance_path,
                                                                dtype='float',
                                                                description='distance transform image',
                                                                return_memmap=True)
 
         im_border_path = self.im_info.pipeline_paths['im_border']
-        self.im_border_memmap = self.im_info.allocate_memory(im_border_path, shape=self.shape,
+        self.im_border_memmap = self.im_info.allocate_memory(im_border_path,
                                                              dtype='uint8',
                                                              description='border image',
                                                              return_memmap=True)
@@ -172,6 +167,12 @@ class Markers:
 
         filt_footprint = xp.ones((3,) * (use_im.ndim + 1))
         max_filt = ndi.maximum_filter(lapofg, footprint=filt_footprint, mode='nearest')
+        # if peaks are empty, return empty array
+        if max_filt.size == 0:
+            if self.im_info.no_z:
+                return xp.empty((0, 2), dtype=int)
+            else:
+                return xp.empty((0, 3), dtype=int)
         peaks = xp.empty(lapofg.shape, dtype=bool)
         for filt_slice, max_filt_slice in enumerate(max_filt):
             peaks[filt_slice] = (xp.asarray(lapofg[filt_slice]) == xp.asarray(max_filt_slice))  # * max_filt_mask

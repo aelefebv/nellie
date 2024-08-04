@@ -4,23 +4,24 @@ import pickle
 import numpy as np
 from scipy import spatial
 from skimage.measure import regionprops
+from tifffile import tifffile
 
 from nellie import logger
-from nellie.im_info.im_info import ImInfo
+from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
 import pandas as pd
 import time
 
 
 class Hierarchy:
-    def __init__(self, im_info: ImInfo, num_t: int, skip_nodes=True,
+    def __init__(self, im_info: ImInfo, skip_nodes=True,
                  viewer=None):
         self.im_info = im_info
-        self.num_t = num_t
+        self.num_t = self.im_info.shape[0]
         if self.im_info.no_z:
-            self.spacing = (self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+            self.spacing = (self.im_info.dim_res['Y'], self.im_info.dim_res['X'])
         else:
-            self.spacing = (self.im_info.dim_sizes['Z'], self.im_info.dim_sizes['Y'], self.im_info.dim_sizes['X'])
+            self.spacing = (self.im_info.dim_res['Z'], self.im_info.dim_res['Y'], self.im_info.dim_res['X'])
 
         self.skip_nodes = skip_nodes
 
@@ -60,19 +61,19 @@ class Hierarchy:
 
     def _allocate_memory(self):
         # getting reshaped image will load the image into memory.. should probably do this case by case
-        self.im_raw = self.im_info.get_im_memmap(self.im_info.pipeline_paths['ome'])
-        self.im_struct = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_distance = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_skel = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel'])
-        self.label_components = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_branches = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        self.im_border_mask = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_border'])
-        self.im_pixel_class = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_pixel_class'])
+        self.im_raw = tifffile.memmap(self.im_info.im_path)
+        self.im_struct = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_distance = tifffile.memmap(self.im_info.pipeline_paths['im_distance'])
+        self.im_skel = tifffile.memmap(self.im_info.pipeline_paths['im_skel'])
+        self.label_components = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.label_branches = tifffile.memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.im_border_mask = tifffile.memmap(self.im_info.pipeline_paths['im_border'])
+        self.im_pixel_class = tifffile.memmap(self.im_info.pipeline_paths['im_pixel_class'])
         if not self.im_info.no_t:
             if os.path.exists(self.im_info.pipeline_paths['im_obj_label_reassigned']) and os.path.exists(
                     self.im_info.pipeline_paths['im_branch_label_reassigned']):
-                self.im_obj_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
-                self.im_branch_reassigned = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
+                self.im_obj_reassigned = tifffile.memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
+                self.im_branch_reassigned = tifffile.memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
 
         #     self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
         #     self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
@@ -648,15 +649,15 @@ class Voxels:
         self.directionality_rel.append(directionality_rel)
 
         if len(vec01) and len(vec12):
-            lin_acc = (lin_vel - lin_vel_01) / self.hierarchy.im_info.dim_sizes['T']
+            lin_acc = (lin_vel - lin_vel_01) / self.hierarchy.im_info.dim_res['T']
             lin_acc_mag = np.linalg.norm(lin_acc, axis=1)
-            ang_acc = (ang_vel - ang_vel_01) / self.hierarchy.im_info.dim_sizes['T']
-            lin_acc_rel = (lin_vel_rel - lin_vel_rel_01) / self.hierarchy.im_info.dim_sizes['T']
+            ang_acc = (ang_vel - ang_vel_01) / self.hierarchy.im_info.dim_res['T']
+            lin_acc_rel = (lin_vel_rel - lin_vel_rel_01) / self.hierarchy.im_info.dim_res['T']
             lin_acc_rel_mag = np.linalg.norm(lin_acc_rel, axis=1)
-            ang_acc_rel = (ang_vel_rel - ang_vel_rel_01) / self.hierarchy.im_info.dim_sizes['T']
-            # lin_acc_com = (lin_vel_com - lin_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
+            ang_acc_rel = (ang_vel_rel - ang_vel_rel_01) / self.hierarchy.im_info.dim_res['T']
+            # lin_acc_com = (lin_vel_com - lin_vel_com_01) / self.hierarchy.im_info.dim_res['T']
             # lin_acc_com_mag = np.linalg.norm(lin_acc_com, axis=1)
-#             ang_acc_com = (ang_vel_com - ang_vel_com_01) / self.hierarchy.im_info.dim_sizes['T']
+#             ang_acc_com = (ang_vel_com - ang_vel_com_01) / self.hierarchy.im_info.dim_res['T']
             if self.hierarchy.im_info.no_z:
                 ang_acc_mag = np.abs(ang_acc)
                 ang_acc_rel_mag = np.abs(ang_acc_rel)
@@ -707,7 +708,7 @@ class Voxels:
 
     def _get_linear_velocity(self, ra, rb):
         lin_disp = rb - ra
-        lin_vel = lin_disp / self.hierarchy.im_info.dim_sizes['T']
+        lin_vel = lin_disp / self.hierarchy.im_info.dim_res['T']
         lin_vel_mag = np.linalg.norm(lin_vel, axis=1)
         lin_vel_orient = (lin_vel.T / lin_vel_mag).T
         if self.hierarchy.im_info.no_z:
@@ -729,7 +730,7 @@ class Voxels:
         delta_theta = (delta_theta + np.pi) % (2 * np.pi) - np.pi
 
         # get the angular velocity
-        ang_vel = delta_theta / self.hierarchy.im_info.dim_sizes['T']
+        ang_vel = delta_theta / self.hierarchy.im_info.dim_res['T']
         ang_vel_mag = np.abs(ang_vel)
         ang_vel_orient = np.sign(ang_vel)
 
@@ -741,7 +742,7 @@ class Voxels:
         ang_disp = np.divide(cross_product.T, norm.T).T
         ang_disp[norm == 0] = [np.nan, np.nan, np.nan]
 
-        ang_vel = ang_disp / self.hierarchy.im_info.dim_sizes['T']
+        ang_vel = ang_disp / self.hierarchy.im_info.dim_res['T']
         ang_vel_mag = np.linalg.norm(ang_vel, axis=1)
         ang_vel_orient = (ang_vel.T / ang_vel_mag).T
         ang_vel_orient = np.where(np.isinf(ang_vel_orient), [np.nan, np.nan, np.nan], ang_vel_orient)
@@ -773,7 +774,7 @@ class Voxels:
         frame_t = np.ones(frame_coords.shape[0], dtype=int) * t
         self.time.append(frame_t)
 
-        im_name = np.ones(frame_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
+        im_name = np.ones(frame_coords.shape[0], dtype=object) * self.hierarchy.im_info.file_info.filename_no_ext
         self.image_name.append(im_name)
 
         if not self.hierarchy.skip_nodes:
@@ -951,7 +952,7 @@ class Nodes:
         frame_branch_label = self.hierarchy.label_branches[t][tuple(frame_skel_coords.T)]
         self.branch_label.append(frame_branch_label)
 
-        im_name = np.ones(frame_skel_coords.shape[0], dtype=object) * self.hierarchy.im_info.basename_no_ext
+        im_name = np.ones(frame_skel_coords.shape[0], dtype=object) * self.hierarchy.im_info.file_info.filename_no_ext
         self.image_name.append(im_name)
 
         self._get_aggregate_voxel_stats(t)
@@ -1160,7 +1161,7 @@ class Branches:
         frame_branch_label = self.hierarchy.im_skel[t][tuple(frame_branch_coords.T)]
         self.branch_label.append(frame_branch_label)
 
-        im_name = np.ones(num_branches, dtype=object) * self.hierarchy.im_info.basename_no_ext
+        im_name = np.ones(num_branches, dtype=object) * self.hierarchy.im_info.file_info.filename_no_ext
         self.image_name.append(im_name)
 
         self._get_aggregate_stats(t)
@@ -1260,7 +1261,7 @@ class Components:
         frame_t = np.ones(num_components, dtype=int) * t
         self.time.append(frame_t)
 
-        im_name = np.ones(num_components, dtype=object) * self.hierarchy.im_info.basename_no_ext
+        im_name = np.ones(num_components, dtype=object) * self.hierarchy.im_info.file_info.filename_no_ext
         self.image_name.append(im_name)
 
         self._get_aggregate_stats(t)
@@ -1304,7 +1305,7 @@ class Image:
 
     def _run_frame(self, t):
         self.time.append(t)
-        self.image_name.append(self.hierarchy.im_info.basename_no_ext)
+        self.image_name.append(self.hierarchy.im_info.file_info.filename_no_ext)
 
         self._get_aggregate_stats(t)
 
