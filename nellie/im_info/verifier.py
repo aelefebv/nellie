@@ -238,6 +238,93 @@ class FileInfo:
         tifffile.tiffcomment(self.output_path, ome_xml)
 
 
+class ImInfo:
+    def __init__(self, file_info: FileInfo):
+        self.file_info = file_info
+        self.im_path = file_info.output_path
+        self.im = tifffile.memmap(self.im_path)
+        self.output_dir = file_info.output_dir
+
+        self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
+        self.axes = None
+        self.shape = None
+        self.ome_metadata = None
+        self._get_ome_metadata()
+
+        self.no_z = True
+        self.no_t = True
+        self._check_axes_exist()
+
+        self.pipeline_paths = {}
+        self._create_output_paths()
+
+    def _check_axes_exist(self):
+        if 'Z' in self.axes and self.shape[self.axes.index('Z')] > 1:
+            self.no_z = False
+        if 'T' in self.axes and self.shape[self.axes.index('T')] > 1:
+            self.no_t = False
+
+    def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
+        t_text = f'-t{self.file_info.t_start}_to_{self.file_info.t_end}' if 'T' in self.file_info.axes else ''
+        output_path = os.path.join(
+            self.output_dir,
+            f'{self.file_info.filename_no_ext}'
+            f'-ch{self.file_info.ch}'
+            f'{t_text}'
+            f'-{pipeline_path}'
+            f'{ext}'
+        )
+        self.pipeline_paths[pipeline_path] = output_path
+        return self.pipeline_paths[pipeline_path]
+
+    def _create_output_paths(self):
+        self.create_output_path('im_frangi')
+        self.create_output_path('im_instance_label')
+        self.create_output_path('im_skel')
+        self.create_output_path('im_skel_relabelled')
+        self.create_output_path('im_pixel_class')
+        self.create_output_path('im_marker')
+        self.create_output_path('im_distance')
+        self.create_output_path('im_border')
+        self.create_output_path('flow_vector_array', ext='.npy')
+        self.create_output_path('voxel_matches', ext='.npy')
+        self.create_output_path('im_branch_label_reassigned')
+        self.create_output_path('im_obj_label_reassigned')
+        self.create_output_path('features_voxels', ext='.csv')
+        self.create_output_path('features_nodes', ext='.csv')
+        self.create_output_path('features_branches', ext='.csv')
+        self.create_output_path('features_components', ext='.csv')
+        self.create_output_path('features_image', ext='.csv')
+        self.create_output_path('adjacency_maps', ext='.pkl')
+
+    def _get_ome_metadata(self, ):
+        with tifffile.TiffFile(self.im_path) as tif:
+            self.axes = tif.series[0].axes
+            self.shape = tif.series[0].shape
+        self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
+        self.dim_res['X'] = self.ome_metadata.images[0].pixels.physical_size_x
+        self.dim_res['Y'] = self.ome_metadata.images[0].pixels.physical_size_y
+        self.dim_res['Z'] = self.ome_metadata.images[0].pixels.physical_size_z
+        self.dim_res['T'] = self.ome_metadata.images[0].pixels.time_increment
+
+    def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
+                        return_memmap=False, read_mode='r+'):
+        if data is None:
+            tifffile.imwrite(
+                output_path, shape=self.shape, dtype=dtype, bigtiff=True, metadata={"axes": self.axes}
+            )
+        tifffile.imwrite(
+            output_path, data, bigtiff=True, metadata={"axes": self.axes}
+        )
+        ome = self.ome_metadata
+        ome.images[0].description = description
+        ome.images[0].pixels.type = data.dtype.name
+        ome_xml = ome.to_xml()
+        tifffile.tiffcomment(output_path, ome_xml)
+        if return_memmap:
+            return tifffile.memmap(output_path, mode=read_mode)
+
+
 if __name__ == "__main__":
     test_dir = '/Users/austin/test_files/nellie_all_tests'
     all_paths = os.listdir(test_dir)
@@ -287,11 +374,12 @@ if __name__ == "__main__":
     # print('Channel changed')
     # print(f'{file_info.ch=}')
 
-    # print(f'{file_info.t_start=}')
-    # print(f'{file_info.t_end=}')
-    # file_info.select_temporal_range(1, 3)
-    # print('Temporal range selected')
-    # print(f'{file_info.t_start=}')
-    # print(f'{file_info.t_end=}')
+    print(f'{file_info.t_start=}')
+    print(f'{file_info.t_end=}')
+    file_info.select_temporal_range(1, 3)
+    print('Temporal range selected')
+    print(f'{file_info.t_start=}')
+    print(f'{file_info.t_end=}')
 
-    file_info.save_ome_tiff()
+    # file_info.save_ome_tiff()
+    im_info = ImInfo(file_info)
