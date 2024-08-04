@@ -21,7 +21,7 @@ class FileInfo:
         self.metadata_type = None
         self.axes = None
         self.shape = None
-        self.dim_sizes = None
+        self.dim_res = None
         self.ch = 0
 
         self.good_dims = False
@@ -68,47 +68,47 @@ class FileInfo:
             raise ValueError('File type not supported')
 
     def _get_imagej_metadata(self, metadata):
-        self.dim_sizes['X'] = metadata['physicalsizex'] if 'physicalsizex' in metadata else None
-        self.dim_sizes['Y'] = metadata['physicalsizey'] if 'physicalsizey' in metadata else None
-        self.dim_sizes['Z'] = metadata['spacing'] if 'spacing' in metadata else None
-        self.dim_sizes['T'] = metadata['finterval'] if 'finterval' in metadata else None
+        self.dim_res['X'] = metadata['physicalsizex'] if 'physicalsizex' in metadata else None
+        self.dim_res['Y'] = metadata['physicalsizey'] if 'physicalsizey' in metadata else None
+        self.dim_res['Z'] = metadata['spacing'] if 'spacing' in metadata else None
+        self.dim_res['T'] = metadata['finterval'] if 'finterval' in metadata else None
 
     def _get_ome_metadata(self, metadata):
-        self.dim_sizes['X'] = metadata.images[0].pixels.physical_size_x
-        self.dim_sizes['Y'] = metadata.images[0].pixels.physical_size_y
-        self.dim_sizes['Z'] = metadata.images[0].pixels.physical_size_z
-        self.dim_sizes['T'] = metadata.images[0].pixels.time_increment
+        self.dim_res['X'] = metadata.images[0].pixels.physical_size_x
+        self.dim_res['Y'] = metadata.images[0].pixels.physical_size_y
+        self.dim_res['Z'] = metadata.images[0].pixels.physical_size_z
+        self.dim_res['T'] = metadata.images[0].pixels.time_increment
 
     def _get_tif_tags_metadata(self, metadata):
         tag_names = {tag_value.name: tag_code for tag_code, tag_value in metadata.items()}
 
         if 'XResolution' in tag_names:
-            self.dim_sizes['X'] = metadata[tag_names['XResolution']].value[1] \
+            self.dim_res['X'] = metadata[tag_names['XResolution']].value[1] \
                                   / metadata[tag_names['XResolution']].value[0]
         if 'YResolution' in tag_names:
-            self.dim_sizes['Y'] = metadata[tag_names['YResolution']].value[1] \
+            self.dim_res['Y'] = metadata[tag_names['YResolution']].value[1] \
                                   / metadata[tag_names['YResolution']].value[0]
         if 'ResolutionUnit' in tag_names:
             if metadata[tag_names['ResolutionUnit']].value == tifffile.RESUNIT.CENTIMETER:
-                self.dim_sizes['X'] *= 1E-4 * 1E6
-                self.dim_sizes['Y'] *= 1E-4 * 1E6
+                self.dim_res['X'] *= 1E-4 * 1E6
+                self.dim_res['Y'] *= 1E-4 * 1E6
         if 'Z' in self.axes:
             if 'ZResolution' in tag_names:
-                self.dim_sizes['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
+                self.dim_res['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
         if 'T' in self.axes:
             if 'FrameRate' in tag_names:
-                self.dim_sizes['T'] = 1 / metadata[tag_names['FrameRate']].value[0]
+                self.dim_res['T'] = 1 / metadata[tag_names['FrameRate']].value[0]
 
     def _get_nd2_metadata(self, metadata):
         if 'Time [s]' in metadata.recorded_data:
             timestamps = metadata.recorded_data['Time [s]']
-            self.dim_sizes['T'] = timestamps[-1] / len(timestamps)
-        self.dim_sizes['X'] = metadata.volume.axesCalibration[0]
-        self.dim_sizes['Y'] = metadata.volume.axesCalibration[1]
-        self.dim_sizes['Z'] = metadata.volume.axesCalibration[2]
+            self.dim_res['T'] = timestamps[-1] / len(timestamps)
+        self.dim_res['X'] = metadata.volume.axesCalibration[0]
+        self.dim_res['Y'] = metadata.volume.axesCalibration[1]
+        self.dim_res['Z'] = metadata.volume.axesCalibration[2]
 
     def load_metadata(self):
-        self.dim_sizes = {'X': None, 'Y': None, 'Z': None, 'T': None}
+        self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
         if self.metadata_type == 'ome':
             self._get_ome_metadata(self.metadata)
         elif self.metadata_type == 'imagej':
@@ -130,10 +130,10 @@ class FileInfo:
             return
         self.good_axes = True
 
-    def _check_dim_sizes(self):
+    def _check_dim_res(self):
         check_dims = ['X', 'Y', 'Z', 'T']
         for dim in check_dims:
-            if dim in self.axes and self.dim_sizes[dim] is None:
+            if dim in self.axes and self.dim_res[dim] is None:
                 self.good_dims = False
                 return
         self.good_dims = True
@@ -143,13 +143,13 @@ class FileInfo:
             raise ValueError('New axes must have the same length as the shape of the data')
         self.axes = new_axes
         self._check_axes()
-        self._check_dim_sizes()
+        self._check_dim_res()
 
-    def change_dim_size(self, dim, new_size):
-        if dim not in self.dim_sizes:
+    def change_dim_res(self, dim, new_size):
+        if dim not in self.dim_res:
             raise ValueError('Invalid dimension')
-        self.dim_sizes[dim] = new_size
-        self._check_dim_sizes()
+        self.dim_res[dim] = new_size
+        self._check_dim_res()
 
 
 if __name__ == "__main__":
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     #     print(file_info.metadata_type)
     #     print(file_info.axes)
     #     print(file_info.shape)
-    #     print(file_info.dim_sizes)
+    #     print(file_info.dim_res)
     #     print('\n\n')
 
     test_file = all_paths[1]
@@ -173,22 +173,22 @@ if __name__ == "__main__":
     print(f'{file_info.metadata_type=}')
     print(f'{file_info.axes=}')
     print(f'{file_info.shape=}')
-    print(f'{file_info.dim_sizes=}')
+    print(f'{file_info.dim_res=}')
     print(f'{file_info.good_axes=}')
     print(f'{file_info.good_dims=}')
 
     file_info.change_axes('TZYX')
     print('\nAxes changed')
     print(f'{file_info.axes=}')
-    print(f'{file_info.dim_sizes=}')
+    print(f'{file_info.dim_res=}')
     print(f'{file_info.good_axes=}')
     print(f'{file_info.good_dims=}')
 
-    file_info.change_dim_size('T', 0.5)
-    file_info.change_dim_size('Z', 0.2)
-    print('\nDim sizes changed')
+    file_info.change_dim_res('T', 0.5)
+    file_info.change_dim_res('Z', 0.2)
+    print('\nDimension resolutions changed')
     print(f'{file_info.axes=}')
-    print(f'{file_info.dim_sizes=}')
+    print(f'{file_info.dim_res=}')
     print(f'{file_info.good_axes=}')
     print(f'{file_info.good_dims=}')
 
