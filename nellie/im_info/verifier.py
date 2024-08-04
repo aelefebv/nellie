@@ -22,10 +22,13 @@ class FileInfo:
         self.axes = None
         self.shape = None
         self.dim_res = None
-        self.ch = 0
 
         self.good_dims = False
         self.good_axes = False
+
+        self.ch = 0
+        self.t_start = 0
+        self.t_end = None
 
     def _find_tif_metadata(self):
         with tifffile.TiffFile(self.filepath) as tif:
@@ -120,7 +123,7 @@ class FileInfo:
             self._get_nd2_metadata(self.metadata)
         elif self.metadata_type is None:
             self._get_tif_tags_metadata(self.metadata)
-        self._check_axes()
+        self._validate()
 
     def _check_axes(self):
         if len(self.shape) != len(self.axes):
@@ -142,14 +145,38 @@ class FileInfo:
         if len(new_axes) != len(self.shape):
             raise ValueError('New axes must have the same length as the shape of the data')
         self.axes = new_axes
-        self._check_axes()
-        self._check_dim_res()
+        self._validate()
 
     def change_dim_res(self, dim, new_size):
         if dim not in self.dim_res:
             raise ValueError('Invalid dimension')
         self.dim_res[dim] = new_size
+        self._validate()
+
+    def change_selected_channel(self, ch):
+        if not self.good_dims or not self.good_axes:
+            raise ValueError('Must have both valid axes and dimensions to change channel')
+        if 'C' not in self.axes:
+            raise KeyError('No channel dimension to change')
+        if ch < 0 or ch >= self.shape[self.axes.index('C')]:
+            raise IndexError('Invalid channel index')
+        self.ch = ch
+
+    def select_temporal_range(self, start=0, end=None):
+        if not self.good_dims or not self.good_axes:
+            raise ValueError('Must have both valid axes and dimensions to select temporal range')
+        if 'T' not in self.axes:
+            return
+            # raise KeyError('No time dimension to select')
+        self.t_start = start
+        self.t_end = end
+        if self.t_end is None:
+            self.t_end = self.shape[self.axes.index('T')]
+
+    def _validate(self):
+        self._check_axes()
         self._check_dim_res()
+        self.select_temporal_range()
 
 
 if __name__ == "__main__":
@@ -166,7 +193,7 @@ if __name__ == "__main__":
     #     print(file_info.dim_res)
     #     print('\n\n')
 
-    test_file = all_paths[1]
+    test_file = all_paths[2]
     file_info = FileInfo(test_file)
     file_info.find_metadata()
     file_info.load_metadata()
@@ -176,19 +203,33 @@ if __name__ == "__main__":
     print(f'{file_info.dim_res=}')
     print(f'{file_info.good_axes=}')
     print(f'{file_info.good_dims=}')
+    print('\n')
 
     file_info.change_axes('TZYX')
-    print('\nAxes changed')
+    print('Axes changed')
     print(f'{file_info.axes=}')
     print(f'{file_info.dim_res=}')
     print(f'{file_info.good_axes=}')
     print(f'{file_info.good_dims=}')
+    print('\n')
 
     file_info.change_dim_res('T', 0.5)
     file_info.change_dim_res('Z', 0.2)
-    print('\nDimension resolutions changed')
+    print('Dimension resolutions changed')
     print(f'{file_info.axes=}')
     print(f'{file_info.dim_res=}')
     print(f'{file_info.good_axes=}')
     print(f'{file_info.good_dims=}')
+    print('\n')
 
+    # print(f'{file_info.ch=}')
+    # file_info.change_selected_channel(1)
+    # print('Channel changed')
+    # print(f'{file_info.ch=}')
+
+    print(f'{file_info.t_start=}')
+    print(f'{file_info.t_end=}')
+    file_info.select_temporal_range(1, 3)
+    print('Temporal range selected')
+    print(f'{file_info.t_start=}')
+    print(f'{file_info.t_end=}')
