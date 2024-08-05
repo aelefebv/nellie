@@ -2,7 +2,7 @@ import os
 import napari
 import ome_types
 from PyQt5.QtWidgets import QSpinBox
-from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QLineEdit, QFileDialog
+from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QVBoxLayout, QHBoxLayout, QGroupBox
 from napari.utils.notifications import show_info
 from tifffile import tifffile
 
@@ -20,8 +20,6 @@ class NellieFileSelect(QWidget):
 
         self.viewer = napari_viewer
         self.viewer.title = 'Nellie Napari'
-        self.setLayout(QGridLayout())
-
         # Add text showing what filepath is selected
         self.filepath_text = QLabel(text="No file selected.")
         self.filepath_text.setWordWrap(True)
@@ -33,6 +31,9 @@ class NellieFileSelect(QWidget):
 
         self.file_shape_text = QLabel(text="None")
         self.file_shape_text.setWordWrap(True)
+
+        self.current_order_text = QLabel(text="None")
+        self.current_order_text.setWordWrap(True)
 
         self.dim_order_button = QLineEdit(self)
         self.dim_order_button.setText("None")
@@ -97,45 +98,89 @@ class NellieFileSelect(QWidget):
         self.process_button.clicked.connect(self.on_process)
         self.process_button.setEnabled(False)
 
-        self.add_buttons()
+        self.init_UI()
 
-    def add_buttons(self):
-        self.layout().addWidget(self.filepath_button, 0, 0, 2, 2)
-        self.layout().addWidget(QLabel("Selected file: "), 2, 0, 1, 1)
-        self.layout().addWidget(self.filepath_text, 2, 1, 1, 1)
-        self.layout().addWidget(QLabel("Dimension order: "), 3, 0, 1, 1)
-        self.layout().addWidget(self.dim_order_button, 3, 1, 1, 1)
-        self.layout().addWidget(QLabel("File shape: "), 4, 0, 1, 1)
-        self.layout().addWidget(self.file_shape_text, 4, 1, 1, 1)
-        self.layout().addWidget(self.label_t, 5, 0, 1, 1)
-        self.layout().addWidget(self.dim_t_button, 5, 1, 1, 1)
-        self.layout().addWidget(self.label_z, 6, 0, 1, 1)
-        self.layout().addWidget(self.dim_z_button, 6, 1, 1, 1)
-        self.layout().addWidget(self.label_xy, 7, 0, 1, 1)
-        self.layout().addWidget(self.dim_xy_button, 7, 1, 1, 1)
-        self.layout().addWidget(QLabel("Data to analyze: "), 8, 0, 1, 1)
-        self.layout().addWidget(self.label_time, 9, 0, 1, 1)
-        self.layout().addWidget(self.start_frame_button, 9, 1, 1, 1)
-        self.layout().addWidget(self.label_time_2, 10, 0, 1, 1)
-        self.layout().addWidget(self.end_frame_button, 10, 1, 1, 1)
-        self.layout().addWidget(self.label_channel, 11, 0, 1, 1)
-        self.layout().addWidget(self.channel_button, 11, 1, 1, 1)
-        self.layout().addWidget(QLabel("Ready to process?: "), 12, 0, 1, 1)
-        self.layout().addWidget(self.confirm_button, 12, 1, 1, 1)
-        self.layout().addWidget(self.preview_button, 13, 0, 1, 1)
-        self.layout().addWidget(self.process_button, 13, 1, 1, 1)
-        # self.layout().addWidget(self.delete_button, 13, 1, 1, 1)
+    def init_UI(self):
+        main_layout = QVBoxLayout()
+
+        # File Selection Group
+        file_group = QGroupBox("File Selection")
+        file_layout = QVBoxLayout()
+        file_layout.addWidget(self.filepath_button)
+        file_sub_layout = QHBoxLayout()
+        file_sub_layout.addWidget(QLabel("Selected file:"))
+        file_sub_layout.addWidget(self.filepath_text)
+        file_layout.addLayout(file_sub_layout)
+        file_group.setLayout(file_layout)
+
+        # Axes Info Group
+        axes_group = QGroupBox("Axes Information")
+        axes_layout = QVBoxLayout()
+        for label, button in [
+            (QLabel("Dimension order:"), self.dim_order_button),
+            (QLabel("File shape:"), self.file_shape_text),
+            (QLabel("Current order:"), self.current_order_text)
+        ]:
+            sub_layout = QHBoxLayout()
+            sub_layout.addWidget(label)
+            sub_layout.addWidget(button)
+            axes_layout.addLayout(sub_layout)
+        axes_group.setLayout(axes_layout)
+
+        # Dimensions Group
+        dim_group = QGroupBox("Dimension Resolutions")
+        dim_layout = QVBoxLayout()
+        for label, button in [
+            (self.label_t, self.dim_t_button),
+            (self.label_z, self.dim_z_button),
+            (self.label_xy, self.dim_xy_button)
+        ]:
+            sub_layout = QHBoxLayout()
+            sub_layout.addWidget(label)
+            sub_layout.addWidget(button)
+            dim_layout.addLayout(sub_layout)
+        dim_group.setLayout(dim_layout)
+
+        # Slice Settings Group
+        slice_group = QGroupBox("Slice Settings")
+        slice_layout = QVBoxLayout()
+        for label, button in [
+            (self.label_time, self.start_frame_button),
+            (self.label_time_2, self.end_frame_button),
+            (self.label_channel, self.channel_button)
+        ]:
+            sub_layout = QHBoxLayout()
+            sub_layout.addWidget(label)
+            sub_layout.addWidget(button)
+            slice_layout.addLayout(sub_layout)
+        slice_group.setLayout(slice_layout)
+
+        # Action Buttons Group
+        action_group = QGroupBox("Actions")
+        action_layout = QHBoxLayout()
+        action_layout.addWidget(self.confirm_button)
+        action_layout.addWidget(self.preview_button)
+        action_layout.addWidget(self.process_button)
+        action_group.setLayout(action_layout)
+
+        # Add all groups to main layout
+        main_layout.addWidget(file_group)
+        main_layout.addWidget(axes_group)
+        main_layout.addWidget(dim_group)
+        main_layout.addWidget(slice_group)
+        main_layout.addWidget(action_group)
+
+        self.setLayout(main_layout)
 
     def select_filepath(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Select file")
         self.validate_path(filepath)
         if self.filepath is None:
             return
-        self.single = True
+        # self.single = True
 
         self.initialize_single_file()
         filename = os.path.basename(self.filepath)
-        # show_info(f"Selected file: {filename}")
         self.filepath_text.setText(f"{filename}")
 
         # self.post_file_selection()
@@ -171,13 +216,13 @@ class NellieFileSelect(QWidget):
             self.dim_order_button.setStyleSheet("background-color: red")
             show_info(f"Error: Too many dimensions found ({self.file_info.shape}).")
 
-        if not self.file_info.good_dims:
-            show_info("Error: Dimension metadata missing.")
-        elif not self.file_info.good_axes:
-            self.dim_order_button.setStyleSheet("background-color: red")
-            show_info("Error: Incorrect dimension specification.")
-        else:
+        if self.file_info.good_axes:
+            current_order_text = f"({', '.join(self.file_info.axes)})"
+            self.current_order_text.setText(current_order_text)
             self.dim_order_button.setStyleSheet("background-color: green")
+        else:
+            self.current_order_text.setText("Invalid")
+            self.dim_order_button.setStyleSheet("background-color: red")
 
         if self.file_info.good_dims and self.file_info.good_axes:
             self.confirm_button.setEnabled(True)
@@ -186,7 +231,7 @@ class NellieFileSelect(QWidget):
         self.preview_button.setEnabled(False)
         self.process_button.setEnabled(False)
         # check file_info output path. if it exists, enable the delete and preview button
-        if os.path.exists(self.file_info.output_path):
+        if os.path.exists(self.file_info.output_path) and self.file_info.good_dims and self.file_info.good_axes:
             # self.delete_button.setEnabled(True)
             self.preview_button.setEnabled(True)
             self.process_button.setEnabled(True)

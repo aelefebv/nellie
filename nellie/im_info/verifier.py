@@ -212,10 +212,23 @@ class FileInfo:
 
     def _get_output_path(self):
         t_text = f'-t{self.t_start}_to_{self.t_end}' if 'T' in self.axes else ''
+        dim_texts = []
+        for axis in self.axes:
+            dim_res = self.dim_res[axis]
+            # round to 4 decimal places
+            if dim_res is None:
+                dim_res = 'None'
+            else:
+                dim_res = str(round(dim_res, 4))
+            # convert '.' to 'p'
+            dim_res = dim_res.replace('.', 'p')
+            dim_texts.append(f'{axis}{dim_res}')
+        dim_text = f"-{'_'.join(dim_texts)}"
         self.output_path = os.path.join(
             self.output_dir,
             f'{self.filename_no_ext}'
             f'-{self.axes}'
+            f'{dim_text}'
             f'-ch{self.ch}'
             f'{t_text}'
             f'.ome.tif'
@@ -281,10 +294,23 @@ class ImInfo:
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
         t_text = f'-t{self.file_info.t_start}_to_{self.file_info.t_end}' if 'T' in self.file_info.axes else ''
+        dim_texts = []
+        for axis in self.file_info.axes:
+            dim_res = self.dim_res[axis]
+            # round to 4 decimal places
+            if dim_res is None:
+                dim_res = 'None'
+            else:
+                dim_res = str(round(dim_res, 4))
+            # convert '.' to 'p'
+            dim_res = dim_res.replace('.', 'p')
+            dim_texts.append(f'{axis}{dim_res}')
+        dim_text = f"-{'_'.join(dim_texts)}"
         output_path = os.path.join(
             self.output_dir,
             f'{self.file_info.filename_no_ext}'
             f'-{self.axes}'
+            f'{dim_text}'
             f'-ch{self.file_info.ch}'
             f'{t_text}'
             f'-{pipeline_path}'
