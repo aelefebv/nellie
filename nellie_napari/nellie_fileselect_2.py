@@ -15,7 +15,7 @@ class NellieFileSelect(QWidget):
         super().__init__(parent)
         self.nellie = nellie
         self.filepath = None
-        self.file_info = None
+        self.file_info: FileInfo = None
         self.im_info = None
 
         self.viewer = napari_viewer
@@ -31,7 +31,7 @@ class NellieFileSelect(QWidget):
         self.filepath_button.clicked.connect(self.select_filepath)
         self.filepath_button.setEnabled(True)
 
-        self.file_shape_text = QLabel(text="File shape: None")
+        self.file_shape_text = QLabel(text="None")
         self.file_shape_text.setWordWrap(True)
 
         self.dim_order_button = QLineEdit(self)
@@ -81,32 +81,50 @@ class NellieFileSelect(QWidget):
         self.end_frame_button.setValue(0)
         self.end_frame_button.setEnabled(False)
         self.end_frame_button.valueChanged.connect(self.change_time)
+        self.end_frame_init = False
 
         self.confirm_button = QPushButton(text="Confirm")
         self.confirm_button.clicked.connect(self.on_confirm)
         self.confirm_button.setEnabled(False)
 
+        self.preview_button = QPushButton(text="Preview image")
+        self.preview_button.clicked.connect(self.on_preview)
+        self.preview_button.setEnabled(False)
+
+        # self.delete_button = QPushButton(text="Delete image")
+
+        self.process_button = QPushButton(text="Process image")
+        self.process_button.clicked.connect(self.on_process)
+        self.process_button.setEnabled(False)
+
         self.add_buttons()
 
     def add_buttons(self):
-        self.layout().addWidget(self.filepath_button, 1, 0, 1, 1)
-        self.layout().addWidget(self.filepath_text, 2, 0, 1, 2)
-        self.layout().addWidget(self.file_shape_text, 3, 0, 1, 2)
-        self.layout().addWidget(QLabel("Dimension order: "), 4, 0, 1, 1)
-        self.layout().addWidget(self.dim_order_button, 4, 1, 1, 1)
+        self.layout().addWidget(self.filepath_button, 0, 0, 2, 2)
+        self.layout().addWidget(QLabel("Selected file: "), 2, 0, 1, 1)
+        self.layout().addWidget(self.filepath_text, 2, 1, 1, 1)
+        self.layout().addWidget(QLabel("Dimension order: "), 3, 0, 1, 1)
+        self.layout().addWidget(self.dim_order_button, 3, 1, 1, 1)
+        self.layout().addWidget(QLabel("File shape: "), 4, 0, 1, 1)
+        self.layout().addWidget(self.file_shape_text, 4, 1, 1, 1)
         self.layout().addWidget(self.label_t, 5, 0, 1, 1)
         self.layout().addWidget(self.dim_t_button, 5, 1, 1, 1)
         self.layout().addWidget(self.label_z, 6, 0, 1, 1)
         self.layout().addWidget(self.dim_z_button, 6, 1, 1, 1)
         self.layout().addWidget(self.label_xy, 7, 0, 1, 1)
         self.layout().addWidget(self.dim_xy_button, 7, 1, 1, 1)
-        self.layout().addWidget(self.label_time, 8, 0, 1, 1)
-        self.layout().addWidget(self.start_frame_button, 8, 1, 1, 1)
-        self.layout().addWidget(self.label_time_2, 9, 0, 1, 1)
-        self.layout().addWidget(self.end_frame_button, 9, 1, 1, 1)
-        self.layout().addWidget(self.label_channel, 10, 0, 1, 1)
-        self.layout().addWidget(self.channel_button, 10, 1, 1, 1)
-        self.layout().addWidget(self.confirm_button, 11, 1, 1, 1)
+        self.layout().addWidget(QLabel("Data to analyze: "), 8, 0, 1, 1)
+        self.layout().addWidget(self.label_time, 9, 0, 1, 1)
+        self.layout().addWidget(self.start_frame_button, 9, 1, 1, 1)
+        self.layout().addWidget(self.label_time_2, 10, 0, 1, 1)
+        self.layout().addWidget(self.end_frame_button, 10, 1, 1, 1)
+        self.layout().addWidget(self.label_channel, 11, 0, 1, 1)
+        self.layout().addWidget(self.channel_button, 11, 1, 1, 1)
+        self.layout().addWidget(QLabel("Ready to process?: "), 12, 0, 1, 1)
+        self.layout().addWidget(self.confirm_button, 12, 1, 1, 1)
+        self.layout().addWidget(self.preview_button, 13, 0, 1, 1)
+        self.layout().addWidget(self.process_button, 13, 1, 1, 1)
+        # self.layout().addWidget(self.delete_button, 13, 1, 1, 1)
 
     def select_filepath(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Select file")
@@ -118,7 +136,7 @@ class NellieFileSelect(QWidget):
         self.initialize_single_file()
         filename = os.path.basename(self.filepath)
         # show_info(f"Selected file: {filename}")
-        self.filepath_text.setText(f"Selected file: {filename}")
+        self.filepath_text.setText(f"{filename}")
 
         # self.post_file_selection()
 
@@ -132,13 +150,14 @@ class NellieFileSelect(QWidget):
         self.file_info = FileInfo(self.filepath)
         self.file_info.find_metadata()
         self.file_info.load_metadata()
-        self.file_shape_text.setText(f"File shape: {self.file_info.shape}")
+        self.file_shape_text.setText(f"{self.file_info.shape}")
 
         self.dim_order_button.setText(f"{self.file_info.axes}")
         self.dim_order_button.setEnabled(True)
         self.on_change()
 
     def on_change(self):
+        self.confirm_button.setEnabled(False)
         self.check_available_dims()
         if len(self.file_info.shape) == 2:
             self.dim_order_button.setToolTip("Accepted axes: 'Y', 'X' (e.g. 'YX')")
@@ -162,6 +181,15 @@ class NellieFileSelect(QWidget):
 
         if self.file_info.good_dims and self.file_info.good_axes:
             self.confirm_button.setEnabled(True)
+
+        # self.delete_button.setEnabled(False)
+        self.preview_button.setEnabled(False)
+        self.process_button.setEnabled(False)
+        # check file_info output path. if it exists, enable the delete and preview button
+        if os.path.exists(self.file_info.output_path):
+            # self.delete_button.setEnabled(True)
+            self.preview_button.setEnabled(True)
+            self.process_button.setEnabled(True)
 
     def check_available_dims(self):
         def check_dim(dim, dim_button, dim_text):
@@ -188,8 +216,29 @@ class NellieFileSelect(QWidget):
         check_dim('X', self.dim_xy_button, self.dim_xy_text)
         check_dim('Y', self.dim_xy_button, self.dim_xy_text)
 
+        self.channel_button.setEnabled(False)
+        if 'C' in self.file_info.axes:
+            self.channel_button.setEnabled(True)
+            self.channel_button.setRange(0, self.file_info.shape[self.file_info.axes.index('C')]-1)
+
+        self.start_frame_button.setEnabled(False)
+        self.end_frame_button.setEnabled(False)
+        if 'T' in self.file_info.axes:
+            self.start_frame_button.setEnabled(True)
+            self.end_frame_button.setEnabled(True)
+            current_start_frame = self.start_frame_button.value()
+            current_end_frame = self.end_frame_button.value()
+            max_t = self.file_info.shape[self.file_info.axes.index('T')] - 1
+            self.start_frame_button.setRange(0, current_end_frame)
+            self.end_frame_button.setRange(current_start_frame, max_t)
+            if not self.end_frame_init:
+                self.start_frame_button.setValue(0)
+                self.end_frame_button.setValue(max_t)
+                self.end_frame_init = True
+
     def handle_dim_order_changed(self, text):
         self.file_info.change_axes(text)
+        self.end_frame_init = False
         self.on_change()
 
     def handle_t_changed(self, text):
@@ -222,18 +271,40 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def change_channel(self):
-        turn off if no 'C'
-        pass
+        self.file_info.change_selected_channel(self.channel_button.value())
+        self.on_change()
 
     def change_time(self):
-        turn off if no 'T'
-        min defaults to 0
-        max defaults to len of shape, should be in file_info already?
-        pass
+        self.file_info.select_temporal_range(self.start_frame_button.value(), self.end_frame_button.value())
+        self.on_change()
 
     def on_confirm(self):
         show_info("Saving OME TIFF file.")
         self.im_info = ImInfo(self.file_info)
+        self.on_change()
+
+    def on_delete(self):
+        # delete the ome tif saved file from disk
+        os.remove(self.file_info.output_path)
+        self.on_change()
+
+    def on_process(self):
+        # switch to process tab
+        self.nellie.setCurrentIndex(self.nellie.processor_tab)
+
+    def on_preview(self):
+        im_memmap = tifffile.memmap(self.file_info.output_path)
+        # num_t = min(2, self.im_info.shape[self.im_info.axes.index('T')])
+        if 'Z' in self.file_info.axes:
+            scale = (self.file_info.dim_res['Z'], self.file_info.dim_res['Y'], self.file_info.dim_res['X'])
+            self.viewer.dims.ndisplay = 3
+        else:
+            scale = (self.file_info.dim_res['Y'], self.file_info.dim_res['X'])
+            self.viewer.dims.ndisplay = 2
+        self.viewer.add_image(im_memmap, name=self.file_info.filename_no_ext, scale=scale, blending='additive',
+                              interpolation3d='nearest', interpolation2d='nearest')
+        self.viewer.scale_bar.visible = True
+        self.viewer.scale_bar.unit = 'um'
 
 
 class NellieFileSelect_old(QWidget):
@@ -609,8 +680,6 @@ class NellieFileSelect_old(QWidget):
 
         self.nellie.settings.remove_edges_checkbox.setEnabled(True)
         self.nellie.processor.post_init()
-
-
 
     def select_folder(self):
         filepath = QFileDialog.getExistingDirectory(self, "Select folder")

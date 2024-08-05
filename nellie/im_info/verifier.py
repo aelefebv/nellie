@@ -175,6 +175,7 @@ class FileInfo:
         if ch < 0 or ch >= self.shape[self.axes.index('C')]:
             raise IndexError('Invalid channel index')
         self.ch = ch
+        self._get_output_path()
 
     def select_temporal_range(self, start=0, end=None):
         if not self.good_dims or not self.good_axes:
@@ -214,6 +215,7 @@ class FileInfo:
         self.output_path = os.path.join(
             self.output_dir,
             f'{self.filename_no_ext}'
+            f'-{self.axes}'
             f'-ch{self.ch}'
             f'{t_text}'
             f'.ome.tif'
@@ -282,6 +284,7 @@ class ImInfo:
         output_path = os.path.join(
             self.output_dir,
             f'{self.file_info.filename_no_ext}'
+            f'-{self.axes}'
             f'-ch{self.file_info.ch}'
             f'{t_text}'
             f'-{pipeline_path}'
