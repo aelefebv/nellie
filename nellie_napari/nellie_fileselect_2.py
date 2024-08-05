@@ -1,6 +1,7 @@
 import os
 import napari
 import ome_types
+from PyQt5.QtWidgets import QSpinBox
 from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QLineEdit, QFileDialog
 from napari.utils.notifications import show_info
 from tifffile import tifffile
@@ -10,6 +11,183 @@ from nellie.utils.general import get_reshaped_image
 
 
 class NellieFileSelect(QWidget):
+    def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+        super().__init__(parent)
+        self.nellie = nellie
+        self.filepath = None
+        self.file_info = None
+
+        self.viewer = napari_viewer
+        self.viewer.title = 'Nellie Napari'
+        self.setLayout(QGridLayout())
+
+        # Add text showing what filepath is selected
+        self.filepath_text = QLabel(text="No file selected.")
+        self.filepath_text.setWordWrap(True)
+
+        # Filepath selector button
+        self.filepath_button = QPushButton(text="Select File")
+        self.filepath_button.clicked.connect(self.select_filepath)
+        self.filepath_button.setEnabled(True)
+
+        self.file_shape_text = QLabel(text="File shape: None")
+        self.file_shape_text.setWordWrap(True)
+
+        self.dim_order_button = QLineEdit(self)
+        self.dim_order_button.setText("None")
+        self.dim_order_button.setToolTip("Accepted axes: None")
+        self.dim_order_button.setEnabled(False)
+        self.dim_order_button.textChanged.connect(self.handle_dim_order_changed)
+
+        self.dim_t_text = 'None'
+        self.dim_z_text = 'None'
+        self.dim_xy_text = 'None'
+
+        self.label_t = QLabel("T resolution (s):")
+        self.dim_t_button = QLineEdit(self)
+        self.dim_t_button.setText("None")
+        self.dim_t_button.setEnabled(False)
+        self.dim_t_button.textChanged.connect(self.handle_t_changed)
+
+        self.label_z = QLabel("Z resolution (um):")
+        self.dim_z_button = QLineEdit(self)
+        self.dim_z_button.setText("None")
+        self.dim_z_button.setEnabled(False)
+        self.dim_z_button.textChanged.connect(self.handle_z_changed)
+
+        self.label_xy = QLabel("X & Y resolution (um):")
+        self.dim_xy_button = QLineEdit(self)
+        self.dim_xy_button.setText("None")
+        self.dim_xy_button.setEnabled(False)
+        self.dim_xy_button.textChanged.connect(self.handle_xy_changed)
+
+        self.add_buttons()
+
+    def add_buttons(self):
+        self.layout().addWidget(self.filepath_button, 1, 0, 1, 1)
+        self.layout().addWidget(self.filepath_text, 2, 0, 1, 2)
+        self.layout().addWidget(self.file_shape_text, 3, 0, 1, 2)
+        self.layout().addWidget(QLabel("Dimension order: "), 4, 0, 1, 1)
+        self.layout().addWidget(self.dim_order_button, 4, 1, 1, 1)
+        self.layout().addWidget(self.label_t, 5, 0, 1, 1)
+        self.layout().addWidget(self.dim_t_button, 5, 1, 1, 1)
+        self.layout().addWidget(self.label_z, 6, 0, 1, 1)
+        self.layout().addWidget(self.dim_z_button, 6, 1, 1, 1)
+        self.layout().addWidget(self.label_xy, 7, 0, 1, 1)
+        self.layout().addWidget(self.dim_xy_button, 7, 1, 1, 1)
+
+    def select_filepath(self):
+        filepath, _ = QFileDialog.getOpenFileName(self, "Select file")
+        self.validate_path(filepath)
+        if self.filepath is None:
+            return
+        self.single = True
+
+        self.initialize_single_file()
+        filename = os.path.basename(self.filepath)
+        # show_info(f"Selected file: {filename}")
+        self.filepath_text.setText(f"Selected file: {filename}")
+
+        # self.post_file_selection()
+
+    def validate_path(self, filepath):
+        if not filepath:
+            show_info("Invalid selection.")
+            return None
+        self.filepath = filepath
+
+    def initialize_single_file(self):
+        self.file_info = FileInfo(self.filepath)
+        self.file_info.find_metadata()
+        self.file_info.load_metadata()
+        self.file_shape_text.setText(f"File shape: {self.file_info.shape}")
+
+        self.dim_order_button.setText(f"{self.file_info.axes}")
+        self.dim_order_button.setEnabled(True)
+        self.on_change()
+
+    def on_change(self):
+        self.check_available_dims()
+        if len(self.file_info.shape) == 2:
+            self.dim_order_button.setToolTip("Accepted axes: 'Y', 'X' (e.g. 'YX')")
+        elif len(self.file_info.shape) == 3:
+            self.dim_order_button.setToolTip("Accepted axes: ['T' or 'C' or 'Z'], 'Y', 'X' (e.g. 'ZYX')")
+        elif len(self.file_info.shape) == 4:
+            self.dim_order_button.setToolTip("Accepted axes: ['T' or 'C' or 'Z']x2, 'Y', 'X' (e.g. 'TZYX')")
+        elif len(self.file_info.shape) == 5:
+            self.dim_order_button.setToolTip("Accepted axes: ['T' or 'C' or 'Z']x3, 'Y', 'X' (e.g. 'TZCYX')")
+        elif len(self.file_info.shape) > 5:
+            self.dim_order_button.setStyleSheet("background-color: red")
+            show_info(f"Error: Too many dimensions found ({self.file_info.shape}).")
+
+        if not self.file_info.good_dims:
+            show_info("Error: Dimension metadata missing.")
+        elif not self.file_info.good_axes:
+            self.dim_order_button.setStyleSheet("background-color: red")
+            show_info("Error: Incorrect dimension specification.")
+        else:
+            self.dim_order_button.setStyleSheet("background-color: green")
+
+    def check_available_dims(self):
+        def check_dim(dim, dim_button, dim_text):
+            dim_button.setStyleSheet("background-color: green")
+            if dim in self.file_info.axes:
+                dim_button.setEnabled(True)
+                if dim_text is None or dim_text == 'None':
+                    dim_button.setText(str(self.file_info.dim_res[dim]))
+                else:
+                    dim_button.setText(dim_text)
+                    if self.file_info.dim_res[dim] is None:
+                        dim_button.setStyleSheet("background-color: red")
+                if dim_button.text() == 'None' or dim_button.text() is None:
+                    dim_button.setStyleSheet("background-color: red")
+            else:
+                dim_button.setEnabled(False)
+                if dim in self.file_info.dim_res:
+                    dim_button.setText(str(self.file_info.dim_res[dim]))
+                else:
+                    dim_button.setText("None")
+
+        check_dim('T', self.dim_t_button, self.dim_t_text)
+        check_dim('Z', self.dim_z_button, self.dim_z_text)
+        check_dim('X', self.dim_xy_button, self.dim_xy_text)
+        check_dim('Y', self.dim_xy_button, self.dim_xy_text)
+
+    def handle_dim_order_changed(self, text):
+        self.file_info.change_axes(text)
+        self.on_change()
+
+    def handle_t_changed(self, text):
+        self.dim_t_text = text
+        try:
+            value = float(self.dim_t_text)
+            self.file_info.change_dim_res('T', value)
+        except ValueError:
+            self.file_info.change_dim_res('T', None)
+        self.on_change()
+
+    def handle_z_changed(self, text):
+        self.dim_z_text = text
+        try:
+            value = float(self.dim_z_text)
+            self.file_info.change_dim_res('Z', value)
+        except ValueError:
+            self.file_info.change_dim_res('Z', None)
+        self.on_change()
+
+    def handle_xy_changed(self, text):
+        self.dim_xy_text = text
+        try:
+            value = float(self.dim_xy_text)
+            self.file_info.change_dim_res('X', value)
+            self.file_info.change_dim_res('Y', value)
+        except ValueError:
+            self.file_info.change_dim_res('X', None)
+            self.file_info.change_dim_res('Y', None)
+        self.on_change()
+
+
+class NellieFileSelect_old(QWidget):
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
         super().__init__(parent)
         self.nellie = nellie
@@ -66,7 +244,15 @@ class NellieFileSelect(QWidget):
         self.dim_order_button.setToolTip("Accepted axes: ['TZYX', 'TYX', 'TZCYX', 'TCYX', 'TCZYX', 'ZYX', 'ZTYX', 'YX', 'CYX', 'CZYX', 'ZCYX']")
         self.dim_order = None
         self.dim_order_button.setEnabled(False)
+
         # self.dim_order_button.textChanged.connect(self.handleDimOrderChanged)
+        self.channel_input = QPushButton(text="Change channel")
+        self.channel_input.setRange(0, 0)
+        self.channel_input.setValue(0)
+        self.channel_input.setEnabled(False)
+        self.channel_input.valueChanged.connect(self.change_channel)
+        # add a change channel button
+        # add a min and max t button
 
         self.set_dims_button = QPushButton(text="Set dimension order")
         self.set_dims_button.clicked.connect(self.handle_dim_order_changed)
@@ -81,8 +267,6 @@ class NellieFileSelect(QWidget):
         self.open_preview_button.clicked.connect(self.open_preview)
         self.open_preview_button.setEnabled(False)
 
-        add a change channel button
-        add a min and max t button
 
         self.layout().addWidget(self.filepath_button, 1, 0, 1, 1)
         self.layout().addWidget(self.folder_button, 1, 1, 1, 1)
@@ -122,6 +306,13 @@ class NellieFileSelect(QWidget):
             self.viewer.dims.ndisplay = 2
         else:
             self.viewer.dims.ndisplay = 3
+
+    def change_channel(self):
+        self.channel_selected = self.channel_input.value()
+        # set max as the size of the 'C' axes in self.file_info
+        self.channel_input.setRange(0, self.file_info.shape[self.file_info.axes.index('C')])
+
+
 
     def handle_res_changed(self, text):
         if self.dim_t is not None:

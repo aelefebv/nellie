@@ -134,6 +134,14 @@ class FileInfo:
         if 'Q' in self.axes:
             self.good_axes = False
             return
+        # if any duplicates, not good
+        if len(set(self.axes)) != len(self.axes):
+            self.good_axes = False
+            return
+        # if X or Y are not there, not good
+        if 'X' not in self.axes or 'Y' not in self.axes:
+            self.good_axes = False
+            return
         self.good_axes = True
 
     def _check_dim_res(self):
@@ -145,14 +153,17 @@ class FileInfo:
         self.good_dims = True
 
     def change_axes(self, new_axes):
-        if len(new_axes) != len(self.shape):
-            raise ValueError('New axes must have the same length as the shape of the data')
+        # if len(new_axes) != len(self.shape):
+        self.good_axes = False
+            # return
+            # raise ValueError('New axes must have the same length as the shape of the data')
         self.axes = new_axes
         self._validate()
 
     def change_dim_res(self, dim, new_size):
         if dim not in self.dim_res:
-            raise ValueError('Invalid dimension')
+            return
+            # raise ValueError('Invalid dimension')
         self.dim_res[dim] = new_size
         self._validate()
 
