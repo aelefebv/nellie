@@ -40,7 +40,16 @@ class Home(QWidget):
         subtitle.setWordWrap(True)
         self.layout.addWidget(subtitle)
 
-        self.layout.addWidget(QLabel("\n"))  # Add a bit of space
+        # Add a large "Start" button
+        self.start_button = QPushButton("Start")
+        self.start_button.setFont(QFont("Arial", 20))
+        self.start_button.setFixedWidth(200)
+        self.start_button.setFixedHeight(100)
+        # rounded-edges
+        self.start_button.setStyleSheet("border-radius: 10px;")
+        # opens the file select tab
+        self.start_button.clicked.connect(lambda: self.nellie.setCurrentIndex(self.nellie.file_select_tab))
+        self.layout.addWidget(self.start_button, alignment=Qt.AlignCenter)
 
         github_link = QLabel("<a href='https://arxiv.org/abs/2403.13214'>Cite our paper!</a>")
         github_link.setOpenExternalLinks(True)
@@ -55,6 +64,7 @@ class Home(QWidget):
 
         # screenshot button
         self.screenshot_button = QPushButton(text="Easy screenshot:\n[Ctrl/Cmd-Shift-E]")
+        self.screenshot_button.setStyleSheet("border-radius: 5px;")
         self.screenshot_button.clicked.connect(self.screenshot)
         self.screenshot_button.setEnabled(True)
         self.viewer.bind_key('Ctrl-Shift-E', self.screenshot, overwrite=True)

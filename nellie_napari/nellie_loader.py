@@ -37,7 +37,7 @@ class NellieLoader(QTabWidget):
 
     def add_tabs(self):
         self.home_tab = self.addTab(self.home, "Home")
-        self.file_select_tab = self.addTab(self.file_select, "File select")
+        self.file_select_tab = self.addTab(self.file_select, "File validation")
         self.processor_tab = self.addTab(self.processor, "Process")
         self.visualizer_tab = self.addTab(self.visualizer, "Visualize")
         self.analysis_tab = self.addTab(self.analyzer, "Analyze")

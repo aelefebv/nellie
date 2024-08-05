@@ -1,6 +1,5 @@
 import os
 import napari
-import ome_types
 from PyQt5.QtWidgets import QSpinBox
 from qtpy.QtWidgets import QWidget, QGridLayout, QLabel, QPushButton, QLineEdit, QFileDialog, QVBoxLayout, QHBoxLayout, QGroupBox
 from napari.utils.notifications import show_info
@@ -28,6 +27,10 @@ class NellieFileSelect(QWidget):
         self.filepath_button = QPushButton(text="Select File")
         self.filepath_button.clicked.connect(self.select_filepath)
         self.filepath_button.setEnabled(True)
+
+        self.reset_button = QPushButton(text="Reset")
+        self.reset_button.clicked.connect(self.nellie.reset)
+        self.reset_button.setEnabled(True)
 
         self.file_shape_text = QLabel(text="None")
         self.file_shape_text.setWordWrap(True)
@@ -98,15 +101,19 @@ class NellieFileSelect(QWidget):
         self.process_button.clicked.connect(self.on_process)
         self.process_button.setEnabled(False)
 
-        self.init_UI()
+        self.init_ui()
 
-    def init_UI(self):
+    def init_ui(self):
         main_layout = QVBoxLayout()
 
         # File Selection Group
         file_group = QGroupBox("File Selection")
         file_layout = QVBoxLayout()
-        file_layout.addWidget(self.filepath_button)
+        file_button_sublayout = QHBoxLayout()
+        file_button_sublayout.addWidget(self.filepath_button)
+        file_button_sublayout.addWidget(self.reset_button)
+        file_layout.addLayout(file_button_sublayout)
+        # file_layout.addWidget(self.filepath_button)
         file_sub_layout = QHBoxLayout()
         file_sub_layout.addWidget(QLabel("Selected file:"))
         file_sub_layout.addWidget(self.filepath_text)
@@ -326,6 +333,7 @@ class NellieFileSelect(QWidget):
     def on_confirm(self):
         show_info("Saving OME TIFF file.")
         self.im_info = ImInfo(self.file_info)
+        self.nellie.im_info = self.im_info
         self.on_change()
 
     def on_delete(self):
