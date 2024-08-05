@@ -16,6 +16,7 @@ class NellieFileSelect(QWidget):
         self.nellie = nellie
         self.filepath = None
         self.file_info = None
+        self.im_info = None
 
         self.viewer = napari_viewer
         self.viewer.title = 'Nellie Napari'
@@ -61,6 +62,30 @@ class NellieFileSelect(QWidget):
         self.dim_xy_button.setEnabled(False)
         self.dim_xy_button.textChanged.connect(self.handle_xy_changed)
 
+        self.label_channel = QLabel("Channel:")
+        self.channel_button = QSpinBox(self)
+        self.channel_button.setRange(0, 0)
+        self.channel_button.setValue(0)
+        self.channel_button.setEnabled(False)
+        self.channel_button.valueChanged.connect(self.change_channel)
+
+        self.label_time = QLabel("Start frame:")
+        self.label_time_2 = QLabel("End frame:")
+        self.start_frame_button = QSpinBox(self)
+        self.start_frame_button.setRange(0, 0)
+        self.start_frame_button.setValue(0)
+        self.start_frame_button.setEnabled(False)
+        self.start_frame_button.valueChanged.connect(self.change_time)
+        self.end_frame_button = QSpinBox(self)
+        self.end_frame_button.setRange(0, 0)
+        self.end_frame_button.setValue(0)
+        self.end_frame_button.setEnabled(False)
+        self.end_frame_button.valueChanged.connect(self.change_time)
+
+        self.confirm_button = QPushButton(text="Confirm")
+        self.confirm_button.clicked.connect(self.on_confirm)
+        self.confirm_button.setEnabled(False)
+
         self.add_buttons()
 
     def add_buttons(self):
@@ -75,6 +100,13 @@ class NellieFileSelect(QWidget):
         self.layout().addWidget(self.dim_z_button, 6, 1, 1, 1)
         self.layout().addWidget(self.label_xy, 7, 0, 1, 1)
         self.layout().addWidget(self.dim_xy_button, 7, 1, 1, 1)
+        self.layout().addWidget(self.label_time, 8, 0, 1, 1)
+        self.layout().addWidget(self.start_frame_button, 8, 1, 1, 1)
+        self.layout().addWidget(self.label_time_2, 9, 0, 1, 1)
+        self.layout().addWidget(self.end_frame_button, 9, 1, 1, 1)
+        self.layout().addWidget(self.label_channel, 10, 0, 1, 1)
+        self.layout().addWidget(self.channel_button, 10, 1, 1, 1)
+        self.layout().addWidget(self.confirm_button, 11, 1, 1, 1)
 
     def select_filepath(self):
         filepath, _ = QFileDialog.getOpenFileName(self, "Select file")
@@ -127,6 +159,9 @@ class NellieFileSelect(QWidget):
             show_info("Error: Incorrect dimension specification.")
         else:
             self.dim_order_button.setStyleSheet("background-color: green")
+
+        if self.file_info.good_dims and self.file_info.good_axes:
+            self.confirm_button.setEnabled(True)
 
     def check_available_dims(self):
         def check_dim(dim, dim_button, dim_text):
@@ -185,6 +220,20 @@ class NellieFileSelect(QWidget):
             self.file_info.change_dim_res('X', None)
             self.file_info.change_dim_res('Y', None)
         self.on_change()
+
+    def change_channel(self):
+        turn off if no 'C'
+        pass
+
+    def change_time(self):
+        turn off if no 'T'
+        min defaults to 0
+        max defaults to len of shape, should be in file_info already?
+        pass
+
+    def on_confirm(self):
+        show_info("Saving OME TIFF file.")
+        self.im_info = ImInfo(self.file_info)
 
 
 class NellieFileSelect_old(QWidget):
