@@ -123,8 +123,12 @@ class NellieFileSelect(QWidget):
         # Axes Info Group
         axes_group = QGroupBox("Axes Information")
         axes_layout = QVBoxLayout()
+        sub_layout = QHBoxLayout()
+        sub_layout.addWidget(QLabel("Dimension order:"))
+        sub_layout.addWidget(self.dim_order_button)
+        sub_layout.addWidget(QLabel("Only T, C, Z, Y, and X allowed."))
+        axes_layout.addLayout(sub_layout)
         for label, button in [
-            (QLabel("Dimension order:"), self.dim_order_button),
             (QLabel("File shape:"), self.file_shape_text),
             (QLabel("Current order:"), self.current_order_text)
         ]:

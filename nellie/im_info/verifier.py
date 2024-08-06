@@ -131,9 +131,10 @@ class FileInfo:
     def _check_axes(self):
         if len(self.shape) != len(self.axes):
             self.change_axes('Q' * len(self.shape))
-        if 'Q' in self.axes:
-            self.good_axes = False
-            return
+        for axis in self.axes:
+            if axis not in ['T', 'Z', 'Y', 'X', 'C']:
+                self.good_axes = False
+                return
         # if any duplicates, not good
         if len(set(self.axes)) != len(self.axes):
             self.good_axes = False
@@ -214,6 +215,8 @@ class FileInfo:
         t_text = f'-t{self.t_start}_to_{self.t_end}' if 'T' in self.axes else ''
         dim_texts = []
         for axis in self.axes:
+            if axis not in self.dim_res:
+                continue
             dim_res = self.dim_res[axis]
             # round to 4 decimal places
             if dim_res is None:

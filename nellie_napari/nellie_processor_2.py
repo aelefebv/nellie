@@ -239,6 +239,7 @@ class NellieProcessor(QWidget):
                               skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
                               viewer=self.viewer)
         hierarchy.run()
+        self.nellie.analyzer.post_init()
 
     def run_feature_export(self):
         worker = self._run_feature_export()

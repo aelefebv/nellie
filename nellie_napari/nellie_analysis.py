@@ -89,9 +89,6 @@ class NellieAnalysis(QWidget):
         self.image_df = None
 
     def post_init(self):
-        self.dropdown = QComboBox()
-        self.dropdown_attr = QComboBox()
-
         self.log_scale_checkbox = QCheckBox("Log scale")
         self.log_scale_checkbox.stateChanged.connect(self.on_log_scale)
 
@@ -135,8 +132,15 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
+
+        self.dropdown_attr = QComboBox()
+        self.dropdown_attr_is_connected = False
+        self._create_dropdown_selection()
         self.dropdown.setCurrentIndex(3)  # Organelle
-        self.dropdown_attr.setCurrentIndex(6)  # Volume/Area
+        self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
+        self.dropdown_attr.setCurrentIndex(6)  # Area
+        self.dropdown_attr_is_connected = True
+
 
         self.set_ui()
         self.initialized = True
@@ -192,6 +196,19 @@ class NellieAnalysis(QWidget):
         main_layout.addWidget(hist_group)
         main_layout.addWidget(save_group)
         self.setLayout(main_layout)
+
+    def _create_dropdown_selection(self):
+        # Create the dropdown menu
+        self.dropdown = QComboBox()
+        self.dropdown.currentIndexChanged.connect(self.on_level_selected)
+
+        # Add options to the dropdown
+        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
+            options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
+        else:
+            options = ['none', 'voxel', 'branch', 'organelle', 'image']
+        for option in options:
+            self.dropdown.addItem(option)
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -358,9 +375,16 @@ class NellieAnalysis(QWidget):
             # label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,
             #                                               colormap='turbo', scale=self.scale)
             perc98 = np.nanpercentile(self.attr_data, 98)
-            min_val = np.nanmin(self.attr_data) - (np.abs(np.nanmin(self.attr_data)) * 0.01)
+            # no nans, no infs
+            real_vals = self.attr_data[~np.isnan(self.attr_data)]
+            real_vals = real_vals[~np.isinf(real_vals)]
+            min_val = np.min(real_vals) - (np.abs(np.min(real_vals)) * 0.01)
+            if np.isnan(min_val):
+                min_val = np.nanmin(real_vals)
             if min_val == perc98:
                 perc98 = min_val + (np.abs(min_val) * 0.01)
+            if np.isnan(perc98):
+                perc98 = np.nanmax(real_vals)
             contrast_limits = [min_val, perc98]
             # label_mask_layer.contrast_limits = contrast_limits
         # label_mask_layer.name = layer_name
@@ -445,9 +469,12 @@ class NellieAnalysis(QWidget):
             self.df = self.image_df
         else:
             return
-        # self.df = pd.read_csv(csv_path)
-        This needs to be populated
-        self.dropdown_attr = QComboBox()
+
+        if self.dropdown_attr_is_connected:
+            self.dropdown_attr.currentIndexChanged.disconnect(self.on_attr_selected)
+            self.dropdown_attr_is_connected = False
+        self.dropdown_attr.clear()
+
         # add a None option
         self.dropdown_attr.addItem("None")
         for col in self.df.columns[::-1]:
@@ -456,13 +483,18 @@ class NellieAnalysis(QWidget):
             # remove "_raw" from the column name
             # col = col[:-4]
             self.dropdown_attr.addItem(col)
-        self.layout.addWidget(self.dropdown_attr, self.layout_anchors['dropdown'][0], self.layout_anchors['dropdown'][1] + 1)
-        self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
+        # reconnect
+        if not self.dropdown_attr_is_connected:
+            self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
+            self.dropdown_attr_is_connected = True
+
 
     def on_attr_selected(self, index):
         self.hist_reset = True
 
         selected_attr = self.dropdown_attr.itemText(index)
+        if selected_attr == '':
+            return
         if selected_attr == "None":
             # clear the canvas
             self.canvas.figure.clear()
