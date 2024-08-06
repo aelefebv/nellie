@@ -84,7 +84,7 @@ class Home(QWidget):
         if not os.path.exists(screenshot_folder):
             os.makedirs(screenshot_folder)
 
-        im_name = f'{dt}-{self.nellie.im_info.basename_no_ext}.png'
+        im_name = f'{dt}-{self.nellie.im_info.file_info.filename_no_ext}.png'
         file_path = os.path.join(screenshot_folder, im_name)
 
         # Take screenshot

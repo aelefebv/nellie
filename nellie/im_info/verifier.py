@@ -276,6 +276,9 @@ class ImInfo:
         self.im = tifffile.memmap(self.im_path)
         self.output_dir = file_info.output_dir
 
+        self.screenshot_dir = os.path.join(self.output_dir, 'screenshots')
+        self.graph_dir = os.path.join(self.output_dir, 'graphs')
+
         self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
         self.axes = None
         self.shape = None

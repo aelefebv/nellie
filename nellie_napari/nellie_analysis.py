@@ -179,8 +179,8 @@ class NellieAnalysis(QWidget):
         sub_layout = QHBoxLayout()
         sub_layout.addWidget(self.log_scale_checkbox)
         sub_layout.addWidget(self.mean_median_toggle)
-        sub_layout.addWidget(self.overlay_button)
         sub_layout.addWidget(self.match_t_toggle)
+        sub_layout.addWidget(self.overlay_button)
         hist_layout.addLayout(sub_layout)
 
         # Save options group
@@ -222,7 +222,7 @@ class NellieAnalysis(QWidget):
             timepoints = self.time_col[self.df['t'] == current_t]
         else:
             timepoints = self.time_col
-        text += self.nellie.im_info.basename_no_ext
+        text += self.nellie.im_info.file_info.filename_no_ext
         export_path = os.path.join(export_dir, f"{text}.csv")
         df_to_save = pd.DataFrame({'t': timepoints, self.dropdown_attr.currentText(): self.attr_data})
         df_to_save.to_csv(export_path)
@@ -238,7 +238,7 @@ class NellieAnalysis(QWidget):
         text = f"{dt}-{self.selected_level}_{self.dropdown_attr.currentText()}"
         if self.match_t:
             text += f"_T{self.viewer.dims.current_step[0]}"
-        text += self.nellie.im_info.basename_no_ext
+        text += self.nellie.im_info.file_info.filename_no_ext
         export_path = os.path.join(export_dir, f"{text}.png")
         self.canvas.figure.savefig(export_path, dpi=300)
         show_info(f"Graph saved to {export_path}")
