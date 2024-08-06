@@ -3,10 +3,14 @@ import pickle
 
 import numpy as np
 from qtpy.QtWidgets import QGridLayout, QComboBox, QCheckBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, \
-    QSpinBox, QDoubleSpinBox, QWidget
+    QSpinBox, QDoubleSpinBox, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout
+from qtpy.QtCore import Qt
+
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from napari.utils.notifications import show_info
 import pandas as pd
+from tifffile import tifffile
+
 from nellie.utils.general import get_reshaped_image
 import datetime
 
@@ -17,7 +21,6 @@ class NellieAnalysis(QWidget):
         self.nellie = nellie
         self.viewer = napari_viewer
 
-        self.num_t = None
         self.canvas = FigureCanvasQTAgg()
         self.canvas.figure.set_layout_engine("constrained")
 
@@ -54,8 +57,8 @@ class NellieAnalysis(QWidget):
         self.perc75 = np.nan
         self.perc25 = np.nan
 
-        self.layout = QGridLayout()
-        self.setLayout(self.layout)
+        # self.layout = QGridLayout()
+        # self.setLayout(self.layout)
 
         self.dropdown = None
         self.dropdown_attr = None
@@ -86,9 +89,8 @@ class NellieAnalysis(QWidget):
         self.image_df = None
 
     def post_init(self):
-        self.num_t = self.nellie.processor.time_input.value()
-
-        self._create_dropdown_selection()
+        self.dropdown = QComboBox()
+        self.dropdown_attr = QComboBox()
 
         self.log_scale_checkbox = QCheckBox("Log scale")
         self.log_scale_checkbox.stateChanged.connect(self.on_log_scale)
@@ -126,35 +128,70 @@ class NellieAnalysis(QWidget):
         self.save_graph_button = QPushButton("Save graph")
         self.save_graph_button.clicked.connect(self.save_graph)
 
-        canvas_width = 4
-        canvas_height = 6
-        self.layout.addWidget(self.canvas, self.layout_anchors['canvas'][0], self.layout_anchors['canvas'][1],
-                              canvas_height, canvas_width)
-        self.layout.addWidget(self.export_data_button, self.layout_anchors['canvas'][0]+canvas_height-2, 49, 1, 2)
-        self.layout.addWidget(self.save_graph_button, self.layout_anchors['canvas'][0]+canvas_height-1, 49, 1, 2)
-        self.layout.addWidget(QLabel("Max"), self.layout_anchors['canvas'][0], 49)
-        self.layout.addWidget(self.hist_max, self.layout_anchors['canvas'][0], 50)
-        self.layout.addWidget(QLabel("Min"), self.layout_anchors['canvas'][0]+1, 49)
-        self.layout.addWidget(self.hist_min, self.layout_anchors['canvas'][0]+1, 50)
-        self.layout.addWidget(QLabel("Bins"), self.layout_anchors['canvas'][0]+3, 49)
-        self.layout.addWidget(self.num_bins, self.layout_anchors['canvas'][0]+3, 50)
-
-        self.layout.addWidget(self.log_scale_checkbox, self.layout_anchors['table'][0]-1, 0)
-        self.layout.addWidget(self.mean_median_toggle, self.layout_anchors['table'][0]-1, 1)
-        self.layout.addWidget(self.overlay_button, self.layout_anchors['table'][0]-1, 2)
-        self.layout.addWidget(self.match_t_toggle, self.layout_anchors['table'][0]-1, 3)
-
         if self.nellie.im_info.no_z:
-            self.scale = (self.nellie.im_info.dim_sizes['Y'], self.nellie.im_info.dim_sizes['X'])
+            self.scale = (self.nellie.im_info.dim_res['Y'], self.nellie.im_info.dim_res['X'])
         else:
-            self.scale = (self.nellie.im_info.dim_sizes['Z'], self.nellie.im_info.dim_sizes['Y'], self.nellie.im_info.dim_sizes['X'])
+            self.scale = (self.nellie.im_info.dim_res['Z'], self.nellie.im_info.dim_res['Y'], self.nellie.im_info.dim_res['X'])
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
         self.dropdown.setCurrentIndex(3)  # Organelle
         self.dropdown_attr.setCurrentIndex(6)  # Volume/Area
 
+        self.set_ui()
         self.initialized = True
+
+    def set_ui(self):
+        main_layout = QVBoxLayout()
+
+        # Attribute dropdown group
+        attr_group = QGroupBox("Select hierarchy level and attribute")
+        attr_layout = QHBoxLayout()
+        attr_layout.addWidget(self.dropdown)
+        attr_layout.addWidget(self.dropdown_attr)
+        attr_group.setLayout(attr_layout)
+
+
+        # Histogram group
+        hist_group = QGroupBox("Histogram options")
+        hist_layout = QVBoxLayout()
+
+        sub_layout = QHBoxLayout()
+        sub_layout.addWidget(QLabel("Min"), alignment=Qt.AlignRight)
+        sub_layout.addWidget(self.hist_min)
+        sub_layout.addWidget(self.hist_max)
+        sub_layout.addWidget(QLabel("Max"), alignment=Qt.AlignLeft)
+        hist_layout.addLayout(sub_layout)
+        hist_layout.addWidget(self.canvas)
+
+        sub_layout = QHBoxLayout()
+        sub_layout.addWidget(QLabel("Bins"), alignment=Qt.AlignRight)
+        sub_layout.addWidget(self.num_bins)
+        hist_layout.addLayout(sub_layout)
+        hist_group.setLayout(hist_layout)
+
+        hist_layout.addWidget(self.canvas)
+
+        sub_layout = QHBoxLayout()
+        sub_layout.addWidget(self.log_scale_checkbox)
+        sub_layout.addWidget(self.mean_median_toggle)
+        sub_layout.addWidget(self.overlay_button)
+        sub_layout.addWidget(self.match_t_toggle)
+        hist_layout.addLayout(sub_layout)
+
+        # Save options group
+        save_group = QGroupBox("Export options")
+        save_layout = QVBoxLayout()
+        sub_layout = QHBoxLayout()
+        sub_layout.addWidget(self.export_data_button)
+        sub_layout.addWidget(self.save_graph_button)
+        save_layout.addLayout(sub_layout)
+        save_group.setLayout(save_layout)
+
+        main_layout.addWidget(attr_group)
+        main_layout.addWidget(hist_group)
+        main_layout.addWidget(save_group)
+        self.setLayout(main_layout)
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -243,16 +280,9 @@ class NellieAnalysis(QWidget):
         # need to fix this: works for organelle masks, but branch could have missing idxs (e.g. example 1)
         # see "/Users/austin/test_files/nellie_all_tests/1.tif"
         if self.label_mask is None:
-            label_mask = self.nellie.im_info.get_im_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
-            # self.label_mask = (get_reshaped_image(label_mask, self.num_t, self.nellie.im_info) > 0).astype(float)
+            label_mask = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
             self.label_mask = (label_mask > 0).astype(float)
-            # self.label_mask_layer = self.viewer.add_image(self.label_mask, name='objects', opacity=1, colormap='turbo')
-            if self.num_t is None:
-                self.num_t = self.label_mask.shape[0]
-                t_max = self.num_t
-            else:
-                t_max = min(self.label_mask.shape[0], self.num_t)
-            for t in range(t_max):
+            for t in range(self.nellie.im_info.shape[0]):
                 self.label_coords.append(np.argwhere(self.label_mask[t]))
                 self.label_mask[t] *= np.nan
 
@@ -294,7 +324,7 @@ class NellieAnalysis(QWidget):
         if self.attr_data is None:
             return
 
-        for t in range(self.num_t):
+        for t in range(self.nellie.im_info.shape[0]):
             t_attr_data = self.all_attr_data[self.time_col == t].astype(float)
             if len(t_attr_data) == 0:
                 continue
@@ -346,13 +376,12 @@ class NellieAnalysis(QWidget):
         else:
             if not self.nellie.im_info.no_z:
                 self.viewer.add_image(self.label_mask.copy(), name=layer_name, opacity=1,
-                                                              colormap='turbo', scale=self.scale,
-                                                              contrast_limits=contrast_limits,
-                                                            interpolation3d='nearest')
+                                      colormap='turbo', scale=self.scale, contrast_limits=contrast_limits,
+                                      interpolation3d='nearest')
             else:
                 self.viewer.add_image(self.label_mask.copy(), name=layer_name, opacity=1,
-                                                          colormap='turbo', scale=self.scale,
-                                                          contrast_limits=contrast_limits, interpolation2d='nearest')
+                                      colormap='turbo', scale=self.scale, contrast_limits=contrast_limits,
+                                      interpolation2d='nearest')
 
         self.match_t_toggle.setEnabled(True)
         self.viewer.reset_view()
@@ -374,26 +403,6 @@ class NellieAnalysis(QWidget):
         else:
             self.is_median = False
         self.on_attr_selected(self.dropdown_attr.currentIndex())
-
-    def _create_dropdown_selection(self):
-        # Create the dropdown menuF
-        self.dropdown = QComboBox()
-
-        # Add options to the dropdown
-        if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
-            options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
-        else:
-            options = ['none', 'voxel', 'branch', 'organelle', 'image']
-        for option in options:
-            self.dropdown.addItem(option)
-
-        # Add the dropdown to the layout
-        self.layout.addWidget(self.dropdown, self.layout_anchors['dropdown'][0], self.layout_anchors['dropdown'][1])
-
-        # Connect the dropdown's signal to a method to handle selection changes
-        self.dropdown.currentIndexChanged.connect(self.on_level_selected)
-
-        # self.get_csvs()
 
     def get_csvs(self):
         self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
@@ -437,6 +446,7 @@ class NellieAnalysis(QWidget):
         else:
             return
         # self.df = pd.read_csv(csv_path)
+        This needs to be populated
         self.dropdown_attr = QComboBox()
         # add a None option
         self.dropdown_attr.addItem("None")
@@ -483,14 +493,16 @@ class NellieAnalysis(QWidget):
         self.data_to_plot = data
 
         # todo only enable when mean is selected
-        self.mean = np.nanmean(data)
-        self.std = np.nanstd(data)
+        if not self.is_median:
+            self.mean = np.nanmean(data)
+            self.std = np.nanstd(data)
 
         # todo only enable when median is selected
-        self.median = np.nanmedian(data)
-        self.perc75 = np.nanpercentile(data, 75)
-        self.perc25 = np.nanpercentile(data, 25)
-        self.iqr = self.perc75 - self.perc25
+        if self.is_median:
+            self.median = np.nanmedian(data)
+            self.perc75 = np.nanpercentile(data, 75)
+            self.perc25 = np.nanpercentile(data, 25)
+            self.iqr = self.perc75 - self.perc25
 
     def draw_stats(self):
         if self.attr_data is None:
@@ -560,7 +572,6 @@ class NellieAnalysis(QWidget):
             self.num_bins.setValue(nbins)
             self.num_bins.setRange(1, len(self.attr_data))
             self.hist_reset = False
-
 
     def on_log_scale(self, state):
         self.hist_reset = True
