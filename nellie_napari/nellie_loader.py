@@ -5,7 +5,7 @@ from nellie_napari import NellieProcessor
 from nellie_napari.batch_mode import BatchMode
 from nellie_napari.home import Home
 from nellie_napari.nellie_analysis import NellieAnalysis
-from nellie_napari.nellie_fileselect_2 import NellieFileSelect
+from nellie_napari.nellie_fileselect import NellieFileSelect
 from nellie_napari.settings import Settings
 from nellie_napari.visualizer import NellieVisualizer
 

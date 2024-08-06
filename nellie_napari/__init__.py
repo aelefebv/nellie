@@ -1,2 +1,2 @@
-from nellie_napari.nellie_processor_2 import NellieProcessor
+from nellie_napari.nellie_processor import NellieProcessor
 from nellie_napari.nellie_loader import NellieLoader
