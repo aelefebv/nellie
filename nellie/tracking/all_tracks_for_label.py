@@ -1,6 +1,7 @@
 import numpy as np
+from tifffile import tifffile
 
-from nellie.im_info.im_info import ImInfo
+from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import interpolate_all_forward, interpolate_all_backward
 from nellie.utils.general import get_reshaped_image
 
@@ -17,10 +18,8 @@ class LabelTracks:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
     def initialize(self):
-        self.label_memmap = self.im_info.get_im_memmap(self.label_im_path)
-        self.label_memmap = get_reshaped_image(self.label_memmap, im_info=self.im_info)
-        self.im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(self.im_memmap, im_info=self.im_info)
+        self.label_memmap = tifffile.memmap(self.label_im_path)
+        self.im_memmap = tifffile.memmap(self.im_info.im_path)
 
     def run(self, label_num=None, start_frame=0, end_frame=None, min_track_num=0, skip_coords=1, max_distance_um=0.5):
         if end_frame is None:

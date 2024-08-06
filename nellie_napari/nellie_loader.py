@@ -82,6 +82,15 @@ class NellieLoader(QTabWidget):
                 self.visualizer.post_init()
         self.settings.post_init()
 
+    def go_process(self):
+        self.im_info = self.file_select.im_info
+        self.setTabEnabled(self.processor_tab, True)
+        self.setTabEnabled(self.visualizer_tab, True)
+        self.processor.post_init()
+        self.visualizer.post_init()
+        self.on_tab_change(self.processor_tab)
+        self.setCurrentIndex(self.processor_tab)
+
 
 if __name__ == "__main__":
     import napari

@@ -333,7 +333,7 @@ class NellieFileSelect(QWidget):
     def on_confirm(self):
         show_info("Saving OME TIFF file.")
         self.im_info = ImInfo(self.file_info)
-        self.nellie.im_info = self.im_info
+        # self.nellie.im_info = self.im_info
         self.on_change()
 
     def on_delete(self):
@@ -343,7 +343,9 @@ class NellieFileSelect(QWidget):
 
     def on_process(self):
         # switch to process tab
-        self.nellie.setCurrentIndex(self.nellie.processor_tab)
+        self.im_info = ImInfo(self.file_info)
+        self.on_change()
+        self.nellie.go_process()
 
     def on_preview(self):
         im_memmap = tifffile.memmap(self.file_info.output_path)
