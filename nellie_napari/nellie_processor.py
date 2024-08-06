@@ -21,6 +21,9 @@ class NellieProcessor(QWidget):
         self.nellie = nellie
         self.viewer = napari_viewer
 
+        self.im_info_list = None
+        self.current_im_info = None
+
         # Run im button
         self.run_button = QPushButton(text="Run Nellie")
         self.run_button.clicked.connect(self.run_nellie)
@@ -91,6 +94,12 @@ class NellieProcessor(QWidget):
         self.setLayout(main_layout)
 
     def post_init(self):
+        if self.nellie.im_info_list is None:
+            self.im_info_list = [self.nellie.im_info]
+            self.current_im_info = self.nellie.im_info
+        else:
+            self.im_info_list = self.nellie.im_info_list
+            self.current_im_info = self.nellie.im_info_list[0]
         self.check_file_existence()
         self.initialized = True
         
@@ -106,7 +115,7 @@ class NellieProcessor(QWidget):
         self.reassign_button.setEnabled(False)
         self.feature_export_button.setEnabled(False)
 
-        frangi_path = self.nellie.im_info.pipeline_paths['im_frangi']
+        frangi_path = self.current_im_info.pipeline_paths['im_frangi']
         if os.path.exists(frangi_path):
             self.segment_button.setEnabled(True)
         else:
@@ -117,8 +126,8 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
-        im_instance_label_path = self.nellie.im_info.pipeline_paths['im_instance_label']
-        im_skel_relabelled_path = self.nellie.im_info.pipeline_paths['im_skel_relabelled']
+        im_instance_label_path = self.current_im_info.pipeline_paths['im_instance_label']
+        im_skel_relabelled_path = self.current_im_info.pipeline_paths['im_skel_relabelled']
         if os.path.exists(im_instance_label_path) and os.path.exists(im_skel_relabelled_path):
             self.mocap_button.setEnabled(True)
         else:
@@ -128,7 +137,7 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
-        im_marker_path = self.nellie.im_info.pipeline_paths['im_marker']
+        im_marker_path = self.current_im_info.pipeline_paths['im_marker']
         if os.path.exists(im_marker_path):
             self.track_button.setEnabled(True)
         else:
@@ -137,7 +146,7 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
-        track_path = self.nellie.im_info.pipeline_paths['flow_vector_array']
+        track_path = self.current_im_info.pipeline_paths['flow_vector_array']
         if os.path.exists(track_path):
             self.reassign_button.setEnabled(True)
             self.feature_export_button.setEnabled(True)
@@ -145,11 +154,11 @@ class NellieProcessor(QWidget):
             self.reassign_button.setEnabled(False)
             self.feature_export_button.setEnabled(True)
             # if im_info's 'T' axis has more than 1 timepoint, disable the feature export button
-            if self.nellie.im_info.shape[0] > 1:
+            if self.current_im_info.shape[0] > 1:
                 self.feature_export_button.setEnabled(False)
                 return
 
-        analysis_path = self.nellie.im_info.pipeline_paths['adjacency_maps']
+        analysis_path = self.current_im_info.pipeline_paths['adjacency_maps']
         if os.path.exists(analysis_path):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
         else:
@@ -157,12 +166,13 @@ class NellieProcessor(QWidget):
 
     @thread_worker
     def _run_preprocessing(self):
-        show_info("Nellie is running: Preprocessing")
-        preprocessing = Filter(im_info=self.nellie.im_info,
-                               remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked(),
-                               viewer=self.viewer)
-        preprocessing.run()
-        return None
+        for im_num, im_info in enumerate(self.im_info_list):
+            show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(self.im_info_list)}")
+            self.current_im_info = im_info
+            preprocessing = Filter(im_info=self.current_im_info,
+                                   remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked(),
+                                   viewer=self.viewer)
+            preprocessing.run()
 
     def run_preprocessing(self):
         worker = self._run_preprocessing()
@@ -174,11 +184,13 @@ class NellieProcessor(QWidget):
 
     @thread_worker
     def _run_segmentation(self):
-        show_info("Nellie is running: Segmentation")
-        segmenting = Label(im_info=self.nellie.im_info, viewer=self.viewer)
-        segmenting.run()
-        networking = Network(im_info=self.nellie.im_info, viewer=self.viewer)
-        networking.run()
+        for im_num, im_info in enumerate(self.im_info_list):
+            show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(self.im_info_list)}")
+            self.current_im_info = im_info
+            segmenting = Label(im_info=self.current_im_info, viewer=self.viewer)
+            segmenting.run()
+            networking = Network(im_info=self.current_im_info, viewer=self.viewer)
+            networking.run()
 
     def run_segmentation(self):
         worker = self._run_segmentation()
@@ -190,9 +202,11 @@ class NellieProcessor(QWidget):
 
     @thread_worker
     def _run_mocap(self):
-        show_info("Nellie is running: Mocap Marking")
-        mocap_marking = Markers(im_info=self.nellie.im_info, viewer=self.viewer)
-        mocap_marking.run()
+        for im_num, im_info in enumerate(self.im_info_list):
+            show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(self.im_info_list)}")
+            self.current_im_info = im_info
+            mocap_marking = Markers(im_info=self.current_im_info, viewer=self.viewer)
+            mocap_marking.run()
 
     def run_mocap(self):
         worker = self._run_mocap()
@@ -205,23 +219,30 @@ class NellieProcessor(QWidget):
 
     @thread_worker
     def _run_tracking(self):
-        show_info("Nellie is running: Tracking")
-        hu_tracking = HuMomentTracking(im_info=self.nellie.im_info, viewer=self.viewer)
-        hu_tracking.run()
+        for im_num, im_info in enumerate(self.im_info_list):
+            show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(self.im_info_list)}")
+            self.current_im_info = im_info
+            hu_tracking = HuMomentTracking(im_info=self.current_im_info, viewer=self.viewer)
+            hu_tracking.run()
 
     def run_tracking(self):
         worker = self._run_tracking()
         worker.started.connect(self.turn_off_buttons)
         if self.pipeline:
-            worker.finished.connect(self.run_reassign)
+            if self.nellie.settings.voxel_reassign.isChecked():
+                worker.finished.connect(self.run_reassign)
+            else:
+                worker.finished.connect(self.run_feature_export)
         worker.finished.connect(self.check_file_existence)
         worker.start()
 
     @thread_worker
     def _run_reassign(self):
-        show_info("Nellie is running: Voxel Reassignment")
-        vox_reassign = VoxelReassigner(im_info=self.nellie.im_info, viewer=self.viewer)
-        vox_reassign.run()
+        for im_num, im_info in enumerate(self.im_info_list):
+            show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(self.im_info_list)}")
+            self.current_im_info = im_info
+            vox_reassign = VoxelReassigner(im_info=self.current_im_info, viewer=self.viewer)
+            vox_reassign.run()
 
     def run_reassign(self):
         worker = self._run_reassign()
@@ -234,12 +255,15 @@ class NellieProcessor(QWidget):
 
     @thread_worker
     def _run_feature_export(self):
-        show_info("Nellie is running: Feature export")
-        hierarchy = Hierarchy(im_info=self.nellie.im_info,
-                              skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
-                              viewer=self.viewer)
-        hierarchy.run()
-        self.nellie.analyzer.post_init()
+        for im_num, im_info in enumerate(self.im_info_list):
+            show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(self.im_info_list)}")
+            self.current_im_info = im_info
+            hierarchy = Hierarchy(im_info=self.current_im_info,
+                                  skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
+                                  viewer=self.viewer)
+            hierarchy.run()
+        if self.nellie.analyzer.initialized:
+            self.nellie.analyzer.rewrite_dropdown()
 
     def run_feature_export(self):
         worker = self._run_feature_export()

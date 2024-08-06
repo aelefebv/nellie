@@ -1,12 +1,10 @@
 import os
 
-from napari.utils.notifications import show_info
-from qtpy.QtWidgets import QGridLayout, QWidget, QPushButton, QLabel, QSpinBox, QCheckBox
+from qtpy.QtWidgets import QGridLayout, QWidget, QPushButton
 from tifffile import tifffile
 
 from nellie import logger
 from nellie.tracking.all_tracks_for_label import LabelTracks
-from nellie.utils.general import get_reshaped_image
 
 
 class NellieVisualizer(QWidget):

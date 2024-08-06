@@ -2,7 +2,7 @@ import os
 import pickle
 
 import numpy as np
-from qtpy.QtWidgets import QGridLayout, QComboBox, QCheckBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, \
+from qtpy.QtWidgets import QComboBox, QCheckBox, QPushButton, QLabel, QTableWidget, QTableWidgetItem, \
     QSpinBox, QDoubleSpinBox, QWidget, QVBoxLayout, QGroupBox, QHBoxLayout
 from qtpy.QtCore import Qt
 
@@ -36,6 +36,8 @@ class NellieAnalysis(QWidget):
         self.hist_max = None
         self.num_bins = None
         self.hist_reset = True
+        self.export_data_button = None
+        self.save_graph_button = None
 
         self.click_match_table = None
 
@@ -132,15 +134,13 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
 
-
-        self.dropdown_attr = QComboBox()
-        self.dropdown_attr_is_connected = False
         self._create_dropdown_selection()
-        self.dropdown.setCurrentIndex(3)  # Organelle
-        self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
-        self.dropdown_attr.setCurrentIndex(6)  # Area
-        self.dropdown_attr_is_connected = True
 
+        # # self.dropdown_attr = QComboBox()
+        # self._create_dropdown_selection()
+        # self.dropdown.setCurrentIndex(3)  # Organelle
+        # self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
+        # self.dropdown_attr.setCurrentIndex(6)  # Area
 
         self.set_ui()
         self.initialized = True
@@ -154,7 +154,6 @@ class NellieAnalysis(QWidget):
         attr_layout.addWidget(self.dropdown)
         attr_layout.addWidget(self.dropdown_attr)
         attr_group.setLayout(attr_layout)
-
 
         # Histogram group
         hist_group = QGroupBox("Histogram options")
@@ -202,13 +201,32 @@ class NellieAnalysis(QWidget):
         self.dropdown = QComboBox()
         self.dropdown.currentIndexChanged.connect(self.on_level_selected)
 
-        # Add options to the dropdown
+        self.rewrite_dropdown()
+
+        self.dropdown_attr = QComboBox()
+        self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
+
+        self.set_default_dropdowns()
+
+    def set_default_dropdowns(self):
+        organelle_idx = self.dropdown.findText('organelle')
+        self.dropdown.setCurrentIndex(organelle_idx)
+        area_raw_idx = self.dropdown_attr.findText('organelle_area_raw')
+        self.dropdown_attr.setCurrentIndex(area_raw_idx)
+
+    def rewrite_dropdown(self):
+        self.dropdown.clear()
         if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
             options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
         else:
             options = ['none', 'voxel', 'branch', 'organelle', 'image']
         for option in options:
             self.dropdown.addItem(option)
+
+        if self.dropdown_attr is not None:
+            self.set_default_dropdowns()
+
+        self.adjacency_maps = None
 
     def export_data(self):
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -247,7 +265,6 @@ class NellieAnalysis(QWidget):
         self.plot_data(self.dropdown_attr.currentText())
 
     def get_index(self, layer, event):
-
         # get the coordinates of where the mouse is hovering
         pos = self.viewer.cursor.position
         matched_row = None
@@ -294,8 +311,6 @@ class NellieAnalysis(QWidget):
         self.click_match_table.setVerticalHeaderLabels([f"{t, y, x}\nCSV row"])
 
     def overlay(self):
-        # need to fix this: works for organelle masks, but branch could have missing idxs (e.g. example 1)
-        # see "/Users/austin/test_files/nellie_all_tests/1.tif"
         if self.label_mask is None:
             label_mask = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
             self.label_mask = (label_mask > 0).astype(float)
@@ -470,11 +485,7 @@ class NellieAnalysis(QWidget):
         else:
             return
 
-        if self.dropdown_attr_is_connected:
-            self.dropdown_attr.currentIndexChanged.disconnect(self.on_attr_selected)
-            self.dropdown_attr_is_connected = False
         self.dropdown_attr.clear()
-
         # add a None option
         self.dropdown_attr.addItem("None")
         for col in self.df.columns[::-1]:
@@ -483,14 +494,13 @@ class NellieAnalysis(QWidget):
             # remove "_raw" from the column name
             # col = col[:-4]
             self.dropdown_attr.addItem(col)
-        # reconnect
-        if not self.dropdown_attr_is_connected:
-            self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
-            self.dropdown_attr_is_connected = True
 
 
     def on_attr_selected(self, index):
         self.hist_reset = True
+        # if there are no items in dropdown_attr, return
+        if self.dropdown_attr.count() == 0:
+            return
 
         selected_attr = self.dropdown_attr.itemText(index)
         if selected_attr == '':

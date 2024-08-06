@@ -63,7 +63,7 @@ class Home(QWidget):
         self.layout.addWidget(github_link)
 
         # screenshot button
-        self.screenshot_button = QPushButton(text="Easy screenshot:\n[Ctrl/Cmd-Shift-E]")
+        self.screenshot_button = QPushButton(text="Easy screenshot:\n[Ctrl-Shift-E]")
         self.screenshot_button.setStyleSheet("border-radius: 5px;")
         self.screenshot_button.clicked.connect(self.screenshot)
         self.screenshot_button.setEnabled(True)

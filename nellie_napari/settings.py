@@ -1,4 +1,4 @@
-from qtpy.QtWidgets import QWidget, QGridLayout, QCheckBox, QSpinBox, QLabel
+from qtpy.QtWidgets import QWidget, QCheckBox, QSpinBox, QLabel, QVBoxLayout, QGroupBox, QHBoxLayout
 import napari
 
 
@@ -8,12 +8,10 @@ class Settings(QWidget):
         self.nellie = nellie
         self.viewer = napari_viewer
 
-        self.layout = QGridLayout()
-        self.setLayout(self.layout)
-
         # Checkbox for 'Remove edges'
         self.remove_edges_checkbox = QCheckBox("Remove image edges")
-        self.remove_edges_checkbox.setEnabled(False)
+        self.remove_edges_checkbox.setChecked(False)
+        self.remove_edges_checkbox.setEnabled(True)
         self.remove_edges_checkbox.setToolTip(
             "Originally for Snouty deskewed images. If you see weird image edge artifacts, enable this.")
 
@@ -39,19 +37,39 @@ class Settings(QWidget):
         self.skip_vox.setValue(5)
         self.skip_vox.setEnabled(False)
 
-        self.layout.addWidget(self.remove_edges_checkbox, 0, 0)
-        self.layout.addWidget(self.analyze_node_level, 1, 0)
-        self.layout.addWidget(self.voxel_reassign, 1, 1)
-
-        self.layout.addWidget(self.skip_vox_label, 6, 0, 1, 1)
-        self.layout.addWidget(self.skip_vox, 6, 1, 1, 1)
-        self.layout.addWidget(self.track_all_frames, 7, 0, 1, 1)
-
+        self.set_ui()
 
         self.initialized = False
 
     def post_init(self):
         self.initialized = True
+
+    def set_ui(self):
+        main_layout = QVBoxLayout()
+
+        # Processor settings
+        processor_group = QGroupBox("Processor settings")
+        processor_layout = QVBoxLayout()
+        processor_layout.addWidget(self.remove_edges_checkbox)
+        subprocessor_layout = QHBoxLayout()
+        subprocessor_layout.addWidget(self.analyze_node_level)
+        subprocessor_layout.addWidget(self.voxel_reassign)
+        processor_layout.addLayout(subprocessor_layout)
+        processor_group.setLayout(processor_layout)
+
+        # Tracking settings
+        tracking_group = QGroupBox("Tracking settings")
+        tracking_layout = QVBoxLayout()
+        tracking_layout.addWidget(self.track_all_frames)
+        skip_vox_layout = QHBoxLayout()
+        skip_vox_layout.addWidget(self.skip_vox_label)
+        skip_vox_layout.addWidget(self.skip_vox)
+        tracking_layout.addLayout(skip_vox_layout)
+        tracking_group.setLayout(tracking_layout)
+
+        main_layout.addWidget(processor_group)
+        main_layout.addWidget(tracking_group)
+        self.setLayout(main_layout)
 
 
 if __name__ == "__main__":
