@@ -1,4 +1,4 @@
-name: nellie
+name: nellie2
 channels:
   - defaults
 dependencies:
@@ -79,7 +79,6 @@ dependencies:
     - napari-plugin-manager==0.1.0
     - napari-svg==0.2.0
     - nd2==0.9.0
-    - nellie==0.2.2
     - nest-asyncio==1.6.0
     - networkx==3.3
     - npe2==0.7.7
