@@ -2,8 +2,7 @@ import numpy as np
 from scipy.spatial.distance import cdist
 
 from nellie import xp, ndi, logger
-from nellie.im_info.im_info import ImInfo
-from nellie.utils.general import get_reshaped_image
+from nellie.im_info.verifier import ImInfo
 
 
 class HuMomentTracking:
@@ -20,11 +19,11 @@ class HuMomentTracking:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
         if self.im_info.no_z:
-            self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+            self.scaling = (im_info.dim_res['Y'], im_info.dim_res['X'])
         else:
-            self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+            self.scaling = (im_info.dim_res['Z'], im_info.dim_res['Y'], im_info.dim_res['X'])
 
-        self.max_distance_um = max_distance_um * self.im_info.dim_sizes['T']
+        self.max_distance_um = max_distance_um * self.im_info.dim_res['T']
         self.max_distance_um = xp.max(xp.array([self.max_distance_um, 0.5]))
 
         self.vector_start_coords = []
@@ -179,21 +178,12 @@ class HuMomentTracking:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for hu-based tracking.')
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
-
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
-
-        im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
+        self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_marker_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_marker'])
+        self.im_distance_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_distance'])
         self.shape = self.label_memmap.shape
-
-        im_marker_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_marker'])
-        self.im_marker_memmap = get_reshaped_image(im_marker_memmap, self.num_t, self.im_info)
-
-        im_distance_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_distance_memmap = get_reshaped_image(im_distance_memmap, self.num_t, self.im_info)
 
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
@@ -228,7 +218,8 @@ class HuMomentTracking:
         marker_indices = xp.argwhere(marker_frame)
 
         region_bounds = self._get_im_bounds(marker_indices, distance_max_frame)
-        #todo deal with the max radius calculation if distance_max_frame is empty
+        if len(region_bounds[0]) == 0:
+            return xp.array([]), xp.array([])
 
         max_radius = int(xp.ceil(xp.max(distance_max_frame[marker_frame]))) * 2 + 1
 
@@ -259,12 +250,16 @@ class HuMomentTracking:
         return distance_matrix, distance_mask
 
     def _get_difference_matrix(self, m1, m2):
+        if len(m1) == 0 or len(m2) == 0:
+            return xp.array([])
         m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float16)
         m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float16)
         difference_matrix = xp.abs(m1_reshaped - m2_reshaped)
         return difference_matrix
 
     def _zscore_normalize(self, m, mask):
+        if len(m) == 0:
+            return xp.array([])
         depth = m.shape[2]
 
         sum_mask = xp.sum(mask)
@@ -291,6 +286,8 @@ class HuMomentTracking:
         return m
 
     def _get_cost_matrix(self, t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
+        if len(stats_vecs) == 0 or len(pre_stats_vecs) == 0 or len(hu_vecs) == 0 or len(pre_hu_vecs) == 0:
+            return xp.array([])
         distance_matrix, distance_mask = self._get_distance_mask(t)
         z_score_distance_matrix = self._zscore_normalize(xp.array(distance_matrix)[..., xp.newaxis],
                                                          distance_mask).astype(xp.float16)
@@ -309,6 +306,8 @@ class HuMomentTracking:
         return cost_matrix
 
     def _find_best_matches(self, cost_matrix):
+        if len(cost_matrix) == 0:
+            return [], [], []
         candidates = []
         cost_cutoff = 1
 

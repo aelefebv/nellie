@@ -4,8 +4,7 @@ import skimage.morphology as morph
 from scipy.spatial import cKDTree
 
 from nellie import xp, ndi, logger, device_type
-from nellie.im_info.im_info import ImInfo
-from nellie.utils.general import get_reshaped_image
+from nellie.im_info.verifier import ImInfo
 from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
@@ -20,18 +19,18 @@ class Network:
         if not self.im_info.no_z:
             if clean_skel is None:
                 clean_skel = False
-            self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
+            self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
         # either (roughly) diffraction limit, or pixel size, whichever is larger
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
+        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
         self.max_radius_um = max_radius_um
 
-        self.min_radius_px = self.min_radius_um / self.im_info.dim_sizes['X']
-        self.max_radius_px = self.max_radius_um / self.im_info.dim_sizes['X']
+        self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
+        self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']
 
         if self.im_info.no_z:
-            self.scaling = (im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+            self.scaling = (im_info.dim_res['Y'], im_info.dim_res['X'])
         else:
-            self.scaling = (im_info.dim_sizes['Z'], im_info.dim_sizes['Y'], im_info.dim_sizes['X'])
+            self.scaling = (im_info.dim_res['Z'], im_info.dim_res['Y'], im_info.dim_res['X'])
 
         self.shape = ()
 
@@ -284,30 +283,25 @@ class Network:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for skeletonization.')
-        label_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_instance_label'])  # , read_type='r+')
-        self.label_memmap = get_reshaped_image(label_memmap, self.num_t, self.im_info)
-
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
-
-        im_frangi_memmap = self.im_info.get_im_memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_frangi_memmap = get_reshaped_image(im_frangi_memmap, self.num_t, self.im_info)
+        self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])  # , read_type='r+')
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
         self.shape = self.label_memmap.shape
 
         im_skel_path = self.im_info.pipeline_paths['im_skel']
-        self.skel_memmap = self.im_info.allocate_memory(im_skel_path, shape=self.shape,
+        self.skel_memmap = self.im_info.allocate_memory(im_skel_path,
                                                         dtype='uint16',
                                                         description='skeleton image',
                                                         return_memmap=True)
 
         im_pixel_class = self.im_info.pipeline_paths['im_pixel_class']
-        self.pixel_class_memmap = self.im_info.allocate_memory(im_pixel_class, shape=self.shape,
+        self.pixel_class_memmap = self.im_info.allocate_memory(im_pixel_class,
                                                                dtype='uint8',
                                                                description='pixel class image',
                                                                return_memmap=True)
 
         im_skel_relabelled = self.im_info.pipeline_paths['im_skel_relabelled']
-        self.skel_relabelled_memmap = self.im_info.allocate_memory(im_skel_relabelled, shape=self.shape,
+        self.skel_relabelled_memmap = self.im_info.allocate_memory(im_skel_relabelled,
                                                                    dtype='uint32',
                                                                    description='skeleton relabelled image',
                                                                    return_memmap=True)

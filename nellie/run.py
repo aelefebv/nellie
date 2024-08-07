@@ -1,5 +1,5 @@
 from nellie.feature_extraction.hierarchical import Hierarchy
-from nellie.im_info.im_info import ImInfo
+from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter
 from nellie.segmentation.labelling import Label
 from nellie.segmentation.mocap_marking import Markers
@@ -8,27 +8,27 @@ from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 
-def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_thresh_intensity=False, dim_sizes=None, threshold=None, dim_order=""):
-    im_info = ImInfo(im_path, num_t=num_t, ch=ch, output_dirpath=output_dirpath, dim_sizes=dim_sizes, dimension_order=dim_order)
-    preprocessing = Filter(im_info, num_t, remove_edges=remove_edges)
+def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
+    im_info = ImInfo(file_info)
+    preprocessing = Filter(im_info, remove_edges=remove_edges)
     preprocessing.run()
 
-    segmenting = Label(im_info, num_t, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
+    segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
     segmenting.run()
 
-    networking = Network(im_info, num_t)
+    networking = Network(im_info)
     networking.run()
 
-    mocap_marking = Markers(im_info, num_t)
+    mocap_marking = Markers(im_info)
     mocap_marking.run()
 
-    hu_tracking = HuMomentTracking(im_info, num_t)
+    hu_tracking = HuMomentTracking(im_info)
     hu_tracking.run()
 
-    vox_reassign = VoxelReassigner(im_info, num_t)
+    vox_reassign = VoxelReassigner(im_info)
     vox_reassign.run()
 
-    hierarchy = Hierarchy(im_info, num_t)
+    hierarchy = Hierarchy(im_info)
     hierarchy.run()
 
     return im_info
@@ -36,11 +36,11 @@ def run(im_path, num_t=None, remove_edges=True, ch=0, output_dirpath=None, otsu_
 
 if __name__ == "__main__":
     # # Single file run
-    im_path = r"/Users/austin/test_files/nellie_all_tests/ND Stimulation Parallel 12.nd2"
-    im_info = run(im_path, remove_edges=False, num_t=5)
+    # im_path = r"/Users/austin/test_files/nellie_all_tests/ND Stimulation Parallel 12.nd2"
+    # im_info = run(im_path, remove_edges=False, num_t=5)
     # im_info = run(im_path, remove_edges=False, ch=1, dim_sizes={'T': 1, 'Z': 0.1, 'Y': 0.1, 'X': 0.1}, otsu_thresh_intensity=True)
 
-    # Directory bactch run
+    # Directory batch run
     # import os
     # top_dirs = [
     #     r"C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\multi_grid\outputs",
@@ -62,3 +62,52 @@ if __name__ == "__main__":
     #             print(f'Already exists, skipping.')
     #             continue
     #         im_info = run(tif_file, remove_edges=False, ch=ch, num_t=num_t)
+
+    test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif'
+    # test_file = all_paths[1]
+    file_info = FileInfo(test_file)
+    file_info.find_metadata()
+    file_info.load_metadata()
+    # print(f'{file_info.metadata_type=}')
+    # print(f'{file_info.axes=}')
+    # print(f'{file_info.shape=}')
+    # print(f'{file_info.dim_res=}')
+    # print(f'{file_info.good_axes=}')
+    # print(f'{file_info.good_dims=}')
+    # print('\n')
+
+    # file_info.change_axes('TZYX')
+    # print('Axes changed')
+    # print(f'{file_info.axes=}')
+    # print(f'{file_info.dim_res=}')
+    # print(f'{file_info.good_axes=}')
+    # print(f'{file_info.good_dims=}')
+    # print('\n')
+    #
+    # file_info.change_dim_res('T', 1)
+    # file_info.change_dim_res('Z', 0.5)
+    # file_info.change_dim_res('Y', 0.2)
+    # file_info.change_dim_res('X', 0.2)
+    #
+    # print('Dimension resolutions changed')
+    # print(f'{file_info.axes=}')
+    # print(f'{file_info.dim_res=}')
+    # print(f'{file_info.good_axes=}')
+    # print(f'{file_info.good_dims=}')
+    # print('\n')
+    #
+    # # print(f'{file_info.ch=}')
+    # # file_info.change_selected_channel(3)
+    # # print('Channel changed')
+    # # print(f'{file_info.ch=}')
+    #
+    # print(f'{file_info.t_start=}')
+    # print(f'{file_info.t_end=}')
+    # file_info.select_temporal_range(1, 3)
+    # print('Temporal range selected')
+    # print(f'{file_info.t_start=}')
+    # print(f'{file_info.t_end=}')
+    #
+    # # file_info.save_ome_tiff()
+    # # im_info = ImInfo(file_info)
+    run(file_info)

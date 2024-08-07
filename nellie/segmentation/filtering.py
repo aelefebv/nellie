@@ -1,10 +1,8 @@
 from itertools import combinations_with_replacement
 
-# import napari
-
 from nellie import logger
-from nellie.im_info.im_info import ImInfo
-from nellie.utils.general import get_reshaped_image, bbox
+from nellie.im_info.verifier import ImInfo
+from nellie.utils.general import bbox
 import numpy as np
 from nellie import ndi, xp, device_type
 
@@ -13,21 +11,21 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 class Filter:
     def __init__(self, im_info: ImInfo,
-                 num_t=None, remove_edges=True,
+                 num_t=None, remove_edges=False,
                  min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, viewer=None):
         self.im_info = im_info
         if not self.im_info.no_z:
-            self.z_ratio = self.im_info.dim_sizes['Z'] / self.im_info.dim_sizes['X']
+            self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.remove_edges = remove_edges
         # either (roughly) diffraction limit, or pixel size, whichever is larger
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_sizes['X'])
+        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
         self.max_radius_um = max_radius_um
 
-        self.min_radius_px = self.min_radius_um / self.im_info.dim_sizes['X']
-        self.max_radius_px = self.max_radius_um / self.im_info.dim_sizes['X']
+        self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
+        self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']
 
         self.im_memmap = None
         self.frangi_memmap = None
@@ -51,11 +49,10 @@ class Filter:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for frangi filter.')
-        im_memmap = self.im_info.get_im_memmap(self.im_info.im_path)
-        self.im_memmap = get_reshaped_image(im_memmap, self.num_t, self.im_info)
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
         self.shape = self.im_memmap.shape
         im_frangi_path = self.im_info.pipeline_paths['im_frangi']
-        self.frangi_memmap = self.im_info.allocate_memory(im_frangi_path, shape=self.shape, dtype='double',
+        self.frangi_memmap = self.im_info.allocate_memory(im_frangi_path, dtype='double',
                                                           description='frangi filtered im',
                                                           return_memmap=True)
 
@@ -71,13 +68,17 @@ class Filter:
         min_sigma_step_size = 0.2
         num_sigma = 5
 
-        self.sigma_min = self.min_radius_px / 2
-        self.sigma_max = self.max_radius_px / 3
+        sigma_1 = self.min_radius_px / 2
+        sigma_2 = self.max_radius_px / 3
+        self.sigma_min = min(sigma_1, sigma_2)
+        self.sigma_max = max(sigma_1, sigma_2)
+
 
         sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / num_sigma
         sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)  # Avoid taking too small of steps.
 
         self.sigmas = list(np.arange(self.sigma_min, self.sigma_max, sigma_step_size))
+
         logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
     def _gauss_filter(self, sigma, t=None):
@@ -271,6 +272,6 @@ class Filter:
 
 if __name__ == "__main__":
     im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
-    im_info = ImInfo(im_path, dim_sizes={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
+    im_info = ImInfo(im_path, dim_res={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
     filter_im = Filter(im_info)
     filter_im.run()
