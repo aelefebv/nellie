@@ -4,7 +4,6 @@ import pickle
 import numpy as np
 from scipy import spatial
 from skimage.measure import regionprops
-from tifffile import tifffile
 
 from nellie import logger
 from nellie.im_info.verifier import ImInfo
@@ -61,19 +60,19 @@ class Hierarchy:
 
     def _allocate_memory(self):
         # getting reshaped image will load the image into memory.. should probably do this case by case
-        self.im_raw = tifffile.memmap(self.im_info.im_path)
-        self.im_struct = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_distance = tifffile.memmap(self.im_info.pipeline_paths['im_distance'])
-        self.im_skel = tifffile.memmap(self.im_info.pipeline_paths['im_skel'])
-        self.label_components = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.label_branches = tifffile.memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        self.im_border_mask = tifffile.memmap(self.im_info.pipeline_paths['im_border'])
-        self.im_pixel_class = tifffile.memmap(self.im_info.pipeline_paths['im_pixel_class'])
+        self.im_raw = self.im_info.get_memmap(self.im_info.im_path)
+        self.im_struct = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_distance = self.im_info.get_memmap(self.im_info.pipeline_paths['im_distance'])
+        self.im_skel = self.im_info.get_memmap(self.im_info.pipeline_paths['im_skel'])
+        self.label_components = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.label_branches = self.im_info.get_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.im_border_mask = self.im_info.get_memmap(self.im_info.pipeline_paths['im_border'])
+        self.im_pixel_class = self.im_info.get_memmap(self.im_info.pipeline_paths['im_pixel_class'])
         if not self.im_info.no_t:
             if os.path.exists(self.im_info.pipeline_paths['im_obj_label_reassigned']) and os.path.exists(
                     self.im_info.pipeline_paths['im_branch_label_reassigned']):
-                self.im_obj_reassigned = tifffile.memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
-                self.im_branch_reassigned = tifffile.memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
+                self.im_obj_reassigned = self.im_info.get_memmap(self.im_info.pipeline_paths['im_obj_label_reassigned'])
+                self.im_branch_reassigned = self.im_info.get_memmap(self.im_info.pipeline_paths['im_branch_label_reassigned'])
 
         #     self.im_obj_reassigned = get_reshaped_image(im_obj_reassigned, self.num_t, self.im_info)
         #     self.im_branch_reassigned = get_reshaped_image(im_branch_reassigned, self.num_t, self.im_info)
@@ -183,7 +182,7 @@ class Hierarchy:
                 v_b_temp[voxel, branches-1] = True
             v_b.append(np.argwhere(v_b_temp))
 
-            v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
+            # v_b_matrix = self.voxels.branch_labels[t][:, None] == self.branches.branch_label[t]
             # v_b.append(np.argwhere(v_b_matrix))
 
             # num_organelles = len(self.components.component_label[t])

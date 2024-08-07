@@ -227,15 +227,15 @@ class FileInfo:
             dim_res = dim_res.replace('.', 'p')
             dim_texts.append(f'{axis}{dim_res}')
         dim_text = f"-{'_'.join(dim_texts)}"
-        self.output_path = os.path.join(
+        self.output_path_no_ext = os.path.join(
             self.output_dir,
             f'{self.filename_no_ext}'
             f'-{self.axes}'
             f'{dim_text}'
             f'-ch{self.ch}'
             f'{t_text}'
-            f'.ome.tif'
         )
+        self.output_path = self.output_path_no_ext + '.ome.tif'
 
     def save_ome_tiff(self):
         if not self.good_axes or not self.good_dims:
@@ -247,10 +247,20 @@ class FileInfo:
             data = data[np.newaxis, ...]
             axes = 'T' + self.axes
         else:
-            data = np.take(data, range(self.t_start, self.t_end + 1), axis=self.axes.index('T'))
+            t_index = self.axes.index('T')
+            selected_range = range(self.t_start, self.t_end + 1)
+            data = np.take(data, selected_range, axis=t_index)
+            # if len(selected_range) == 1:
+            #     data = np.expand_dims(data, axis=t_index)
         if 'C' in axes:
             data = np.take(data, self.ch, axis=axes.index('C'))
             axes = axes.replace('C', '')
+
+        # ensure 'T' is the 0th dimension
+        if 'T' in axes:
+            t_index = axes.index('T')
+            data = np.moveaxis(data, t_index, 0)
+            axes = 'T' + axes.replace('T', '')
 
         tifffile.imwrite(
             self.output_path, data, bigtiff=True, metadata={"axes": axes}
@@ -262,7 +272,12 @@ class FileInfo:
         ome.images[0].pixels.physical_size_y = self.dim_res['Y']
         ome.images[0].pixels.physical_size_z = self.dim_res['Z']
         ome.images[0].pixels.time_increment = self.dim_res['T']
-        ome.images[0].pixels.type = data.dtype.name
+        dtype_name = data.dtype.name
+        if data.dtype.name == 'float64':
+            dtype_name = 'double'
+        if data.dtype.name == 'float32':
+            dtype_name = 'float'
+        ome.images[0].pixels.type = dtype_name
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(self.output_path, ome_xml)
 
@@ -281,6 +296,7 @@ class ImInfo:
 
         self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
         self.axes = None
+        self.new_axes = None
         self.shape = None
         self.ome_metadata = None
         self._get_ome_metadata()
@@ -293,35 +309,13 @@ class ImInfo:
         self._create_output_paths()
 
     def _check_axes_exist(self):
-        if 'Z' in self.axes and self.shape[self.axes.index('Z')] > 1:
+        if 'Z' in self.axes and self.shape[self.new_axes.index('Z')] > 1:
             self.no_z = False
-        if 'T' in self.axes and self.shape[self.axes.index('T')] > 1:
+        if 'T' in self.axes and self.shape[self.new_axes.index('T')] > 1:
             self.no_t = False
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
-        t_text = f'-t{self.file_info.t_start}_to_{self.file_info.t_end}' if 'T' in self.file_info.axes else ''
-        dim_texts = []
-        for axis in self.file_info.axes:
-            dim_res = self.dim_res[axis]
-            # round to 4 decimal places
-            if dim_res is None:
-                dim_res = 'None'
-            else:
-                dim_res = str(round(dim_res, 4))
-            # convert '.' to 'p'
-            dim_res = dim_res.replace('.', 'p')
-            dim_texts.append(f'{axis}{dim_res}')
-        dim_text = f"-{'_'.join(dim_texts)}"
-        output_path = os.path.join(
-            self.output_dir,
-            f'{self.file_info.filename_no_ext}'
-            f'-{self.axes}'
-            f'{dim_text}'
-            f'-ch{self.file_info.ch}'
-            f'{t_text}'
-            f'-{pipeline_path}'
-            f'{ext}'
-        )
+        output_path = f'{self.file_info.output_path_no_ext}-{pipeline_path}{ext}'
         self.pipeline_paths[pipeline_path] = output_path
         return self.pipeline_paths[pipeline_path]
 
@@ -348,23 +342,38 @@ class ImInfo:
     def _get_ome_metadata(self, ):
         with tifffile.TiffFile(self.im_path) as tif:
             self.axes = tif.series[0].axes
-            self.shape = tif.series[0].shape
+            self.new_axes = self.axes
+        if 'T' not in self.axes:
+            self.im = self.im[np.newaxis, ...]
+            self.new_axes = 'T' + self.axes
+        self.shape = self.im.shape
         self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
         self.dim_res['X'] = self.ome_metadata.images[0].pixels.physical_size_x
         self.dim_res['Y'] = self.ome_metadata.images[0].pixels.physical_size_y
         self.dim_res['Z'] = self.ome_metadata.images[0].pixels.physical_size_z
         self.dim_res['T'] = self.ome_metadata.images[0].pixels.time_increment
 
+    def get_memmap(self, file_path, read_mode='r+'):
+        memmap = tifffile.memmap(file_path, mode=read_mode)
+        if 'T' not in self.axes:
+            memmap = memmap[np.newaxis, ...]
+        return memmap
+
     def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
                         return_memmap=False, read_mode='r+'):
+        axes = self.axes
+        if 'T' not in self.axes:
+            axes = 'T' + axes
+            if data is not None:
+                data = data[np.newaxis, ...]
         if data is None:
             tifffile.imwrite(
-                output_path, shape=self.shape, dtype=dtype, bigtiff=True, metadata={"axes": self.axes}
+                output_path, shape=self.shape, dtype=dtype, bigtiff=True, metadata={"axes": axes}
             )
         else:
             dtype = dtype or data.dtype.name
             tifffile.imwrite(
-                output_path, data, bigtiff=True, metadata={"axes": self.axes}
+                output_path, data, bigtiff=True, metadata={"axes": axes}
             )
         ome = self.ome_metadata
         ome.images[0].description = description
@@ -372,7 +381,7 @@ class ImInfo:
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(output_path, ome_xml)
         if return_memmap:
-            return tifffile.memmap(output_path, mode=read_mode)
+            return self.get_memmap(output_path, read_mode=read_mode)
 
 
 if __name__ == "__main__":

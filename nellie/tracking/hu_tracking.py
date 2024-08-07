@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.spatial.distance import cdist
-from tifffile import tifffile
 
 from nellie import xp, ndi, logger
 from nellie.im_info.verifier import ImInfo
@@ -179,11 +178,11 @@ class HuMomentTracking:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for hu-based tracking.')
-        self.label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.im_memmap = tifffile.memmap(self.im_info.im_path)
-        self.im_frangi_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
-        self.im_marker_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_marker'])
-        self.im_distance_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_distance'])
+        self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_marker_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_marker'])
+        self.im_distance_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_distance'])
         self.shape = self.label_memmap.shape
 
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']

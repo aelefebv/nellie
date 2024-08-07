@@ -2,7 +2,6 @@ import numpy as np
 import skimage.measure
 import skimage.morphology as morph
 from scipy.spatial import cKDTree
-from tifffile import tifffile
 
 from nellie import xp, ndi, logger, device_type
 from nellie.im_info.verifier import ImInfo
@@ -284,9 +283,9 @@ class Network:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for skeletonization.')
-        self.label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])  # , read_type='r+')
-        self.im_memmap = tifffile.memmap(self.im_info.im_path)
-        self.im_frangi_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])  # , read_type='r+')
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
         self.shape = self.label_memmap.shape
 
         im_skel_path = self.im_info.pipeline_paths['im_skel']

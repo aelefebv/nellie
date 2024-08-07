@@ -2,12 +2,10 @@ import heapq
 
 import numpy as np
 from scipy.spatial import cKDTree
-from tifffile import tifffile
 
 from nellie import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
-from nellie.utils.general import get_reshaped_image
 
 
 class VoxelReassigner:
@@ -215,8 +213,8 @@ class VoxelReassigner:
         logger.debug('Allocating memory for voxel reassignment.')
         self.voxel_matches_path = self.im_info.pipeline_paths['voxel_matches']
 
-        self.branch_label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
-        self.obj_label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.branch_label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_skel_relabelled'])
+        self.obj_label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.shape = self.branch_label_memmap.shape
 
         reassigned_branch_label_path = self.im_info.pipeline_paths['im_branch_label_reassigned']

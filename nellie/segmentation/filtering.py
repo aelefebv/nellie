@@ -1,9 +1,5 @@
 from itertools import combinations_with_replacement
 
-from tifffile import tifffile
-
-# import napari
-
 from nellie import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.utils.general import bbox
@@ -53,7 +49,7 @@ class Filter:
 
     def _allocate_memory(self):
         logger.debug('Allocating memory for frangi filter.')
-        self.im_memmap = tifffile.memmap(self.im_info.im_path)
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
         self.shape = self.im_memmap.shape
         im_frangi_path = self.im_info.pipeline_paths['im_frangi']
         self.frangi_memmap = self.im_info.allocate_memory(im_frangi_path, dtype='double',

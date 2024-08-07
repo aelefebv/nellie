@@ -1,9 +1,10 @@
 import os
+import time
 
 from napari.utils.notifications import show_info
-from qtpy.QtWidgets import QWidget, QPushButton, QVBoxLayout, QGroupBox
+from qtpy.QtWidgets import QWidget, QPushButton, QVBoxLayout, QGroupBox, QLabel
 from qtpy.QtGui import QFont
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.segmentation.filtering import Filter
@@ -23,6 +24,13 @@ class NellieProcessor(QWidget):
 
         self.im_info_list = None
         self.current_im_info = None
+
+        self.status_label = QLabel("Awaiting your input")
+        self.status = None
+        self.num_ellipses = 1
+
+        self.status_timer = QTimer()
+        self.status_timer.timeout.connect(self.update_status)
 
         # Run im button
         self.run_button = QPushButton(text="Run Nellie")
@@ -71,6 +79,13 @@ class NellieProcessor(QWidget):
     def set_ui(self):
         main_layout = QVBoxLayout()
 
+        # Status group
+        status_group = QGroupBox("Status")
+        status_layout = QVBoxLayout()
+        status_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
+        status_group.setMaximumHeight(100)
+        status_group.setLayout(status_layout)
+
         # Run full pipeline
         full_pipeline_group = QGroupBox("Run full pipeline")
         full_pipeline_layout = QVBoxLayout()
@@ -88,6 +103,7 @@ class NellieProcessor(QWidget):
         partial_pipeline_layout.addWidget(self.feature_export_button)
         partial_pipeline_group.setLayout(partial_pipeline_layout)
 
+        main_layout.addWidget(status_group)
         main_layout.addWidget(full_pipeline_group)
         main_layout.addWidget(partial_pipeline_group)
 
@@ -166,6 +182,7 @@ class NellieProcessor(QWidget):
 
     @thread_worker
     def _run_preprocessing(self):
+        self.status = "preprocessing"
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
@@ -179,11 +196,14 @@ class NellieProcessor(QWidget):
         worker.started.connect(self.turn_off_buttons)
         if self.pipeline:
             worker.finished.connect(self.run_segmentation)
+        worker.started.connect(self.set_status)
+        worker.finished.connect(self.reset_status)
         worker.finished.connect(self.check_file_existence)
         worker.start()
 
     @thread_worker
     def _run_segmentation(self):
+        self.status = "segmentation"
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
@@ -198,10 +218,13 @@ class NellieProcessor(QWidget):
         if self.pipeline:
             worker.finished.connect(self.run_mocap)
         worker.finished.connect(self.check_file_existence)
+        worker.started.connect(self.set_status)
+        worker.finished.connect(self.reset_status)
         worker.start()
 
     @thread_worker
     def _run_mocap(self):
+        self.status = "mocap marking"
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
@@ -214,11 +237,14 @@ class NellieProcessor(QWidget):
         if self.pipeline:
             worker.finished.connect(self.run_tracking)
         worker.finished.connect(self.check_file_existence)
+        worker.started.connect(self.set_status)
+        worker.finished.connect(self.reset_status)
         worker.start()
 
 
     @thread_worker
     def _run_tracking(self):
+        self.status = "tracking"
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
@@ -234,10 +260,13 @@ class NellieProcessor(QWidget):
             else:
                 worker.finished.connect(self.run_feature_export)
         worker.finished.connect(self.check_file_existence)
+        worker.started.connect(self.set_status)
+        worker.finished.connect(self.reset_status)
         worker.start()
 
     @thread_worker
     def _run_reassign(self):
+        self.status = "voxel reassignment"
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
@@ -250,11 +279,14 @@ class NellieProcessor(QWidget):
         if self.pipeline:
             worker.finished.connect(self.run_feature_export)
         worker.finished.connect(self.check_file_existence)
+        worker.started.connect(self.set_status)
+        worker.finished.connect(self.reset_status)
         worker.start()
 
 
     @thread_worker
     def _run_feature_export(self):
+        self.status = "feature export"
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
@@ -270,6 +302,8 @@ class NellieProcessor(QWidget):
         worker.started.connect(self.turn_off_buttons)
         worker.finished.connect(self.check_file_existence)
         worker.finished.connect(self.turn_off_pipeline)
+        worker.started.connect(self.set_status)
+        worker.finished.connect(self.reset_status)
         worker.start()
 
     def turn_off_pipeline(self):
@@ -278,6 +312,23 @@ class NellieProcessor(QWidget):
     def run_nellie(self):
         self.pipeline = True
         self.run_preprocessing()
+
+    def set_status(self):
+        self.running = True
+        self.status_timer.start(500)  # Update every 250 ms
+
+    def update_status(self):
+        if self.running:
+            self.status_label.setText(f"Running {self.status}{'.' * (self.num_ellipses % 4)}")
+            self.num_ellipses += 1
+        else:
+            self.status_timer.stop()
+
+    def reset_status(self):
+        self.running = False
+        self.status_label.setText("Awaiting your input")
+        self.num_ellipses = 1
+        self.status_timer.stop()
 
     def turn_off_buttons(self):
         self.run_button.setEnabled(False)

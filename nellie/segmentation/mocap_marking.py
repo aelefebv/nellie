@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.spatial import cKDTree, distance
-from tifffile import tifffile
 
 from nellie import xp, ndi, logger, device_type
 from nellie.im_info.verifier import ImInfo
@@ -75,9 +74,9 @@ class Markers:
     def _allocate_memory(self):
         logger.debug('Allocating memory for mocap marking.')
 
-        self.label_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_instance_label'])
-        self.im_memmap = tifffile.memmap(self.im_info.im_path)
-        self.im_frangi_memmap = tifffile.memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
         self.shape = self.label_memmap.shape
 
         im_marker_path = self.im_info.pipeline_paths['im_marker']

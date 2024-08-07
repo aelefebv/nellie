@@ -9,9 +9,6 @@ from qtpy.QtCore import Qt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from napari.utils.notifications import show_info
 import pandas as pd
-from tifffile import tifffile
-
-from nellie.utils.general import get_reshaped_image
 import datetime
 
 
@@ -312,7 +309,7 @@ class NellieAnalysis(QWidget):
 
     def overlay(self):
         if self.label_mask is None:
-            label_mask = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
+            label_mask = self.nellie.im_info.get_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
             self.label_mask = (label_mask > 0).astype(float)
             for t in range(self.nellie.im_info.shape[0]):
                 self.label_coords.append(np.argwhere(self.label_mask[t]))
@@ -329,6 +326,8 @@ class NellieAnalysis(QWidget):
                 num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
                 # max_node = np.max(adjacency_slice[:, 1]) + 1
                 min_node = np.min(adjacency_slice[:, 1])
+                if len(self.label_coords[t]) == 0:
+                    continue
                 adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_node] = 1
                 self.adjacency_maps['n_v'].append(adjacency_matrix.T)
@@ -336,6 +335,8 @@ class NellieAnalysis(QWidget):
                 adjacency_slice = adjacency_slices['v_b'][t]
                 max_branch = np.max(adjacency_slice[:, 1]) + 1
                 min_branch = np.min(adjacency_slice[:, 1])
+                if len(self.label_coords[t]) == 0:
+                    continue
                 adjacency_matrix = np.zeros((len(self.label_coords[t]), max_branch), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_branch] = 1
                 self.adjacency_maps['b_v'].append(adjacency_matrix.T)
@@ -345,6 +346,8 @@ class NellieAnalysis(QWidget):
                 adjacency_slice = adjacency_slices['v_o'][t]
                 num_organelles = np.unique(adjacency_slice[:, 1]).shape[0]
                 min_organelle = np.min(adjacency_slice[:, 1])
+                if len(self.label_coords[t]) == 0:
+                    continue
                 # adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)
                 adjacency_matrix = np.zeros((len(self.label_coords[t]), num_organelles), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_organelle] = 1
@@ -375,6 +378,8 @@ class NellieAnalysis(QWidget):
                 return
             reshaped_t_attr = t_attr_data.values.reshape(-1, 1)
             # adjacency_mask = np.array(self.adjacency_maps['n_v'][t])
+            if adjacency_mask.shape[0] == 0:
+                continue
             attributed_voxels = adjacency_mask * reshaped_t_attr
             attributed_voxels[~adjacency_mask] = np.nan
             voxel_attributes = np.nanmean(attributed_voxels, axis=0)
@@ -395,11 +400,17 @@ class NellieAnalysis(QWidget):
             real_vals = real_vals[~np.isinf(real_vals)]
             min_val = np.min(real_vals) - (np.abs(np.min(real_vals)) * 0.01)
             if np.isnan(min_val):
-                min_val = np.nanmin(real_vals)
+                if len(real_vals) == 0:
+                    min_val = 0
+                else:
+                    min_val = np.nanmin(real_vals)
             if min_val == perc98:
                 perc98 = min_val + (np.abs(min_val) * 0.01)
             if np.isnan(perc98):
-                perc98 = np.nanmax(real_vals)
+                if len(real_vals) == 0:
+                    perc98 = 1
+                else:
+                    perc98 = np.nanmax(real_vals)
             contrast_limits = [min_val, perc98]
             # label_mask_layer.contrast_limits = contrast_limits
         # label_mask_layer.name = layer_name
@@ -494,7 +505,6 @@ class NellieAnalysis(QWidget):
             # remove "_raw" from the column name
             # col = col[:-4]
             self.dropdown_attr.addItem(col)
-
 
     def on_attr_selected(self, index):
         self.hist_reset = True

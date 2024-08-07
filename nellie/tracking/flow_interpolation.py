@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.spatial import cKDTree
-from tifffile import tifffile
 
 from nellie import logger
 from nellie.im_info.verifier import ImInfo
@@ -44,7 +43,7 @@ class FlowInterpolator:
     def _allocate_memory(self):
         logger.debug('Allocating memory for mocap marking.')
 
-        self.im_memmap = tifffile.memmap(self.im_info.im_path)
+        self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
         self.shape = self.im_memmap.shape
 
         flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
@@ -239,8 +238,8 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, m
 if __name__ == "__main__":
     im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
     im_info = ImInfo(im_path)
-    label_memmap = tifffile.memmap(im_info.pipeline_paths['im_instance_label'])
-    im_memmap = tifffile.memmap(im_info.im_path)
+    label_memmap = self.im_info.get_memmap(im_info.pipeline_paths['im_instance_label'])
+    im_memmap = self.im_info.get_memmap(im_info.im_path)
 
     import napari
     viewer = napari.Viewer()
