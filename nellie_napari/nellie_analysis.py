@@ -331,12 +331,13 @@ class NellieAnalysis(QWidget):
             self.adjacency_maps = {'n_v': [], 'b_v': [], 'o_v': []}
             for t in range(len(adjacency_slices['v_n'])):
                 adjacency_slice = adjacency_slices['v_n'][t]
-                num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
-                # max_node = np.max(adjacency_slice[:, 1]) + 1
+                # num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
+                max_node = np.max(adjacency_slice[:, 1]) + 1
                 min_node = np.min(adjacency_slice[:, 1])
                 if len(self.label_coords[t]) == 0:
                     continue
-                adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
+                # adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), max_node), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_node] = 1
                 self.adjacency_maps['n_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_b'])):

@@ -900,6 +900,15 @@ class Nodes:
         # ang_dir_uniformity = []
         for i, node in enumerate(self.nodes[t]):
             vox_idxs = self.voxel_idxs[t][i]
+            if len(vox_idxs) == 0:
+                divergence.append(np.nan)
+                convergence.append(np.nan)
+                vergere.append(np.nan)
+                # lin_mag_variability.append(np.nan)
+                # ang_mag_variability.append(np.nan)
+                # lin_dir_uniformity.append(np.nan)
+                # ang_dir_uniformity.append(np.nan)
+                continue
             dist_vox_node = self.hierarchy.voxels.coords[t][vox_idxs] - self.nodes[t][i]
             dist_vox_node_mag = np.linalg.norm(dist_vox_node, axis=1, keepdims=True)
             dir_vox_node = dist_vox_node / dist_vox_node_mag
