@@ -195,17 +195,22 @@ class NellieVisualizer(QWidget):
 
     def check_file_existence(self):
         # set all other buttons to disabled first
+        self.raw_button.setEnabled(False)
         self.open_preprocess_button.setEnabled(False)
         self.open_segment_button.setEnabled(False)
         self.open_mocap_button.setEnabled(False)
         self.open_reassign_button.setEnabled(False)
+
+        if os.path.exists(self.nellie.im_info.im_path):
+            self.raw_button.setEnabled(True)
+        else:
+            self.raw_button.setEnabled(False)
 
         frangi_path = self.nellie.im_info.pipeline_paths['im_frangi']
         if os.path.exists(frangi_path):
             self.open_preprocess_button.setEnabled(True)
         else:
             self.open_preprocess_button.setEnabled(False)
-            return
 
         im_instance_label_path = self.nellie.im_info.pipeline_paths['im_instance_label']
         im_skel_relabelled_path = self.nellie.im_info.pipeline_paths['im_skel_relabelled']
@@ -218,14 +223,12 @@ class NellieVisualizer(QWidget):
             self.open_segment_button.setEnabled(False)
             self.nellie.settings.skip_vox.setEnabled(False)
             self.nellie.settings.track_all_frames.setEnabled(False)
-            return
 
         im_marker_path = self.nellie.im_info.pipeline_paths['im_marker']
         if os.path.exists(im_marker_path):
             self.open_mocap_button.setEnabled(True)
         else:
             self.open_mocap_button.setEnabled(False)
-            return
 
         im_branch_label_path = self.nellie.im_info.pipeline_paths['im_branch_label_reassigned']
         if os.path.exists(im_branch_label_path):
@@ -233,7 +236,6 @@ class NellieVisualizer(QWidget):
             self.viewer.help = 'Alt + click a label to see its tracks'
         else:
             self.open_reassign_button.setEnabled(False)
-            return
 
 
 if __name__ == "__main__":

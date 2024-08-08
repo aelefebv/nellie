@@ -273,7 +273,7 @@ class NellieFileSelect(QWidget):
         self.preview_button.setEnabled(False)
         self.process_button.setEnabled(False)
         # check file_info output path. if it exists, enable the delete and preview button
-        if os.path.exists(self.file_info.output_path) and self.file_info.good_dims and self.file_info.good_axes:
+        if os.path.exists(self.file_info.ome_output_path) and self.file_info.good_dims and self.file_info.good_axes:
             # self.delete_button.setEnabled(True)
             self.preview_button.setEnabled(True)
             self.process_button.setEnabled(True)
@@ -422,7 +422,7 @@ class NellieFileSelect(QWidget):
         self.nellie.go_process()
 
     def on_preview(self):
-        im_memmap = tifffile.memmap(self.file_info.output_path)
+        im_memmap = tifffile.memmap(self.file_info.ome_output_path)
         # num_t = min(2, self.im_info.shape[self.im_info.axes.index('T')])
         if 'Z' in self.file_info.axes:
             scale = (self.file_info.dim_res['Z'], self.file_info.dim_res['Y'], self.file_info.dim_res['X'])

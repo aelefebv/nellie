@@ -132,6 +132,7 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.unit = 'um'
 
         self._create_dropdown_selection()
+        self.check_for_adjacency_map()
 
         # # self.dropdown_attr = QComboBox()
         # self._create_dropdown_selection()
@@ -211,7 +212,14 @@ class NellieAnalysis(QWidget):
         area_raw_idx = self.dropdown_attr.findText('organelle_area_raw')
         self.dropdown_attr.setCurrentIndex(area_raw_idx)
 
+    def check_for_adjacency_map(self):
+        self.overlay_button.setEnabled(False)
+        if os.path.exists(self.nellie.im_info.pipeline_paths['adjacency_maps']):
+            self.overlay_button.setEnabled(True)
+
     def rewrite_dropdown(self):
+        self.check_for_adjacency_map()
+
         self.dropdown.clear()
         if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
             options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
