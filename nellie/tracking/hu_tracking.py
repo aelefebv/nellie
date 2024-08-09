@@ -180,7 +180,7 @@ class HuMomentTracking:
         logger.debug('Allocating memory for hu-based tracking.')
         self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
-        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_preprocessed'])
         self.im_marker_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_marker'])
         self.im_distance_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_distance'])
         self.shape = self.label_memmap.shape

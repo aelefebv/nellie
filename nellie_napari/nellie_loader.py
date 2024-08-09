@@ -2,11 +2,11 @@ from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QTabWidget
 
 from nellie_napari import NellieProcessor
-from nellie_napari.home import Home
+from nellie_napari.nellie_home import Home
 from nellie_napari.nellie_analysis import NellieAnalysis
 from nellie_napari.nellie_fileselect import NellieFileSelect
-from nellie_napari.settings import Settings
-from nellie_napari.visualizer import NellieVisualizer
+from nellie_napari.nellie_settings import Settings
+from nellie_napari.nellie_visualizer import NellieVisualizer
 
 
 class NellieLoader(QTabWidget):

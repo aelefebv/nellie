@@ -15,6 +15,12 @@ class Settings(QWidget):
         self.remove_edges_checkbox.setToolTip(
             "Originally for Snouty deskewed images. If you see weird image edge artifacts, enable this.")
 
+        self.remove_intermediates_checkbox = QCheckBox("Remove intermediate files")
+        self.remove_intermediates_checkbox.setChecked(False)
+        self.remove_intermediates_checkbox.setEnabled(True)
+        self.remove_intermediates_checkbox.setToolTip(
+            "Remove intermediate files after processing. This means only csv files will be saved.")
+
         self.voxel_reassign = QCheckBox("Auto-run voxel reassignment")
         self.voxel_reassign.setChecked(False)
         self.voxel_reassign.setEnabled(True)
@@ -50,11 +56,14 @@ class Settings(QWidget):
         # Processor settings
         processor_group = QGroupBox("Processor settings")
         processor_layout = QVBoxLayout()
-        processor_layout.addWidget(self.remove_edges_checkbox)
-        subprocessor_layout = QHBoxLayout()
-        subprocessor_layout.addWidget(self.analyze_node_level)
-        subprocessor_layout.addWidget(self.voxel_reassign)
-        processor_layout.addLayout(subprocessor_layout)
+        subprocessor_layout1 = QHBoxLayout()
+        subprocessor_layout1.addWidget(self.remove_intermediates_checkbox)
+        subprocessor_layout1.addWidget(self.remove_edges_checkbox)
+        subprocessor_layout2 = QHBoxLayout()
+        subprocessor_layout2.addWidget(self.analyze_node_level)
+        subprocessor_layout2.addWidget(self.voxel_reassign)
+        processor_layout.addLayout(subprocessor_layout1)
+        processor_layout.addLayout(subprocessor_layout2)
         processor_group.setLayout(processor_layout)
 
         # Tracking settings

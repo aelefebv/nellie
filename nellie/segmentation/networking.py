@@ -285,7 +285,7 @@ class Network:
         logger.debug('Allocating memory for skeletonization.')
         self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])  # , read_type='r+')
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
-        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_preprocessed'])
         self.shape = self.label_memmap.shape
 
         im_skel_path = self.im_info.pipeline_paths['im_skel']

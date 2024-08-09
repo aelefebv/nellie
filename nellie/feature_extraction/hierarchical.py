@@ -61,7 +61,7 @@ class Hierarchy:
     def _allocate_memory(self):
         # getting reshaped image will load the image into memory.. should probably do this case by case
         self.im_raw = self.im_info.get_memmap(self.im_info.im_path)
-        self.im_struct = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_struct = self.im_info.get_memmap(self.im_info.pipeline_paths['im_preprocessed'])
         self.im_distance = self.im_info.get_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_skel = self.im_info.get_memmap(self.im_info.pipeline_paths['im_skel'])
         self.label_components = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
@@ -148,7 +148,7 @@ class Hierarchy:
 
         component_features, component_headers = create_feature_array(self.components, self.components.component_label)
         component_df = pd.DataFrame(component_features, columns=component_headers)
-        component_df.to_csv(self.im_info.pipeline_paths['features_components'], index=True)
+        component_df.to_csv(self.im_info.pipeline_paths['features_organelles'], index=True)
 
         image_features, image_headers = create_feature_array(self.image)
         image_df = pd.DataFrame(image_features, columns=image_headers)
@@ -286,7 +286,7 @@ def create_feature_array(level, labels=None):
         all_attr.append(branch_attr)
     if component_attr := getattr(level, 'aggregate_component_metrics', None):
         all_attr.append(component_attr)
-    inherent_features = level.stats_to_aggregate
+    inherent_features = level.features_to_save
     for feature in inherent_features:
         if feature_vals := getattr(level, feature, None):
             all_attr.append([{feature: feature_vals[t]} for t in range(len(feature_vals))])
@@ -328,6 +328,9 @@ class Voxels:
         self.coords = []
 
         # add voxel metrics
+        self.x = []
+        self.y = []
+        self.z = []
         self.intensity = []
         self.structure = []
 
@@ -398,7 +401,7 @@ class Voxels:
         #     "lin_vel_rel", "intensity", "structure"
         # ]
 
-        self.features_to_save = self.stats_to_aggregate
+        self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
     def _get_node_info(self, t, frame_coords):
         # get all network pixels
@@ -767,6 +770,20 @@ class Voxels:
         frame_intensity_vals = self.hierarchy.im_raw[t][tuple(frame_coords.T)]
         self.intensity.append(frame_intensity_vals)
 
+        if not self.hierarchy.im_info.no_z:
+            frame_z_vals = frame_coords[:, 0]
+            self.z.append(frame_z_vals)
+            frame_y_vals = frame_coords[:, 1]
+            self.y.append(frame_y_vals)
+            frame_x_vals = frame_coords[:, 2]
+            self.x.append(frame_x_vals)
+        else:
+            self.z.append(np.full(len(frame_coords), np.nan))
+            frame_y_vals = frame_coords[:, 0]
+            self.y.append(frame_y_vals)
+            frame_x_vals = frame_coords[:, 1]
+            self.x.append(frame_x_vals)
+
         frame_structure_vals = self.hierarchy.im_struct[t][tuple(frame_coords.T)]
         self.structure.append(frame_structure_vals)
 
@@ -854,9 +871,13 @@ class Nodes:
         self.time = []
         self.nodes = []
 
+
         # add voxel aggregate metrics
         self.aggregate_voxel_metrics = []
         # add node metrics
+        self.z = []
+        self.x = []
+        self.y = []
         self.node_thickness = []
         self.divergence = []
         self.convergence = []
@@ -872,7 +893,7 @@ class Nodes:
             # "lin_direction_uniformity", "ang_direction_uniformity",
         ]
 
-        self.features_to_save = self.stats_to_aggregate
+        self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
         self.voxel_idxs = self.hierarchy.voxels.node_voxel_idxs
         self.branch_label = []
@@ -898,8 +919,33 @@ class Nodes:
         # ang_mag_variability = []
         # lin_dir_uniformity = []
         # ang_dir_uniformity = []
+        z = []
+        y = []
+        x = []
         for i, node in enumerate(self.nodes[t]):
             vox_idxs = self.voxel_idxs[t][i]
+            if len(vox_idxs) == 0:
+                divergence.append(np.nan)
+                convergence.append(np.nan)
+                vergere.append(np.nan)
+                # lin_mag_variability.append(np.nan)
+                # ang_mag_variability.append(np.nan)
+                # lin_dir_uniformity.append(np.nan)
+                # ang_dir_uniformity.append(np.nan)
+                z.append(np.nan)
+                y.append(np.nan)
+                x.append(np.nan)
+                continue
+
+            if not self.hierarchy.im_info.no_z:
+                z.append(np.nanmean(self.hierarchy.voxels.coords[t][vox_idxs][:, 0]) * self.hierarchy.spacing[0])
+                y.append(np.nanmean(self.hierarchy.voxels.coords[t][vox_idxs][:, 1]) * self.hierarchy.spacing[1])
+                x.append(np.nanmean(self.hierarchy.voxels.coords[t][vox_idxs][:, 2]) * self.hierarchy.spacing[2])
+            else:
+                z.append(np.nan)
+                y.append(np.nanmean(self.hierarchy.voxels.coords[t][vox_idxs][:, 0]) * self.hierarchy.spacing[0])
+                x.append(np.nanmean(self.hierarchy.voxels.coords[t][vox_idxs][:, 1]) * self.hierarchy.spacing[1])
+
             dist_vox_node = self.hierarchy.voxels.coords[t][vox_idxs] - self.nodes[t][i]
             dist_vox_node_mag = np.linalg.norm(dist_vox_node, axis=1, keepdims=True)
             dir_vox_node = dist_vox_node / dist_vox_node_mag
@@ -937,6 +983,9 @@ class Nodes:
         # self.ang_magnitude_variability.append(ang_mag_variability)
         # self.lin_direction_uniformity.append(lin_dir_uniformity)
         # self.ang_direction_uniformity.append(ang_dir_uniformity)
+        self.z.append(z)
+        self.y.append(y)
+        self.x.append(x)
 
     def _run_frame(self, t):
         frame_skel_coords = np.argwhere(self.hierarchy.im_pixel_class[t] > 0)
@@ -983,6 +1032,9 @@ class Branches:
         self.aggregate_voxel_metrics = []
         self.aggregate_node_metrics = []
         # add branch metrics
+        self.z = []
+        self.y = []
+        self.x = []
         self.branch_length = []
         self.branch_thickness = []
         self.branch_aspect_ratio = []
@@ -1002,6 +1054,8 @@ class Branches:
             "branch_length", "branch_thickness", "branch_aspect_ratio", "branch_tortuosity", "branch_area", "branch_axis_length_maj", "branch_axis_length_min",
             "branch_extent", "branch_solidity", "reassigned_label"
         ]
+
+        self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.branch_labels[t]
@@ -1104,7 +1158,9 @@ class Branches:
         extent = []
         solidity = []
         reassigned_label = []
-
+        z = []
+        y = []
+        x = []
         for region in regions:
             reassigned_label_region = np.nan
             if not self.hierarchy.im_info.no_t:
@@ -1125,12 +1181,23 @@ class Branches:
             axis_length_min.append(min_axis)
             extent.append(region.extent)
             solidity.append(region.solidity)
+            if not self.hierarchy.im_info.no_z:
+                z.append(region.centroid[0])
+                y.append(region.centroid[1])
+                x.append(region.centroid[2])
+            else:
+                z.append(np.nan)
+                y.append(region.centroid[0])
+                x.append(region.centroid[1])
         self.branch_area.append(areas)
         self.branch_axis_length_maj.append(axis_length_maj)
         self.branch_axis_length_min.append(axis_length_min)
         self.branch_extent.append(extent)
         self.branch_solidity.append(solidity)
         self.reassigned_label.append(reassigned_label)
+        self.z.append(z)
+        self.y.append(y)
+        self.x.append(x)
 
     def _run_frame(self, t):
         frame_branch_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
@@ -1183,6 +1250,9 @@ class Components:
         self.aggregate_node_metrics = []
         self.aggregate_branch_metrics = []
         # add component metrics
+        self.z = []
+        self.y = []
+        self.x = []
         self.organelle_area = []
         self.organelle_axis_length_maj = []
         self.organelle_axis_length_min = []
@@ -1195,6 +1265,8 @@ class Components:
         self.stats_to_aggregate = [
             "organelle_area", "organelle_axis_length_maj", "organelle_axis_length_min", "organelle_extent", "organelle_solidity", "reassigned_label",
         ]
+
+        self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.component_labels[t]
@@ -1224,7 +1296,9 @@ class Components:
         extent = []
         solidity = []
         reassigned_label = []
-
+        z = []
+        y = []
+        x = []
         for region in regions:
             reassigned_label_region = np.nan
             if not self.hierarchy.im_info.no_t:
@@ -1243,12 +1317,23 @@ class Components:
             axis_length_min.append(min_axis)
             extent.append(region.extent)
             solidity.append(region.solidity)
+            if not self.hierarchy.im_info.no_z:
+                z.append(region.centroid[0])
+                y.append(region.centroid[1])
+                x.append(region.centroid[2])
+            else:
+                z.append(np.nan)
+                y.append(region.centroid[0])
+                x.append(region.centroid[1])
         self.organelle_area.append(areas)
         self.organelle_axis_length_maj.append(axis_length_maj)
         self.organelle_axis_length_min.append(axis_length_min)
         self.organelle_extent.append(extent)
         self.organelle_solidity.append(solidity)
         self.reassigned_label.append(reassigned_label)
+        self.z.append(z)
+        self.y.append(y)
+        self.x.append(x)
 
     def _run_frame(self, t):
         smallest_label = int(np.min(self.hierarchy.label_components[t][self.hierarchy.label_components[t] > 0]))
@@ -1284,6 +1369,7 @@ class Image:
         self.aggregate_branch_metrics = []
         self.aggregate_component_metrics = []
         self.stats_to_aggregate = []
+        self.features_to_save = []
 
     def _get_aggregate_stats(self, t):
         voxel_agg = aggregate_stats_for_class(self.hierarchy.voxels, t,

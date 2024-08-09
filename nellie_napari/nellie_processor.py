@@ -1,9 +1,10 @@
 import os
+import subprocess
 import time
 
 from napari.utils.notifications import show_info
-from qtpy.QtWidgets import QWidget, QPushButton, QVBoxLayout, QGroupBox, QLabel
-from qtpy.QtGui import QFont
+from qtpy.QtWidgets import QWidget, QPushButton, QVBoxLayout, QGroupBox, QLabel, QHBoxLayout
+from qtpy.QtGui import QFont, QIcon
 from qtpy.QtCore import Qt, QTimer
 
 from nellie.feature_extraction.hierarchical import Hierarchy
@@ -31,6 +32,10 @@ class NellieProcessor(QWidget):
 
         self.status_timer = QTimer()
         self.status_timer.timeout.connect(self.update_status)
+
+        self.open_dir_button = QPushButton(text="Open output directory")
+        self.open_dir_button.clicked.connect(self.open_directory)
+        self.open_dir_button.setEnabled(False)
 
         # Run im button
         self.run_button = QPushButton(text="Run Nellie")
@@ -81,8 +86,9 @@ class NellieProcessor(QWidget):
 
         # Status group
         status_group = QGroupBox("Status")
-        status_layout = QVBoxLayout()
-        status_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
+        status_layout = QHBoxLayout()  # Changed to QHBoxLayout
+        status_layout.addWidget(self.status_label, alignment=Qt.AlignLeft)
+        status_layout.addWidget(self.open_dir_button, alignment=Qt.AlignCenter)
         status_group.setMaximumHeight(100)
         status_group.setLayout(status_layout)
 
@@ -118,20 +124,35 @@ class NellieProcessor(QWidget):
             self.current_im_info = self.nellie.im_info_list[0]
         self.check_file_existence()
         self.initialized = True
-        
+        self.open_dir_button.setEnabled(os.path.exists(self.current_im_info.file_info.output_dir))
+
     def check_file_existence(self):
         self.nellie.visualizer.check_file_existence()
-        self.run_button.setEnabled(True)
-        self.preprocess_button.setEnabled(True)
 
         # set all other buttons to disabled first
+        self.run_button.setEnabled(False)
+        self.preprocess_button.setEnabled(False)
         self.segment_button.setEnabled(False)
         self.mocap_button.setEnabled(False)
         self.track_button.setEnabled(False)
         self.reassign_button.setEnabled(False)
         self.feature_export_button.setEnabled(False)
 
-        frangi_path = self.current_im_info.pipeline_paths['im_frangi']
+        analysis_path = self.current_im_info.pipeline_paths['features_organelles']
+        if os.path.exists(analysis_path):
+            self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
+        else:
+            self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
+
+        self.open_dir_button.setEnabled(os.path.exists(self.current_im_info.file_info.output_dir))
+
+        if os.path.exists(self.current_im_info.im_path):
+            self.run_button.setEnabled(True)
+            self.preprocess_button.setEnabled(True)
+        else:
+            return
+
+        frangi_path = self.current_im_info.pipeline_paths['im_preprocessed']
         if os.path.exists(frangi_path):
             self.segment_button.setEnabled(True)
         else:
@@ -174,11 +195,7 @@ class NellieProcessor(QWidget):
                 self.feature_export_button.setEnabled(False)
                 return
 
-        analysis_path = self.current_im_info.pipeline_paths['adjacency_maps']
-        if os.path.exists(analysis_path):
-            self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
-        else:
-            self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
+
 
     @thread_worker
     def _run_preprocessing(self):
@@ -294,6 +311,11 @@ class NellieProcessor(QWidget):
                                   skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
                                   viewer=self.viewer)
             hierarchy.run()
+            if self.nellie.settings.remove_intermediates_checkbox.isChecked():
+                try:
+                    self.current_im_info.remove_intermediates()
+                except Exception as e:
+                    show_info(f"Error removing intermediates: {e}")
         if self.nellie.analyzer.initialized:
             self.nellie.analyzer.rewrite_dropdown()
 
@@ -338,6 +360,16 @@ class NellieProcessor(QWidget):
         self.track_button.setEnabled(False)
         self.reassign_button.setEnabled(False)
         self.feature_export_button.setEnabled(False)
+
+    def open_directory(self):
+        directory = self.current_im_info.file_info.output_dir
+        if os.path.exists(directory):
+            if os.name == 'nt':  # For Windows
+                os.startfile(directory)
+            elif os.name == 'posix':  # For macOS and Linux
+                subprocess.call(['open', directory])
+        else:
+            show_info("Output directory does not exist.")
 
 
 if __name__ == "__main__":

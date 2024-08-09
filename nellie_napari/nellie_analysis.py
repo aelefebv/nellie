@@ -132,6 +132,7 @@ class NellieAnalysis(QWidget):
         self.viewer.scale_bar.unit = 'um'
 
         self._create_dropdown_selection()
+        self.check_for_adjacency_map()
 
         # # self.dropdown_attr = QComboBox()
         # self._create_dropdown_selection()
@@ -211,7 +212,14 @@ class NellieAnalysis(QWidget):
         area_raw_idx = self.dropdown_attr.findText('organelle_area_raw')
         self.dropdown_attr.setCurrentIndex(area_raw_idx)
 
+    def check_for_adjacency_map(self):
+        self.overlay_button.setEnabled(False)
+        if os.path.exists(self.nellie.im_info.pipeline_paths['adjacency_maps']):
+            self.overlay_button.setEnabled(True)
+
     def rewrite_dropdown(self):
+        self.check_for_adjacency_map()
+
         self.dropdown.clear()
         if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
             options = ['none', 'voxel', 'node', 'branch', 'organelle', 'image']
@@ -323,12 +331,13 @@ class NellieAnalysis(QWidget):
             self.adjacency_maps = {'n_v': [], 'b_v': [], 'o_v': []}
             for t in range(len(adjacency_slices['v_n'])):
                 adjacency_slice = adjacency_slices['v_n'][t]
-                num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
-                # max_node = np.max(adjacency_slice[:, 1]) + 1
+                # num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]
+                max_node = np.max(adjacency_slice[:, 1]) + 1
                 min_node = np.min(adjacency_slice[:, 1])
                 if len(self.label_coords[t]) == 0:
                     continue
-                adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
+                # adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)
+                adjacency_matrix = np.zeros((len(self.label_coords[t]), max_node), dtype=bool)
                 adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]-min_node] = 1
                 self.adjacency_maps['n_v'].append(adjacency_matrix.T)
             for t in range(len(adjacency_slices['v_b'])):
@@ -459,7 +468,7 @@ class NellieAnalysis(QWidget):
         if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
             self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
         self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
-        self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
+        self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_organelles'])
         self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
 
         # self.voxel_time_col = voxel_df['t']
@@ -485,7 +494,7 @@ class NellieAnalysis(QWidget):
             self.df = self.branch_df
         elif self.selected_level == 'organelle':
             if self.organelle_df is None:
-                self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
+                self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_organelles'])
             self.df = self.organelle_df
         elif self.selected_level == 'image':
             # turn off overlay button

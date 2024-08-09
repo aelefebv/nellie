@@ -46,7 +46,7 @@ class Label:
     def _allocate_memory(self):
         logger.debug('Allocating memory for semantic segmentation.')
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
-        self.frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.frangi_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_preprocessed'])
         self.shape = self.frangi_memmap.shape
 
         im_instance_label_path = self.im_info.pipeline_paths['im_instance_label']

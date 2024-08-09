@@ -51,7 +51,7 @@ class Filter:
         logger.debug('Allocating memory for frangi filter.')
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
         self.shape = self.im_memmap.shape
-        im_frangi_path = self.im_info.pipeline_paths['im_frangi']
+        im_frangi_path = self.im_info.pipeline_paths['im_preprocessed']
         self.frangi_memmap = self.im_info.allocate_memory(im_frangi_path, dtype='double',
                                                           description='frangi filtered im',
                                                           return_memmap=True)

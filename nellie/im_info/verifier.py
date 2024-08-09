@@ -24,7 +24,12 @@ class FileInfo:
         self.output_dir = output_dir or os.path.join(self.input_dir, 'nellie_output')
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
-        self.output_path = None
+
+        self.nellie_necessities_dir = os.path.join(self.output_dir, 'nellie_necessities')
+        if not os.path.exists(self.nellie_necessities_dir):
+            os.makedirs(self.nellie_necessities_dir)
+
+        self.ome_output_path = None
         self.good_dims = False
         self.good_axes = False
 
@@ -227,15 +232,10 @@ class FileInfo:
             dim_res = dim_res.replace('.', 'p')
             dim_texts.append(f'{axis}{dim_res}')
         dim_text = f"-{'_'.join(dim_texts)}"
-        self.output_path_no_ext = os.path.join(
-            self.output_dir,
-            f'{self.filename_no_ext}'
-            f'-{self.axes}'
-            f'{dim_text}'
-            f'-ch{self.ch}'
-            f'{t_text}'
-        )
-        self.output_path = self.output_path_no_ext + '.ome.tif'
+        output_name = f'{self.filename_no_ext}-{self.axes}{dim_text}-ch{self.ch}{t_text}'
+        self.user_output_path_no_ext = os.path.join(self.output_dir, output_name)
+        self.nellie_necessities_output_path_no_ext = os.path.join(self.nellie_necessities_dir, output_name)
+        self.ome_output_path = self.nellie_necessities_output_path_no_ext + '.ome.tif'
 
     def save_ome_tiff(self):
         if not self.good_axes or not self.good_dims:
@@ -263,10 +263,10 @@ class FileInfo:
             axes = 'T' + axes.replace('T', '')
 
         tifffile.imwrite(
-            self.output_path, data, bigtiff=True, metadata={"axes": axes}
+            self.ome_output_path, data, bigtiff=True, metadata={"axes": axes}
         )
 
-        ome_xml = tifffile.tiffcomment(self.output_path)
+        ome_xml = tifffile.tiffcomment(self.ome_output_path)
         ome = ome_types.from_xml(ome_xml)
         ome.images[0].pixels.physical_size_x = self.dim_res['X']
         ome.images[0].pixels.physical_size_y = self.dim_res['Y']
@@ -279,20 +279,19 @@ class FileInfo:
             dtype_name = 'float'
         ome.images[0].pixels.type = dtype_name
         ome_xml = ome.to_xml()
-        tifffile.tiffcomment(self.output_path, ome_xml)
+        tifffile.tiffcomment(self.ome_output_path, ome_xml)
 
 
 class ImInfo:
     def __init__(self, file_info: FileInfo):
         self.file_info = file_info
-        self.im_path = file_info.output_path
+        self.im_path = file_info.ome_output_path
         if not os.path.exists(self.im_path):
             file_info.save_ome_tiff()
         self.im = tifffile.memmap(self.im_path)
-        self.output_dir = file_info.output_dir
 
-        self.screenshot_dir = os.path.join(self.output_dir, 'screenshots')
-        self.graph_dir = os.path.join(self.output_dir, 'graphs')
+        self.screenshot_dir = os.path.join(self.file_info.output_dir, 'screenshots')
+        self.graph_dir = os.path.join(self.file_info.output_dir, 'graphs')
 
         self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
         self.axes = None
@@ -314,13 +313,16 @@ class ImInfo:
         if 'T' in self.axes and self.shape[self.new_axes.index('T')] > 1:
             self.no_t = False
 
-    def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif'):
-        output_path = f'{self.file_info.output_path_no_ext}-{pipeline_path}{ext}'
+    def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif', for_nellie=True):
+        if for_nellie:
+            output_path = f'{self.file_info.nellie_necessities_output_path_no_ext}-{pipeline_path}{ext}'
+        else:
+            output_path = f'{self.file_info.user_output_path_no_ext}-{pipeline_path}{ext}'
         self.pipeline_paths[pipeline_path] = output_path
         return self.pipeline_paths[pipeline_path]
 
     def _create_output_paths(self):
-        self.create_output_path('im_frangi')
+        self.create_output_path('im_preprocessed')
         self.create_output_path('im_instance_label')
         self.create_output_path('im_skel')
         self.create_output_path('im_skel_relabelled')
@@ -332,12 +334,20 @@ class ImInfo:
         self.create_output_path('voxel_matches', ext='.npy')
         self.create_output_path('im_branch_label_reassigned')
         self.create_output_path('im_obj_label_reassigned')
-        self.create_output_path('features_voxels', ext='.csv')
-        self.create_output_path('features_nodes', ext='.csv')
-        self.create_output_path('features_branches', ext='.csv')
-        self.create_output_path('features_components', ext='.csv')
-        self.create_output_path('features_image', ext='.csv')
+        self.create_output_path('features_voxels', ext='.csv', for_nellie=False)
+        self.create_output_path('features_nodes', ext='.csv', for_nellie=False)
+        self.create_output_path('features_branches', ext='.csv', for_nellie=False)
+        self.create_output_path('features_organelles', ext='.csv', for_nellie=False)
+        self.create_output_path('features_image', ext='.csv', for_nellie=False)
         self.create_output_path('adjacency_maps', ext='.pkl')
+
+    def remove_intermediates(self):
+        all_pipeline_paths = [self.pipeline_paths[pipeline_path] for pipeline_path in self.pipeline_paths]
+        for pipeline_path in all_pipeline_paths + [self.im_path]:
+            if 'csv' in pipeline_path:
+                continue
+            elif os.path.exists(pipeline_path):
+                os.remove(pipeline_path)
 
     def _get_ome_metadata(self, ):
         with tifffile.TiffFile(self.im_path) as tif:
