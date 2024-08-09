@@ -468,7 +468,7 @@ class NellieAnalysis(QWidget):
         if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
             self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
         self.branch_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_branches'])
-        self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
+        self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_organelles'])
         self.image_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_image'])
 
         # self.voxel_time_col = voxel_df['t']
@@ -494,7 +494,7 @@ class NellieAnalysis(QWidget):
             self.df = self.branch_df
         elif self.selected_level == 'organelle':
             if self.organelle_df is None:
-                self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_components'])
+                self.organelle_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_organelles'])
             self.df = self.organelle_df
         elif self.selected_level == 'image':
             # turn off overlay button

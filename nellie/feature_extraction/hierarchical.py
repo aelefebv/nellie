@@ -61,7 +61,7 @@ class Hierarchy:
     def _allocate_memory(self):
         # getting reshaped image will load the image into memory.. should probably do this case by case
         self.im_raw = self.im_info.get_memmap(self.im_info.im_path)
-        self.im_struct = self.im_info.get_memmap(self.im_info.pipeline_paths['im_frangi'])
+        self.im_struct = self.im_info.get_memmap(self.im_info.pipeline_paths['im_preprocessed'])
         self.im_distance = self.im_info.get_memmap(self.im_info.pipeline_paths['im_distance'])
         self.im_skel = self.im_info.get_memmap(self.im_info.pipeline_paths['im_skel'])
         self.label_components = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
@@ -148,7 +148,7 @@ class Hierarchy:
 
         component_features, component_headers = create_feature_array(self.components, self.components.component_label)
         component_df = pd.DataFrame(component_features, columns=component_headers)
-        component_df.to_csv(self.im_info.pipeline_paths['features_components'], index=True)
+        component_df.to_csv(self.im_info.pipeline_paths['features_organelles'], index=True)
 
         image_features, image_headers = create_feature_array(self.image)
         image_df = pd.DataFrame(image_features, columns=image_headers)

@@ -86,7 +86,7 @@ class NellieVisualizer(QWidget):
             self.scale = (dim_res['Z'], dim_res['Y'], dim_res['X'])
 
     def open_preprocess_image(self):
-        self.im_frangi = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_frangi'])
+        self.im_frangi = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_preprocessed'])
         self.check_3d()
         self.frangi_layer = self.viewer.add_image(self.im_frangi, name='Pre-processed', colormap='turbo', scale=self.scale)
         self.frangi_layer.interpolation = 'nearest'
@@ -206,7 +206,7 @@ class NellieVisualizer(QWidget):
         else:
             self.raw_button.setEnabled(False)
 
-        frangi_path = self.nellie.im_info.pipeline_paths['im_frangi']
+        frangi_path = self.nellie.im_info.pipeline_paths['im_preprocessed']
         if os.path.exists(frangi_path):
             self.open_preprocess_button.setEnabled(True)
         else:

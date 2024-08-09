@@ -322,7 +322,7 @@ class ImInfo:
         return self.pipeline_paths[pipeline_path]
 
     def _create_output_paths(self):
-        self.create_output_path('im_frangi')
+        self.create_output_path('im_preprocessed')
         self.create_output_path('im_instance_label')
         self.create_output_path('im_skel')
         self.create_output_path('im_skel_relabelled')
@@ -337,7 +337,7 @@ class ImInfo:
         self.create_output_path('features_voxels', ext='.csv', for_nellie=False)
         self.create_output_path('features_nodes', ext='.csv', for_nellie=False)
         self.create_output_path('features_branches', ext='.csv', for_nellie=False)
-        self.create_output_path('features_components', ext='.csv', for_nellie=False)
+        self.create_output_path('features_organelles', ext='.csv', for_nellie=False)
         self.create_output_path('features_image', ext='.csv', for_nellie=False)
         self.create_output_path('adjacency_maps', ext='.pkl')
 
