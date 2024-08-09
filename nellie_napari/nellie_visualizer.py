@@ -321,7 +321,6 @@ class NellieVisualizer(QWidget):
             self.open_reassign_button.setEnabled(False)
 
 
-
 if __name__ == "__main__":
     import napari
     viewer = napari.Viewer()
