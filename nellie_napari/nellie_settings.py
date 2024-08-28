@@ -31,12 +31,12 @@ class Settings(QWidget):
         self.analyze_node_level.setEnabled(True)
 
         # Track all frames
-        self.track_all_frames = QCheckBox("Track all frames' voxels")
+        self.track_all_frames = QCheckBox("Visualize all frames' voxel tracks")
         self.track_all_frames.setChecked(True)
         self.track_all_frames.setEnabled(True)
 
         # Label above the spinner box
-        self.skip_vox_label = QLabel("Track every N voxel. N=")
+        self.skip_vox_label = QLabel("Visualize tracks for every N voxel. N=")
 
         self.skip_vox = QSpinBox()
         self.skip_vox.setRange(1, 10000)
@@ -67,7 +67,7 @@ class Settings(QWidget):
         processor_group.setLayout(processor_layout)
 
         # Tracking settings
-        tracking_group = QGroupBox("Tracking settings")
+        tracking_group = QGroupBox("Track visualization settings")
         tracking_layout = QVBoxLayout()
         tracking_layout.addWidget(self.track_all_frames)
         skip_vox_layout = QHBoxLayout()

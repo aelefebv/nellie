@@ -12,7 +12,7 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=False,
-                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, viewer=None):
+                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, frob_thresh=None, viewer=None):
         self.im_info = im_info
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
@@ -35,6 +35,8 @@ class Filter:
 
         self.alpha_sq = alpha_sq
         self.beta_sq = beta_sq
+
+        self.frob_thresh = frob_thresh
 
         self.viewer = viewer
 
@@ -134,13 +136,16 @@ class Filter:
         rescaled_hessian = hessian_matrices / xp.max(xp.abs(hessian_matrices))
         frobenius_norm = xp.linalg.norm(rescaled_hessian, axis=0)
         frobenius_norm[xp.isinf(frobenius_norm)] = xp.max(frobenius_norm[~xp.isinf(frobenius_norm)])
-        non_zero_frobenius = frobenius_norm[frobenius_norm > 0]
-        if len(non_zero_frobenius) == 0:
-            frobenius_threshold = 0
+        if self.frob_thresh is None:
+            non_zero_frobenius = frobenius_norm[frobenius_norm > 0]
+            if len(non_zero_frobenius) == 0:
+                frobenius_threshold = 0
+            else:
+                frob_triangle_thresh = triangle_threshold(non_zero_frobenius)
+                frob_otsu_thresh, _ = otsu_threshold(non_zero_frobenius)
+                frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
         else:
-            frob_triangle_thresh = triangle_threshold(non_zero_frobenius)
-            frob_otsu_thresh, _ = otsu_threshold(non_zero_frobenius)
-            frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
+            frobenius_threshold = self.frob_thresh
         mask = frobenius_norm > frobenius_threshold
         return mask
 

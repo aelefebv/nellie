@@ -55,11 +55,11 @@ class NellieVisualizer(QWidget):
         self.open_reassign_button.clicked.connect(self.open_reassign_image)
         self.open_reassign_button.setEnabled(False)
 
-        self.track_button = QPushButton(text="Track selected label")
+        self.track_button = QPushButton(text="Visualize selected label's tracks")
         self.track_button.clicked.connect(self.on_track_selected)
         self.track_button.setEnabled(False)
 
-        self.track_all_button = QPushButton(text="Track all frame labels")
+        self.track_all_button = QPushButton(text="Visualize all frame labels' tracks")
         self.track_all_button.clicked.connect(self.track_all)
         self.track_all_button.setEnabled(False)
 
@@ -80,7 +80,7 @@ class NellieVisualizer(QWidget):
         main_layout = QVBoxLayout()
 
         # visualization group
-        visualization_group = QGroupBox("Visualization")
+        visualization_group = QGroupBox("Image visualization")
         visualization_layout = QVBoxLayout()
         visualization_layout.addWidget(self.raw_button)
         visualization_layout.addWidget(self.open_preprocess_button)
@@ -90,7 +90,7 @@ class NellieVisualizer(QWidget):
         visualization_group.setLayout(visualization_layout)
 
         # tracking group
-        tracking_group = QGroupBox("Tracking")
+        tracking_group = QGroupBox("Track visualization")
         tracking_layout = QVBoxLayout()
         tracking_layout.addWidget(self.track_button)
         tracking_layout.addWidget(self.track_all_button)
