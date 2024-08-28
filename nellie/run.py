@@ -79,7 +79,7 @@ def run_all_directories_parallel(top_dir, substring, output_dir, num_processes=N
     sub_dirs = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if os.path.isdir(os.path.join(top_dir, f))]
 
     if not num_processes:
-        num_processes = max(multiprocessing.cpu_count(), 20)
+        num_processes = multiprocessing.cpu_count()
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         args_list = [(sub_dir, substring, output_dir) for sub_dir in sub_dirs]
