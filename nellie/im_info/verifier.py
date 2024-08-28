@@ -394,6 +394,7 @@ class ImInfo:
             return self.get_memmap(output_path, read_mode=read_mode)
 
     def close_all_memmaps(self):
+        logger.info('Closing all memmaps')
         for pipeline_path in self.pipeline_paths:
             if 'ome' not in pipeline_path:
                 continue

@@ -16,7 +16,6 @@ import os
 
 
 def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
-    im_info = ImInfo(file_info)
     preprocessing = Filter(im_info, remove_edges=remove_edges)
     preprocessing.run()
 
@@ -47,16 +46,18 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
     error_files = []
     for file_num, tif_file in enumerate(all_files):
         print(f'Processing file {file_num + 1} of {len(all_files)}')
+        file_info = FileInfo(tif_file, output_dir=output_dir)
+        file_info.find_metadata()
+        file_info.load_metadata()
+        im_info = ImInfo(file_info)
         try:
-            file_info = FileInfo(tif_file, output_dir=output_dir)
-            file_info.find_metadata()
-            file_info.load_metadata()
-            im_info = run(file_info, otsu_thresh_intensity=True)
-            im_info.close_all_memmaps()
+            _ = run(im_info, otsu_thresh_intensity=True)
         except Exception as e:
             print(f'Failed to run {tif_file}: {e}')
             error_files.append((tif_file, e))
             continue
+        finally:
+            im_info.close_all_memmaps()
     print(f'Error files: {error_files}')
     print(f'Number of error files: {len(error_files)}')
     # save error files to a text file
