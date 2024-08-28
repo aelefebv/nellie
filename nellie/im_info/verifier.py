@@ -393,6 +393,14 @@ class ImInfo:
         if return_memmap:
             return self.get_memmap(output_path, read_mode=read_mode)
 
+    def close_all_memmaps(self):
+        for pipeline_path in self.pipeline_paths:
+            if 'ome' not in pipeline_path:
+                continue
+            memmap = self.pipeline_paths[pipeline_path]
+            memmap.flush()
+            memmap._file.close()
+
 
 if __name__ == "__main__":
     test_dir = '/Users/austin/test_files/nellie_all_tests'

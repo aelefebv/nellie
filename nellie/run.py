@@ -51,7 +51,8 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
             file_info = FileInfo(tif_file, output_dir=output_dir)
             file_info.find_metadata()
             file_info.load_metadata()
-            _ = run(file_info, otsu_thresh_intensity=True)
+            im_info = run(file_info, otsu_thresh_intensity=True)
+            im_info.close_all_memmaps()
         except Exception as e:
             print(f'Failed to run {tif_file}: {e}')
             error_files.append((tif_file, e))
