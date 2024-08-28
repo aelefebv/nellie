@@ -45,7 +45,7 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
     all_files = sorted(
         [os.path.join(sub_dir, f) for f in os.listdir(sub_dir) if substring in f and f.endswith('.tiff')])
     error_files = []
-    for file_num, tif_file in enumerate(all_files[:2]):
+    for file_num, tif_file in enumerate(all_files):
         print(f'Processing file {file_num + 1} of {len(all_files)}')
         try:
             file_info = FileInfo(tif_file, output_dir=output_dir)
