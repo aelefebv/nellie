@@ -158,7 +158,7 @@ if __name__ == "__main__":
     # # im_info = ImInfo(file_info)
     # run(file_info)
 
-    top_dir = '/Users/austin/Downloads/Images'
+    top_dir = '/scratch3/prateek/isr_animate/20240315_CPPX120_ISR_Washout/84a5de3a-23c1-4ce0-8797-f4a647407b89/images'
     substring = 'ch04'
-    output_dir = '/Users/austin/Downloads/run_output'
+    output_dir = '/scratch3/austin/projects/isr_animate/20240315_CPPX120_ISR_Washout'
     run_all_directories_parallel(top_dir, substring, output_dir)
