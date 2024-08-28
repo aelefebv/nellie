@@ -1,3 +1,4 @@
+import contextlib
 import os
 
 import nd2
@@ -307,6 +308,24 @@ class ImInfo:
         self.pipeline_paths = {}
         self._create_output_paths()
 
+        self.open_memmaps = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close_all_memmaps()
+
+    def close_all_memmaps(self):
+        for path, mm in self.open_memmaps.items():
+            mm._mmap.close()
+        self.open_memmaps.clear()
+
+    @contextlib.contextmanager
+    def open_tiff(self, path, mode='r'):
+        with tifffile.TiffFile(path, mode=mode) as tif:
+            yield tif
+
     def _check_axes_exist(self):
         if 'Z' in self.axes and self.shape[self.new_axes.index('Z')] > 1:
             self.no_z = False
@@ -341,33 +360,50 @@ class ImInfo:
         self.create_output_path('features_image', ext='.csv', for_nellie=False)
         self.create_output_path('adjacency_maps', ext='.pkl')
 
-    def remove_intermediates(self):
-        all_pipeline_paths = [self.pipeline_paths[pipeline_path] for pipeline_path in self.pipeline_paths]
-        for pipeline_path in all_pipeline_paths + [self.im_path]:
-            if 'csv' in pipeline_path:
-                continue
-            elif os.path.exists(pipeline_path):
-                os.remove(pipeline_path)
+    # def remove_intermediates(self):
+    #     all_pipeline_paths = [self.pipeline_paths[pipeline_path] for pipeline_path in self.pipeline_paths]
+    #     for pipeline_path in all_pipeline_paths + [self.im_path]:
+    #         if 'csv' in pipeline_path:
+    #             continue
+    #         elif os.path.exists(pipeline_path):
+    #             os.remove(pipeline_path)
 
     def _get_ome_metadata(self, ):
-        with tifffile.TiffFile(self.im_path) as tif:
+        # with tifffile.TiffFile(self.im_path) as tif:
+        #     self.axes = tif.series[0].axes
+        #     self.new_axes = self.axes
+        # if 'T' not in self.axes:
+        #     self.im = self.im[np.newaxis, ...]
+        #     self.new_axes = 'T' + self.axes
+        # self.shape = self.im.shape
+        with self.open_tiff(self.im_path) as tif:
             self.axes = tif.series[0].axes
             self.new_axes = self.axes
-        if 'T' not in self.axes:
-            self.im = self.im[np.newaxis, ...]
-            self.new_axes = 'T' + self.axes
-        self.shape = self.im.shape
+            self.shape = tif.series[0].shape
+            if 'T' not in self.axes:
+                self.new_axes = 'T' + self.axes
+                self.shape = (1,) + self.shape
         self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
         self.dim_res['X'] = self.ome_metadata.images[0].pixels.physical_size_x
         self.dim_res['Y'] = self.ome_metadata.images[0].pixels.physical_size_y
         self.dim_res['Z'] = self.ome_metadata.images[0].pixels.physical_size_z
         self.dim_res['T'] = self.ome_metadata.images[0].pixels.time_increment
 
+    # def get_memmap(self, file_path, read_mode='r+'):
+    #     memmap = tifffile.memmap(file_path, mode=read_mode)
+    #     if 'T' not in self.axes:
+    #         memmap = memmap[np.newaxis, ...]
+    #     return memmap
+
     def get_memmap(self, file_path, read_mode='r+'):
-        memmap = tifffile.memmap(file_path, mode=read_mode)
+        if file_path in self.open_memmaps:
+            return self.open_memmaps[file_path]
+
+        mm = tifffile.memmap(file_path)
         if 'T' not in self.axes:
-            memmap = memmap[np.newaxis, ...]
-        return memmap
+            mm = mm[np.newaxis, ...]
+        self.open_memmaps[file_path] = mm
+        return mm
 
     def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
                         return_memmap=False, read_mode='r+'):
@@ -393,14 +429,29 @@ class ImInfo:
         if return_memmap:
             return self.get_memmap(output_path, read_mode=read_mode)
 
-    def close_all_memmaps(self):
-        logger.info('Closing all memmaps')
-        for pipeline_path in self.pipeline_paths:
-            if 'ome' not in pipeline_path:
-                continue
-            memmap = self.pipeline_paths[pipeline_path]
-            memmap.flush()
-            memmap._file.close()
+    def remove_intermediates(self):
+        self.close_all_memmaps()
+        for pipeline_path in self.pipeline_paths.values():
+            if 'csv' not in pipeline_path and os.path.exists(pipeline_path):
+                os.remove(pipeline_path)
+        if os.path.exists(self.im_path):
+            os.remove(self.im_path)
+
+    # def close_all_memmaps(self):
+    #     logger.info('Closing all memmaps')
+    #     for pipeline_path in self.pipeline_paths:
+    #         if 'ome' not in pipeline_path:
+    #             continue
+    #         memmap = self.pipeline_paths[pipeline_path]
+    #         memmap.flush()
+    #         memmap._file.close()
+    #
+    #     # close the original image memmap
+    #     self.im.flush()
+    #     self.im._file.close()
+    #
+    #     # close all images, not memmaps
+    #     for pipeline_path in self.pipeline_paths:
 
 
 if __name__ == "__main__":
