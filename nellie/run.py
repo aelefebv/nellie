@@ -31,7 +31,7 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
     vox_reassign = VoxelReassigner(im_info)
     vox_reassign.run()
 
-    hierarchy = Hierarchy(im_info)
+    hierarchy = Hierarchy(im_info, skip_nodes=False)
     hierarchy.run()
 
     return im_info
