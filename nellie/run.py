@@ -15,7 +15,7 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 import os
 
 
-def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
+def run(im_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
     preprocessing = Filter(im_info, remove_edges=remove_edges)
     preprocessing.run()
 
