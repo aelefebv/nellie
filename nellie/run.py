@@ -1,7 +1,7 @@
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-print(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+print(os.path.dirname(os.path.abspath(__file__)))
 import multiprocessing
 
 from nellie.feature_extraction.hierarchical import Hierarchy
