@@ -77,7 +77,7 @@ def run_all_directories_parallel(top_dir, substring, output_dir, num_processes=N
     sub_dirs = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if os.path.isdir(os.path.join(top_dir, f))]
 
     if not num_processes:
-        num_processes = multiprocessing.cpu_count()
+        num_processes = max(multiprocessing.cpu_count(), 20)
 
     with multiprocessing.Pool(processes=num_processes) as pool:
         args_list = [(sub_dir, substring, output_dir) for sub_dir in sub_dirs]
@@ -162,12 +162,4 @@ if __name__ == "__main__":
     # # im_info = ImInfo(file_info)
     # run(file_info)
 
-    top_dir = '/scratch3/prateek/isr_animate/20240215_CPPX115_ISR_Washout/a1768945-d4fb-459d-98a2-d926ef18fc5a/images'
-    substring = 'ch04'
-    output_dir = '/scratch3/austin/projects/isr_animate/20240215_CPPX115_ISR_Washout'
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    nellie_needed_dir = os.path.join(output_dir, 'nellie_necessities')
-    if not os.path.exists(nellie_needed_dir):
-        os.makedirs(nellie_needed_dir)
-    run_all_directories_parallel(top_dir, substring, output_dir)
+    pass
