@@ -4,14 +4,14 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 print(os.path.dirname(os.path.abspath(__file__)))
 import multiprocessing
 
-from nellie.feature_extraction.hierarchical import Hierarchy
-from nellie.im_info.verifier import FileInfo, ImInfo
-from nellie.segmentation.filtering import Filter
-from nellie.segmentation.labelling import Label
-from nellie.segmentation.mocap_marking import Markers
-from nellie.segmentation.networking import Network
-from nellie.tracking.hu_tracking import HuMomentTracking
-from nellie.tracking.voxel_reassignment import VoxelReassigner
+from feature_extraction.hierarchical import Hierarchy
+from im_info.verifier import FileInfo, ImInfo
+from segmentation.filtering import Filter
+from segmentation.labelling import Label
+from segmentation.mocap_marking import Markers
+from segmentation.networking import Network
+from tracking.hu_tracking import HuMomentTracking
+from tracking.voxel_reassignment import VoxelReassigner
 import os
 
 
