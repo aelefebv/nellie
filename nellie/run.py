@@ -1,3 +1,5 @@
+import multiprocessing
+
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter
@@ -6,6 +8,7 @@ from nellie.segmentation.mocap_marking import Markers
 from nellie.segmentation.networking import Network
 from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
+import os
 
 
 def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
@@ -32,6 +35,49 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
     hierarchy.run()
 
     return im_info
+
+
+def run_folders_multiproc(sub_dir, substring, output_dir):
+    all_files = sorted(
+        [os.path.join(sub_dir, f) for f in os.listdir(sub_dir) if substring in f and f.endswith('.tiff')])
+    error_files = []
+    for file_num, tif_file in enumerate(all_files[:2]):
+        print(f'Processing file {file_num + 1} of {len(all_files)}')
+        try:
+            file_info = FileInfo(tif_file, output_dir=output_dir)
+            file_info.find_metadata()
+            file_info.load_metadata()
+            _ = run(file_info, otsu_thresh_intensity=True)
+        except Exception as e:
+            print(f'Failed to run {tif_file}: {e}')
+            error_files.append((tif_file, e))
+            continue
+    print(f'Error files: {error_files}')
+    print(f'Number of error files: {len(error_files)}')
+    # save error files to a text file
+    with open(os.path.join(output_dir, f'error_files_{os.path.basename(sub_dir)}.txt'), 'w') as f:
+        f.write(f'Number of error files: {len(error_files)}\n')
+        f.write(f'Error files:\n')
+        for error_file in error_files:
+            f.write(f'\n{error_file[0]}\n')
+            f.write(f'{error_file[1]}\n')
+
+
+def process_directory(args):
+    sub_dir, substring, output_dir = args
+    print(f"Processing directory: {sub_dir}")
+    run_folders_multiproc(sub_dir, substring, output_dir)
+
+
+def run_all_directories_parallel(top_dir, substring, output_dir, num_processes=None):
+    sub_dirs = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if os.path.isdir(os.path.join(top_dir, f))]
+
+    if not num_processes:
+        num_processes = multiprocessing.cpu_count()
+
+    with multiprocessing.Pool(processes=num_processes) as pool:
+        args_list = [(sub_dir, substring, output_dir) for sub_dir in sub_dirs]
+        pool.map(process_directory, args_list)
 
 
 if __name__ == "__main__":
@@ -63,11 +109,11 @@ if __name__ == "__main__":
     #             continue
     #         im_info = run(tif_file, remove_edges=False, ch=ch, num_t=num_t)
 
-    test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif'
-    # test_file = all_paths[1]
-    file_info = FileInfo(test_file)
-    file_info.find_metadata()
-    file_info.load_metadata()
+    # test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif'
+    # # test_file = all_paths[1]
+    # file_info = FileInfo(test_file)
+    # file_info.find_metadata()
+    # file_info.load_metadata()
     # print(f'{file_info.metadata_type=}')
     # print(f'{file_info.axes=}')
     # print(f'{file_info.shape=}')
@@ -110,4 +156,9 @@ if __name__ == "__main__":
     #
     # # file_info.save_ome_tiff()
     # # im_info = ImInfo(file_info)
-    run(file_info)
+    # run(file_info)
+
+    top_dir = '/Users/austin/Downloads/Images'
+    substring = 'ch04'
+    output_dir = '/Users/austin/Downloads/run_output'
+    run_all_directories_parallel(top_dir, substring, output_dir)
