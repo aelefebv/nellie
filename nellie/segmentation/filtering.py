@@ -12,7 +12,7 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=False,
-                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, viewer=None):
+                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, frob_thresh=None, viewer=None):
         self.im_info = im_info
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
