@@ -5,9 +5,9 @@ import numpy as np
 from scipy import spatial
 from skimage.measure import regionprops
 
-import logger
-from im_info.verifier import ImInfo
-from tracking.flow_interpolation import FlowInterpolator
+from .im_info.verifier import ImInfo
+from .tracking.flow_interpolation import FlowInterpolator
+from nellie import logger
 import pandas as pd
 import time
 
