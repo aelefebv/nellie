@@ -1,6 +1,6 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# import sys
+# import os
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import multiprocessing
 
@@ -15,8 +15,8 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 import os
 
 # todo replace im_info.axes with im_info.new_axes all over?
-def run(im_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
-    preprocessing = Filter(im_info, remove_edges=remove_edges)
+def run(im_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None, frob_thresh=None):
+    preprocessing = Filter(im_info, remove_edges=remove_edges, frob_thresh=frob_thresh)
     preprocessing.run()
 
     segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
@@ -53,7 +53,7 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
         # try:
         with ImInfo(file_info) as im_info:
             print(im_info.axes)
-            _ = run(im_info, otsu_thresh_intensity=True)
+            _ = run(im_info, otsu_thresh_intensity=False, frob_thresh='intensity')
         # except Exception as e:
     #         print(f'Failed to run {tif_file}: {e}')
     #         error_files.append((tif_file, e))
@@ -170,10 +170,10 @@ if __name__ == "__main__":
 
     top_dir = '/Users/austin/Downloads/Images'
     substring = 'ch04'
-    output_dir = '/Users/austin/Downloads/Output'
+    output_dir = '/Users/austin/Downloads/Output_ch4_full'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     nellie_needed_dir = os.path.join(output_dir, 'nellie_necessities')
     if not os.path.exists(nellie_needed_dir):
         os.makedirs(nellie_needed_dir)
-    run_all_directories_parallel(top_dir, substring, output_dir, mp=True)
+    run_all_directories_parallel(top_dir, substring, output_dir, mp=False)

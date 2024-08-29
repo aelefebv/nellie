@@ -12,7 +12,7 @@ from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 class Filter:
     def __init__(self, im_info: ImInfo,
                  num_t=None, remove_edges=False,
-                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, viewer=None):
+                 min_radius_um=0.20, max_radius_um=1, alpha_sq=0.5, beta_sq=0.5, frob_thresh=None, viewer=None):
         self.im_info = im_info
         if not self.im_info.no_z:
             self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
@@ -35,6 +35,8 @@ class Filter:
 
         self.alpha_sq = alpha_sq
         self.beta_sq = beta_sq
+
+        self.frob_thresh = frob_thresh
 
         self.viewer = viewer
 
@@ -96,13 +98,13 @@ class Filter:
         gamma = min(gamma_tri, gamma_otsu)
         return gamma
 
-    def _compute_hessian(self, image, mask=True):
+    def _compute_hessian(self, image, t, mask=True):
         gradients = xp.gradient(image)
         axes = range(image.ndim)
         h_elems = xp.array([xp.gradient(gradients[ax0], axis=ax1).astype('float16')
                             for ax0, ax1 in combinations_with_replacement(axes, 2)])
         if mask:
-            h_mask = self._get_frob_mask(h_elems)
+            h_mask = self._get_frob_mask(h_elems, t=t)
         else:
             h_mask = xp.ones_like(image, dtype='bool')
         if self.remove_edges:
@@ -130,17 +132,26 @@ class Filter:
 
         return h_mask, hessian_matrices
 
-    def _get_frob_mask(self, hessian_matrices):
+    def _get_frob_mask(self, hessian_matrices, t):
         rescaled_hessian = hessian_matrices / xp.max(xp.abs(hessian_matrices))
         frobenius_norm = xp.linalg.norm(rescaled_hessian, axis=0)
         frobenius_norm[xp.isinf(frobenius_norm)] = xp.max(frobenius_norm[~xp.isinf(frobenius_norm)])
         non_zero_frobenius = frobenius_norm[frobenius_norm > 0]
-        if len(non_zero_frobenius) == 0:
-            frobenius_threshold = 0
-        else:
-            frob_triangle_thresh = triangle_threshold(non_zero_frobenius)
-            frob_otsu_thresh, _ = otsu_threshold(non_zero_frobenius)
+        if self.frob_thresh is None:
+            if len(non_zero_frobenius) == 0:
+                frobenius_threshold = 0
+            else:
+                frob_triangle_thresh = triangle_threshold(non_zero_frobenius)
+                frob_otsu_thresh, _ = otsu_threshold(non_zero_frobenius)
+                frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
+        elif self.frob_thresh == 'intensity':
+            frob_triangle_thresh = triangle_threshold(self.im_memmap[t, ...][self.im_memmap[t, ...] > 0])
+            frob_otsu_thresh, _ = otsu_threshold(self.im_memmap[t, ...][self.im_memmap[t, ...] > 0])
             frobenius_threshold = min(frob_triangle_thresh, frob_otsu_thresh)
+            mask = self.im_memmap[t, ...] > frobenius_threshold
+            return mask
+        else:
+            frobenius_threshold = self.frob_thresh
         mask = frobenius_norm > frobenius_threshold
         return mask
 
@@ -209,7 +220,7 @@ class Filter:
             gamma = self._calculate_gamma(gauss_volume)
             gamma_sq = 2 * gamma ** 2
 
-            h_mask, hessian_matrices = self._compute_hessian(gauss_volume, mask=mask)
+            h_mask, hessian_matrices = self._compute_hessian(gauss_volume, mask=mask, t=t)
             if len(hessian_matrices) == 0:
                 continue
             eigenvalues = self._compute_chunkwise_eigenvalues(hessian_matrices.astype('float'))
