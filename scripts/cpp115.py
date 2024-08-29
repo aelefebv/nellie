@@ -6,7 +6,7 @@ import datetime
 
 dt = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 top_dir = '/scratch3/prateek/isr_animate/20240215_CPPX115_ISR_Washout/a1768945-d4fb-459d-98a2-d926ef18fc5a/images'
-substring = 'ch04'
+substring = 'ch03'
 output_dir = f'/scratch3/austin/projects/isr_animate/{substring}-low_frob-{dt}-20240215_CPPX115_ISR_Washout'
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
