@@ -53,8 +53,8 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
         try:
             with ImInfo(file_info) as im_info:
                 print(im_info.axes)
-                _ = run(im_info, otsu_thresh_intensity=True)
-                # _ = run(im_info, otsu_thresh_intensity=False, frob_thresh='intensity')
+                # _ = run(im_info, otsu_thresh_intensity=True)
+                _ = run(im_info, otsu_thresh_intensity=False, frob_thresh='intensity')
         except Exception as e:
             print(f'Failed to run {tif_file}: {e}')
             error_files.append((tif_file, e))
