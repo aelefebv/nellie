@@ -50,23 +50,24 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
         file_info.find_metadata()
         file_info.load_metadata()
         # im_info = ImInfo(file_info)
-        # try:
-        with ImInfo(file_info) as im_info:
-            print(im_info.axes)
-            _ = run(im_info, otsu_thresh_intensity=False, frob_thresh='intensity')
-        # except Exception as e:
-    #         print(f'Failed to run {tif_file}: {e}')
-    #         error_files.append((tif_file, e))
-    #         continue
-    # print(f'Error files: {error_files}')
-    # print(f'Number of error files: {len(error_files)}')
-    # # save error files to a text file
-    # with open(os.path.join(output_dir, f'error_files_{os.path.basename(sub_dir)}.txt'), 'w') as f:
-    #     f.write(f'Number of error files: {len(error_files)}\n')
-    #     f.write(f'Error files:\n')
-    #     for error_file in error_files:
-    #         f.write(f'\n{error_file[0]}\n')
-    #         f.write(f'{error_file[1]}\n')
+        try:
+            with ImInfo(file_info) as im_info:
+                print(im_info.axes)
+                _ = run(im_info, otsu_thresh_intensity=True)
+                # _ = run(im_info, otsu_thresh_intensity=False, frob_thresh='intensity')
+        except Exception as e:
+            print(f'Failed to run {tif_file}: {e}')
+            error_files.append((tif_file, e))
+            continue
+    print(f'Error files: {error_files}')
+    print(f'Number of error files: {len(error_files)}')
+    # save error files to a text file
+    with open(os.path.join(output_dir, f'error_files_{os.path.basename(sub_dir)}.txt'), 'w') as f:
+        f.write(f'Number of error files: {len(error_files)}\n')
+        f.write(f'Error files:\n')
+        for error_file in error_files:
+            f.write(f'\n{error_file[0]}\n')
+            f.write(f'{error_file[1]}\n')
 
 
 def process_directory(args):
