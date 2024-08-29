@@ -58,6 +58,8 @@ def triangle_threshold(matrix, nbins=256):
     del (arg_high_level)
 
     width = arg_peak_height - arg_low_level
+    if width == 0:
+        return bin_centers[arg_peak_height]
     x1 = xp.arange(width)
     y1 = hist[x1 + arg_low_level]
 

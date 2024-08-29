@@ -14,7 +14,7 @@ from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 import os
 
-
+# todo replace im_info.axes with im_info.new_axes all over?
 def run(im_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
     preprocessing = Filter(im_info, remove_edges=remove_edges)
     preprocessing.run()
@@ -50,22 +50,23 @@ def run_folders_multiproc(sub_dir, substring, output_dir):
         file_info.find_metadata()
         file_info.load_metadata()
         # im_info = ImInfo(file_info)
-        try:
-            with ImInfo(file_info) as im_info:
-                _ = run(im_info, otsu_thresh_intensity=True)
-        except Exception as e:
-            print(f'Failed to run {tif_file}: {e}')
-            error_files.append((tif_file, e))
-            continue
-    print(f'Error files: {error_files}')
-    print(f'Number of error files: {len(error_files)}')
-    # save error files to a text file
-    with open(os.path.join(output_dir, f'error_files_{os.path.basename(sub_dir)}.txt'), 'w') as f:
-        f.write(f'Number of error files: {len(error_files)}\n')
-        f.write(f'Error files:\n')
-        for error_file in error_files:
-            f.write(f'\n{error_file[0]}\n')
-            f.write(f'{error_file[1]}\n')
+        # try:
+        with ImInfo(file_info) as im_info:
+            print(im_info.axes)
+            _ = run(im_info, otsu_thresh_intensity=True)
+        # except Exception as e:
+    #         print(f'Failed to run {tif_file}: {e}')
+    #         error_files.append((tif_file, e))
+    #         continue
+    # print(f'Error files: {error_files}')
+    # print(f'Number of error files: {len(error_files)}')
+    # # save error files to a text file
+    # with open(os.path.join(output_dir, f'error_files_{os.path.basename(sub_dir)}.txt'), 'w') as f:
+    #     f.write(f'Number of error files: {len(error_files)}\n')
+    #     f.write(f'Error files:\n')
+    #     for error_file in error_files:
+    #         f.write(f'\n{error_file[0]}\n')
+    #         f.write(f'{error_file[1]}\n')
 
 
 def process_directory(args):
@@ -74,15 +75,19 @@ def process_directory(args):
     run_folders_multiproc(sub_dir, substring, output_dir)
 
 
-def run_all_directories_parallel(top_dir, substring, output_dir, num_processes=None):
+def run_all_directories_parallel(top_dir, substring, output_dir, num_processes=None, mp=True):
     sub_dirs = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if os.path.isdir(os.path.join(top_dir, f))]
 
     if not num_processes:
         num_processes = multiprocessing.cpu_count()
 
-    with multiprocessing.Pool(processes=num_processes) as pool:
-        args_list = [(sub_dir, substring, output_dir) for sub_dir in sub_dirs]
-        pool.map(process_directory, args_list)
+    if mp:
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            args_list = [(sub_dir, substring, output_dir) for sub_dir in sub_dirs]
+            pool.map(process_directory, args_list)
+    else:
+        for sub_dir in sub_dirs:
+            process_directory((sub_dir, substring, output_dir))
 
 
 if __name__ == "__main__":
@@ -171,4 +176,4 @@ if __name__ == "__main__":
     nellie_needed_dir = os.path.join(output_dir, 'nellie_necessities')
     if not os.path.exists(nellie_needed_dir):
         os.makedirs(nellie_needed_dir)
-    run_all_directories_parallel(top_dir, substring, output_dir)
+    run_all_directories_parallel(top_dir, substring, output_dir, mp=True)

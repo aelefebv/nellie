@@ -422,13 +422,13 @@ class Voxels:
                 int)
             lims_dim2[:, 1] += 1
             lims_dim2[lims_dim2 < 0] = 0
-            max_dim0 = self.hierarchy.im_info.shape[self.hierarchy.im_info.axes.index('Z')]
-            max_dim1 = self.hierarchy.im_info.shape[self.hierarchy.im_info.axes.index('Y')]
-            max_dim2 = self.hierarchy.im_info.shape[self.hierarchy.im_info.axes.index('X')]
+            max_dim0 = self.hierarchy.im_info.shape[self.hierarchy.im_info.new_axes.index('Z')]
+            max_dim1 = self.hierarchy.im_info.shape[self.hierarchy.im_info.new_axes.index('Y')]
+            max_dim2 = self.hierarchy.im_info.shape[self.hierarchy.im_info.new_axes.index('X')]
             lims_dim2[lims_dim2 > max_dim2] = max_dim2
         else:
-            max_dim0 = self.hierarchy.im_info.shape[self.hierarchy.im_info.axes.index('Y')]
-            max_dim1 = self.hierarchy.im_info.shape[self.hierarchy.im_info.axes.index('X')]
+            max_dim0 = self.hierarchy.im_info.shape[self.hierarchy.im_info.new_axes.index('Y')]
+            max_dim1 = self.hierarchy.im_info.shape[self.hierarchy.im_info.new_axes.index('X')]
 
         lims_dim0[lims_dim0 > max_dim0] = max_dim0
         lims_dim1[lims_dim1 > max_dim1] = max_dim1
@@ -477,8 +477,8 @@ class Voxels:
         # Append the result
         self.node_labels.append(chunk_nodes_idxs)
         # convert chunk_node_voxel_idxs to a list of arrays
-        chunk_node_voxel_idxs = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
-        self.node_voxel_idxs.append(chunk_node_voxel_idxs)
+        chunk_node_voxel_idxs_all = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
+        self.node_voxel_idxs.append(chunk_node_voxel_idxs_all)
 
     def _get_min_euc_dist(self, t, vec):
         euc_dist = np.linalg.norm(vec, axis=1)
