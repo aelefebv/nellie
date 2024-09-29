@@ -37,8 +37,13 @@ https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
 4. Make sure Nellie is updated to the latest version.
 5. Restart Napari.
 ### Option 2. Via PIP:
+
+
+https://github.com/user-attachments/assets/b63df093-e3e1-49cb-925b-7efce36b9015
+
+
 ```bash
-pip install nellie
+python3 -m pip install nellie
 ```
 #### Option 2a for NVIDIA GPU acceleration, optional (Windows, Linux):
 To use GPU acceleration via NVIDIA GPUs, you also need to install cupy:
@@ -53,15 +58,23 @@ pip install cupy-cudaXXx
 ## Usage
 The sample dataset shown below is in the repo if you want to play around without, and can be downloaded [here](https://github.com/aelefebv/nellie/tree/main/sample_data).
 
-https://github.com/aelefebv/nellie/assets/26515909/05199fed-ed8c-4237-b3ba-0a3f4cdcb337
-
 ### General data preparation
 - It is strongly recommended to have your data in a parsable format, such as .ome.tif, .nd2, or other raw data files from microscopes.
   - Importing into ImageJ/FIJI and saving via BioFormats with the proper image dimensions should do the trick.
   - If the metadata cannot be parsed, you will have to manually enter it.
 - It is also recommended to crop your image as much as possible to reduce processing time and memory usage. But really, unless you have massive lightsheet data, it should be pretty fast (seconds to minutes on a typical modern desktop computer).
 
-https://github.com/aelefebv/nellie/assets/26515909/372d07a8-15a0-4926-8594-108dd4b97280
+### 3D + Timeseries dataset
+
+https://github.com/user-attachments/assets/531f76ee-f58e-4058-b5dc-4fdf09af3660
+
+### 3D (no Timeseries) dataset
+
+https://github.com/user-attachments/assets/30d55bfa-bade-4987-88f0-255bb36cb7e8
+
+### 2D + Timeseries dataset
+
+https://github.com/user-attachments/assets/d534c6e1-df31-4964-9c12-edff56228be3
 
 ### Running Nellie's processing pipeline
 1. Start Napari (open a Terminal and type napari)
