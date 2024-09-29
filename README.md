@@ -27,7 +27,6 @@ https://github.com/user-attachments/assets/50b1cd4b-6df7-4f19-8db3-4dcc03388513
 ### Option 1. Via Napari plugin manager:
 If not already installed, install Napari: https://napari.org/stable/tutorials/fundamentals/installation
 
-
 https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
 
 
@@ -87,15 +86,13 @@ https://github.com/user-attachments/assets/d534c6e1-df31-4964-9c12-edff56228be3
    - If the metadata boxes do not fill in automatically and turn red, this means Nellie did not detect that metadata portion from your image, and you must manually enter it or reformat your image and try again.
      - The metadata slot will appear green if it is in the correct format.
    - *Note, if you are batch processing, the metadata must be the same for all images if any of them are in an incorrect format (this will be fixed eventually). If they are different, but all pass validation, then it will process fine.
-   - You can preview 2 time points of your image via the ```Open preview``` button once the metadata is filled in to ensure it looks correct.
+   - You can preview your image via the ```Open preview``` button once the metadata is filled in to ensure it looks correct.
+   - From this tab, you can also choose what time points and channel you want to analyze, if your file contains more than one slice in those dimensions.
 4. Click the ```Process``` tab.
-   - If you have multiple fluorescence channels, select the channel you want to process/analyze.
-   - If you only want to analyze up to a certain timepoint, you can set this in slider. By default it will run all timepoints.
-   - If you have odd noise on the edges of your image, check the ```Remove image edges``` checkbox.
 5. You can run the full pipeline with ```Run Nellie```, or run individual steps below.
     - Steps can only be run once its previous step has been run.
     - Likewise, visualizations in the ```Visualization``` tab can only be opened once its respective step has been run.
-6. All intermediate files and output csvs will be saved to ```[image_directory]/nellie_output/```.
+6. All intermediate files and output csvs will be saved to ```[image_directory]/nellie_output/```, which can be accessed via the ```Open output directory``` button.
    - A separate .csv is created for each level of the organellar hierarchy.
 7. Once features have been exported, Nellie will automatically detect this, and allow analysis via the ```Analyze``` tab.
    - Analysis at this point is optional, but can be helpful for visualizing, and selectively exporting data.
@@ -110,11 +107,10 @@ https://github.com/user-attachments/assets/d534c6e1-df31-4964-9c12-edff56228be3
    4. ```Mocap Markers```: Visualize the mocap markers used for waypoints.
    5. ```Reassigned Labels```: Visualize the organelle and branch instance segmentation masks where voxels are reassigned based on the first timepoint.
 4. To visualize tracks, open and select one of the segmentation layers.
-5. ```Alt+Click``` on a label to visualize the track of that selected organelle/branch across all timepoints.
-   - If the segmentation labels are selected, it will generate tracks for all voxels in the selected timepoint only.
-   - If the reassigned labels are selected, you can choose to generate tracks for all voxels across all timepoints.
-   - You can skip voxels to track so that the area is not too crowded by tracks.
-   - *Note: If you have a 3D image, toggle to 2D mode via the ```Toggle 2D/3D view``` at the bottom left before ```Alt+Click```ing (eventually I'll get it to work while in 3D mode).
+5. To visualize all tracks of all organelles/branches, click the ```Visualize all frame labels' tracks``` button.
+6. To visualize all tracks of a specific organelle/branch:
+   1. Click on the layer, and use the eyedropper tool at the top to select an organelle/branch to track.
+   2. Click the ```Visualize selected label's tracks```.
 
 ### Using Nellie's analysis plugin
 
