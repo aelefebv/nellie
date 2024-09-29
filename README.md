@@ -113,9 +113,6 @@ https://github.com/user-attachments/assets/d534c6e1-df31-4964-9c12-edff56228be3
    2. Click the ```Visualize selected label's tracks```.
 
 ### Using Nellie's analysis plugin
-
-https://github.com/aelefebv/nellie/assets/26515909/7f4f09a4-3687-4635-988d-e1d16ad2a4af
-
 1. Follow the previous processing steps, you only need to do this once per file as long as you don't move or delete the files.
 2. Open the ```Analyze``` tab, select the hierarchy level you want to visualize from the dropdown.
 3. Select the level-specific feature you want to visualize from the new dropdown.
