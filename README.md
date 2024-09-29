@@ -123,6 +123,9 @@ To avoid any unnecessary back-and-forth, please include any/all (if possible) of
 - Send me the file you ran (if possible).
 - Any other information that might be helpful
 
+## Other Info
+For a 16bit dataset, the output:input ratio is ~15x. There is an option in the GUI to automatically delete intermediates after processing, keeping only the CSV files containing the extracted features.
+
 ## Requirements
 Nellie has been tested on the following configurations:
 - Mac, Linux, and Windows operating systems
