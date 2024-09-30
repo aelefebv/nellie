@@ -203,10 +203,12 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
+            start_time = time.time()
             preprocessing = Filter(im_info=self.current_im_info,
                                    remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked(),
                                    viewer=self.viewer)
             preprocessing.run()
+            show_info(f"Preprocessing took {time.time() - start_time} seconds")
 
     def run_preprocessing(self):
         worker = self._run_preprocessing()
@@ -224,10 +226,12 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
+            start_time = time.time()
             segmenting = Label(im_info=self.current_im_info, viewer=self.viewer)
             segmenting.run()
             networking = Network(im_info=self.current_im_info, viewer=self.viewer)
             networking.run()
+            show_info(f"Segmentation took {time.time() - start_time} seconds")
 
     def run_segmentation(self):
         worker = self._run_segmentation()
@@ -245,8 +249,10 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
+            start_time = time.time()
             mocap_marking = Markers(im_info=self.current_im_info, viewer=self.viewer)
             mocap_marking.run()
+            show_info(f"Mocap marking took {time.time() - start_time} seconds")
 
     def run_mocap(self):
         worker = self._run_mocap()
@@ -265,8 +271,10 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
+            start_time = time.time()
             hu_tracking = HuMomentTracking(im_info=self.current_im_info, viewer=self.viewer)
             hu_tracking.run()
+            show_info(f"Tracking took {time.time() - start_time} seconds")
 
     def run_tracking(self):
         worker = self._run_tracking()
@@ -307,10 +315,12 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(self.im_info_list):
             show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(self.im_info_list)}")
             self.current_im_info = im_info
+            start_time = time.time()
             hierarchy = Hierarchy(im_info=self.current_im_info,
                                   skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
                                   viewer=self.viewer)
             hierarchy.run()
+            show_info(f"Feature export took {time.time() - start_time} seconds")
             if self.nellie.settings.remove_intermediates_checkbox.isChecked():
                 try:
                     self.current_im_info.remove_intermediates()
