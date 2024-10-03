@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie_napari.nellie_loader &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie_napari.nellie_loader</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">napari.utils.notifications</span> <span class="kn">import</span> <span class="n">show_info</span>
+<span class="kn">from</span> <span class="nn">qtpy.QtWidgets</span> <span class="kn">import</span> <span class="n">QTabWidget</span>
+
+<span class="kn">from</span> <span class="nn">nellie_napari</span> <span class="kn">import</span> <span class="n">NellieProcessor</span>
+<span class="kn">from</span> <span class="nn">nellie_napari.nellie_home</span> <span class="kn">import</span> <span class="n">Home</span>
+<span class="kn">from</span> <span class="nn">nellie_napari.nellie_analysis</span> <span class="kn">import</span> <span class="n">NellieAnalysis</span>
+<span class="kn">from</span> <span class="nn">nellie_napari.nellie_fileselect</span> <span class="kn">import</span> <span class="n">NellieFileSelect</span>
+<span class="kn">from</span> <span class="nn">nellie_napari.nellie_settings</span> <span class="kn">import</span> <span class="n">Settings</span>
+<span class="kn">from</span> <span class="nn">nellie_napari.nellie_visualizer</span> <span class="kn">import</span> <span class="n">NellieVisualizer</span>
+
+
+<div class="viewcode-block" id="NellieLoader">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader">[docs]</a>
+<span class="k">class</span> <span class="nc">NellieLoader</span><span class="p">(</span><span class="n">QTabWidget</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="o">=</span> <span class="n">Home</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span> <span class="o">=</span> <span class="n">NellieFileSelect</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">processor</span> <span class="o">=</span> <span class="n">NellieProcessor</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span> <span class="o">=</span> <span class="n">NellieVisualizer</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span> <span class="o">=</span> <span class="n">NellieAnalysis</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">settings</span> <span class="o">=</span> <span class="n">Settings</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">home_tab</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_select_tab</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer_tab</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analysis_tab</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">settings_tab</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_tabs</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">currentChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_tab_change</span><span class="p">)</span>  <span class="c1"># Connect the signal to the slot</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="NellieLoader.add_tabs">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.add_tabs">[docs]</a>
+    <span class="k">def</span> <span class="nf">add_tabs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">home_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">home</span><span class="p">,</span> <span class="s2">&quot;Home&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_select_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="p">,</span> <span class="s2">&quot;File validation&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor</span><span class="p">,</span> <span class="s2">&quot;Process&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="p">,</span> <span class="s2">&quot;Visualize&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analysis_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="p">,</span> <span class="s2">&quot;Analyze&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">settings_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">,</span> <span class="s2">&quot;Settings&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">setTabEnabled</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setTabEnabled</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">visualizer_tab</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setTabEnabled</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">analysis_tab</span><span class="p">,</span> <span class="kc">False</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieLoader.reset">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.reset">[docs]</a>
+    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">home_tab</span><span class="p">)</span>
+
+        <span class="c1"># needs to be in reverse order</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">removeTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">settings_tab</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">removeTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">analysis_tab</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">removeTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">visualizer_tab</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">removeTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">removeTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_select_tab</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span> <span class="o">=</span> <span class="n">NellieFileSelect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">processor</span> <span class="o">=</span> <span class="n">NellieProcessor</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor</span><span class="o">.</span><span class="n">viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span> <span class="o">=</span> <span class="n">NellieVisualizer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span> <span class="o">=</span> <span class="n">NellieAnalysis</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">settings</span> <span class="o">=</span> <span class="n">Settings</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_tabs</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NellieLoader.on_tab_change">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.on_tab_change">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_tab_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">analysis_tab</span><span class="p">:</span>  <span class="c1"># Check if the Analyze tab is selected</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">initialized</span><span class="p">:</span>
+                <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Initializing analysis tab&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">post_init</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">visualizer_tab</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">initialized</span><span class="p">:</span>
+                <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Initializing visualizer tab&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">post_init</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">post_init</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieLoader.go_process">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.go_process">[docs]</a>
+    <span class="k">def</span> <span class="nf">go_process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">im_info</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">im_info</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">im_info</span>
+            <span class="nb">print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setTabEnabled</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setTabEnabled</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">visualizer_tab</span><span class="p">,</span> <span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">processor</span><span class="o">.</span><span class="n">post_init</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">post_init</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_tab_change</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">napari</span>
+    <span class="n">viewer</span> <span class="o">=</span> <span class="n">napari</span><span class="o">.</span><span class="n">Viewer</span><span class="p">()</span>
+    <span class="n">napari</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

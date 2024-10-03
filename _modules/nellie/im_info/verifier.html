@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie.im_info.verifier &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie.im_info.verifier</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">os</span>
+
+<span class="kn">import</span> <span class="nn">nd2</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">ome_types</span>
+<span class="kn">from</span> <span class="nn">tifffile</span> <span class="kn">import</span> <span class="n">tifffile</span>
+
+<span class="kn">from</span> <span class="nn">nellie</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<div class="viewcode-block" id="FileInfo">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo">[docs]</a>
+<span class="k">class</span> <span class="nc">FileInfo</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filepath</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="o">=</span> <span class="n">filepath</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">metadata</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">basename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filename_no_ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">basename</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extension</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">filepath</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="o">=</span> <span class="n">output_dir</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">input_dir</span><span class="p">,</span> <span class="s1">&#39;nellie_output&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">nellie_necessities_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">,</span> <span class="s1">&#39;nellie_necessities&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie_necessities_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie_necessities_dir</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ome_output_path</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">good_dims</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ch</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t_start</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t_end</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">_find_tif_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">TiffFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span> <span class="k">as</span> <span class="n">tif</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">tif</span><span class="o">.</span><span class="n">is_ome</span> <span class="ow">or</span> <span class="n">tif</span><span class="o">.</span><span class="n">ome_metadata</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">ome_xml</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">tiffcomment</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span>
+                <span class="n">metadata</span> <span class="o">=</span> <span class="n">ome_types</span><span class="o">.</span><span class="n">from_xml</span><span class="p">(</span><span class="n">ome_xml</span><span class="p">)</span>
+                <span class="n">metadata_type</span> <span class="o">=</span> <span class="s1">&#39;ome&#39;</span>
+            <span class="k">elif</span> <span class="n">tif</span><span class="o">.</span><span class="n">is_imagej</span><span class="p">:</span>
+                <span class="n">metadata</span> <span class="o">=</span> <span class="n">tif</span><span class="o">.</span><span class="n">imagej_metadata</span>
+                <span class="n">metadata_type</span> <span class="o">=</span> <span class="s1">&#39;imagej&#39;</span>
+                <span class="k">if</span> <span class="s1">&#39;physicalsizex&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">metadata</span><span class="p">:</span>
+                    <span class="n">metadata_type</span> <span class="o">=</span> <span class="s1">&#39;imagej_tif_tags&#39;</span>
+                    <span class="n">metadata</span> <span class="o">=</span> <span class="p">[</span><span class="n">metadata</span><span class="p">,</span> <span class="n">tif</span><span class="o">.</span><span class="n">pages</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">_dict</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">metadata</span> <span class="o">=</span> <span class="n">tif</span><span class="o">.</span><span class="n">pages</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">tags</span><span class="o">.</span><span class="n">_dict</span>
+                <span class="n">metadata_type</span> <span class="o">=</span> <span class="kc">None</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">metadata</span> <span class="o">=</span> <span class="n">metadata</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">=</span> <span class="n">metadata_type</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="o">=</span> <span class="n">tif</span><span class="o">.</span><span class="n">series</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">axes</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="n">tif</span><span class="o">.</span><span class="n">series</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="k">return</span> <span class="n">metadata</span><span class="p">,</span> <span class="n">metadata_type</span>
+
+    <span class="k">def</span> <span class="nf">_find_nd2_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">nd2</span><span class="o">.</span><span class="n">ND2File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span> <span class="k">as</span> <span class="n">nd2_file</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="n">nd2_file</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">channels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">metadata</span><span class="o">.</span><span class="n">recorded_data</span> <span class="o">=</span> <span class="n">nd2_file</span><span class="o">.</span><span class="n">events</span><span class="p">(</span><span class="n">orient</span><span class="o">=</span><span class="s1">&#39;list&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">metadata</span> <span class="o">=</span> <span class="n">metadata</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">=</span> <span class="s1">&#39;nd2&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">nd2_file</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">nd2_file</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+<div class="viewcode-block" id="FileInfo.find_metadata">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.find_metadata">[docs]</a>
+    <span class="k">def</span> <span class="nf">find_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tiff&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tif&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_find_tif_metadata</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.nd2&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_find_nd2_metadata</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s1">&#39;File type not supported&#39;</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_imagej_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;physicalsizex&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="s1">&#39;physicalsizex&#39;</span> <span class="ow">in</span> <span class="n">metadata</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;physicalsizey&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="s1">&#39;physicalsizey&#39;</span> <span class="ow">in</span> <span class="n">metadata</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;spacing&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="s1">&#39;spacing&#39;</span> <span class="ow">in</span> <span class="n">metadata</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="s1">&#39;finterval&#39;</span><span class="p">]</span> <span class="k">if</span> <span class="s1">&#39;finterval&#39;</span> <span class="ow">in</span> <span class="n">metadata</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">_get_ome_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_x</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_y</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_z</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">time_increment</span>
+
+    <span class="k">def</span> <span class="nf">_get_tif_tags_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="p">):</span>
+        <span class="n">tag_names</span> <span class="o">=</span> <span class="p">{</span><span class="n">tag_value</span><span class="o">.</span><span class="n">name</span><span class="p">:</span> <span class="n">tag_code</span> <span class="k">for</span> <span class="n">tag_code</span><span class="p">,</span> <span class="n">tag_value</span> <span class="ow">in</span> <span class="n">metadata</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+        <span class="k">if</span> <span class="s1">&#39;XResolution&#39;</span> <span class="ow">in</span> <span class="n">tag_names</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;XResolution&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> \
+                                  <span class="o">/</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;XResolution&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="s1">&#39;YResolution&#39;</span> <span class="ow">in</span> <span class="n">tag_names</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;YResolution&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> \
+                                  <span class="o">/</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;YResolution&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="s1">&#39;ResolutionUnit&#39;</span> <span class="ow">in</span> <span class="n">tag_names</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;ResolutionUnit&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">RESUNIT</span><span class="o">.</span><span class="n">CENTIMETER</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span> <span class="o">*=</span> <span class="mf">1E-4</span> <span class="o">*</span> <span class="mf">1E6</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">*=</span> <span class="mf">1E-4</span> <span class="o">*</span> <span class="mf">1E6</span>
+        <span class="k">if</span> <span class="s1">&#39;Z&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s1">&#39;ZResolution&#39;</span> <span class="ow">in</span> <span class="n">tag_names</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;ZResolution&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s1">&#39;FrameRate&#39;</span> <span class="ow">in</span> <span class="n">tag_names</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="n">metadata</span><span class="p">[</span><span class="n">tag_names</span><span class="p">[</span><span class="s1">&#39;FrameRate&#39;</span><span class="p">]]</span><span class="o">.</span><span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">_get_nd2_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="p">):</span>
+        <span class="k">if</span> <span class="s1">&#39;Time [s]&#39;</span> <span class="ow">in</span> <span class="n">metadata</span><span class="o">.</span><span class="n">recorded_data</span><span class="p">:</span>
+            <span class="n">timestamps</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">recorded_data</span><span class="p">[</span><span class="s1">&#39;Time [s]&#39;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">timestamps</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="nb">len</span><span class="p">(</span><span class="n">timestamps</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">volume</span><span class="o">.</span><span class="n">axesCalibration</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">volume</span><span class="o">.</span><span class="n">axesCalibration</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">metadata</span><span class="o">.</span><span class="n">volume</span><span class="o">.</span><span class="n">axesCalibration</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+
+<div class="viewcode-block" id="FileInfo.load_metadata">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.load_metadata">[docs]</a>
+    <span class="k">def</span> <span class="nf">load_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;T&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">==</span> <span class="s1">&#39;ome&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_ome_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">==</span> <span class="s1">&#39;imagej&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_imagej_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">==</span> <span class="s1">&#39;imagej_tif_tags&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_imagej_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_tif_tags_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="o">==</span> <span class="s1">&#39;nd2&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_nd2_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">metadata_type</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_tif_tags_metadata</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">metadata</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate</span><span class="p">()</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_check_axes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">change_axes</span><span class="p">(</span><span class="s1">&#39;Q&#39;</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">axis</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">axis</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="s1">&#39;C&#39;</span><span class="p">]:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="o">=</span> <span class="kc">False</span>
+                <span class="k">return</span>
+        <span class="c1"># if any duplicates, not good</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">))</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="k">return</span>
+        <span class="c1"># if X or Y are not there, not good</span>
+        <span class="k">if</span> <span class="s1">&#39;X&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="ow">or</span> <span class="s1">&#39;Y&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="k">def</span> <span class="nf">_check_dim_res</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">check_dims</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="s1">&#39;T&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">dim</span> <span class="ow">in</span> <span class="n">check_dims</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">good_dims</span> <span class="o">=</span> <span class="kc">False</span>
+                <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">good_dims</span> <span class="o">=</span> <span class="kc">True</span>
+
+<div class="viewcode-block" id="FileInfo.change_axes">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.change_axes">[docs]</a>
+    <span class="k">def</span> <span class="nf">change_axes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_axes</span><span class="p">):</span>
+        <span class="c1"># if len(new_axes) != len(self.shape):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="c1"># return</span>
+            <span class="c1"># raise ValueError(&#39;New axes must have the same length as the shape of the data&#39;)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="o">=</span> <span class="n">new_axes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="FileInfo.change_dim_res">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.change_dim_res">[docs]</a>
+    <span class="k">def</span> <span class="nf">change_dim_res</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dim</span><span class="p">,</span> <span class="n">new_size</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">dim</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">:</span>
+            <span class="k">return</span>
+            <span class="c1"># raise ValueError(&#39;Invalid dimension&#39;)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="FileInfo.change_selected_channel">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.change_selected_channel">[docs]</a>
+    <span class="k">def</span> <span class="nf">change_selected_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ch</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">good_dims</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s1">&#39;Must have both valid axes and dimensions to change channel&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;C&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="s1">&#39;No channel dimension to change&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">ch</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">ch</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;C&#39;</span><span class="p">)]:</span>
+            <span class="k">raise</span> <span class="ne">IndexError</span><span class="p">(</span><span class="s1">&#39;Invalid channel index&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ch</span> <span class="o">=</span> <span class="n">ch</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_get_output_path</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="FileInfo.select_temporal_range">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.select_temporal_range">[docs]</a>
+    <span class="k">def</span> <span class="nf">select_temporal_range</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">good_dims</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span><span class="p">:</span>
+            <span class="k">return</span>
+            <span class="c1"># raise ValueError(&#39;Must have both valid axes and dimensions to select temporal range&#39;)</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="k">return</span>
+            <span class="c1"># raise KeyError(&#39;No time dimension to select&#39;)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t_start</span> <span class="o">=</span> <span class="n">start</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t_end</span> <span class="o">=</span> <span class="n">end</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">t_end</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">t_end</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)]</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_get_output_path</span><span class="p">()</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_validate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_axes</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_dim_res</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">select_temporal_range</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_get_output_path</span><span class="p">()</span>
+
+<div class="viewcode-block" id="FileInfo.read_file">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.read_file">[docs]</a>
+    <span class="k">def</span> <span class="nf">read_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">extension</span> <span class="o">==</span> <span class="s1">&#39;.nd2&#39;</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">nd2</span><span class="o">.</span><span class="n">imread</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">extension</span> <span class="o">==</span> <span class="s1">&#39;.tif&#39;</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">extension</span> <span class="o">==</span> <span class="s1">&#39;.tiff&#39;</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">imread</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Filetype </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">extension</span><span class="si">}</span><span class="s1"> not supported. Please convert to .nd2 or .tif.&#39;</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dtype</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span>
+        <span class="k">return</span> <span class="n">data</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_output_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">t_text</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;-t</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">t_start</span><span class="si">}</span><span class="s1">_to_</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">t_end</span><span class="si">}</span><span class="s1">&#39;</span> <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="k">else</span> <span class="s1">&#39;&#39;</span>
+        <span class="n">dim_texts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">axis</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">axis</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">dim_res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="n">axis</span><span class="p">]</span>
+            <span class="c1"># round to 4 decimal places</span>
+            <span class="k">if</span> <span class="n">dim_res</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">dim_res</span> <span class="o">=</span> <span class="s1">&#39;None&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dim_res</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="n">dim_res</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+            <span class="c1"># convert &#39;.&#39; to &#39;p&#39;</span>
+            <span class="n">dim_res</span> <span class="o">=</span> <span class="n">dim_res</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;.&#39;</span><span class="p">,</span> <span class="s1">&#39;p&#39;</span><span class="p">)</span>
+            <span class="n">dim_texts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">axis</span><span class="si">}{</span><span class="n">dim_res</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="n">dim_text</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;-</span><span class="si">{</span><span class="s1">&#39;_&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dim_texts</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">output_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">filename_no_ext</span><span class="si">}</span><span class="s1">-</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="si">}{</span><span class="n">dim_text</span><span class="si">}</span><span class="s1">-ch</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">ch</span><span class="si">}{</span><span class="n">t_text</span><span class="si">}</span><span class="s1">&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">user_output_path_no_ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">output_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nellie_necessities_output_path_no_ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie_necessities_dir</span><span class="p">,</span> <span class="n">output_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ome_output_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie_necessities_output_path_no_ext</span> <span class="o">+</span> <span class="s1">&#39;.ome.tif&#39;</span>
+
+<div class="viewcode-block" id="FileInfo.save_ome_tiff">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.FileInfo.save_ome_tiff">[docs]</a>
+    <span class="k">def</span> <span class="nf">save_ome_tiff</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">good_axes</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">good_dims</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s1">&#39;Cannot save file with invalid axes or dimensions&#39;</span><span class="p">)</span>
+
+        <span class="n">axes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">read_file</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+            <span class="n">axes</span> <span class="o">=</span> <span class="s1">&#39;T&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">t_index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)</span>
+            <span class="n">selected_range</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">t_start</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">t_end</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">take</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">selected_range</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="n">t_index</span><span class="p">)</span>
+            <span class="c1"># if len(selected_range) == 1:</span>
+            <span class="c1">#     data = np.expand_dims(data, axis=t_index)</span>
+        <span class="k">if</span> <span class="s1">&#39;C&#39;</span> <span class="ow">in</span> <span class="n">axes</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">take</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ch</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;C&#39;</span><span class="p">))</span>
+            <span class="n">axes</span> <span class="o">=</span> <span class="n">axes</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;C&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+
+        <span class="c1"># ensure &#39;T&#39; is the 0th dimension</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">in</span> <span class="n">axes</span><span class="p">:</span>
+            <span class="n">t_index</span> <span class="o">=</span> <span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">moveaxis</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">t_index</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">axes</span> <span class="o">=</span> <span class="s1">&#39;T&#39;</span> <span class="o">+</span> <span class="n">axes</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="s1">&#39;&#39;</span><span class="p">)</span>
+
+        <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ome_output_path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">bigtiff</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;axes&quot;</span><span class="p">:</span> <span class="n">axes</span><span class="p">}</span>
+        <span class="p">)</span>
+
+        <span class="n">ome_xml</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">tiffcomment</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ome_output_path</span><span class="p">)</span>
+        <span class="n">ome</span> <span class="o">=</span> <span class="n">ome_types</span><span class="o">.</span><span class="n">from_xml</span><span class="p">(</span><span class="n">ome_xml</span><span class="p">)</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_z</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">]</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">time_increment</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span>
+        <span class="n">dtype_name</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">name</span>
+        <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s1">&#39;float64&#39;</span><span class="p">:</span>
+            <span class="n">dtype_name</span> <span class="o">=</span> <span class="s1">&#39;double&#39;</span>
+        <span class="k">if</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s1">&#39;float32&#39;</span><span class="p">:</span>
+            <span class="n">dtype_name</span> <span class="o">=</span> <span class="s1">&#39;float&#39;</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">dtype_name</span>
+        <span class="n">ome_xml</span> <span class="o">=</span> <span class="n">ome</span><span class="o">.</span><span class="n">to_xml</span><span class="p">()</span>
+        <span class="n">tifffile</span><span class="o">.</span><span class="n">tiffcomment</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ome_output_path</span><span class="p">,</span> <span class="n">ome_xml</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="ImInfo">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.ImInfo">[docs]</a>
+<span class="k">class</span> <span class="nc">ImInfo</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_info</span><span class="p">:</span> <span class="n">FileInfo</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span> <span class="o">=</span> <span class="n">file_info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_path</span> <span class="o">=</span> <span class="n">file_info</span><span class="o">.</span><span class="n">ome_output_path</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_path</span><span class="p">):</span>
+            <span class="n">file_info</span><span class="o">.</span><span class="n">save_ome_tiff</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">screenshot_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">output_dir</span><span class="p">,</span> <span class="s1">&#39;screenshots&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">graph_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">output_dir</span><span class="p">,</span> <span class="s1">&#39;graphs&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;X&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;Y&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;Z&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span> <span class="s1">&#39;T&#39;</span><span class="p">:</span> <span class="kc">None</span><span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">new_axes</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_get_ome_metadata</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">no_z</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">no_t</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_axes_exist</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">pipeline_paths</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_create_output_paths</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_check_axes_exist</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="s1">&#39;Z&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">new_axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">)]</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">no_z</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">new_axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)]</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">no_t</span> <span class="o">=</span> <span class="kc">False</span>
+
+<div class="viewcode-block" id="ImInfo.create_output_path">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.ImInfo.create_output_path">[docs]</a>
+    <span class="k">def</span> <span class="nf">create_output_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pipeline_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">ext</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;.ome.tif&#39;</span><span class="p">,</span> <span class="n">for_nellie</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">for_nellie</span><span class="p">:</span>
+            <span class="n">output_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">nellie_necessities_output_path_no_ext</span><span class="si">}</span><span class="s1">-</span><span class="si">{</span><span class="n">pipeline_path</span><span class="si">}{</span><span class="n">ext</span><span class="si">}</span><span class="s1">&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output_path</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">user_output_path_no_ext</span><span class="si">}</span><span class="s1">-</span><span class="si">{</span><span class="n">pipeline_path</span><span class="si">}{</span><span class="n">ext</span><span class="si">}</span><span class="s1">&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="n">pipeline_path</span><span class="p">]</span> <span class="o">=</span> <span class="n">output_path</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="n">pipeline_path</span><span class="p">]</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_create_output_paths</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_preprocessed&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_skel&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_skel_relabelled&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_pixel_class&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_marker&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_distance&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_border&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;flow_vector_array&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.npy&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;voxel_matches&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.npy&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_branch_label_reassigned&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;im_obj_label_reassigned&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;features_voxels&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.csv&#39;</span><span class="p">,</span> <span class="n">for_nellie</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.csv&#39;</span><span class="p">,</span> <span class="n">for_nellie</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;features_branches&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.csv&#39;</span><span class="p">,</span> <span class="n">for_nellie</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;features_organelles&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.csv&#39;</span><span class="p">,</span> <span class="n">for_nellie</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;features_image&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.csv&#39;</span><span class="p">,</span> <span class="n">for_nellie</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">create_output_path</span><span class="p">(</span><span class="s1">&#39;adjacency_maps&#39;</span><span class="p">,</span> <span class="n">ext</span><span class="o">=</span><span class="s1">&#39;.pkl&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ImInfo.remove_intermediates">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.ImInfo.remove_intermediates">[docs]</a>
+    <span class="k">def</span> <span class="nf">remove_intermediates</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">all_pipeline_paths</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="n">pipeline_path</span><span class="p">]</span> <span class="k">for</span> <span class="n">pipeline_path</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">pipeline_path</span> <span class="ow">in</span> <span class="n">all_pipeline_paths</span> <span class="o">+</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">im_path</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="s1">&#39;csv&#39;</span> <span class="ow">in</span> <span class="n">pipeline_path</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">elif</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">pipeline_path</span><span class="p">):</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">pipeline_path</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_ome_metadata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">):</span>
+        <span class="k">with</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">TiffFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span> <span class="k">as</span> <span class="n">tif</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">axes</span> <span class="o">=</span> <span class="n">tif</span><span class="o">.</span><span class="n">series</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">axes</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">new_axes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">new_axes</span> <span class="o">=</span> <span class="s1">&#39;T&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im</span><span class="o">.</span><span class="n">shape</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span> <span class="o">=</span> <span class="n">ome_types</span><span class="o">.</span><span class="n">from_xml</span><span class="p">(</span><span class="n">tifffile</span><span class="o">.</span><span class="n">tiffcomment</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_path</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_x</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_y</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">physical_size_z</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">time_increment</span>
+
+<div class="viewcode-block" id="ImInfo.get_memmap">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.ImInfo.get_memmap">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">file_path</span><span class="p">,</span> <span class="n">read_mode</span><span class="o">=</span><span class="s1">&#39;r+&#39;</span><span class="p">):</span>
+        <span class="n">memmap</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="n">file_path</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="n">read_mode</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="n">memmap</span> <span class="o">=</span> <span class="n">memmap</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">memmap</span></div>
+
+
+<div class="viewcode-block" id="ImInfo.allocate_memory">
+<a class="viewcode-back" href="../../../nellie.im_info.html#nellie.im_info.verifier.ImInfo.allocate_memory">[docs]</a>
+    <span class="k">def</span> <span class="nf">allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_path</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;float&#39;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s1">&#39;No description.&#39;</span><span class="p">,</span>
+                        <span class="n">return_memmap</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">read_mode</span><span class="o">=</span><span class="s1">&#39;r+&#39;</span><span class="p">):</span>
+        <span class="n">axes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="n">axes</span> <span class="o">=</span> <span class="s1">&#39;T&#39;</span> <span class="o">+</span> <span class="n">axes</span>
+            <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span>
+                <span class="n">output_path</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">,</span> <span class="n">bigtiff</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;axes&quot;</span><span class="p">:</span> <span class="n">axes</span><span class="p">}</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">dtype</span> <span class="o">=</span> <span class="n">dtype</span> <span class="ow">or</span> <span class="n">data</span><span class="o">.</span><span class="n">dtype</span><span class="o">.</span><span class="n">name</span>
+            <span class="n">tifffile</span><span class="o">.</span><span class="n">imwrite</span><span class="p">(</span>
+                <span class="n">output_path</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">bigtiff</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;axes&quot;</span><span class="p">:</span> <span class="n">axes</span><span class="p">}</span>
+            <span class="p">)</span>
+        <span class="n">ome</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ome_metadata</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="n">description</span>
+        <span class="n">ome</span><span class="o">.</span><span class="n">images</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">pixels</span><span class="o">.</span><span class="n">type</span> <span class="o">=</span> <span class="n">dtype</span>
+        <span class="n">ome_xml</span> <span class="o">=</span> <span class="n">ome</span><span class="o">.</span><span class="n">to_xml</span><span class="p">()</span>
+        <span class="n">tifffile</span><span class="o">.</span><span class="n">tiffcomment</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">ome_xml</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">return_memmap</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="n">output_path</span><span class="p">,</span> <span class="n">read_mode</span><span class="o">=</span><span class="n">read_mode</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_dir</span> <span class="o">=</span> <span class="s1">&#39;/Users/austin/test_files/nellie_all_tests&#39;</span>
+    <span class="n">all_paths</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">test_dir</span><span class="p">)</span>
+    <span class="n">all_paths</span> <span class="o">=</span> <span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">test_dir</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span> <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">all_paths</span> <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tiff&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tif&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.nd2&#39;</span><span class="p">)]</span>
+    <span class="c1"># for filepath in all_paths:</span>
+    <span class="c1">#     file_info = FileInfo(filepath)</span>
+    <span class="c1">#     file_info.find_metadata()</span>
+    <span class="c1">#     file_info.load_metadata()</span>
+    <span class="c1">#     print(file_info.metadata_type)</span>
+    <span class="c1">#     print(file_info.axes)</span>
+    <span class="c1">#     print(file_info.shape)</span>
+    <span class="c1">#     print(file_info.dim_res)</span>
+    <span class="c1">#     print(&#39;\n\n&#39;)</span>
+
+    <span class="n">test_file</span> <span class="o">=</span> <span class="n">all_paths</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">file_info</span> <span class="o">=</span> <span class="n">FileInfo</span><span class="p">(</span><span class="n">test_file</span><span class="p">)</span>
+    <span class="n">file_info</span><span class="o">.</span><span class="n">find_metadata</span><span class="p">()</span>
+    <span class="n">file_info</span><span class="o">.</span><span class="n">load_metadata</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">metadata_type</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_axes</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_dims</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="n">file_info</span><span class="o">.</span><span class="n">change_axes</span><span class="p">(</span><span class="s1">&#39;TZYX&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Axes changed&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_axes</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_dims</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Dimension resolutions changed&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_axes</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_dims</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="c1"># print(f&#39;{file_info.ch=}&#39;)</span>
+    <span class="c1"># file_info.change_selected_channel(3)</span>
+    <span class="c1"># print(&#39;Channel changed&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.ch=}&#39;)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">t_start</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">t_end</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="n">file_info</span><span class="o">.</span><span class="n">select_temporal_range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Temporal range selected&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">t_start</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">file_info</span><span class="o">.</span><span class="n">t_end</span><span class="si">=}</span><span class="s1">&#39;</span><span class="p">)</span>
+
+    <span class="c1"># file_info.save_ome_tiff()</span>
+    <span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="n">file_info</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

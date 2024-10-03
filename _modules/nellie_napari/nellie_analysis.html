@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie_napari.nellie_analysis &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie_napari.nellie_analysis</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">qtpy.QtWidgets</span> <span class="kn">import</span> <span class="n">QComboBox</span><span class="p">,</span> <span class="n">QCheckBox</span><span class="p">,</span> <span class="n">QPushButton</span><span class="p">,</span> <span class="n">QLabel</span><span class="p">,</span> <span class="n">QTableWidget</span><span class="p">,</span> <span class="n">QTableWidgetItem</span><span class="p">,</span> \
+    <span class="n">QSpinBox</span><span class="p">,</span> <span class="n">QDoubleSpinBox</span><span class="p">,</span> <span class="n">QWidget</span><span class="p">,</span> <span class="n">QVBoxLayout</span><span class="p">,</span> <span class="n">QGroupBox</span><span class="p">,</span> <span class="n">QHBoxLayout</span>
+<span class="kn">from</span> <span class="nn">qtpy.QtCore</span> <span class="kn">import</span> <span class="n">Qt</span>
+
+<span class="kn">from</span> <span class="nn">matplotlib.backends.backend_qtagg</span> <span class="kn">import</span> <span class="n">FigureCanvasQTAgg</span>
+<span class="kn">from</span> <span class="nn">napari.utils.notifications</span> <span class="kn">import</span> <span class="n">show_info</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">datetime</span>
+
+
+<div class="viewcode-block" id="NellieAnalysis">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis">[docs]</a>
+<span class="k">class</span> <span class="nc">NellieAnalysis</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span> <span class="o">=</span> <span class="n">FigureCanvasQTAgg</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">set_layout_engine</span><span class="p">(</span><span class="s2">&quot;constrained&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mean_median_toggle</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_t_toggle</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">export_data_button</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">save_graph_button</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">all_attr_data</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">time_col</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mean</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">std</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">median</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iqr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">perc75</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">perc25</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+        <span class="c1"># self.layout = QGridLayout()</span>
+        <span class="c1"># self.setLayout(self.layout)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_scale_checkbox</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_mask_layer</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">click_match_texts</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">layout_anchors</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;dropdown&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+            <span class="s1">&#39;canvas&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+            <span class="s1">&#39;table&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">50</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="p">}</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialized</span> <span class="o">=</span> <span class="kc">False</span>
+
+<div class="viewcode-block" id="NellieAnalysis.reset">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.reset">[docs]</a>
+    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialized</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.post_init">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.post_init">[docs]</a>
+    <span class="k">def</span> <span class="nf">post_init</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_scale_checkbox</span> <span class="o">=</span> <span class="n">QCheckBox</span><span class="p">(</span><span class="s2">&quot;Log scale&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_scale_checkbox</span><span class="o">.</span><span class="n">stateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_log_scale</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">mean_median_toggle</span> <span class="o">=</span> <span class="n">QCheckBox</span><span class="p">(</span><span class="s2">&quot;Median view&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mean_median_toggle</span><span class="o">.</span><span class="n">stateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">toggle_mean_med</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="s2">&quot;Overlay mask&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">overlay</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_t_toggle</span> <span class="o">=</span> <span class="n">QCheckBox</span><span class="p">(</span><span class="s2">&quot;Timepoint data&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_t_toggle</span><span class="o">.</span><span class="n">stateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">toggle_match_t</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_t_toggle</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">events</span><span class="o">.</span><span class="n">current_step</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_t_change</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span> <span class="o">=</span> <span class="n">QDoubleSpinBox</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_hist_change</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">setDecimals</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span> <span class="o">=</span> <span class="n">QDoubleSpinBox</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_hist_change</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">setDecimals</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span> <span class="o">=</span> <span class="n">QSpinBox</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_hist_change</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">export_data_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="s2">&quot;Export graph data&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">export_data_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">export_data</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">save_graph_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="s2">&quot;Save graph&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">save_graph_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">save_graph</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">scale_bar</span><span class="o">.</span><span class="n">visible</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">scale_bar</span><span class="o">.</span><span class="n">unit</span> <span class="o">=</span> <span class="s1">&#39;um&#39;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_create_dropdown_selection</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_for_adjacency_map</span><span class="p">()</span>
+
+        <span class="c1"># # self.dropdown_attr = QComboBox()</span>
+        <span class="c1"># self._create_dropdown_selection()</span>
+        <span class="c1"># self.dropdown.setCurrentIndex(3)  # Organelle</span>
+        <span class="c1"># self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)</span>
+        <span class="c1"># self.dropdown_attr.setCurrentIndex(6)  # Area</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_ui</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialized</span> <span class="o">=</span> <span class="kc">True</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.set_ui">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.set_ui">[docs]</a>
+    <span class="k">def</span> <span class="nf">set_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+
+        <span class="c1"># Attribute dropdown group</span>
+        <span class="n">attr_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Select hierarchy level and attribute&quot;</span><span class="p">)</span>
+        <span class="n">attr_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">attr_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="p">)</span>
+        <span class="n">attr_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="p">)</span>
+        <span class="n">attr_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">attr_layout</span><span class="p">)</span>
+
+        <span class="c1"># Histogram group</span>
+        <span class="n">hist_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Histogram options&quot;</span><span class="p">)</span>
+        <span class="n">hist_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+
+        <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Min&quot;</span><span class="p">),</span> <span class="n">alignment</span><span class="o">=</span><span class="n">Qt</span><span class="o">.</span><span class="n">AlignRight</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Max&quot;</span><span class="p">),</span> <span class="n">alignment</span><span class="o">=</span><span class="n">Qt</span><span class="o">.</span><span class="n">AlignLeft</span><span class="p">)</span>
+        <span class="n">hist_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="n">hist_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="p">)</span>
+
+        <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Bins&quot;</span><span class="p">),</span> <span class="n">alignment</span><span class="o">=</span><span class="n">Qt</span><span class="o">.</span><span class="n">AlignRight</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="p">)</span>
+        <span class="n">hist_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="n">hist_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">hist_layout</span><span class="p">)</span>
+
+        <span class="n">hist_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="p">)</span>
+
+        <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">log_scale_checkbox</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mean_median_toggle</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">match_t_toggle</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="p">)</span>
+        <span class="n">hist_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+
+        <span class="c1"># Save options group</span>
+        <span class="n">save_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Export options&quot;</span><span class="p">)</span>
+        <span class="n">save_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">export_data_button</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">save_graph_button</span><span class="p">)</span>
+        <span class="n">save_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="n">save_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">save_layout</span><span class="p">)</span>
+
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">attr_group</span><span class="p">)</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">hist_group</span><span class="p">)</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">save_group</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">main_layout</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_create_dropdown_selection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># Create the dropdown menu</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span> <span class="o">=</span> <span class="n">QComboBox</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">currentIndexChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_level_selected</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">rewrite_dropdown</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span> <span class="o">=</span> <span class="n">QComboBox</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentIndexChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_attr_selected</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_default_dropdowns</span><span class="p">()</span>
+
+<div class="viewcode-block" id="NellieAnalysis.set_default_dropdowns">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.set_default_dropdowns">[docs]</a>
+    <span class="k">def</span> <span class="nf">set_default_dropdowns</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">organelle_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">findText</span><span class="p">(</span><span class="s1">&#39;organelle&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="n">organelle_idx</span><span class="p">)</span>
+        <span class="n">area_raw_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">findText</span><span class="p">(</span><span class="s1">&#39;organelle_area_raw&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="n">area_raw_idx</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.check_for_adjacency_map">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.check_for_adjacency_map">[docs]</a>
+    <span class="k">def</span> <span class="nf">check_for_adjacency_map</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;adjacency_maps&#39;</span><span class="p">]):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.rewrite_dropdown">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.rewrite_dropdown">[docs]</a>
+    <span class="k">def</span> <span class="nf">rewrite_dropdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_for_adjacency_map</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">]):</span>
+            <span class="n">options</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;none&#39;</span><span class="p">,</span> <span class="s1">&#39;voxel&#39;</span><span class="p">,</span> <span class="s1">&#39;node&#39;</span><span class="p">,</span> <span class="s1">&#39;branch&#39;</span><span class="p">,</span> <span class="s1">&#39;organelle&#39;</span><span class="p">,</span> <span class="s1">&#39;image&#39;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">options</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;none&#39;</span><span class="p">,</span> <span class="s1">&#39;voxel&#39;</span><span class="p">,</span> <span class="s1">&#39;branch&#39;</span><span class="p">,</span> <span class="s1">&#39;organelle&#39;</span><span class="p">,</span> <span class="s1">&#39;image&#39;</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="n">options</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">addItem</span><span class="p">(</span><span class="n">option</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_default_dropdowns</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.export_data">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.export_data">[docs]</a>
+    <span class="k">def</span> <span class="nf">export_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">)</span>
+        <span class="n">export_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">graph_dir</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">export_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">export_dir</span><span class="p">)</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">dt</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span><span class="p">:</span>
+            <span class="n">current_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">current_step</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">text</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;_T</span><span class="si">{</span><span class="n">current_t</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">timepoints</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_col</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">current_t</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">timepoints</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_col</span>
+        <span class="n">text</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">filename_no_ext</span>
+        <span class="n">export_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">export_dir</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">.csv&quot;</span><span class="p">)</span>
+        <span class="n">df_to_save</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s1">&#39;t&#39;</span><span class="p">:</span> <span class="n">timepoints</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">():</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">})</span>
+        <span class="n">df_to_save</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">export_path</span><span class="p">)</span>
+
+        <span class="c1"># append time column</span>
+        <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Data exported to </span><span class="si">{</span><span class="n">export_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.save_graph">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.save_graph">[docs]</a>
+    <span class="k">def</span> <span class="nf">save_graph</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">)</span>
+        <span class="n">export_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">graph_dir</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">export_dir</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">export_dir</span><span class="p">)</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">dt</span><span class="si">}</span><span class="s2">-</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span><span class="p">:</span>
+            <span class="n">text</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;_T</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">current_step</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="n">text</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">filename_no_ext</span>
+        <span class="n">export_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">export_dir</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">text</span><span class="si">}</span><span class="s2">.png&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">export_path</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+        <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Graph saved to </span><span class="si">{</span><span class="n">export_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.on_hist_change">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_hist_change">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_hist_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">plot_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.get_index">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.get_index">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="c1"># get the coordinates of where the mouse is hovering</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">position</span>
+        <span class="n">matched_row</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
+            <span class="n">t</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">])),</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">1</span><span class="p">])),</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">2</span><span class="p">]))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># todo, gonna be more complicated than this I think</span>
+            <span class="n">t</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">0</span><span class="p">])),</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">1</span><span class="p">])),</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">2</span><span class="p">])),</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">pos</span><span class="p">[</span><span class="mi">3</span><span class="p">]))</span>
+        <span class="c1"># find corresponding coord in self.label_coords</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
+            <span class="n">t_coords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
+            <span class="n">match</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">t_coords</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">y</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">t_coords</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">x</span><span class="p">))</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">match</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">matched_row</span> <span class="o">=</span> <span class="n">match</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="c1"># show_info(f&quot;Matched csv index: {matched_idx}, at T,Y,X: {t, y, x}&quot;)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">coord</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="n">z</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">matched_row</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="c1"># get the value of self.voxel_df_idxs[self.voxel_time_col == t] at the matched_idx row</span>
+        <span class="n">voxel_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">matched_row</span><span class="p">]</span>
+        <span class="n">node_row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;v_n&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">][</span><span class="n">matched_row</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">node_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">node_df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="bp">self</span><span class="o">.</span><span class="n">node_df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">node_row</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="n">branch_row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;v_b&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">][</span><span class="n">matched_row</span><span class="p">])[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">branch_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">branch_row</span><span class="p">]</span>
+        <span class="n">organelle_row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;v_o&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">][</span><span class="n">matched_row</span><span class="p">])[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">organelle_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">organelle_row</span><span class="p">]</span>
+        <span class="n">image_row</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;v_i&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">][</span><span class="n">matched_row</span><span class="p">])[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">image_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">image_df</span><span class="o">.</span><span class="n">columns</span><span class="p">[</span><span class="mi">0</span><span class="p">]][</span><span class="bp">self</span><span class="o">.</span><span class="n">image_df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">image_row</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span> <span class="o">=</span> <span class="n">QTableWidget</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="o">.</span><span class="n">setRowCount</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">items</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">voxel_idx</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">node_idx</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">branch_idx</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">organelle_idx</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">image_idx</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="o">.</span><span class="n">setColumnCount</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">items</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">]):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="o">.</span><span class="n">setHorizontalHeaderLabels</span><span class="p">([</span><span class="s2">&quot;Voxel&quot;</span><span class="p">,</span> <span class="s2">&quot;Nodes&quot;</span><span class="p">,</span> <span class="s2">&quot;Branch&quot;</span><span class="p">,</span> <span class="s2">&quot;Organelle&quot;</span><span class="p">,</span> <span class="s2">&quot;Image&quot;</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="o">.</span><span class="n">setHorizontalHeaderLabels</span><span class="p">([</span><span class="s2">&quot;Voxel&quot;</span><span class="p">,</span> <span class="s2">&quot;Branch&quot;</span><span class="p">,</span> <span class="s2">&quot;Organelle&quot;</span><span class="p">,</span> <span class="s2">&quot;Image&quot;</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">items</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="o">.</span><span class="n">setItem</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">QTableWidgetItem</span><span class="p">(</span><span class="n">item</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_anchors</span><span class="p">[</span><span class="s1">&#39;table&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">layout_anchors</span><span class="p">[</span><span class="s1">&#39;table&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">click_match_table</span><span class="o">.</span><span class="n">setVerticalHeaderLabels</span><span class="p">([</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">t</span><span class="p">,</span><span class="w"> </span><span class="n">y</span><span class="p">,</span><span class="w"> </span><span class="n">x</span><span class="si">}</span><span class="se">\n</span><span class="s2">CSV row&quot;</span><span class="p">])</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.overlay">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.overlay">[docs]</a>
+    <span class="k">def</span> <span class="nf">overlay</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">label_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">label_mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="p">[</span><span class="n">t</span><span class="p">]))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">*=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">pkl_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;adjacency_maps&#39;</span><span class="p">]</span>
+            <span class="c1"># load pkl file</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">pkl_path</span><span class="p">,</span> <span class="s1">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">adjacency_slices</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;n_v&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;b_v&#39;</span><span class="p">:</span> <span class="p">[],</span> <span class="s1">&#39;o_v&#39;</span><span class="p">:</span> <span class="p">[]}</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">adjacency_slices</span><span class="p">[</span><span class="s1">&#39;v_n&#39;</span><span class="p">])):</span>
+                <span class="n">adjacency_slice</span> <span class="o">=</span> <span class="n">adjacency_slices</span><span class="p">[</span><span class="s1">&#39;v_n&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">]</span>
+                <span class="c1"># num_nodes = np.unique(adjacency_slice[:, 1]).shape[0]</span>
+                <span class="n">max_node</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="n">min_node</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="c1"># adjacency_matrix = np.zeros((len(self.label_coords[t]), num_nodes), dtype=bool)</span>
+                <span class="n">adjacency_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]),</span> <span class="n">max_node</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+                <span class="n">adjacency_matrix</span><span class="p">[</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">min_node</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;n_v&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">adjacency_slices</span><span class="p">[</span><span class="s1">&#39;v_b&#39;</span><span class="p">])):</span>
+                <span class="n">adjacency_slice</span> <span class="o">=</span> <span class="n">adjacency_slices</span><span class="p">[</span><span class="s1">&#39;v_b&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">]</span>
+                <span class="n">max_branch</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="n">min_branch</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="n">adjacency_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]),</span> <span class="n">max_branch</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+                <span class="n">adjacency_matrix</span><span class="p">[</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">min_branch</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;b_v&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">adjacency_slices</span><span class="p">[</span><span class="s1">&#39;v_o&#39;</span><span class="p">])):</span>
+                <span class="c1"># organelles are indexed consecutively over the whole timelapse rather than per timepoint, so different</span>
+                <span class="c1">#  way to construct the matrices</span>
+                <span class="n">adjacency_slice</span> <span class="o">=</span> <span class="n">adjacency_slices</span><span class="p">[</span><span class="s1">&#39;v_o&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">]</span>
+                <span class="n">num_organelles</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">min_organelle</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">])</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="c1"># adjacency_matrix = np.zeros((np.max(adjacency_slice[:, 0])+1, np.max(adjacency_slice[:, 1])+1), dtype=bool)</span>
+                <span class="n">adjacency_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]),</span> <span class="n">num_organelles</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+                <span class="n">adjacency_matrix</span><span class="p">[</span><span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">adjacency_slice</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="n">min_organelle</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;o_v&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">adjacency_matrix</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="c1"># adjacency_slice = adjacency_slices[&#39;v_b&#39;][t]</span>
+            <span class="c1"># adjacency_matrix = np.zeros((adjacency_slice.shape[0], np.max(adjacency_slice[:, 1])+1))</span>
+            <span class="c1"># adjacency_matrix[adjacency_slice[:, 0], adjacency_slice[:, 1]] = 1</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+            <span class="n">t_attr_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">all_attr_data</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">time_col</span> <span class="o">==</span> <span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">t_attr_data</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;voxel&#39;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">t_attr_data</span>
+                <span class="k">continue</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;node&#39;</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;n_v&#39;</span><span class="p">])</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">adjacency_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;n_v&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;branch&#39;</span><span class="p">:</span>
+                <span class="n">adjacency_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;b_v&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;organelle&#39;</span><span class="p">:</span>
+                <span class="n">adjacency_mask</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">adjacency_maps</span><span class="p">[</span><span class="s1">&#39;o_v&#39;</span><span class="p">][</span><span class="n">t</span><span class="p">])</span>
+            <span class="c1"># elif self.selected_level == &#39;image&#39;:</span>
+            <span class="c1">#     adjacency_mask = np.array(self.adjacency_maps[&#39;i_v&#39;][t])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">reshaped_t_attr</span> <span class="o">=</span> <span class="n">t_attr_data</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="c1"># adjacency_mask = np.array(self.adjacency_maps[&#39;n_v&#39;][t])</span>
+            <span class="k">if</span> <span class="n">adjacency_mask</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">attributed_voxels</span> <span class="o">=</span> <span class="n">adjacency_mask</span> <span class="o">*</span> <span class="n">reshaped_t_attr</span>
+            <span class="n">attributed_voxels</span><span class="p">[</span><span class="o">~</span><span class="n">adjacency_mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+            <span class="n">voxel_attributes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">attributed_voxels</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="c1"># if t &gt; len(self.label_coords):</span>
+            <span class="c1">#     continue</span>
+            <span class="c1"># if self.selected_level == &#39;branch&#39;:</span>
+                <span class="c1"># self.label_mask[t][tuple(self.skel_label_coords[t].T)] = voxel_attributes</span>
+            <span class="c1"># else:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">voxel_attributes</span>
+
+        <span class="n">layer_name</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span><span class="si">}</span><span class="s1"> </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">()</span><span class="si">}</span><span class="s1">&#39;</span>
+        <span class="k">if</span> <span class="s1">&#39;reassigned&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">():</span>
+            <span class="c1"># label_mask_layer = self.viewer.add_image(self.label_mask, name=layer_name, opacity=1,</span>
+            <span class="c1">#                                               colormap=&#39;turbo&#39;, scale=self.scale)</span>
+            <span class="n">perc98</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanpercentile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">,</span> <span class="mi">98</span><span class="p">)</span>
+            <span class="c1"># no nans, no infs</span>
+            <span class="n">real_vals</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">)]</span>
+            <span class="n">real_vals</span> <span class="o">=</span> <span class="n">real_vals</span><span class="p">[</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isinf</span><span class="p">(</span><span class="n">real_vals</span><span class="p">)]</span>
+            <span class="n">min_val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">real_vals</span><span class="p">)</span> <span class="o">-</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">real_vals</span><span class="p">))</span> <span class="o">*</span> <span class="mf">0.01</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">min_val</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">real_vals</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">min_val</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">min_val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmin</span><span class="p">(</span><span class="n">real_vals</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">min_val</span> <span class="o">==</span> <span class="n">perc98</span><span class="p">:</span>
+                <span class="n">perc98</span> <span class="o">=</span> <span class="n">min_val</span> <span class="o">+</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">min_val</span><span class="p">)</span> <span class="o">*</span> <span class="mf">0.01</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">perc98</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">real_vals</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">perc98</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">perc98</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmax</span><span class="p">(</span><span class="n">real_vals</span><span class="p">)</span>
+            <span class="n">contrast_limits</span> <span class="o">=</span> <span class="p">[</span><span class="n">min_val</span><span class="p">,</span> <span class="n">perc98</span><span class="p">]</span>
+            <span class="c1"># label_mask_layer.contrast_limits = contrast_limits</span>
+        <span class="c1"># label_mask_layer.name = layer_name</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
+            <span class="c1"># if the layer isn&#39;t in 3D view, make it 3d view</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">ndisplay</span> <span class="o">=</span> <span class="mi">3</span>
+            <span class="c1"># label_mask_layer.interpolation3d = &#39;nearest&#39;</span>
+        <span class="c1"># label_mask_layer.refresh()</span>
+        <span class="c1"># self.label_mask_layer.mouse_drag_callbacks.append(self.get_index)</span>
+        <span class="k">if</span> <span class="s1">&#39;reassigned&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">():</span>
+            <span class="c1"># make the label_mask_layer a label layer</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">add_labels</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;uint64&#39;</span><span class="p">),</span> <span class="n">scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">layer_name</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">add_image</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="n">name</span><span class="o">=</span><span class="n">layer_name</span><span class="p">,</span> <span class="n">opacity</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                                      <span class="n">colormap</span><span class="o">=</span><span class="s1">&#39;turbo&#39;</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="n">contrast_limits</span><span class="o">=</span><span class="n">contrast_limits</span><span class="p">,</span>
+                                      <span class="n">interpolation3d</span><span class="o">=</span><span class="s1">&#39;nearest&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">add_image</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span> <span class="n">name</span><span class="o">=</span><span class="n">layer_name</span><span class="p">,</span> <span class="n">opacity</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                                      <span class="n">colormap</span><span class="o">=</span><span class="s1">&#39;turbo&#39;</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">,</span> <span class="n">contrast_limits</span><span class="o">=</span><span class="n">contrast_limits</span><span class="p">,</span>
+                                      <span class="n">interpolation2d</span><span class="o">=</span><span class="s1">&#39;nearest&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">match_t_toggle</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">reset_view</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.on_t_change">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_t_change">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_t_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentIndex</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.toggle_match_t">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.toggle_match_t">[docs]</a>
+    <span class="k">def</span> <span class="nf">toggle_match_t</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentIndex</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.toggle_mean_med">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.toggle_mean_med">[docs]</a>
+    <span class="k">def</span> <span class="nf">toggle_mean_med</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentIndex</span><span class="p">())</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.get_csvs">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.get_csvs">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_csvs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_voxels&#39;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">]):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_branches&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_organelles&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_image&#39;</span><span class="p">])</span></div>
+
+
+        <span class="c1"># self.voxel_time_col = voxel_df[&#39;t&#39;]</span>
+        <span class="c1"># self.voxel_df_idxs = voxel_df[voxel_df.columns[0]]</span>
+
+<div class="viewcode-block" id="NellieAnalysis.on_level_selected">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_level_selected">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_level_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+        <span class="c1"># This method is called whenever a radio button is selected</span>
+        <span class="c1"># &#39;button&#39; parameter is the clicked radio button</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">itemText</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;voxel&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_voxels&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;node&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">]):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;branch&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_branches&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_df</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;organelle&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_organelles&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">organelle_df</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">==</span> <span class="s1">&#39;image&#39;</span><span class="p">:</span>
+            <span class="c1"># turn off overlay button</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_image&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">df</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">image_df</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="c1"># add a None option</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">addItem</span><span class="p">(</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">col</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="c1"># if &quot;raw&quot; not in col:</span>
+            <span class="c1">#     continue</span>
+            <span class="c1"># remove &quot;_raw&quot; from the column name</span>
+            <span class="c1"># col = col[:-4]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">addItem</span><span class="p">(</span><span class="n">col</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.on_attr_selected">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_attr_selected">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="c1"># if there are no items in dropdown_attr, return</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">count</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">selected_attr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">itemText</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">selected_attr</span> <span class="o">==</span> <span class="s1">&#39;&#39;</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">selected_attr</span> <span class="o">==</span> <span class="s2">&quot;None&quot;</span><span class="p">:</span>
+            <span class="c1"># clear the canvas</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">draw</span><span class="p">()</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">all_attr_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="p">[</span><span class="n">selected_attr</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">time_col</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span><span class="p">:</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">current_step</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="p">[</span><span class="s1">&#39;t&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">t</span><span class="p">][</span><span class="n">selected_attr</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">df</span><span class="p">[</span><span class="n">selected_attr</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">plot_data</span><span class="p">(</span><span class="n">selected_attr</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.get_stats">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.get_stats">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">log10</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">)</span>
+            <span class="c1"># convert non real numbers to nan</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+        <span class="c1"># only real data</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span> <span class="o">=</span> <span class="n">data</span>
+
+        <span class="c1"># todo only enable when mean is selected</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mean</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmean</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">std</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanstd</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="c1"># todo only enable when median is selected</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">median</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanmedian</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">perc75</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanpercentile</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">75</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">perc25</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nanpercentile</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">25</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">iqr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">perc75</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">perc25</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.draw_stats">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.draw_stats">[docs]</a>
+    <span class="k">def</span> <span class="nf">draw_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="c1"># draw lines for mean, median, std, percentiles on the canvas</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">get_axes</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">perc25</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;--&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;25th percentile&#39;</span><span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">median</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;m&#39;</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;-&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Median&#39;</span><span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">perc75</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;r&#39;</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;--&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;75th percentile&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mean</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">std</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;b&#39;</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;--&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Mean - Std&#39;</span><span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mean</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;c&#39;</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;-&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Mean&#39;</span><span class="p">)</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mean</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">std</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;b&#39;</span><span class="p">,</span> <span class="n">linestyle</span><span class="o">=</span><span class="s1">&#39;--&#39;</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s1">&#39;Mean + Std&#39;</span><span class="p">)</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">legend</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">draw</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.plot_data">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.plot_data">[docs]</a>
+    <span class="k">def</span> <span class="nf">plot_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">title</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">ax</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="mi">111</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span><span class="p">:</span>
+                <span class="n">nbins</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">)</span> <span class="o">**</span> <span class="mf">0.5</span><span class="p">)</span>  <span class="c1"># pretty nbins</span>
+                <span class="n">ax</span><span class="o">.</span><span class="n">hist</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="n">nbins</span><span class="p">)</span>
+                <span class="n">hist_min</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_xlim</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">hist_max</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">get_xlim</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">nbins</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
+                <span class="n">hist_min</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
+                <span class="n">hist_max</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
+                <span class="n">ax</span><span class="o">.</span><span class="n">hist</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span><span class="p">,</span> <span class="n">bins</span><span class="o">=</span><span class="n">nbins</span><span class="p">,</span> <span class="nb">range</span><span class="o">=</span><span class="p">(</span><span class="n">hist_min</span><span class="p">,</span> <span class="n">hist_max</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="n">nbins</span> <span class="o">=</span> <span class="mi">10</span>
+            <span class="n">hist_min</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">hist_max</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span><span class="p">:</span>
+            <span class="n">full_title</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">title</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">Quartiles: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">perc25</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">median</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">perc75</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">full_title</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">title</span><span class="si">}</span><span class="se">\n\n</span><span class="s2">Mean: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">mean</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">, Std: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">std</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span><span class="p">:</span>
+            <span class="n">full_title</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Timepoint: </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">current_step</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">full_title</span> <span class="o">+=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">Timepoint: all (pooled)&quot;</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">set_title</span><span class="p">(</span><span class="n">full_title</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">&quot;Value&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ax</span><span class="o">.</span><span class="n">set_xlabel</span><span class="p">(</span><span class="s2">&quot;Value (log10)&quot;</span><span class="p">)</span>
+        <span class="n">ax</span><span class="o">.</span><span class="n">set_ylabel</span><span class="p">(</span><span class="s2">&quot;Frequency&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">draw</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">draw_stats</span><span class="p">()</span>
+
+        <span class="c1"># if self.hist_min is not enabled</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="n">hist_min</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="n">hist_min</span><span class="p">,</span> <span class="n">hist_max</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_min</span><span class="o">.</span><span class="n">setSingleStep</span><span class="p">((</span><span class="n">hist_max</span> <span class="o">-</span> <span class="n">hist_min</span><span class="p">)</span> <span class="o">/</span> <span class="mi">100</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="n">hist_max</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="n">hist_min</span><span class="p">,</span> <span class="n">hist_max</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_max</span><span class="o">.</span><span class="n">setSingleStep</span><span class="p">((</span><span class="n">hist_max</span> <span class="o">-</span> <span class="n">hist_min</span><span class="p">)</span> <span class="o">/</span> <span class="mi">100</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="n">nbins</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">num_bins</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span> <span class="o">=</span> <span class="kc">False</span></div>
+
+
+<div class="viewcode-block" id="NellieAnalysis.on_log_scale">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_log_scale">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_log_scale</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentIndex</span><span class="p">())</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">napari</span>
+    <span class="n">viewer</span> <span class="o">=</span> <span class="n">napari</span><span class="o">.</span><span class="n">Viewer</span><span class="p">()</span>
+    <span class="n">napari</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
