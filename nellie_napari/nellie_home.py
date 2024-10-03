@@ -10,7 +10,43 @@ import matplotlib.image
 
 
 class Home(QWidget):
+    """
+    The Home screen for the Nellie application, displayed in the napari viewer.
+    It provides options to start using the application, navigate to the file selection tab, and take screenshots.
+
+    Attributes
+    ----------
+    viewer : napari.viewer.Viewer
+        The napari viewer instance.
+    nellie : object
+        Reference to the main Nellie object containing image processing pipelines and functions.
+    layout : QVBoxLayout
+        The vertical layout to organize the widgets on the home screen.
+    start_button : QPushButton
+        Button to start the application and navigate to the file selection tab.
+    screenshot_button : QPushButton
+        Button to take a screenshot of the current napari viewer canvas.
+
+    Methods
+    -------
+    __init__(napari_viewer, nellie, parent=None)
+        Initializes the home screen with a logo, title, description, and navigation buttons.
+    screenshot(event=None)
+        Takes a screenshot of the napari viewer and saves it to a specified folder.
+    """
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+        """
+        Initializes the Home screen with a logo, title, description, and buttons for navigation and screenshot functionality.
+
+        Parameters
+        ----------
+        napari_viewer : napari.viewer.Viewer
+            Reference to the napari viewer instance.
+        nellie : object
+            Reference to the main Nellie object containing image processing pipelines and functions.
+        parent : QWidget, optional
+            Optional parent widget (default is None).
+        """
         super().__init__(parent)
         self.nellie = nellie
         self.viewer = napari_viewer
@@ -72,6 +108,14 @@ class Home(QWidget):
         self.layout.addWidget(self.screenshot_button, alignment=Qt.AlignCenter)
 
     def screenshot(self, event=None):
+        """
+        Takes a screenshot of the napari viewer and saves it as a PNG file in a specified folder.
+
+        Parameters
+        ----------
+        event : optional
+            An event object, if triggered by a key binding or button click (default is None).
+        """
         if self.nellie.im_info is None:
             show_info("No file selected, cannot take screenshot")
             return
