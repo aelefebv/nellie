@@ -44,7 +44,54 @@
 <div class="viewcode-block" id="NellieLoader">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader">[docs]</a>
 <span class="k">class</span> <span class="nc">NellieLoader</span><span class="p">(</span><span class="n">QTabWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The main loader class for managing the different stages of the Nellie pipeline within the napari viewer. This class</span>
+<span class="sd">    provides a tabbed interface for file selection, processing, visualization, analysis, and settings management.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    home : Home</span>
+<span class="sd">        The home tab instance, providing an overview of the Nellie pipeline.</span>
+<span class="sd">    file_select : NellieFileSelect</span>
+<span class="sd">        The file selection tab instance, allowing users to select and validate image files.</span>
+<span class="sd">    processor : NellieProcessor</span>
+<span class="sd">        The image processing tab instance, where users can process images through the Nellie pipeline.</span>
+<span class="sd">    visualizer : NellieVisualizer</span>
+<span class="sd">        The visualization tab instance, where processed images can be visualized.</span>
+<span class="sd">    analyzer : NellieAnalysis</span>
+<span class="sd">        The analysis tab instance, enabling users to analyze processed image data.</span>
+<span class="sd">    settings : Settings</span>
+<span class="sd">        The settings tab instance, allowing users to configure various settings for the Nellie pipeline.</span>
+<span class="sd">    home_tab, file_select_tab, processor_tab, visualizer_tab, analysis_tab, settings_tab : int</span>
+<span class="sd">        Integer values representing the index of the respective tabs.</span>
+<span class="sd">    im_info : ImInfo or None</span>
+<span class="sd">        Contains metadata and information about the selected image file.</span>
+<span class="sd">    im_info_list : list of ImInfo or None</span>
+<span class="sd">        A list of ImInfo objects when batch processing is enabled (multiple files).</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    add_tabs()</span>
+<span class="sd">        Adds the individual tabs to the widget.</span>
+<span class="sd">    reset()</span>
+<span class="sd">        Resets the state of the loader, removing and reinitializing all tabs.</span>
+<span class="sd">    on_tab_change(index)</span>
+<span class="sd">        Slot that is triggered when the user changes the tab.</span>
+<span class="sd">    go_process()</span>
+<span class="sd">        Initializes and enables the processing and visualization tabs for image processing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the NellieLoader class, creating instances of the individual tabs for home, file selection,</span>
+<span class="sd">        processing, visualization, analysis, and settings.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="o">=</span> <span class="n">Home</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span> <span class="o">=</span> <span class="n">NellieFileSelect</span><span class="p">(</span><span class="n">napari_viewer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
@@ -69,6 +116,11 @@
 <div class="viewcode-block" id="NellieLoader.add_tabs">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.add_tabs">[docs]</a>
     <span class="k">def</span> <span class="nf">add_tabs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Adds the individual tabs for Home, File validation, Process, Visualize, Analyze, and Settings.</span>
+<span class="sd">        Initially disables the Process, Visualize, and Analyze tabs until they are needed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="o">...</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">home_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">home</span><span class="p">,</span> <span class="s2">&quot;Home&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file_select_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="p">,</span> <span class="s2">&quot;File validation&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">processor_tab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">addTab</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">processor</span><span class="p">,</span> <span class="s2">&quot;Process&quot;</span><span class="p">)</span>
@@ -84,6 +136,10 @@
 <div class="viewcode-block" id="NellieLoader.reset">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.reset">[docs]</a>
     <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resets the state of the loader, reinitializing all tabs. This method is typically called when the user</span>
+<span class="sd">        wants to start a new session with a fresh file selection and settings.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">home_tab</span><span class="p">)</span>
 
         <span class="c1"># needs to be in reverse order</span>
@@ -108,6 +164,15 @@
 <div class="viewcode-block" id="NellieLoader.on_tab_change">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.on_tab_change">[docs]</a>
     <span class="k">def</span> <span class="nf">on_tab_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Event handler that is triggered when the user changes the active tab. Initializes the Analyze or Visualize</span>
+<span class="sd">        tabs if they are selected for the first time, and always initializes the Settings tab.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        index : int</span>
+<span class="sd">            The index of the newly selected tab.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">analysis_tab</span><span class="p">:</span>  <span class="c1"># Check if the Analyze tab is selected</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">analyzer</span><span class="o">.</span><span class="n">initialized</span><span class="p">:</span>
                 <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Initializing analysis tab&quot;</span><span class="p">)</span>
@@ -122,6 +187,10 @@
 <div class="viewcode-block" id="NellieLoader.go_process">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_loader.NellieLoader.go_process">[docs]</a>
     <span class="k">def</span> <span class="nf">go_process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Prepares the image(s) for processing and visualization. This method is called after a file has been selected</span>
+<span class="sd">        and validated. It enables the Process and Visualize tabs and initializes them.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_select</span><span class="o">.</span><span class="n">im_info</span>
         <span class="k">else</span><span class="p">:</span>
@@ -160,6 +229,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

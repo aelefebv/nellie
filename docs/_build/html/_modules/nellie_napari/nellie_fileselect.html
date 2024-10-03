@@ -43,7 +43,100 @@
 <div class="viewcode-block" id="NellieFileSelect">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect">[docs]</a>
 <span class="k">class</span> <span class="nc">NellieFileSelect</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for selecting and configuring image files for processing in the Nellie pipeline within the napari viewer.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    viewer : napari.viewer.Viewer</span>
+<span class="sd">        The napari viewer instance.</span>
+<span class="sd">    nellie : object</span>
+<span class="sd">        Reference to the main Nellie object containing image processing pipelines and functions.</span>
+<span class="sd">    filepath : str or None</span>
+<span class="sd">        The selected file path.</span>
+<span class="sd">    file_info : FileInfo</span>
+<span class="sd">        Stores metadata and shape information about the selected image file.</span>
+<span class="sd">    im_info : ImInfo or None</span>
+<span class="sd">        Contains information about the image for processing after confirmation.</span>
+<span class="sd">    batch_fileinfo_list : list or None</span>
+<span class="sd">        List of FileInfo objects when a folder is selected for batch processing.</span>
+<span class="sd">    filepath_text : QLabel</span>
+<span class="sd">        Text widget displaying the selected file or folder path.</span>
+<span class="sd">    filepath_button : QPushButton</span>
+<span class="sd">        Button to open the file dialog for selecting an image file.</span>
+<span class="sd">    folder_button : QPushButton</span>
+<span class="sd">        Button to open the folder dialog for batch processing.</span>
+<span class="sd">    reset_button : QPushButton</span>
+<span class="sd">        Button to reset the file selection and clear all settings.</span>
+<span class="sd">    file_shape_text : QLabel</span>
+<span class="sd">        Displays the shape of the selected image file.</span>
+<span class="sd">    current_order_text : QLabel</span>
+<span class="sd">        Displays the current dimension order (axes) of the image file.</span>
+<span class="sd">    dim_order_button : QLineEdit</span>
+<span class="sd">        Input field for entering the dimension order of the image.</span>
+<span class="sd">    dim_t_button, dim_z_button, dim_xy_button : QLineEdit</span>
+<span class="sd">        Input fields for entering the resolution of the time (T), Z, and XY dimensions, respectively.</span>
+<span class="sd">    channel_button : QSpinBox</span>
+<span class="sd">        Spin box for selecting the channel in the multi-channel image.</span>
+<span class="sd">    start_frame_button, end_frame_button : QSpinBox</span>
+<span class="sd">        Spin boxes for selecting the start and end frame for temporal range selection.</span>
+<span class="sd">    confirm_button : QPushButton</span>
+<span class="sd">        Button to confirm the file selection and save the OME TIFF file.</span>
+<span class="sd">    preview_button : QPushButton</span>
+<span class="sd">        Button to preview the image in the napari viewer.</span>
+<span class="sd">    process_button : QPushButton</span>
+<span class="sd">        Button to process the selected image file(s) through the Nellie pipeline.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    init_ui()</span>
+<span class="sd">        Sets up the user interface layout with file selection, axes information, dimension resolutions, and actions.</span>
+<span class="sd">    select_filepath()</span>
+<span class="sd">        Opens a file dialog for selecting an image file and validates the selected file.</span>
+<span class="sd">    select_folder()</span>
+<span class="sd">        Opens a folder dialog for batch processing and validates the selected folder.</span>
+<span class="sd">    validate_path(filepath)</span>
+<span class="sd">        Validates the selected file or folder path and updates the file path attribute.</span>
+<span class="sd">    initialize_single_file()</span>
+<span class="sd">        Initializes the FileInfo for the selected image file, loads metadata, and updates UI elements.</span>
+<span class="sd">    initialize_folder()</span>
+<span class="sd">        Initializes the FileInfo objects for all image files in the selected folder.</span>
+<span class="sd">    on_change()</span>
+<span class="sd">        Updates UI elements based on the selected file&#39;s metadata, checking available dimensions and enabling buttons.</span>
+<span class="sd">    check_available_dims()</span>
+<span class="sd">        Checks the availability of specific dimensions (T, Z, XY) in the selected file and enables corresponding UI elements.</span>
+<span class="sd">    handle_dim_order_changed(text)</span>
+<span class="sd">        Handles changes in the dimension order (axes) input field and updates the metadata accordingly.</span>
+<span class="sd">    handle_t_changed(text)</span>
+<span class="sd">        Handles changes in the time (T) resolution input field and updates the metadata.</span>
+<span class="sd">    handle_z_changed(text)</span>
+<span class="sd">        Handles changes in the Z resolution input field and updates the metadata.</span>
+<span class="sd">    handle_xy_changed(text)</span>
+<span class="sd">        Handles changes in the XY resolution input field and updates the metadata.</span>
+<span class="sd">    change_channel()</span>
+<span class="sd">        Updates the selected channel for the image when the channel spin box is changed.</span>
+<span class="sd">    change_time()</span>
+<span class="sd">        Updates the temporal range when the start and end frame spin boxes are changed.</span>
+<span class="sd">    on_confirm()</span>
+<span class="sd">        Confirms the file selection, creates an ImInfo object, and prepares the file for processing.</span>
+<span class="sd">    on_process()</span>
+<span class="sd">        Prepares the selected file(s) for processing through the Nellie pipeline.</span>
+<span class="sd">    on_preview()</span>
+<span class="sd">        Opens a preview of the selected image in the napari viewer, adjusting the display settings based on the file&#39;s dimensionality.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the NellieFileSelect class.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        nellie : object</span>
+<span class="sd">            Reference to the main Nellie object containing image processing pipelines and functions.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="o">=</span> <span class="kc">None</span>
@@ -149,6 +242,9 @@
 <div class="viewcode-block" id="NellieFileSelect.init_ui">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.init_ui">[docs]</a>
     <span class="k">def</span> <span class="nf">init_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets up the user interface layout with sections for file selection, axes information, dimension resolutions, and action buttons.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
 
         <span class="c1"># File Selection Group</span>
@@ -232,6 +328,9 @@
 <div class="viewcode-block" id="NellieFileSelect.select_filepath">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.select_filepath">[docs]</a>
     <span class="k">def</span> <span class="nf">select_filepath</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens a file dialog for selecting an image file, validates the selected file, and updates the UI with metadata.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="n">filepath</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">QFileDialog</span><span class="o">.</span><span class="n">getOpenFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;Select file&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">validate_path</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
@@ -248,6 +347,9 @@
 <div class="viewcode-block" id="NellieFileSelect.select_folder">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.select_folder">[docs]</a>
     <span class="k">def</span> <span class="nf">select_folder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens a folder dialog for selecting a folder for batch processing and initializes FileInfo objects for all files in the folder.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">folderpath</span> <span class="o">=</span> <span class="n">QFileDialog</span><span class="o">.</span><span class="n">getExistingDirectory</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;Select folder&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">validate_path</span><span class="p">(</span><span class="n">folderpath</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -262,6 +364,14 @@
 <div class="viewcode-block" id="NellieFileSelect.validate_path">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.validate_path">[docs]</a>
     <span class="k">def</span> <span class="nf">validate_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filepath</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Validates the selected file or folder path and updates the file path attribute.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        filepath : str</span>
+<span class="sd">            The file or folder path selected by the user.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">filepath</span><span class="p">:</span>
             <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Invalid selection.&quot;</span><span class="p">)</span>
             <span class="k">return</span> <span class="kc">None</span>
@@ -271,6 +381,9 @@
 <div class="viewcode-block" id="NellieFileSelect.initialize_single_file">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.initialize_single_file">[docs]</a>
     <span class="k">def</span> <span class="nf">initialize_single_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the FileInfo object for the selected image file, loads metadata, and updates the dimension resolution fields.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">find_metadata</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">load_metadata</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">file_shape_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -283,6 +396,9 @@
 <div class="viewcode-block" id="NellieFileSelect.initialize_folder">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.initialize_folder">[docs]</a>
     <span class="k">def</span> <span class="nf">initialize_folder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes FileInfo objects for all .tif, .tiff, and .nd2 files in the selected folder and loads their metadata.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># get all .tif, .tiff, and .nd2 files in the folder</span>
         <span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span> <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tif&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">f</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tiff&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">f</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.nd2&#39;</span><span class="p">)]</span>
         <span class="c1"># for each file, create a FileInfo object</span>
@@ -298,6 +414,9 @@
 <div class="viewcode-block" id="NellieFileSelect.on_change">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_change">[docs]</a>
     <span class="k">def</span> <span class="nf">on_change</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates the user interface elements, including enabling or disabling buttons based on the file metadata and resolution settings.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_available_dims</span><span class="p">()</span>
         <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
@@ -336,6 +455,9 @@
 <div class="viewcode-block" id="NellieFileSelect.check_available_dims">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.check_available_dims">[docs]</a>
     <span class="k">def</span> <span class="nf">check_available_dims</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Checks the availability of specific dimensions (T, Z, XY) in the selected file and enables the corresponding input fields for resolutions.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">def</span> <span class="nf">check_dim</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">dim_button</span><span class="p">,</span> <span class="n">dim_text</span><span class="p">):</span>
             <span class="n">dim_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: green&quot;</span><span class="p">)</span>
             <span class="k">if</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
@@ -384,6 +506,14 @@
 <div class="viewcode-block" id="NellieFileSelect.handle_dim_order_changed">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_dim_order_changed">[docs]</a>
     <span class="k">def</span> <span class="nf">handle_dim_order_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handles changes in the dimension order input field and updates the FileInfo object accordingly.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        text : str</span>
+<span class="sd">            The new dimension order string entered by the user.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_axes</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -397,6 +527,14 @@
 <div class="viewcode-block" id="NellieFileSelect.handle_t_changed">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_t_changed">[docs]</a>
     <span class="k">def</span> <span class="nf">handle_t_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handles changes in the time (T) resolution input field and updates the FileInfo object accordingly.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        text : str</span>
+<span class="sd">            The new T resolution entered by the user.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_text</span> <span class="o">=</span> <span class="n">text</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_t_text</span><span class="p">)</span>
@@ -417,6 +555,14 @@
 <div class="viewcode-block" id="NellieFileSelect.handle_z_changed">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_z_changed">[docs]</a>
     <span class="k">def</span> <span class="nf">handle_z_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handles changes in the Z resolution input field and updates the FileInfo object accordingly.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        text : str</span>
+<span class="sd">            The new Z resolution entered by the user.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_text</span> <span class="o">=</span> <span class="n">text</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_z_text</span><span class="p">)</span>
@@ -437,6 +583,14 @@
 <div class="viewcode-block" id="NellieFileSelect.handle_xy_changed">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_xy_changed">[docs]</a>
     <span class="k">def</span> <span class="nf">handle_xy_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handles changes in the XY resolution input field and updates the FileInfo object accordingly.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        text : str</span>
+<span class="sd">            The new XY resolution entered by the user.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span> <span class="o">=</span> <span class="n">text</span>
         <span class="k">try</span><span class="p">:</span>
             <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span><span class="p">)</span>
@@ -461,6 +615,9 @@
 <div class="viewcode-block" id="NellieFileSelect.change_channel">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.change_channel">[docs]</a>
     <span class="k">def</span> <span class="nf">change_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates the selected channel in the FileInfo object when the channel spin box value is changed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_selected_channel</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">value</span><span class="p">())</span>
         <span class="k">else</span><span class="p">:</span>
@@ -472,6 +629,9 @@
 <div class="viewcode-block" id="NellieFileSelect.change_time">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.change_time">[docs]</a>
     <span class="k">def</span> <span class="nf">change_time</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates the temporal range in the FileInfo object when the start or end frame spin box values are changed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">select_temporal_range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">())</span>
         <span class="k">else</span><span class="p">:</span>
@@ -483,6 +643,9 @@
 <div class="viewcode-block" id="NellieFileSelect.on_confirm">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_confirm">[docs]</a>
     <span class="k">def</span> <span class="nf">on_confirm</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Confirms the file selection, creates an ImInfo object for the file, and prepares it for processing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Saving OME TIFF file.&quot;</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="p">)</span>
@@ -494,6 +657,9 @@
 <div class="viewcode-block" id="NellieFileSelect.on_process">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_process">[docs]</a>
     <span class="k">def</span> <span class="nf">on_process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Prepares the selected file(s) for processing through the Nellie pipeline by creating ImInfo objects and switching to the processing tab.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># switch to process tab</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="p">)</span>
@@ -506,6 +672,9 @@
 <div class="viewcode-block" id="NellieFileSelect.on_preview">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_preview">[docs]</a>
     <span class="k">def</span> <span class="nf">on_preview</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens a preview of the selected image in the napari viewer, adjusting display settings (e.g., 2D or 3D view) based on the file&#39;s dimensionality.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">im_memmap</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">ome_output_path</span><span class="p">)</span>
         <span class="c1"># num_t = min(2, self.im_info.shape[self.im_info.axes.index(&#39;T&#39;)])</span>
         <span class="k">if</span> <span class="s1">&#39;Z&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
@@ -544,6 +713,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

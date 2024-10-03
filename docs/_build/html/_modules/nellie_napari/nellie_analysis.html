@@ -47,7 +47,98 @@
 <div class="viewcode-block" id="NellieAnalysis">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis">[docs]</a>
 <span class="k">class</span> <span class="nc">NellieAnalysis</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for analyzing and visualizing multi-dimensional microscopy data using histograms, graphs, and overlays in the napari viewer.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    viewer : napari.viewer.Viewer</span>
+<span class="sd">        An instance of the napari viewer.</span>
+<span class="sd">    nellie : object</span>
+<span class="sd">        Reference to the main Nellie object that contains the pipeline and analysis data.</span>
+<span class="sd">    canvas : FigureCanvasQTAgg</span>
+<span class="sd">        Canvas for rendering matplotlib plots.</span>
+<span class="sd">    scale : tuple</span>
+<span class="sd">        The scaling factors for X, Y, and Z dimensions, default is (1, 1, 1).</span>
+<span class="sd">    log_scale : bool</span>
+<span class="sd">        Boolean flag to toggle logarithmic scaling in histogram plots.</span>
+<span class="sd">    is_median : bool</span>
+<span class="sd">        Boolean flag to toggle between mean and median views.</span>
+<span class="sd">    match_t : bool</span>
+<span class="sd">        Boolean flag to enable/disable timepoint matching in data analysis.</span>
+<span class="sd">    hist_reset : bool</span>
+<span class="sd">        Boolean flag indicating whether the histogram settings are reset.</span>
+<span class="sd">    voxel_df, node_df, branch_df, organelle_df, image_df : pd.DataFrame</span>
+<span class="sd">        DataFrames containing features at different hierarchy levels (voxel, node, branch, organelle, image).</span>
+<span class="sd">    attr_data : pd.Series or None</span>
+<span class="sd">        Data for the selected attribute to be plotted.</span>
+<span class="sd">    time_col : pd.Series or None</span>
+<span class="sd">        Time column data from the currently selected level&#39;s DataFrame.</span>
+<span class="sd">    adjacency_maps : dict or None</span>
+<span class="sd">        Dictionary containing adjacency matrices for mapping hierarchy levels.</span>
+<span class="sd">    mean, std, median, iqr, perc75, perc25 : float</span>
+<span class="sd">        Statistical values for the selected attribute data (mean, std, median, interquartile range, 75th percentile, 25th percentile).</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    reset()</span>
+<span class="sd">        Resets the internal state, including dataframes and initialization flags.</span>
+<span class="sd">    post_init()</span>
+<span class="sd">        Initializes UI elements such as checkboxes, buttons, and connects them to respective event handlers.</span>
+<span class="sd">    set_ui()</span>
+<span class="sd">        Sets up the user interface layout, including attribute selection, histogram, and export options.</span>
+<span class="sd">    _create_dropdown_selection()</span>
+<span class="sd">        Creates and configures the dropdowns for selecting hierarchy levels and attributes.</span>
+<span class="sd">    set_default_dropdowns()</span>
+<span class="sd">        Sets default values for the hierarchy level and attribute dropdowns.</span>
+<span class="sd">    check_for_adjacency_map()</span>
+<span class="sd">        Checks if an adjacency map is available and enables the overlay button accordingly.</span>
+<span class="sd">    rewrite_dropdown()</span>
+<span class="sd">        Rewrites the dropdown options based on the available data and features.</span>
+<span class="sd">    export_data()</span>
+<span class="sd">        Exports the current graph data to a CSV file.</span>
+<span class="sd">    save_graph()</span>
+<span class="sd">        Saves the current graph as a PNG file.</span>
+<span class="sd">    on_hist_change(event)</span>
+<span class="sd">        Event handler for histogram changes (e.g., adjusting bins or min/max values).</span>
+<span class="sd">    get_index(layer, event)</span>
+<span class="sd">        Gets the voxel index based on mouse hover coordinates in the napari viewer.</span>
+<span class="sd">    overlay()</span>
+<span class="sd">        Applies an overlay of selected attribute data onto the image, using adjacency maps to map voxel to higher-level features.</span>
+<span class="sd">    on_t_change(event)</span>
+<span class="sd">        Event handler that updates the graph when the timepoint changes in the napari viewer.</span>
+<span class="sd">    toggle_match_t(state)</span>
+<span class="sd">        Toggles timepoint matching and updates the graph accordingly.</span>
+<span class="sd">    toggle_mean_med(state)</span>
+<span class="sd">        Toggles between mean and median views and updates the graph.</span>
+<span class="sd">    get_csvs()</span>
+<span class="sd">        Loads the feature CSV files into DataFrames for voxels, nodes, branches, organelles, and images.</span>
+<span class="sd">    on_level_selected(index)</span>
+<span class="sd">        Event handler for when a hierarchy level is selected from the dropdown.</span>
+<span class="sd">    on_attr_selected(index)</span>
+<span class="sd">        Event handler for when an attribute is selected from the dropdown.</span>
+<span class="sd">    get_stats()</span>
+<span class="sd">        Computes basic statistics (mean, std, median, percentiles) for the selected attribute data.</span>
+<span class="sd">    draw_stats()</span>
+<span class="sd">        Draws the computed statistics on the histogram plot (e.g., mean, std, median, percentiles).</span>
+<span class="sd">    plot_data(title)</span>
+<span class="sd">        Plots the selected attribute data as a histogram, updates the UI, and displays statistical information.</span>
+<span class="sd">    on_log_scale(state)</span>
+<span class="sd">        Toggles logarithmic scaling for the histogram plot and refreshes the data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the NellieAnalysis class.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        nellie : object</span>
+<span class="sd">            Reference to the main Nellie object containing image and pipeline data.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
@@ -116,6 +207,9 @@
 <div class="viewcode-block" id="NellieAnalysis.reset">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.reset">[docs]</a>
     <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resets the internal state, including the DataFrames and initialization flags.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">initialized</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="o">=</span> <span class="kc">None</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="o">=</span> <span class="kc">None</span>
@@ -127,6 +221,9 @@
 <div class="viewcode-block" id="NellieAnalysis.post_init">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.post_init">[docs]</a>
     <span class="k">def</span> <span class="nf">post_init</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes UI elements such as checkboxes, buttons, and connects them to their respective event handlers.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">log_scale_checkbox</span> <span class="o">=</span> <span class="n">QCheckBox</span><span class="p">(</span><span class="s2">&quot;Log scale&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">log_scale_checkbox</span><span class="o">.</span><span class="n">stateChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_log_scale</span><span class="p">)</span>
 
@@ -186,6 +283,9 @@
 <div class="viewcode-block" id="NellieAnalysis.set_ui">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.set_ui">[docs]</a>
     <span class="k">def</span> <span class="nf">set_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets up the user interface layout, including dropdowns for attribute selection, histogram controls, and export buttons.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
 
         <span class="c1"># Attribute dropdown group</span>
@@ -238,6 +338,9 @@
 
 
     <span class="k">def</span> <span class="nf">_create_dropdown_selection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates and configures the dropdown menus for selecting hierarchy levels and attributes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># Create the dropdown menu</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span> <span class="o">=</span> <span class="n">QComboBox</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">currentIndexChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_level_selected</span><span class="p">)</span>
@@ -252,6 +355,9 @@
 <div class="viewcode-block" id="NellieAnalysis.set_default_dropdowns">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.set_default_dropdowns">[docs]</a>
     <span class="k">def</span> <span class="nf">set_default_dropdowns</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the default values for the hierarchy level and attribute dropdowns.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">organelle_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">findText</span><span class="p">(</span><span class="s1">&#39;organelle&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">setCurrentIndex</span><span class="p">(</span><span class="n">organelle_idx</span><span class="p">)</span>
         <span class="n">area_raw_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">findText</span><span class="p">(</span><span class="s1">&#39;organelle_area_raw&#39;</span><span class="p">)</span>
@@ -261,6 +367,9 @@
 <div class="viewcode-block" id="NellieAnalysis.check_for_adjacency_map">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.check_for_adjacency_map">[docs]</a>
     <span class="k">def</span> <span class="nf">check_for_adjacency_map</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Checks whether an adjacency map exists, and enables the overlay button if found.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;adjacency_maps&#39;</span><span class="p">]):</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">overlay_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span></div>
@@ -269,6 +378,9 @@
 <div class="viewcode-block" id="NellieAnalysis.rewrite_dropdown">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.rewrite_dropdown">[docs]</a>
     <span class="k">def</span> <span class="nf">rewrite_dropdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates the hierarchy level dropdown based on the available data, and checks for adjacency maps.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_for_adjacency_map</span><span class="p">()</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
@@ -288,6 +400,9 @@
 <div class="viewcode-block" id="NellieAnalysis.export_data">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.export_data">[docs]</a>
     <span class="k">def</span> <span class="nf">export_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Exports the current graph data as a CSV file to a specified directory.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">)</span>
         <span class="n">export_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">graph_dir</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">export_dir</span><span class="p">):</span>
@@ -311,6 +426,9 @@
 <div class="viewcode-block" id="NellieAnalysis.save_graph">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.save_graph">[docs]</a>
     <span class="k">def</span> <span class="nf">save_graph</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Saves the current graph as a PNG file to a specified directory.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y%m</span><span class="si">%d</span><span class="s2">_%H%M%S&quot;</span><span class="p">)</span>
         <span class="n">export_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">graph_dir</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">export_dir</span><span class="p">):</span>
@@ -327,12 +445,25 @@
 <div class="viewcode-block" id="NellieAnalysis.on_hist_change">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_hist_change">[docs]</a>
     <span class="k">def</span> <span class="nf">on_hist_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Event handler for updating the histogram when changes are made (e.g., adjusting the number of bins, min/max values).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">plot_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentText</span><span class="p">())</span></div>
 
 
 <div class="viewcode-block" id="NellieAnalysis.get_index">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.get_index">[docs]</a>
     <span class="k">def</span> <span class="nf">get_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">layer</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Retrieves the index of the voxel or feature based on mouse hover coordinates in the napari viewer.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        layer : Layer</span>
+<span class="sd">            The layer on which the event is triggered.</span>
+<span class="sd">        event : Event</span>
+<span class="sd">            The event triggered by mouse hover.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># get the coordinates of where the mouse is hovering</span>
         <span class="n">pos</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">cursor</span><span class="o">.</span><span class="n">position</span>
         <span class="n">matched_row</span> <span class="o">=</span> <span class="kc">None</span>
@@ -382,6 +513,9 @@
 <div class="viewcode-block" id="NellieAnalysis.overlay">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.overlay">[docs]</a>
     <span class="k">def</span> <span class="nf">overlay</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Applies an overlay of attribute data onto the image in the napari viewer, using adjacency maps for mapping between hierarchy levels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">label_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">])</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">label_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">label_mask</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
@@ -515,6 +649,9 @@
 <div class="viewcode-block" id="NellieAnalysis.on_t_change">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_t_change">[docs]</a>
     <span class="k">def</span> <span class="nf">on_t_change</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Event handler for timepoint changes in the napari viewer. Updates the attribute data and refreshes the plot accordingly.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">currentIndex</span><span class="p">())</span></div>
 
@@ -522,6 +659,14 @@
 <div class="viewcode-block" id="NellieAnalysis.toggle_match_t">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.toggle_match_t">[docs]</a>
     <span class="k">def</span> <span class="nf">toggle_match_t</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Toggles timepoint matching and updates the graph and data accordingly.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state : int</span>
+<span class="sd">            The state of the checkbox (checked or unchecked).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">match_t</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="k">else</span><span class="p">:</span>
@@ -532,6 +677,14 @@
 <div class="viewcode-block" id="NellieAnalysis.toggle_mean_med">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.toggle_mean_med">[docs]</a>
     <span class="k">def</span> <span class="nf">toggle_mean_med</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Toggles between mean and median views for the histogram plot.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state : int</span>
+<span class="sd">            The state of the checkbox (checked or unchecked).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">is_median</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="k">else</span><span class="p">:</span>
@@ -542,6 +695,9 @@
 <div class="viewcode-block" id="NellieAnalysis.get_csvs">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.get_csvs">[docs]</a>
     <span class="k">def</span> <span class="nf">get_csvs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Loads the CSV files containing voxel, node, branch, organelle, and image features into DataFrames.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">voxel_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_voxels&#39;</span><span class="p">])</span>
         <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">]):</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">node_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_nodes&#39;</span><span class="p">])</span>
@@ -556,6 +712,14 @@
 <div class="viewcode-block" id="NellieAnalysis.on_level_selected">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_level_selected">[docs]</a>
     <span class="k">def</span> <span class="nf">on_level_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Event handler for when a hierarchy level is selected from the dropdown menu.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        index : int</span>
+<span class="sd">            The index of the selected item in the dropdown.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># This method is called whenever a radio button is selected</span>
         <span class="c1"># &#39;button&#39; parameter is the clicked radio button</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">selected_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown</span><span class="o">.</span><span class="n">itemText</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
@@ -600,6 +764,14 @@
 <div class="viewcode-block" id="NellieAnalysis.on_attr_selected">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_attr_selected">[docs]</a>
     <span class="k">def</span> <span class="nf">on_attr_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Event handler for when an attribute is selected from the dropdown menu.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        index : int</span>
+<span class="sd">            The index of the selected attribute in the dropdown.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="c1"># if there are no items in dropdown_attr, return</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dropdown_attr</span><span class="o">.</span><span class="n">count</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
@@ -628,6 +800,9 @@
 <div class="viewcode-block" id="NellieAnalysis.get_stats">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.get_stats">[docs]</a>
     <span class="k">def</span> <span class="nf">get_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes basic statistics (mean, std, median, percentiles) for the currently selected attribute data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span><span class="p">:</span>
@@ -656,6 +831,9 @@
 <div class="viewcode-block" id="NellieAnalysis.draw_stats">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.draw_stats">[docs]</a>
     <span class="k">def</span> <span class="nf">draw_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Draws statistics on the histogram plot, including lines for mean, median, std, and percentiles.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span>
         <span class="c1"># draw lines for mean, median, std, percentiles on the canvas</span>
@@ -675,6 +853,14 @@
 <div class="viewcode-block" id="NellieAnalysis.plot_data">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.plot_data">[docs]</a>
     <span class="k">def</span> <span class="nf">plot_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">title</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Plots the selected attribute data as a histogram, updates the canvas, and displays the computed statistics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        title : str</span>
+<span class="sd">            The title for the plot, usually the name of the selected attribute.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
         <span class="n">ax</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">canvas</span><span class="o">.</span><span class="n">figure</span><span class="o">.</span><span class="n">add_subplot</span><span class="p">(</span><span class="mi">111</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_to_plot</span><span class="o">.</span><span class="n">replace</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">],</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
@@ -731,6 +917,14 @@
 <div class="viewcode-block" id="NellieAnalysis.on_log_scale">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_analysis.NellieAnalysis.on_log_scale">[docs]</a>
     <span class="k">def</span> <span class="nf">on_log_scale</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Toggles logarithmic scaling for the histogram plot and refreshes the data accordingly.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state : int</span>
+<span class="sd">            The state of the checkbox (checked or unchecked).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hist_reset</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="k">if</span> <span class="n">state</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">log_scale</span> <span class="o">=</span> <span class="kc">True</span>
@@ -763,6 +957,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

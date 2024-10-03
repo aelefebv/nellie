@@ -44,7 +44,43 @@
 <div class="viewcode-block" id="Home">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_home.Home">[docs]</a>
 <span class="k">class</span> <span class="nc">Home</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The Home screen for the Nellie application, displayed in the napari viewer.</span>
+<span class="sd">    It provides options to start using the application, navigate to the file selection tab, and take screenshots.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    viewer : napari.viewer.Viewer</span>
+<span class="sd">        The napari viewer instance.</span>
+<span class="sd">    nellie : object</span>
+<span class="sd">        Reference to the main Nellie object containing image processing pipelines and functions.</span>
+<span class="sd">    layout : QVBoxLayout</span>
+<span class="sd">        The vertical layout to organize the widgets on the home screen.</span>
+<span class="sd">    start_button : QPushButton</span>
+<span class="sd">        Button to start the application and navigate to the file selection tab.</span>
+<span class="sd">    screenshot_button : QPushButton</span>
+<span class="sd">        Button to take a screenshot of the current napari viewer canvas.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    __init__(napari_viewer, nellie, parent=None)</span>
+<span class="sd">        Initializes the home screen with a logo, title, description, and navigation buttons.</span>
+<span class="sd">    screenshot(event=None)</span>
+<span class="sd">        Takes a screenshot of the napari viewer and saves it to a specified folder.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Home screen with a logo, title, description, and buttons for navigation and screenshot functionality.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        nellie : object</span>
+<span class="sd">            Reference to the main Nellie object containing image processing pipelines and functions.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
@@ -108,6 +144,14 @@
 <div class="viewcode-block" id="Home.screenshot">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_home.Home.screenshot">[docs]</a>
     <span class="k">def</span> <span class="nf">screenshot</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Takes a screenshot of the napari viewer and saves it as a PNG file in a specified folder.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        event : optional</span>
+<span class="sd">            An event object, if triggered by a key binding or button click (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;No file selected, cannot take screenshot&quot;</span><span class="p">)</span>
             <span class="k">return</span>
@@ -161,6 +205,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

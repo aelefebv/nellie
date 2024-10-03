@@ -40,9 +40,92 @@
 <div class="viewcode-block" id="Markers">
 <a class="viewcode-back" href="../../../nellie.segmentation.html#nellie.segmentation.mocap_marking.Markers">[docs]</a>
 <span class="k">class</span> <span class="nc">Markers</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for generating motion capture markers in microscopy images using distance transforms and peak detection.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An object containing image metadata and memory-mapped image data.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of timepoints in the image.</span>
+<span class="sd">    min_radius_um : float</span>
+<span class="sd">        Minimum radius of detected objects in micrometers.</span>
+<span class="sd">    max_radius_um : float</span>
+<span class="sd">        Maximum radius of detected objects in micrometers.</span>
+<span class="sd">    min_radius_px : float</span>
+<span class="sd">        Minimum radius of detected objects in pixels.</span>
+<span class="sd">    max_radius_px : float</span>
+<span class="sd">        Maximum radius of detected objects in pixels.</span>
+<span class="sd">    use_im : str</span>
+<span class="sd">        Specifies which image to use for peak detection (&#39;distance&#39; or &#39;frangi&#39;).</span>
+<span class="sd">    num_sigma : int</span>
+<span class="sd">        Number of sigma steps for multi-scale filtering.</span>
+<span class="sd">    shape : tuple</span>
+<span class="sd">        Shape of the input image.</span>
+<span class="sd">    im_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped original image data.</span>
+<span class="sd">    im_frangi_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped Frangi-filtered image data.</span>
+<span class="sd">    label_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped label data from instance segmentation.</span>
+<span class="sd">    im_marker_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for motion capture markers.</span>
+<span class="sd">    im_distance_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for distance transform.</span>
+<span class="sd">    im_border_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for image borders.</span>
+<span class="sd">    debug : dict or None</span>
+<span class="sd">        Debugging information for tracking the marking process.</span>
+<span class="sd">    viewer : object or None</span>
+<span class="sd">        Viewer object for displaying status during processing.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    _get_sigma_vec(sigma)</span>
+<span class="sd">        Computes the sigma vector for multi-scale filtering based on image dimensions.</span>
+<span class="sd">    _set_default_sigmas()</span>
+<span class="sd">        Sets the default sigma values for multi-scale filtering.</span>
+<span class="sd">    _get_t()</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+<span class="sd">    _allocate_memory()</span>
+<span class="sd">        Allocates memory for the markers, distance transform, and border images.</span>
+<span class="sd">    _distance_im(mask)</span>
+<span class="sd">        Computes the distance transform of the binary mask and identifies border pixels.</span>
+<span class="sd">    _remove_close_peaks(coord, check_im)</span>
+<span class="sd">        Removes peaks that are too close together, keeping the brightest peak in each cluster.</span>
+<span class="sd">    _local_max_peak(use_im, mask, distance_im)</span>
+<span class="sd">        Detects local maxima in the image based on multi-scale filtering.</span>
+<span class="sd">    _run_frame(t)</span>
+<span class="sd">        Runs marker detection for a single timepoint in the image.</span>
+<span class="sd">    _run_mocap_marking()</span>
+<span class="sd">        Runs the marker detection process for all timepoints in the image.</span>
+<span class="sd">    run()</span>
+<span class="sd">        Main method to execute the motion capture marking process over the image data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                  <span class="n">min_radius_um</span><span class="o">=</span><span class="mf">0.20</span><span class="p">,</span> <span class="n">max_radius_um</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">use_im</span><span class="o">=</span><span class="s1">&#39;distance&#39;</span><span class="p">,</span> <span class="n">num_sigma</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
                  <span class="n">viewer</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Markers object with image metadata and marking parameters.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        im_info : ImInfo</span>
+<span class="sd">            An instance of the ImInfo class, containing metadata and paths for the image file.</span>
+<span class="sd">        num_t : int, optional</span>
+<span class="sd">            Number of timepoints to process. If None, defaults to the number of timepoints in the image.</span>
+<span class="sd">        min_radius_um : float, optional</span>
+<span class="sd">            Minimum radius of detected objects in micrometers (default is 0.20).</span>
+<span class="sd">        max_radius_um : float, optional</span>
+<span class="sd">            Maximum radius of detected objects in micrometers (default is 1).</span>
+<span class="sd">        use_im : str, optional</span>
+<span class="sd">            Specifies which image to use for peak detection (&#39;distance&#39; or &#39;frangi&#39;, default is &#39;distance&#39;).</span>
+<span class="sd">        num_sigma : int, optional</span>
+<span class="sd">            Number of sigma steps for multi-scale filtering (default is 5).</span>
+<span class="sd">        viewer : object or None, optional</span>
+<span class="sd">            Viewer object for displaying status during processing (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
 
         <span class="c1"># if self.im_info.no_t:</span>
@@ -77,6 +160,19 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">viewer</span>
 
     <span class="k">def</span> <span class="nf">_get_sigma_vec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sigma</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the sigma vector for multi-scale filtering based on image dimensions.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        sigma : float</span>
+<span class="sd">            The sigma value to use for filtering.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Sigma vector for Gaussian filtering in (Z, Y, X).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">sigma_vec</span> <span class="o">=</span> <span class="p">(</span><span class="n">sigma</span><span class="p">,</span> <span class="n">sigma</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -84,6 +180,9 @@
         <span class="k">return</span> <span class="n">sigma_vec</span>
 
     <span class="k">def</span> <span class="nf">_set_default_sigmas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the default sigma values for multi-scale filtering based on the minimum and maximum radius in pixels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Setting sigma values.&#39;</span><span class="p">)</span>
         <span class="n">min_sigma_step_size</span> <span class="o">=</span> <span class="mf">0.2</span>
 
@@ -97,6 +196,11 @@
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Calculated sigma step size = </span><span class="si">{</span><span class="n">sigma_step_size_calculated</span><span class="si">}</span><span class="s1">. Sigmas = </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+
+<span class="sd">        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
@@ -106,6 +210,11 @@
             <span class="k">return</span>
 
     <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocates memory for motion capture markers, distance transform, and border images.</span>
+
+<span class="sd">        This method creates memory-mapped arrays for the instance label data, original image data, Frangi-filtered data, markers, distance transforms, and borders.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Allocating memory for mocap marking.&#39;</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">])</span>
@@ -132,6 +241,19 @@
                                                              <span class="n">return_memmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_distance_im</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the distance transform of the binary mask and identifies border pixels.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        mask : np.ndarray</span>
+<span class="sd">            Binary mask of segmented objects.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            A tuple containing the distance transform, border mask, and updated distance frame.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">border_mask</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">binary_dilation</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">iterations</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">^</span> <span class="n">mask</span>
 
         <span class="k">if</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s1">&#39;cuda&#39;</span><span class="p">:</span>
@@ -153,6 +275,21 @@
         <span class="k">return</span> <span class="n">distances_im_frame</span><span class="p">,</span> <span class="n">border_mask</span>
 
     <span class="k">def</span> <span class="nf">_remove_close_peaks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coord</span><span class="p">,</span> <span class="n">check_im</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Removes peaks that are too close together, keeping only the brightest peak within a given distance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        coord : np.ndarray</span>
+<span class="sd">            Coordinates of detected peaks.</span>
+<span class="sd">        check_im : np.ndarray</span>
+<span class="sd">            Intensity image used for peak sorting.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Coordinates of the remaining peaks after filtering.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">check_im_max</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">maximum_filter</span><span class="p">(</span><span class="n">check_im</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s1">&#39;nearest&#39;</span><span class="p">)</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">intensities</span> <span class="o">=</span> <span class="n">check_im_max</span><span class="p">[</span><span class="n">coord</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">coord</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">coord</span><span class="p">[:,</span> <span class="mi">2</span><span class="p">]]</span>
@@ -191,6 +328,23 @@
         <span class="k">return</span> <span class="n">cleaned_coords</span>
 
     <span class="k">def</span> <span class="nf">_local_max_peak</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">use_im</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="n">distance_im</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Detects local maxima in the image based on multi-scale filtering.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        use_im : np.ndarray</span>
+<span class="sd">            Image to use for detecting peaks (&#39;distance&#39; or &#39;frangi&#39;).</span>
+<span class="sd">        mask : np.ndarray</span>
+<span class="sd">            Binary mask of segmented objects.</span>
+<span class="sd">        distance_im : np.ndarray</span>
+<span class="sd">            Distance transform of the binary mask.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Coordinates of the detected peaks.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">lapofg</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">empty</span><span class="p">(((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">),)</span> <span class="o">+</span> <span class="n">use_im</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">):</span>
             <span class="n">sigma_vec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_sigma_vec</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
@@ -217,6 +371,19 @@
         <span class="k">return</span> <span class="n">coords_idx</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs marker detection for a single timepoint in the image.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            A tuple containing the detected marker image, distance transform, and border mask for the given timepoint.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Running motion capture marking, volume </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
         <span class="n">intensity_frame</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">])</span>
         <span class="n">mask_frame</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
@@ -234,6 +401,11 @@
             <span class="k">return</span> <span class="n">peak_im</span><span class="p">,</span> <span class="n">distance_im</span><span class="p">,</span> <span class="n">border_mask</span>
 
     <span class="k">def</span> <span class="nf">_run_mocap_marking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the marker detection process for all timepoints in the image.</span>
+
+<span class="sd">        This method processes each timepoint sequentially and applies motion capture marking.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Mocap marking. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
@@ -249,6 +421,11 @@
 <div class="viewcode-block" id="Markers.run">
 <a class="viewcode-back" href="../../../nellie.segmentation.html#nellie.segmentation.mocap_marking.Markers.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main method to execute the motion capture marking process over the image data.</span>
+
+<span class="sd">        This method allocates memory, sets sigma values, and runs the marking process for all timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># if self.im_info.no_t:</span>
         <span class="c1">#     return</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_get_t</span><span class="p">()</span>
@@ -283,6 +460,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

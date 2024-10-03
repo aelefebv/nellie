@@ -1104,6 +1104,26 @@
 <div class="viewcode-block" id="aggregate_stats_for_class">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.aggregate_stats_for_class">[docs]</a>
 <span class="k">def</span> <span class="nf">aggregate_stats_for_class</span><span class="p">(</span><span class="n">child_class</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">list_of_idxs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Aggregates statistical metrics (mean, standard deviation, min, max, sum) for features of a given class at</span>
+<span class="sd">    a specific time frame.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    child_class : object</span>
+<span class="sd">        The class from which the feature data is extracted. It should contain a list of statistics to aggregate</span>
+<span class="sd">        (i.e., `stats_to_aggregate`) and corresponding feature arrays.</span>
+<span class="sd">    t : int</span>
+<span class="sd">        The time frame index for which the aggregation is performed.</span>
+<span class="sd">    list_of_idxs : list of lists</span>
+<span class="sd">        A list where each sublist contains the indices of data points that should be grouped together for aggregation.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    dict</span>
+<span class="sd">        A dictionary where the keys are feature names and the values are dictionaries containing aggregated</span>
+<span class="sd">        statistics for each feature (mean, standard deviation, min, max, sum).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="c1"># initialize a dictionary to hold lists of aggregated stats for each stat name</span>
     <span class="c1"># aggregate_stats = {</span>
     <span class="c1">#     stat_name: {&quot;mean&quot;: [], &quot;std_dev&quot;: [], &quot;25%&quot;: [], &quot;50%&quot;: [], &quot;75%&quot;: [], &quot;min&quot;: [], &quot;max&quot;: [], &quot;range&quot;: [],</span>
@@ -1391,6 +1411,23 @@
 <div class="viewcode-block" id="distance_check">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.distance_check">[docs]</a>
 <span class="k">def</span> <span class="nf">distance_check</span><span class="p">(</span><span class="n">border_mask</span><span class="p">,</span> <span class="n">check_coords</span><span class="p">,</span> <span class="n">spacing</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Calculates the minimum distance between given coordinates and a border mask using a KD-tree.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    border_mask : numpy.ndarray</span>
+<span class="sd">        A binary mask where the border is marked as `True`.</span>
+<span class="sd">    check_coords : numpy.ndarray</span>
+<span class="sd">        Coordinates of the points for which distances to the border will be calculated.</span>
+<span class="sd">    spacing : tuple or list</span>
+<span class="sd">        The spacing of the image dimensions (used to scale the coordinates).</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    numpy.ndarray</span>
+<span class="sd">        An array of distances from each point in `check_coords` to the nearest border point.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">border_coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">border_mask</span><span class="p">)</span> <span class="o">*</span> <span class="n">spacing</span>
     <span class="n">border_tree</span> <span class="o">=</span> <span class="n">spatial</span><span class="o">.</span><span class="n">cKDTree</span><span class="p">(</span><span class="n">border_coords</span><span class="p">)</span>
     <span class="n">dist</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">border_tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">check_coords</span> <span class="o">*</span> <span class="n">spacing</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>

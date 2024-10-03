@@ -43,9 +43,105 @@
 <div class="viewcode-block" id="Network">
 <a class="viewcode-back" href="../../../nellie.segmentation.html#nellie.segmentation.networking.Network">[docs]</a>
 <span class="k">class</span> <span class="nc">Network</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for analyzing and skeletonizing network-like structures in 3D or 4D microscopy images, such as cellular branches.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An object containing image metadata and memory-mapped image data.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of timepoints in the image.</span>
+<span class="sd">    min_radius_um : float</span>
+<span class="sd">        Minimum radius of detected objects in micrometers.</span>
+<span class="sd">    max_radius_um : float</span>
+<span class="sd">        Maximum radius of detected objects in micrometers.</span>
+<span class="sd">    min_radius_px : float</span>
+<span class="sd">        Minimum radius of detected objects in pixels.</span>
+<span class="sd">    max_radius_px : float</span>
+<span class="sd">        Maximum radius of detected objects in pixels.</span>
+<span class="sd">    scaling : tuple</span>
+<span class="sd">        Scaling factors for Z, Y, and X dimensions.</span>
+<span class="sd">    shape : tuple</span>
+<span class="sd">        Shape of the input image.</span>
+<span class="sd">    im_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped original image data.</span>
+<span class="sd">    im_frangi_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped Frangi-filtered image data.</span>
+<span class="sd">    label_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped label data from instance segmentation.</span>
+<span class="sd">    network_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for network analysis.</span>
+<span class="sd">    pixel_class_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for pixel classification.</span>
+<span class="sd">    skel_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for skeleton images.</span>
+<span class="sd">    skel_relabelled_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped output for relabeled skeletons.</span>
+<span class="sd">    clean_skel : bool</span>
+<span class="sd">        Whether to clean the skeletons by removing noisy parts (default is True).</span>
+<span class="sd">    sigmas : list or None</span>
+<span class="sd">        List of sigma values for multi-scale filtering.</span>
+<span class="sd">    debug : dict or None</span>
+<span class="sd">        Debugging information for tracking network analysis steps.</span>
+<span class="sd">    viewer : object or None</span>
+<span class="sd">        Viewer object for displaying status during processing.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    _remove_connected_label_pixels(skel_labels)</span>
+<span class="sd">        Removes skeleton pixels that are connected to multiple labeled regions.</span>
+<span class="sd">    _add_missing_skeleton_labels(skel_frame, label_frame, frangi_frame, thresh)</span>
+<span class="sd">        Adds missing labels to the skeleton where the intensity is highest within a labeled region.</span>
+<span class="sd">    _skeletonize(label_frame, frangi_frame)</span>
+<span class="sd">        Skeletonizes the labeled regions and cleans up the skeleton based on intensity thresholds.</span>
+<span class="sd">    _get_sigma_vec(sigma)</span>
+<span class="sd">        Computes the sigma vector for multi-scale filtering based on image dimensions.</span>
+<span class="sd">    _set_default_sigmas()</span>
+<span class="sd">        Sets the default sigma values for multi-scale filtering.</span>
+<span class="sd">    _relabel_objects(branch_skel_labels, label_frame)</span>
+<span class="sd">        Relabels skeleton pixels by propagating labels to nearby unlabeled pixels.</span>
+<span class="sd">    _local_max_peak(frame, mask)</span>
+<span class="sd">        Detects local maxima in the image using multi-scale Laplacian of Gaussian filtering.</span>
+<span class="sd">    _get_pixel_class(skel)</span>
+<span class="sd">        Classifies skeleton pixels into junctions, branches, and endpoints based on connectivity.</span>
+<span class="sd">    _get_t()</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+<span class="sd">    _allocate_memory()</span>
+<span class="sd">        Allocates memory for skeleton images, pixel classification, and relabeled skeletons.</span>
+<span class="sd">    _get_branch_skel_labels(pixel_class)</span>
+<span class="sd">        Gets the branch skeleton labels, excluding junctions and background pixels.</span>
+<span class="sd">    _run_frame(t)</span>
+<span class="sd">        Runs skeletonization and network analysis for a single timepoint.</span>
+<span class="sd">    _clean_junctions(pixel_class)</span>
+<span class="sd">        Cleans up junctions by removing closely spaced junction pixels.</span>
+<span class="sd">    _run_networking()</span>
+<span class="sd">        Runs the network analysis process for all timepoints in the image.</span>
+<span class="sd">    run()</span>
+<span class="sd">        Main method to execute the network analysis process over the image data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                  <span class="n">min_radius_um</span><span class="o">=</span><span class="mf">0.20</span><span class="p">,</span> <span class="n">max_radius_um</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">clean_skel</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                  <span class="n">viewer</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Network object with image metadata and network analysis parameters.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        im_info : ImInfo</span>
+<span class="sd">            An instance of the ImInfo class, containing metadata and paths for the image file.</span>
+<span class="sd">        num_t : int, optional</span>
+<span class="sd">            Number of timepoints to process. If None, defaults to the number of timepoints in the image.</span>
+<span class="sd">        min_radius_um : float, optional</span>
+<span class="sd">            Minimum radius of detected objects in micrometers (default is 0.20).</span>
+<span class="sd">        max_radius_um : float, optional</span>
+<span class="sd">            Maximum radius of detected objects in micrometers (default is 1).</span>
+<span class="sd">        clean_skel : bool, optional</span>
+<span class="sd">            Whether to clean the skeleton by removing noisy parts (default is None, which means True for 3D images).</span>
+<span class="sd">        viewer : object or None, optional</span>
+<span class="sd">            Viewer object for displaying status during processing (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">num_t</span>
         <span class="k">if</span> <span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
@@ -85,6 +181,21 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">viewer</span>
 
     <span class="k">def</span> <span class="nf">_remove_connected_label_pixels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">skel_labels</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Removes skeleton pixels that are connected to multiple labeled regions.</span>
+
+<span class="sd">        This method identifies pixels that are connected to more than one labeled region in the neighborhood and removes them.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        skel_labels : np.ndarray</span>
+<span class="sd">            Skeletonized label data.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Cleaned skeleton data with conflicting pixels removed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s1">&#39;cuda&#39;</span><span class="p">:</span>
             <span class="n">skel_labels</span> <span class="o">=</span> <span class="n">skel_labels</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
 
@@ -133,6 +244,25 @@
         <span class="k">return</span> <span class="n">xp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">skel_labels</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_add_missing_skeleton_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">skel_frame</span><span class="p">,</span> <span class="n">label_frame</span><span class="p">,</span> <span class="n">frangi_frame</span><span class="p">,</span> <span class="n">thresh</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Adds missing labels to the skeleton where the intensity is highest within a labeled region.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        skel_frame : np.ndarray</span>
+<span class="sd">            Skeleton data.</span>
+<span class="sd">        label_frame : np.ndarray</span>
+<span class="sd">            Labeled regions in the image.</span>
+<span class="sd">        frangi_frame : np.ndarray</span>
+<span class="sd">            Frangi-filtered image.</span>
+<span class="sd">        thresh : float</span>
+<span class="sd">            Threshold value used during skeleton cleaning.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Updated skeleton with missing labels added.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Adding missing skeleton labels.&#39;</span><span class="p">)</span>
         <span class="n">gpu_frame</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">label_frame</span><span class="p">)</span>
         <span class="c1"># identify unique labels and find missing ones</span>
@@ -156,6 +286,23 @@
         <span class="k">return</span> <span class="n">skel_frame</span>
 
     <span class="k">def</span> <span class="nf">_skeletonize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label_frame</span><span class="p">,</span> <span class="n">frangi_frame</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Skeletonizes the labeled regions and cleans up the skeleton based on intensity thresholds.</span>
+
+<span class="sd">        This method applies skeletonization and optionally cleans the skeleton using intensity information.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        label_frame : np.ndarray</span>
+<span class="sd">            Labeled regions in the image.</span>
+<span class="sd">        frangi_frame : np.ndarray</span>
+<span class="sd">            Frangi-filtered image used for intensity-based cleaning.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Skeleton data and the intensity threshold used for cleaning.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">cpu_frame</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">label_frame</span><span class="p">)</span>
         <span class="n">gpu_frame</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">label_frame</span><span class="p">)</span>
 
@@ -187,6 +334,19 @@
         <span class="k">return</span> <span class="n">skel_labels</span><span class="p">,</span> <span class="n">thresh</span>
 
     <span class="k">def</span> <span class="nf">_get_sigma_vec</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sigma</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the sigma vector for multi-scale filtering based on image dimensions.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        sigma : float</span>
+<span class="sd">            The sigma value to use for filtering.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Sigma vector for Gaussian filtering in (Z, Y, X).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">sigma_vec</span> <span class="o">=</span> <span class="p">(</span><span class="n">sigma</span><span class="p">,</span> <span class="n">sigma</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
@@ -194,6 +354,9 @@
         <span class="k">return</span> <span class="n">sigma_vec</span>
 
     <span class="k">def</span> <span class="nf">_set_default_sigmas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the default sigma values for multi-scale filtering based on the minimum and maximum radius in pixels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Setting to sigma values.&#39;</span><span class="p">)</span>
         <span class="n">min_sigma_step_size</span> <span class="o">=</span> <span class="mf">0.2</span>
         <span class="n">num_sigma</span> <span class="o">=</span> <span class="mi">5</span>
@@ -208,6 +371,23 @@
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Calculated sigma step size = </span><span class="si">{</span><span class="n">sigma_step_size_calculated</span><span class="si">}</span><span class="s1">. Sigmas = </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_relabel_objects</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">branch_skel_labels</span><span class="p">,</span> <span class="n">label_frame</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Relabels skeleton pixels by propagating labels to nearby unlabeled pixels.</span>
+
+<span class="sd">        This method uses a nearest-neighbor approach to propagate labels to unlabeled pixels in the skeleton.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        branch_skel_labels : np.ndarray</span>
+<span class="sd">            Branch skeleton labels.</span>
+<span class="sd">        label_frame : np.ndarray</span>
+<span class="sd">            Labeled regions in the image.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Relabeled skeleton.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">structure</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
         <span class="k">else</span><span class="p">:</span>
@@ -275,6 +455,21 @@
         <span class="k">return</span> <span class="n">relabelled_labels</span>
 
     <span class="k">def</span> <span class="nf">_local_max_peak</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">,</span> <span class="n">mask</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Detects local maxima in the image using multi-scale Laplacian of Gaussian filtering.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        frame : np.ndarray</span>
+<span class="sd">            The input image.</span>
+<span class="sd">        mask : np.ndarray</span>
+<span class="sd">            Binary mask of regions to process.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Coordinates of detected local maxima.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">lapofg</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">empty</span><span class="p">(((</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">),)</span> <span class="o">+</span> <span class="n">frame</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">float</span><span class="p">)</span>
         <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sigmas</span><span class="p">):</span>
             <span class="n">sigma_vec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_sigma_vec</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
@@ -297,6 +492,19 @@
         <span class="k">return</span> <span class="n">coords_3d</span>
 
     <span class="k">def</span> <span class="nf">_get_pixel_class</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">skel</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Classifies skeleton pixels into junctions, branches, and endpoints based on connectivity.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        skel : np.ndarray</span>
+<span class="sd">            Skeleton data.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Pixel classification of skeleton points (junctions, branches, or endpoints).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">skel_mask</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">skel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;uint8&#39;</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">weights</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="mi">3</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
@@ -307,6 +515,11 @@
         <span class="k">return</span> <span class="n">skel_mask_sum</span>
 
     <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+
+<span class="sd">        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
@@ -316,6 +529,11 @@
             <span class="k">return</span>
 
     <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocates memory for skeleton images, pixel classification, and relabeled skeletons.</span>
+
+<span class="sd">        This method creates memory-mapped arrays for the instance label data, skeleton, pixel classification, and relabeled skeletons.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Allocating memory for skeletonization.&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">])</span>  <span class="c1"># , read_type=&#39;r+&#39;)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span>
@@ -341,6 +559,19 @@
                                                                    <span class="n">return_memmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_branch_skel_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pixel_class</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Gets the branch skeleton labels, excluding junctions and background pixels.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        pixel_class : np.ndarray</span>
+<span class="sd">            Classified skeleton pixels.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Branch skeleton labels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># get the labels of the skeleton pixels that are not junctions or background</span>
         <span class="n">non_junctions</span> <span class="o">=</span> <span class="n">pixel_class</span> <span class="o">&gt;</span> <span class="mi">0</span>
         <span class="n">non_junctions</span> <span class="o">=</span> <span class="n">non_junctions</span> <span class="o">*</span> <span class="p">(</span><span class="n">pixel_class</span> <span class="o">!=</span> <span class="mi">4</span><span class="p">)</span>
@@ -352,6 +583,19 @@
         <span class="k">return</span> <span class="n">non_junction_labels</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs skeletonization and network analysis for a single timepoint.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Branch skeleton labels, pixel classification, and relabeled skeletons.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Running network analysis, volume </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
         <span class="n">label_frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
         <span class="n">frangi_frame</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_frangi_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">])</span>
@@ -368,6 +612,21 @@
         <span class="k">return</span> <span class="n">branch_skel_labels</span><span class="p">,</span> <span class="n">pixel_class</span><span class="p">,</span> <span class="n">branch_labels</span>
 
     <span class="k">def</span> <span class="nf">_clean_junctions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pixel_class</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Cleans up junctions by removing closely spaced junction pixels.</span>
+
+<span class="sd">        This method uses a KD-tree to remove redundant junction points, leaving only the centroid.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        pixel_class : np.ndarray</span>
+<span class="sd">            Pixel classification of skeleton points.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Cleaned pixel classification with redundant junctions removed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">junctions</span> <span class="o">=</span> <span class="n">pixel_class</span> <span class="o">==</span> <span class="mi">4</span>
         <span class="n">junction_labels</span> <span class="o">=</span> <span class="n">skimage</span><span class="o">.</span><span class="n">measure</span><span class="o">.</span><span class="n">label</span><span class="p">(</span><span class="n">junctions</span><span class="p">)</span>
         <span class="n">junction_objects</span> <span class="o">=</span> <span class="n">skimage</span><span class="o">.</span><span class="n">measure</span><span class="o">.</span><span class="n">regionprops</span><span class="p">(</span><span class="n">junction_labels</span><span class="p">)</span>
@@ -385,6 +644,11 @@
         <span class="k">return</span> <span class="n">pixel_class</span>
 
     <span class="k">def</span> <span class="nf">_run_networking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the network analysis process for all timepoints in the image.</span>
+
+<span class="sd">        This method processes each timepoint sequentially and applies network analysis.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Extracting branches. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
@@ -441,6 +705,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

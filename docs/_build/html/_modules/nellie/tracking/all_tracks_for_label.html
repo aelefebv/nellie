@@ -39,7 +39,42 @@
 <div class="viewcode-block" id="LabelTracks">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.all_tracks_for_label.LabelTracks">[docs]</a>
 <span class="k">class</span> <span class="nc">LabelTracks</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to track labeled objects over multiple timepoints in a microscopy image using flow interpolation.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An object containing image metadata and memory-mapped image data.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of timepoints in the image.</span>
+<span class="sd">    label_im_path : str</span>
+<span class="sd">        Path to the labeled instance image.</span>
+<span class="sd">    im_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped original image data.</span>
+<span class="sd">    label_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped labeled instance image data.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    initialize()</span>
+<span class="sd">        Initializes memory-mapped data for both the raw image and the labeled instance image.</span>
+<span class="sd">    run(label_num=None, start_frame=0, end_frame=None, min_track_num=0, skip_coords=1, max_distance_um=0.5)</span>
+<span class="sd">        Runs the tracking process for labeled objects across timepoints, both forward and backward.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">label_im_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the LabelTracks class with image metadata, timepoints, and label image path.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        im_info : ImInfo</span>
+<span class="sd">            An instance of the ImInfo class containing image metadata and paths.</span>
+<span class="sd">        num_t : int, optional</span>
+<span class="sd">            Number of timepoints in the image (default is None, in which case it is inferred from the image metadata).</span>
+<span class="sd">        label_im_path : str, optional</span>
+<span class="sd">            Path to the labeled instance image. If not provided, defaults to the &#39;im_instance_label&#39; path in `im_info`.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">num_t</span>
         <span class="k">if</span> <span class="n">label_im_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -55,6 +90,11 @@
 <div class="viewcode-block" id="LabelTracks.initialize">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.all_tracks_for_label.LabelTracks.initialize">[docs]</a>
     <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes memory-mapped data for both the raw image and the labeled instance image.</span>
+
+<span class="sd">        This method prepares the image data and the labeled data for processing, mapping them into memory.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_im_path</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span></div>
 
@@ -62,6 +102,32 @@
 <div class="viewcode-block" id="LabelTracks.run">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.all_tracks_for_label.LabelTracks.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label_num</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_frame</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">end_frame</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_track_num</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">skip_coords</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the tracking process for labeled objects across timepoints, using flow interpolation.</span>
+
+<span class="sd">        This method uses forward and backward interpolation to track objects across multiple frames, starting from a given</span>
+<span class="sd">        frame. It can also track specific labels or all labels in the image.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        label_num : int, optional</span>
+<span class="sd">            Label number to track. If None, all labels are tracked (default is None).</span>
+<span class="sd">        start_frame : int, optional</span>
+<span class="sd">            The starting frame from which to begin tracking (default is 0).</span>
+<span class="sd">        end_frame : int, optional</span>
+<span class="sd">            The ending frame for the tracking. If None, tracks until the last frame (default is None).</span>
+<span class="sd">        min_track_num : int, optional</span>
+<span class="sd">            Minimum track number to assign to the coordinates (default is 0).</span>
+<span class="sd">        skip_coords : int, optional</span>
+<span class="sd">            The interval at which coordinates are sampled (default is 1).</span>
+<span class="sd">        max_distance_um : float, optional</span>
+<span class="sd">            Maximum distance allowed for interpolation (in micrometers, default is 0.5).</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            A list of tracks and a dictionary of track properties.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="n">end_frame</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="n">end_frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span>
         <span class="n">num_frames</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
@@ -161,6 +227,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

@@ -37,7 +37,55 @@
 <div class="viewcode-block" id="Settings">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_settings.Settings">[docs]</a>
 <span class="k">class</span> <span class="nc">Settings</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The Settings class provides a user interface for configuring various options and settings for the Nellie pipeline</span>
+<span class="sd">    and visualizations. Users can enable or disable specific processing options, control track visualization settings,</span>
+<span class="sd">    and configure voxel visualization parameters.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    nellie : object</span>
+<span class="sd">        Reference to the Nellie instance managing the pipeline.</span>
+<span class="sd">    viewer : napari.viewer.Viewer</span>
+<span class="sd">        Reference to the napari viewer instance.</span>
+<span class="sd">    remove_edges_checkbox : QCheckBox</span>
+<span class="sd">        Checkbox for enabling or disabling the removal of image edges.</span>
+<span class="sd">    remove_intermediates_checkbox : QCheckBox</span>
+<span class="sd">        Checkbox for enabling or disabling the removal of intermediate files after processing.</span>
+<span class="sd">    voxel_reassign : QCheckBox</span>
+<span class="sd">        Checkbox to enable or disable the automatic voxel reassignment step after tracking.</span>
+<span class="sd">    analyze_node_level : QCheckBox</span>
+<span class="sd">        Checkbox to enable or disable node-level analysis during feature extraction.</span>
+<span class="sd">    track_all_frames : QCheckBox</span>
+<span class="sd">        Checkbox to enable or disable the visualization of voxel tracks for all frames.</span>
+<span class="sd">    skip_vox_label : QLabel</span>
+<span class="sd">        Label describing the setting for skipping voxels during track visualization.</span>
+<span class="sd">    skip_vox : QSpinBox</span>
+<span class="sd">        Spin box for selecting the value of N to visualize tracks for every Nth voxel.</span>
+<span class="sd">    initialized : bool</span>
+<span class="sd">        Flag to indicate whether the settings interface has been initialized.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    post_init()</span>
+<span class="sd">        Post-initialization method that sets the initialized flag to True.</span>
+<span class="sd">    set_ui()</span>
+<span class="sd">        Initializes and sets the layout and UI components for the Settings class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Settings class, setting up the user interface and options for configuring</span>
+<span class="sd">        processing and track visualization.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        nellie : object</span>
+<span class="sd">            Reference to the Nellie instance that manages the pipeline.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
@@ -84,12 +132,20 @@
 <div class="viewcode-block" id="Settings.post_init">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_settings.Settings.post_init">[docs]</a>
     <span class="k">def</span> <span class="nf">post_init</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Post-initialization method that sets the initialized flag to True.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">initialized</span> <span class="o">=</span> <span class="kc">True</span></div>
 
 
 <div class="viewcode-block" id="Settings.set_ui">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_settings.Settings.set_ui">[docs]</a>
     <span class="k">def</span> <span class="nf">set_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes and sets the layout and UI components for the Settings class. This includes checkboxes for</span>
+<span class="sd">        configuring the processing pipeline and track visualization options, as well as a spin box for setting</span>
+<span class="sd">        voxel track visualization parameters.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
 
         <span class="c1"># Processor settings</span>
@@ -144,6 +200,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

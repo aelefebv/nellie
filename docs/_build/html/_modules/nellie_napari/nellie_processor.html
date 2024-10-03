@@ -52,7 +52,96 @@
 <div class="viewcode-block" id="NellieProcessor">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor">[docs]</a>
 <span class="k">class</span> <span class="nc">NellieProcessor</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The NellieProcessor class manages the different steps of the Nellie pipeline such as preprocessing, segmentation,</span>
+<span class="sd">    mocap marking, tracking, voxel reassignment, and feature extraction. It provides an interface to run each step</span>
+<span class="sd">    individually or as part of a full pipeline within a napari viewer.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    nellie : object</span>
+<span class="sd">        Reference to the Nellie instance managing the pipeline.</span>
+<span class="sd">    viewer : napari.viewer.Viewer</span>
+<span class="sd">        Reference to the napari viewer instance.</span>
+<span class="sd">    im_info_list : list of ImInfo or None</span>
+<span class="sd">        List of ImInfo objects for the selected files. Contains metadata and file information.</span>
+<span class="sd">    current_im_info : ImInfo or None</span>
+<span class="sd">        The current image&#39;s information and metadata object.</span>
+<span class="sd">    status_label : QLabel</span>
+<span class="sd">        Label displaying the current status of the process.</span>
+<span class="sd">    status : str or None</span>
+<span class="sd">        The current status of the process (e.g., &quot;preprocessing&quot;, &quot;segmentation&quot;).</span>
+<span class="sd">    num_ellipses : int</span>
+<span class="sd">        Counter to manage the ellipsis effect on the status label during execution.</span>
+<span class="sd">    status_timer : QTimer</span>
+<span class="sd">        Timer that periodically updates the status label during pipeline execution.</span>
+<span class="sd">    open_dir_button : QPushButton</span>
+<span class="sd">        Button to open the output directory of the current image file.</span>
+<span class="sd">    run_button : QPushButton</span>
+<span class="sd">        Button to run the full Nellie pipeline.</span>
+<span class="sd">    preprocess_button : QPushButton</span>
+<span class="sd">        Button to run only the preprocessing step of the pipeline.</span>
+<span class="sd">    segment_button : QPushButton</span>
+<span class="sd">        Button to run only the segmentation step of the pipeline.</span>
+<span class="sd">    mocap_button : QPushButton</span>
+<span class="sd">        Button to run only the mocap marking step of the pipeline.</span>
+<span class="sd">    track_button : QPushButton</span>
+<span class="sd">        Button to run only the tracking step of the pipeline.</span>
+<span class="sd">    reassign_button : QPushButton</span>
+<span class="sd">        Button to run only the voxel reassignment step of the pipeline.</span>
+<span class="sd">    feature_export_button : QPushButton</span>
+<span class="sd">        Button to run only the feature extraction step of the pipeline.</span>
+<span class="sd">    initialized : bool</span>
+<span class="sd">        Flag indicating whether the processor has been initialized.</span>
+<span class="sd">    pipeline : bool</span>
+<span class="sd">        Flag indicating whether the full pipeline is being run.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    set_ui()</span>
+<span class="sd">        Initializes and sets the layout and UI components for the NellieProcessor.</span>
+<span class="sd">    post_init()</span>
+<span class="sd">        Post-initialization method to load image information and check file existence.</span>
+<span class="sd">    check_file_existence()</span>
+<span class="sd">        Checks the existence of necessary files for each step of the pipeline and enables/disables buttons accordingly.</span>
+<span class="sd">    run_nellie()</span>
+<span class="sd">        Runs the entire Nellie pipeline starting from preprocessing to feature extraction.</span>
+<span class="sd">    run_preprocessing()</span>
+<span class="sd">        Runs the preprocessing step of the Nellie pipeline.</span>
+<span class="sd">    run_segmentation()</span>
+<span class="sd">        Runs the segmentation step of the Nellie pipeline.</span>
+<span class="sd">    run_mocap()</span>
+<span class="sd">        Runs the mocap marking step of the Nellie pipeline.</span>
+<span class="sd">    run_tracking()</span>
+<span class="sd">        Runs the tracking step of the Nellie pipeline.</span>
+<span class="sd">    run_reassign()</span>
+<span class="sd">        Runs the voxel reassignment step of the Nellie pipeline.</span>
+<span class="sd">    run_feature_export()</span>
+<span class="sd">        Runs the feature extraction step of the Nellie pipeline.</span>
+<span class="sd">    set_status()</span>
+<span class="sd">        Sets the status to indicate that a process has started, and starts the status update timer.</span>
+<span class="sd">    update_status()</span>
+<span class="sd">        Updates the status label with the current process and an ellipsis effect while the process is running.</span>
+<span class="sd">    reset_status()</span>
+<span class="sd">        Resets the status label to indicate that no process is running.</span>
+<span class="sd">    turn_off_buttons()</span>
+<span class="sd">        Disables all buttons to prevent multiple processes from running simultaneously.</span>
+<span class="sd">    open_directory()</span>
+<span class="sd">        Opens the output directory where the current image results are saved.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the NellieProcessor class, setting up the user interface and preparing for running various steps of the pipeline.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        nellie : object</span>
+<span class="sd">            Reference to the Nellie instance that manages the pipeline.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
@@ -118,6 +207,10 @@
 <div class="viewcode-block" id="NellieProcessor.set_ui">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.set_ui">[docs]</a>
     <span class="k">def</span> <span class="nf">set_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes and sets the layout and user interface components for the NellieProcessor. This includes the status label,</span>
+<span class="sd">        buttons for running individual steps, and the button for running the entire pipeline.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
 
         <span class="c1"># Status group</span>
@@ -155,6 +248,10 @@
 <div class="viewcode-block" id="NellieProcessor.post_init">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.post_init">[docs]</a>
     <span class="k">def</span> <span class="nf">post_init</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Post-initialization method that checks the state of the selected images. It determines whether the pipeline</span>
+<span class="sd">        steps have already been completed and enables/disables the corresponding buttons accordingly.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="p">]</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">current_im_info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span>
@@ -169,6 +266,10 @@
 <div class="viewcode-block" id="NellieProcessor.check_file_existence">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.check_file_existence">[docs]</a>
     <span class="k">def</span> <span class="nf">check_file_existence</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Checks the existence of files required for each step of the pipeline (e.g., preprocessed images, segmented labels).</span>
+<span class="sd">        Enables or disables buttons based on the existence of these files.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">visualizer</span><span class="o">.</span><span class="n">check_file_existence</span><span class="p">()</span>
 
         <span class="c1"># set all other buttons to disabled first</span>
@@ -242,6 +343,9 @@
 
     <span class="nd">@thread_worker</span>
     <span class="k">def</span> <span class="nf">_run_preprocessing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the preprocessing step in a separate thread. Filters the image to remove noise or unwanted edges before segmentation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;preprocessing&quot;</span>
         <span class="k">for</span> <span class="n">im_num</span><span class="p">,</span> <span class="n">im_info</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">):</span>
             <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Nellie is running: Preprocessing file </span><span class="si">{</span><span class="n">im_num</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -254,6 +358,10 @@
 <div class="viewcode-block" id="NellieProcessor.run_preprocessing">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_preprocessing">[docs]</a>
     <span class="k">def</span> <span class="nf">run_preprocessing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the preprocessing step and updates the UI to reflect that preprocessing is running.</span>
+<span class="sd">        If the full pipeline is running, it automatically proceeds to segmentation after preprocessing is finished.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_preprocessing</span><span class="p">()</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">turn_off_buttons</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="p">:</span>
@@ -266,6 +374,9 @@
 
     <span class="nd">@thread_worker</span>
     <span class="k">def</span> <span class="nf">_run_segmentation</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;segmentation&quot;</span>
         <span class="k">for</span> <span class="n">im_num</span><span class="p">,</span> <span class="n">im_info</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">):</span>
             <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Nellie is running: Segmentation file </span><span class="si">{</span><span class="n">im_num</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -278,6 +389,10 @@
 <div class="viewcode-block" id="NellieProcessor.run_segmentation">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_segmentation">[docs]</a>
     <span class="k">def</span> <span class="nf">run_segmentation</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the segmentation step and updates the UI to reflect that segmentation is running.</span>
+<span class="sd">        If the full pipeline is running, it automatically proceeds to mocap marking after segmentation is finished.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_segmentation</span><span class="p">()</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">turn_off_buttons</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="p">:</span>
@@ -290,6 +405,9 @@
 
     <span class="nd">@thread_worker</span>
     <span class="k">def</span> <span class="nf">_run_mocap</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;mocap marking&quot;</span>
         <span class="k">for</span> <span class="n">im_num</span><span class="p">,</span> <span class="n">im_info</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">):</span>
             <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Nellie is running: Mocap Marking file </span><span class="si">{</span><span class="n">im_num</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -300,6 +418,10 @@
 <div class="viewcode-block" id="NellieProcessor.run_mocap">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_mocap">[docs]</a>
     <span class="k">def</span> <span class="nf">run_mocap</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the mocap marking step and updates the UI to reflect that mocap marking is running.</span>
+<span class="sd">        If the full pipeline is running, it automatically proceeds to tracking after mocap marking is finished.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_mocap</span><span class="p">()</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">turn_off_buttons</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="p">:</span>
@@ -313,6 +435,9 @@
 
     <span class="nd">@thread_worker</span>
     <span class="k">def</span> <span class="nf">_run_tracking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the tracking step in a separate thread. Tracks the motion of the marked points over time.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;tracking&quot;</span>
         <span class="k">for</span> <span class="n">im_num</span><span class="p">,</span> <span class="n">im_info</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">):</span>
             <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Nellie is running: Tracking file </span><span class="si">{</span><span class="n">im_num</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -323,6 +448,10 @@
 <div class="viewcode-block" id="NellieProcessor.run_tracking">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_tracking">[docs]</a>
     <span class="k">def</span> <span class="nf">run_tracking</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the tracking step and updates the UI to reflect that tracking is running.</span>
+<span class="sd">        If the full pipeline is running, it automatically proceeds to voxel reassignment or feature extraction depending on the settings.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_tracking</span><span class="p">()</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">turn_off_buttons</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="p">:</span>
@@ -338,6 +467,9 @@
 
     <span class="nd">@thread_worker</span>
     <span class="k">def</span> <span class="nf">_run_reassign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;voxel reassignment&quot;</span>
         <span class="k">for</span> <span class="n">im_num</span><span class="p">,</span> <span class="n">im_info</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">):</span>
             <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Nellie is running: Voxel Reassignment file </span><span class="si">{</span><span class="n">im_num</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -348,6 +480,10 @@
 <div class="viewcode-block" id="NellieProcessor.run_reassign">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_reassign">[docs]</a>
     <span class="k">def</span> <span class="nf">run_reassign</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the voxel reassignment step and updates the UI to reflect that voxel reassignment is running.</span>
+<span class="sd">        If the full pipeline is running, it automatically proceeds to feature extraction after voxel reassignment is finished.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_reassign</span><span class="p">()</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">turn_off_buttons</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span><span class="p">:</span>
@@ -361,6 +497,9 @@
 
     <span class="nd">@thread_worker</span>
     <span class="k">def</span> <span class="nf">_run_feature_export</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="s2">&quot;feature export&quot;</span>
         <span class="k">for</span> <span class="n">im_num</span><span class="p">,</span> <span class="n">im_info</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">):</span>
             <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Nellie is running: Feature export file </span><span class="si">{</span><span class="n">im_num</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">/</span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info_list</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
@@ -380,6 +519,9 @@
 <div class="viewcode-block" id="NellieProcessor.run_feature_export">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_feature_export">[docs]</a>
     <span class="k">def</span> <span class="nf">run_feature_export</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the feature extraction step and updates the UI to reflect that feature extraction is running.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_feature_export</span><span class="p">()</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">started</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">turn_off_buttons</span><span class="p">)</span>
         <span class="n">worker</span><span class="o">.</span><span class="n">finished</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_file_existence</span><span class="p">)</span>
@@ -392,12 +534,18 @@
 <div class="viewcode-block" id="NellieProcessor.turn_off_pipeline">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.turn_off_pipeline">[docs]</a>
     <span class="k">def</span> <span class="nf">turn_off_pipeline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Turns off the pipeline flag to indicate that the full pipeline is no longer running.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span> <span class="o">=</span> <span class="kc">False</span></div>
 
 
 <div class="viewcode-block" id="NellieProcessor.run_nellie">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.run_nellie">[docs]</a>
     <span class="k">def</span> <span class="nf">run_nellie</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Starts the entire Nellie pipeline from preprocessing to feature extraction.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">pipeline</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">run_preprocessing</span><span class="p">()</span></div>
 
@@ -405,6 +553,9 @@
 <div class="viewcode-block" id="NellieProcessor.set_status">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.set_status">[docs]</a>
     <span class="k">def</span> <span class="nf">set_status</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the status of the processor to indicate that a process is running, and starts the status update timer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">running</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status_timer</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="mi">500</span><span class="p">)</span>  <span class="c1"># Update every 250 ms</span></div>
 
@@ -412,6 +563,9 @@
 <div class="viewcode-block" id="NellieProcessor.update_status">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.update_status">[docs]</a>
     <span class="k">def</span> <span class="nf">update_status</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates the status label with an ellipsis effect to indicate ongoing processing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">running</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">status_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Running </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="si">}{</span><span class="s1">&#39;.&#39;</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_ellipses</span><span class="w"> </span><span class="o">%</span><span class="w"> </span><span class="mi">4</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">num_ellipses</span> <span class="o">+=</span> <span class="mi">1</span>
@@ -422,6 +576,9 @@
 <div class="viewcode-block" id="NellieProcessor.reset_status">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.reset_status">[docs]</a>
     <span class="k">def</span> <span class="nf">reset_status</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resets the status label to indicate that no process is running.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">running</span> <span class="o">=</span> <span class="kc">False</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">status_label</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;Awaiting your input&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">num_ellipses</span> <span class="o">=</span> <span class="mi">1</span>
@@ -431,6 +588,9 @@
 <div class="viewcode-block" id="NellieProcessor.turn_off_buttons">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.turn_off_buttons">[docs]</a>
     <span class="k">def</span> <span class="nf">turn_off_buttons</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Disables all buttons to prevent multiple processes from running simultaneously.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">run_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">segment_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
@@ -443,6 +603,9 @@
 <div class="viewcode-block" id="NellieProcessor.open_directory">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_processor.NellieProcessor.open_directory">[docs]</a>
     <span class="k">def</span> <span class="nf">open_directory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens the output directory of the current image in the system file explorer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">directory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_im_info</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">output_dir</span>
         <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
             <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s1">&#39;nt&#39;</span><span class="p">:</span>  <span class="c1"># For Windows</span>
@@ -477,6 +640,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

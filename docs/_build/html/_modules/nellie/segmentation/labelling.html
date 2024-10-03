@@ -39,11 +39,82 @@
 <div class="viewcode-block" id="Label">
 <a class="viewcode-back" href="../../../nellie.segmentation.html#nellie.segmentation.labelling.Label">[docs]</a>
 <span class="k">class</span> <span class="nc">Label</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for semantic and instance segmentation of microscopy images using thresholding and signal-to-noise ratio (SNR) techniques.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An object containing image metadata and memory-mapped image data.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of timepoints in the image.</span>
+<span class="sd">    threshold : float or None</span>
+<span class="sd">        Intensity threshold for segmenting objects.</span>
+<span class="sd">    snr_cleaning : bool</span>
+<span class="sd">        Flag to enable or disable signal-to-noise ratio (SNR) based cleaning of segmented objects.</span>
+<span class="sd">    otsu_thresh_intensity : bool</span>
+<span class="sd">        Whether to apply Otsu&#39;s thresholding method to segment objects based on intensity.</span>
+<span class="sd">    im_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped original image data.</span>
+<span class="sd">    frangi_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped Frangi-filtered image data.</span>
+<span class="sd">    max_label_num : int</span>
+<span class="sd">        Maximum label number used for segmented objects.</span>
+<span class="sd">    min_z_radius_um : float</span>
+<span class="sd">        Minimum radius for Z-axis objects based on Z resolution, used for filtering objects in the Z dimension.</span>
+<span class="sd">    semantic_mask_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped mask for semantic segmentation.</span>
+<span class="sd">    instance_label_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped mask for instance segmentation.</span>
+<span class="sd">    shape : tuple</span>
+<span class="sd">        Shape of the segmented image.</span>
+<span class="sd">    debug : dict</span>
+<span class="sd">        Debugging information for tracking segmentation steps.</span>
+<span class="sd">    viewer : object or None</span>
+<span class="sd">        Viewer object for displaying status during processing.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    _get_t()</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+<span class="sd">    _allocate_memory()</span>
+<span class="sd">        Allocates memory for the original image, Frangi-filtered image, and instance segmentation masks.</span>
+<span class="sd">    _get_labels(frame)</span>
+<span class="sd">        Generates binary labels for segmented objects in a single frame based on thresholding.</span>
+<span class="sd">    _get_subtraction_mask(original_frame, labels_frame)</span>
+<span class="sd">        Creates a mask by subtracting labeled regions from the original frame.</span>
+<span class="sd">    _get_object_snrs(original_frame, labels_frame)</span>
+<span class="sd">        Calculates the signal-to-noise ratios (SNR) of segmented objects and removes objects with low SNR.</span>
+<span class="sd">    _run_frame(t)</span>
+<span class="sd">        Runs segmentation for a single timepoint in the image.</span>
+<span class="sd">    _run_segmentation()</span>
+<span class="sd">        Runs the full segmentation process for all timepoints in the image.</span>
+<span class="sd">    run()</span>
+<span class="sd">        Main method to execute the full segmentation process over the image data.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span>
                  <span class="n">num_t</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                  <span class="n">threshold</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                  <span class="n">snr_cleaning</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">otsu_thresh_intensity</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
                  <span class="n">viewer</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the Label object with image metadata and segmentation parameters.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        im_info : ImInfo</span>
+<span class="sd">            An instance of the ImInfo class, containing metadata and paths for the image file.</span>
+<span class="sd">        num_t : int, optional</span>
+<span class="sd">            Number of timepoints to process. If None, defaults to the number of timepoints in the image.</span>
+<span class="sd">        threshold : float or None, optional</span>
+<span class="sd">            Intensity threshold for segmenting objects (default is None).</span>
+<span class="sd">        snr_cleaning : bool, optional</span>
+<span class="sd">            Whether to apply SNR-based cleaning to the segmented objects (default is False).</span>
+<span class="sd">        otsu_thresh_intensity : bool, optional</span>
+<span class="sd">            Whether to apply Otsu&#39;s method for intensity thresholding (default is False).</span>
+<span class="sd">        viewer : object or None, optional</span>
+<span class="sd">            Viewer object for displaying status during processing (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">num_t</span>
         <span class="k">if</span> <span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
@@ -69,6 +140,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">viewer</span>
 
     <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+
+<span class="sd">        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
@@ -78,6 +154,11 @@
             <span class="k">return</span>
 
     <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocates memory for the original image, Frangi-filtered image, and instance segmentation masks.</span>
+
+<span class="sd">        This method creates memory-mapped arrays for the original image data, Frangi-filtered data, and instance label data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Allocating memory for semantic segmentation.&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">frangi_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_preprocessed&#39;</span><span class="p">])</span>
@@ -90,6 +171,21 @@
                                                                   <span class="n">return_memmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generates binary labels for segmented objects in a single frame based on thresholding.</span>
+
+<span class="sd">        Uses triangle and Otsu thresholding to generate a mask, then labels the mask using connected component labeling.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        frame : np.ndarray</span>
+<span class="sd">            The input frame to be segmented.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            A tuple containing the mask and the labeled objects.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">ndim</span> <span class="o">=</span> <span class="mi">2</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span> <span class="k">else</span> <span class="mi">3</span>
         <span class="n">footprint</span> <span class="o">=</span> <span class="n">ndi</span><span class="o">.</span><span class="n">generate_binary_structure</span><span class="p">(</span><span class="n">ndim</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
 
@@ -116,11 +212,41 @@
         <span class="k">return</span> <span class="n">mask</span><span class="p">,</span> <span class="n">labels</span>
 
     <span class="k">def</span> <span class="nf">_get_subtraction_mask</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">original_frame</span><span class="p">,</span> <span class="n">labels_frame</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates a mask by subtracting labeled regions from the original frame.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        original_frame : np.ndarray</span>
+<span class="sd">            The original image data.</span>
+<span class="sd">        labels_frame : np.ndarray</span>
+<span class="sd">            The labeled objects in the frame.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            The subtraction mask where labeled objects are removed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">subtraction_mask</span> <span class="o">=</span> <span class="n">original_frame</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
         <span class="n">subtraction_mask</span><span class="p">[</span><span class="n">labels_frame</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="k">return</span> <span class="n">subtraction_mask</span>
 
     <span class="k">def</span> <span class="nf">_get_object_snrs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">original_frame</span><span class="p">,</span> <span class="n">labels_frame</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculates the signal-to-noise ratios (SNR) of segmented objects and removes objects with low SNR.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        original_frame : np.ndarray</span>
+<span class="sd">            The original image data.</span>
+<span class="sd">        labels_frame : np.ndarray</span>
+<span class="sd">            Labeled objects in the frame.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            The labels of objects that meet the SNR threshold.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Calculating object SNRs.&#39;</span><span class="p">)</span>
         <span class="n">subtraction_mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_subtraction_mask</span><span class="p">(</span><span class="n">original_frame</span><span class="p">,</span> <span class="n">labels_frame</span><span class="p">)</span>
         <span class="n">unique_labels</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">labels_frame</span><span class="p">)</span>
@@ -157,6 +283,21 @@
         <span class="k">return</span> <span class="n">labels_frame</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs segmentation for a single timepoint in the image.</span>
+
+<span class="sd">        Applies thresholding and optional SNR-based cleaning to segment objects in a single timepoint.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            The labeled objects for the given timepoint.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Running semantic segmentation, volume </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
         <span class="n">original_in_mem</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span>
         <span class="n">frangi_in_mem</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">frangi_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="o">...</span><span class="p">])</span>
@@ -176,6 +317,11 @@
         <span class="k">return</span> <span class="n">labels</span>
 
     <span class="k">def</span> <span class="nf">_run_segmentation</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs the full segmentation process for all timepoints in the image.</span>
+
+<span class="sd">        Segments each timepoint sequentially, applying thresholding, labeling, and optional SNR cleaning.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Extracting organelles. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
@@ -192,6 +338,11 @@
 <div class="viewcode-block" id="Label.run">
 <a class="viewcode-back" href="../../../nellie.segmentation.html#nellie.segmentation.labelling.Label.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main method to execute the full segmentation process over the image data.</span>
+
+<span class="sd">        This method allocates necessary memory, segments each timepoint, and applies labeling.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s1">&#39;Running semantic segmentation.&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_get_t</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_allocate_memory</span><span class="p">()</span>
@@ -223,6 +374,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

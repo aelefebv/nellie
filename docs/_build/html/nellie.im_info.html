@@ -13,6 +13,8 @@
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="nellie.segmentation package" href="nellie.segmentation.html" />
+    <link rel="prev" title="nellie.feature_extraction package" href="nellie.feature_extraction.html" />
    
   <link rel="stylesheet" href="_static/custom.css" type="text/css" />
   
@@ -41,72 +43,358 @@
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nellie.im_info.verifier.</span></span><span class="sig-name descname"><span class="pre">FileInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">filepath</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo" title="Link to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A class to handle file information, metadata extraction, and basic file operations for microscopy image files.</p>
+<section id="attributes">
+<h3>Attributes<a class="headerlink" href="#attributes" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>filepath<span class="classifier">str</span></dt><dd><p>Path to the input file.</p>
+</dd>
+<dt>metadata<span class="classifier">dict or None</span></dt><dd><p>Stores the metadata extracted from the file.</p>
+</dd>
+<dt>metadata_type<span class="classifier">str or None</span></dt><dd><p>Type of metadata detected (e.g., ‘ome’, ‘imagej’, ‘nd2’).</p>
+</dd>
+<dt>axes<span class="classifier">str or None</span></dt><dd><p>String representing the axes in the file (e.g., ‘TZCYX’).</p>
+</dd>
+<dt>shape<span class="classifier">tuple or None</span></dt><dd><p>Shape of the image file.</p>
+</dd>
+<dt>dim_res<span class="classifier">dict or None</span></dt><dd><p>Dictionary of physical dimensions (X, Y, Z, T) resolution in microns or seconds.</p>
+</dd>
+<dt>input_dir<span class="classifier">str</span></dt><dd><p>Directory of the input file.</p>
+</dd>
+<dt>basename<span class="classifier">str</span></dt><dd><p>Filename with extension.</p>
+</dd>
+<dt>filename_no_ext<span class="classifier">str</span></dt><dd><p>Filename without the extension.</p>
+</dd>
+<dt>extension<span class="classifier">str</span></dt><dd><p>File extension (e.g., ‘.tiff’, ‘.nd2’).</p>
+</dd>
+<dt>output_dir<span class="classifier">str</span></dt><dd><p>Output directory for processed files.</p>
+</dd>
+<dt>nellie_necessities_dir<span class="classifier">str</span></dt><dd><p>Directory for internal processing data.</p>
+</dd>
+<dt>ome_output_path<span class="classifier">str or None</span></dt><dd><p>Path for OME TIFF output.</p>
+</dd>
+<dt>good_dims<span class="classifier">bool</span></dt><dd><p>Whether the dimensional metadata is valid.</p>
+</dd>
+<dt>good_axes<span class="classifier">bool</span></dt><dd><p>Whether the axes metadata is valid.</p>
+</dd>
+<dt>ch<span class="classifier">int</span></dt><dd><p>Selected channel.</p>
+</dd>
+<dt>t_start<span class="classifier">int</span></dt><dd><p>Start timepoint for processing.</p>
+</dd>
+<dt>t_end<span class="classifier">int or None</span></dt><dd><p>End timepoint for processing.</p>
+</dd>
+<dt>dtype<span class="classifier">type or None</span></dt><dd><p>Data type of the image.</p>
+</dd>
+</dl>
+</section>
+<section id="methods">
+<h3>Methods<a class="headerlink" href="#methods" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>_find_tif_metadata()</dt><dd><p>Extract metadata from TIFF or OME-TIFF files.</p>
+</dd>
+<dt>_find_nd2_metadata()</dt><dd><p>Extract metadata from ND2 files.</p>
+</dd>
+<dt>find_metadata()</dt><dd><p>Detect file type and extract corresponding metadata.</p>
+</dd>
+<dt>_get_imagej_metadata(metadata)</dt><dd><p>Extract dimensional resolution from ImageJ metadata.</p>
+</dd>
+<dt>_get_ome_metadata(metadata)</dt><dd><p>Extract dimensional resolution from OME metadata.</p>
+</dd>
+<dt>_get_tif_tags_metadata(metadata)</dt><dd><p>Extract dimensional resolution from generic TIFF tags.</p>
+</dd>
+<dt>_get_nd2_metadata(metadata)</dt><dd><p>Extract dimensional resolution from ND2 metadata.</p>
+</dd>
+<dt>load_metadata()</dt><dd><p>Load and validate dimensional metadata based on the file type.</p>
+</dd>
+<dt>_check_axes()</dt><dd><p>Validate the axes metadata for correctness.</p>
+</dd>
+<dt>_check_dim_res()</dt><dd><p>Validate the dimensional resolution metadata for correctness.</p>
+</dd>
+<dt>change_axes(new_axes)</dt><dd><p>Change the axes string and revalidate the metadata.</p>
+</dd>
+<dt>change_dim_res(dim, new_size)</dt><dd><p>Modify the resolution of a specific dimension.</p>
+</dd>
+<dt>change_selected_channel(ch)</dt><dd><p>Select a different channel in the file for processing.</p>
+</dd>
+<dt>select_temporal_range(start=0, end=None)</dt><dd><p>Select a temporal range for processing.</p>
+</dd>
+<dt>_validate()</dt><dd><p>Validate the current state of axes and dimension metadata.</p>
+</dd>
+<dt>read_file()</dt><dd><p>Read the image file based on its type.</p>
+</dd>
+<dt>_get_output_path()</dt><dd><p>Generate the output file path based on the current axes, resolution, and channel.</p>
+</dd>
+<dt>save_ome_tiff()</dt><dd><p>Save the processed image file as an OME-TIFF file with updated metadata.</p>
+</dd>
+</dl>
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.change_axes">
 <span class="sig-name descname"><span class="pre">change_axes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">new_axes</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.change_axes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.change_axes" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Changes the axes string and revalidates the metadata.</p>
+<section id="parameters">
+<h4>Parameters<a class="headerlink" href="#parameters" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>new_axes<span class="classifier">str</span></dt><dd><p>New axes string to replace the existing one.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.change_dim_res">
 <span class="sig-name descname"><span class="pre">change_dim_res</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dim</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_size</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.change_dim_res"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.change_dim_res" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Modifies the resolution of a specific dimension.</p>
+<section id="id1">
+<h4>Parameters<a class="headerlink" href="#id1" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>dim<span class="classifier">str</span></dt><dd><p>Dimension to modify (e.g., ‘X’, ‘Y’, ‘Z’, ‘T’).</p>
+</dd>
+<dt>new_size<span class="classifier">float</span></dt><dd><p>New resolution for the specified dimension.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.change_selected_channel">
 <span class="sig-name descname"><span class="pre">change_selected_channel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ch</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.change_selected_channel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.change_selected_channel" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Changes the selected channel for processing.</p>
+<section id="id2">
+<h4>Parameters<a class="headerlink" href="#id2" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>ch<span class="classifier">int</span></dt><dd><p>Index of the new channel to select.</p>
+</dd>
+</dl>
+</section>
+<section id="raises">
+<h4>Raises<a class="headerlink" href="#raises" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the axes or dimension metadata are invalid.</p>
+</dd>
+<dt>KeyError</dt><dd><p>If no channel dimension is available.</p>
+</dd>
+<dt>IndexError</dt><dd><p>If the selected channel index is out of range.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.find_metadata">
 <span class="sig-name descname"><span class="pre">find_metadata</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.find_metadata"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.find_metadata" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Detects file type (e.g., TIFF or ND2) and calls the appropriate metadata extraction method.</p>
+<section id="id3">
+<h4>Raises<a class="headerlink" href="#id3" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the file type is not supported.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.load_metadata">
 <span class="sig-name descname"><span class="pre">load_metadata</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.load_metadata"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.load_metadata" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Loads and validates dimensional metadata based on the file type (OME, ImageJ, ND2, or generic TIFF).</p>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.read_file">
 <span class="sig-name descname"><span class="pre">read_file</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.read_file"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.read_file" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Reads the image file into memory, supporting TIFF and ND2 formats.</p>
+<section id="returns">
+<h4>Returns<a class="headerlink" href="#returns" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>np.ndarray</dt><dd><p>Numpy array representing the image data.</p>
+</dd>
+</dl>
+</section>
+<section id="id4">
+<h4>Raises<a class="headerlink" href="#id4" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the file type is unsupported.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.save_ome_tiff">
 <span class="sig-name descname"><span class="pre">save_ome_tiff</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.save_ome_tiff"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.save_ome_tiff" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Saves the processed image data as an OME-TIFF file, including updated metadata.</p>
+<section id="id5">
+<h4>Raises<a class="headerlink" href="#id5" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>ValueError</dt><dd><p>If the axes or dimensional resolution metadata is invalid.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.FileInfo.select_temporal_range">
 <span class="sig-name descname"><span class="pre">select_temporal_range</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#FileInfo.select_temporal_range"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.FileInfo.select_temporal_range" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Selects a temporal range for processing.</p>
+<section id="id6">
+<h4>Parameters<a class="headerlink" href="#id6" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>start<span class="classifier">int, optional</span></dt><dd><p>Start index of the temporal range. Defaults to 0.</p>
+</dd>
+<dt>end<span class="classifier">int, optional</span></dt><dd><p>End index of the temporal range. Defaults to None, which includes all timepoints.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
+</section>
 </dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.ImInfo">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">nellie.im_info.verifier.</span></span><span class="sig-name descname"><span class="pre">ImInfo</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_info</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#nellie.im_info.verifier.FileInfo" title="nellie.im_info.verifier.FileInfo"><span class="pre">FileInfo</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#ImInfo"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.ImInfo" title="Link to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A class to manage image data and file outputs related to microscopy image processing.</p>
+<p>This class handles the initialization of memory-mapped image data, creation of output paths,
+extraction of OME metadata, and memory allocation for various stages of an image processing pipeline.</p>
+<section id="id7">
+<h3>Attributes<a class="headerlink" href="#id7" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>file_info<span class="classifier">FileInfo</span></dt><dd><p>The FileInfo object containing metadata and file paths.</p>
+</dd>
+<dt>im_path<span class="classifier">str</span></dt><dd><p>Path to the OME-TIFF image file.</p>
+</dd>
+<dt>im<span class="classifier">np.ndarray</span></dt><dd><p>Memory-mapped image data loaded from the file.</p>
+</dd>
+<dt>screenshot_dir<span class="classifier">str</span></dt><dd><p>Directory for saving screenshots of processed images.</p>
+</dd>
+<dt>graph_dir<span class="classifier">str</span></dt><dd><p>Directory for saving graphs of processed data.</p>
+</dd>
+<dt>dim_res<span class="classifier">dict</span></dt><dd><p>Dictionary storing the resolution of the image along the dimensions (X, Y, Z, T).</p>
+</dd>
+<dt>axes<span class="classifier">str</span></dt><dd><p>Axes string representing the dimensions in the image (e.g., ‘TZYX’).</p>
+</dd>
+<dt>new_axes<span class="classifier">str</span></dt><dd><p>Modified axes string if additional dimensions are added.</p>
+</dd>
+<dt>shape<span class="classifier">tuple</span></dt><dd><p>Shape of the image data.</p>
+</dd>
+<dt>ome_metadata<span class="classifier">ome_types.OME</span></dt><dd><p>OME metadata object extracted from the image.</p>
+</dd>
+<dt>no_z<span class="classifier">bool</span></dt><dd><p>Flag indicating if the Z dimension is absent or has a single slice.</p>
+</dd>
+<dt>no_t<span class="classifier">bool</span></dt><dd><p>Flag indicating if the T dimension is absent or has a single timepoint.</p>
+</dd>
+<dt>pipeline_paths<span class="classifier">dict</span></dt><dd><p>Dictionary storing output paths for different stages of the image processing pipeline.</p>
+</dd>
+</dl>
+</section>
+<section id="id8">
+<h3>Methods<a class="headerlink" href="#id8" title="Link to this heading">¶</a></h3>
+<dl>
+<dt>_check_axes_exist()</dt><dd><p>Checks if the Z and T dimensions exist and updates the flags <cite>no_z</cite> and <cite>no_t</cite> accordingly.</p>
+</dd>
+<dt>create_output_path(pipeline_path: str, ext: str = ‘.ome.tif’, for_nellie=True)</dt><dd><p>Creates a file path for a specific stage of the image processing pipeline.</p>
+</dd>
+<dt>_create_output_paths()</dt><dd><p>Creates all necessary output paths for various stages in the image processing pipeline.</p>
+</dd>
+<dt>remove_intermediates()</dt><dd><p>Removes intermediate files created during the image processing pipeline, except for .csv files.</p>
+</dd>
+<dt>_get_ome_metadata()</dt><dd><p>Extracts OME metadata from the image and updates resolution, axes, and shape information.</p>
+</dd>
+<dt>get_memmap(file_path: str, read_mode: str = ‘r+’)</dt><dd><p>Returns a memory-mapped array for the image data from the specified file.</p>
+</dd>
+<dt>allocate_memory(output_path: str, dtype: str = ‘float’, data: np.ndarray = None, description: str = ‘No description.’,</dt><dd><blockquote>
+<div><p>return_memmap: bool = False, read_mode: str = ‘r+’)</p>
+</div></blockquote>
+<p>Allocates memory for new image data, saves it to the specified file, and writes updated OME metadata.</p>
+</dd>
+</dl>
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.ImInfo.allocate_memory">
 <span class="sig-name descname"><span class="pre">allocate_memory</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'float'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'No</span> <span class="pre">description.'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_memmap</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'r+'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#ImInfo.allocate_memory"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.ImInfo.allocate_memory" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Allocates memory for new image data or writes new data to an output file.</p>
+<p>This method creates an empty OME-TIFF file with the specified <cite>dtype</cite> and shape, or writes the given <cite>data</cite> to the file.
+It also updates the OME metadata with a description and the correct pixel type.</p>
+<section id="id9">
+<h4>Parameters<a class="headerlink" href="#id9" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>output_path<span class="classifier">str</span></dt><dd><p>Path to the output file.</p>
+</dd>
+<dt>dtype<span class="classifier">str, optional</span></dt><dd><p>Data type for the new image (default is ‘float’).</p>
+</dd>
+<dt>data<span class="classifier">np.ndarray, optional</span></dt><dd><p>Numpy array containing image data to write (default is None, which allocates empty memory).</p>
+</dd>
+<dt>description<span class="classifier">str, optional</span></dt><dd><p>Description for the OME metadata (default is ‘No description.’).</p>
+</dd>
+<dt>return_memmap<span class="classifier">bool, optional</span></dt><dd><p>Whether to return a memory-mapped array for the newly allocated file (default is False).</p>
+</dd>
+<dt>read_mode<span class="classifier">str, optional</span></dt><dd><p>Mode for reading the memory-mapped file if <cite>return_memmap</cite> is True (default is ‘r+’).</p>
+</dd>
+</dl>
+</section>
+<section id="id10">
+<h4>Returns<a class="headerlink" href="#id10" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>np.ndarray, optional</dt><dd><p>A memory-mapped numpy array if <cite>return_memmap</cite> is set to True.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.ImInfo.create_output_path">
 <span class="sig-name descname"><span class="pre">create_output_path</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pipeline_path</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ext</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'.ome.tif'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">for_nellie</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#ImInfo.create_output_path"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.ImInfo.create_output_path" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Creates a file path for a specific stage of the image processing pipeline.</p>
+<section id="id11">
+<h4>Parameters<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>pipeline_path<span class="classifier">str</span></dt><dd><p>A descriptive string representing the stage of the image processing pipeline (e.g., ‘im_preprocessed’).</p>
+</dd>
+<dt>ext<span class="classifier">str, optional</span></dt><dd><p>The file extension to use (default is ‘.ome.tif’).</p>
+</dd>
+<dt>for_nellie<span class="classifier">bool, optional</span></dt><dd><p>Whether the output is for internal use by Nellie (default is True).</p>
+</dd>
+</dl>
+</section>
+<section id="id12">
+<h4>Returns<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>str</dt><dd><p>The full file path for the given stage of the image processing pipeline.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.ImInfo.get_memmap">
 <span class="sig-name descname"><span class="pre">get_memmap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">file_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'r+'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#ImInfo.get_memmap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.ImInfo.get_memmap" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns a memory-mapped array for the image data from the specified file.</p>
+<section id="id13">
+<h4>Parameters<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>file_path<span class="classifier">str</span></dt><dd><p>Path to the image file to be memory-mapped.</p>
+</dd>
+<dt>read_mode<span class="classifier">str, optional</span></dt><dd><p>Mode for reading the memory-mapped file (default is ‘r+’).</p>
+</dd>
+</dl>
+</section>
+<section id="id14">
+<h4>Returns<a class="headerlink" href="#id14" title="Link to this heading">¶</a></h4>
+<dl class="simple">
+<dt>np.ndarray</dt><dd><p>A memory-mapped numpy array representing the image data.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="nellie.im_info.verifier.ImInfo.remove_intermediates">
 <span class="sig-name descname"><span class="pre">remove_intermediates</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/im_info/verifier.html#ImInfo.remove_intermediates"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.im_info.verifier.ImInfo.remove_intermediates" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Removes intermediate files created during the image processing pipeline, except for CSV files.</p>
+<p>This method loops through all pipeline paths and deletes files (except .csv files) that were created during
+processing. It also deletes the main image file if it exists.</p>
+</dd></dl>
 
+</section>
 </dd></dl>
 
 </section>
@@ -132,11 +420,27 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="modules.html">nellie</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="main.html">main module</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="nellie.html">nellie package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="nellie_napari.html">nellie_napari package</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tests.html">tests package</a></li>
+</ul>
+</li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>
 <ul>
   <li><a href="index.html">Documentation overview</a><ul>
+  <li><a href="modules.html">nellie</a><ul>
+  <li><a href="nellie.html">nellie package</a><ul>
+      <li>Previous: <a href="nellie.feature_extraction.html" title="previous chapter">nellie.feature_extraction package</a></li>
+      <li>Next: <a href="nellie.segmentation.html" title="next chapter">nellie.segmentation package</a></li>
+  </ul></li>
+  </ul></li>
   </ul></li>
 </ul>
 </div>

@@ -40,7 +40,71 @@
 <div class="viewcode-block" id="FlowInterpolator">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.flow_interpolation.FlowInterpolator">[docs]</a>
 <span class="k">class</span> <span class="nc">FlowInterpolator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for interpolating flow vectors between timepoints in microscopy images using precomputed flow data.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An object containing image metadata and memory-mapped image data.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of timepoints in the image.</span>
+<span class="sd">    max_distance_um : float</span>
+<span class="sd">        Maximum distance allowed for interpolation (in micrometers).</span>
+<span class="sd">    forward : bool</span>
+<span class="sd">        Indicates if the interpolation is performed in the forward direction (True) or backward direction (False).</span>
+<span class="sd">    scaling : tuple</span>
+<span class="sd">        Scaling factors for Z, Y, and X dimensions.</span>
+<span class="sd">    shape : tuple</span>
+<span class="sd">        Shape of the input image.</span>
+<span class="sd">    im_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped original image data.</span>
+<span class="sd">    flow_vector_array : np.ndarray or None</span>
+<span class="sd">        Precomputed flow vector array loaded from disk.</span>
+<span class="sd">    current_t : int or None</span>
+<span class="sd">        Cached timepoint for the current flow vector calculation.</span>
+<span class="sd">    check_rows : np.ndarray or None</span>
+<span class="sd">        Flow vector data for the current timepoint.</span>
+<span class="sd">    check_coords : np.ndarray or None</span>
+<span class="sd">        Coordinates corresponding to the flow vector data for the current timepoint.</span>
+<span class="sd">    current_tree : cKDTree or None</span>
+<span class="sd">        KDTree for fast lookup of nearby coordinates in the current timepoint.</span>
+<span class="sd">    debug : dict or None</span>
+<span class="sd">        Debugging information for tracking processing steps.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    _allocate_memory()</span>
+<span class="sd">        Allocates memory and loads the precomputed flow vector array.</span>
+<span class="sd">    _get_t()</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+<span class="sd">    _get_nearby_coords(t, coords)</span>
+<span class="sd">        Finds nearby coordinates within a defined radius from the given coordinates using a KDTree.</span>
+<span class="sd">    _get_vector_weights(nearby_idxs, distances_all)</span>
+<span class="sd">        Computes the weights for nearby flow vectors based on their distances and costs.</span>
+<span class="sd">    _get_final_vector(nearby_idxs, weights_all)</span>
+<span class="sd">        Computes the final interpolated vector for each coordinate using distance-weighted vectors.</span>
+<span class="sd">    interpolate_coord(coords, t)</span>
+<span class="sd">        Interpolates the flow vector at the given coordinates and timepoint.</span>
+<span class="sd">    _initialize()</span>
+<span class="sd">        Initializes the FlowInterpolator by allocating memory and setting the timepoints.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">forward</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the FlowInterpolator with image metadata and interpolation parameters.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        im_info : ImInfo</span>
+<span class="sd">            An instance of the ImInfo class, containing metadata and paths for the image file.</span>
+<span class="sd">        num_t : int, optional</span>
+<span class="sd">            Number of timepoints to process. If None, defaults to the number of timepoints in the image.</span>
+<span class="sd">        max_distance_um : float, optional</span>
+<span class="sd">            Maximum distance allowed for interpolation (in micrometers, default is 0.5).</span>
+<span class="sd">        forward : bool, optional</span>
+<span class="sd">            Indicates if the interpolation is performed in the forward direction (default is True).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
@@ -75,6 +139,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_initialize</span><span class="p">()</span>
 
     <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocates memory and loads the precomputed flow vector array.</span>
+
+<span class="sd">        This method reads the flow vector data from disk and prepares it for use during interpolation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Allocating memory for mocap marking.&#39;</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span>
@@ -84,6 +153,11 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">flow_vector_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">flow_vector_array_path</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Determines the number of timepoints to process.</span>
+
+<span class="sd">        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
@@ -93,6 +167,21 @@
             <span class="k">return</span>
 
     <span class="k">def</span> <span class="nf">_get_nearby_coords</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">coords</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Finds nearby coordinates within a defined radius from the given coordinates using a KDTree.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Timepoint index.</span>
+<span class="sd">        coords : np.ndarray</span>
+<span class="sd">            Coordinates for which to find nearby points.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Nearby indices and distances from the input coordinates.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># using a ckdtree, check for any nearby coords from coord</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_t</span> <span class="o">!=</span> <span class="n">t</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">current_tree</span> <span class="o">=</span> <span class="n">cKDTree</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">check_coords</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">scaling</span><span class="p">)</span>
@@ -124,6 +213,21 @@
         <span class="k">return</span> <span class="n">nearby_idxs_return</span><span class="p">,</span> <span class="n">distance_return</span>
 
     <span class="k">def</span> <span class="nf">_get_vector_weights</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">nearby_idxs</span><span class="p">,</span> <span class="n">distances_all</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the weights for nearby flow vectors based on their distances and costs.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        nearby_idxs : list</span>
+<span class="sd">            Indices of nearby coordinates.</span>
+<span class="sd">        distances_all : list</span>
+<span class="sd">            Distances from the input coordinates to the nearby points.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list</span>
+<span class="sd">            Weights for each nearby flow vector.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">weights_all</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">nearby_idxs</span><span class="p">)):</span>
             <span class="c1"># lowest cost should be most highly weighted</span>
@@ -145,6 +249,21 @@
         <span class="k">return</span> <span class="n">weights_all</span>
 
     <span class="k">def</span> <span class="nf">_get_final_vector</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">nearby_idxs</span><span class="p">,</span> <span class="n">weights_all</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the final interpolated vector for each coordinate using distance-weighted vectors.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        nearby_idxs : list</span>
+<span class="sd">            Indices of nearby coordinates.</span>
+<span class="sd">        weights_all : list</span>
+<span class="sd">            Weights for the flow vectors.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Final interpolated vectors for each input coordinate.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">final_vectors</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">nearby_idxs</span><span class="p">),</span> <span class="mi">2</span><span class="p">))</span>
         <span class="k">else</span><span class="p">:</span>
@@ -167,6 +286,21 @@
 <div class="viewcode-block" id="FlowInterpolator.interpolate_coord">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.flow_interpolation.FlowInterpolator.interpolate_coord">[docs]</a>
     <span class="k">def</span> <span class="nf">interpolate_coord</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coords</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Interpolates the flow vector at the given coordinates and timepoint.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        coords : np.ndarray</span>
+<span class="sd">            Input coordinates for interpolation.</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Interpolated flow vectors at the given coordinates and timepoint.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># interpolate the flow vector at the coordinate at time t, either forward in time or backward in time.</span>
         <span class="c1"># For forward, simply find nearby LMPs, interpolate based on distance-weighted vectors</span>
         <span class="c1"># For backward, get coords from t-1 + vector, then find nearby coords from that, and interpolate based on distance-weighted vectors</span>
@@ -200,6 +334,11 @@
 
 
     <span class="k">def</span> <span class="nf">_initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the FlowInterpolator by allocating memory and setting the timepoints.</span>
+
+<span class="sd">        This method prepares the internal state of the object, including reading the flow vector array.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
             <span class="k">return</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_get_t</span><span class="p">()</span>
@@ -210,6 +349,29 @@
 <div class="viewcode-block" id="interpolate_all_forward">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.flow_interpolation.interpolate_all_forward">[docs]</a>
 <span class="k">def</span> <span class="nf">interpolate_all_forward</span><span class="p">(</span><span class="n">coords</span><span class="p">,</span> <span class="n">start_t</span><span class="p">,</span> <span class="n">end_t</span><span class="p">,</span> <span class="n">im_info</span><span class="p">,</span> <span class="n">min_track_num</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Interpolates coordinates forward in time across multiple timepoints using flow vectors.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    coords : np.ndarray</span>
+<span class="sd">        Array of input coordinates to track.</span>
+<span class="sd">    start_t : int</span>
+<span class="sd">        Starting timepoint.</span>
+<span class="sd">    end_t : int</span>
+<span class="sd">        Ending timepoint.</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An instance of the ImInfo class containing image metadata and paths.</span>
+<span class="sd">    min_track_num : int, optional</span>
+<span class="sd">        Minimum track number to assign to coordinates (default is 0).</span>
+<span class="sd">    max_distance_um : float, optional</span>
+<span class="sd">        Maximum distance allowed for interpolation (in micrometers, default is 0.5).</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        List of tracks and associated track properties.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">flow_interpx</span> <span class="o">=</span> <span class="n">FlowInterpolator</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">forward</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="n">max_distance_um</span><span class="p">)</span>
     <span class="n">tracks</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">track_properties</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;frame_num&#39;</span><span class="p">:</span> <span class="p">[]}</span>
@@ -246,6 +408,29 @@
 <div class="viewcode-block" id="interpolate_all_backward">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.flow_interpolation.interpolate_all_backward">[docs]</a>
 <span class="k">def</span> <span class="nf">interpolate_all_backward</span><span class="p">(</span><span class="n">coords</span><span class="p">,</span> <span class="n">start_t</span><span class="p">,</span> <span class="n">end_t</span><span class="p">,</span> <span class="n">im_info</span><span class="p">,</span> <span class="n">min_track_num</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Interpolates coordinates backward in time across multiple timepoints using flow vectors.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    coords : np.ndarray</span>
+<span class="sd">        Array of input coordinates to track.</span>
+<span class="sd">    start_t : int</span>
+<span class="sd">        Starting timepoint.</span>
+<span class="sd">    end_t : int</span>
+<span class="sd">        Ending timepoint.</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An instance of the ImInfo class containing image metadata and paths.</span>
+<span class="sd">    min_track_num : int, optional</span>
+<span class="sd">        Minimum track number to assign to coordinates (default is 0).</span>
+<span class="sd">    max_distance_um : float, optional</span>
+<span class="sd">        Maximum distance allowed for interpolation (in micrometers, default is 0.5).</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        List of tracks and associated track properties.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">flow_interpx</span> <span class="o">=</span> <span class="n">FlowInterpolator</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">forward</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="n">max_distance_um</span><span class="p">)</span>
     <span class="n">tracks</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">track_properties</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;frame_num&#39;</span><span class="p">:</span> <span class="p">[]}</span>
@@ -322,6 +507,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

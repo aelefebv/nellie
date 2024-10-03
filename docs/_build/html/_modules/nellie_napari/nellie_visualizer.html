@@ -42,7 +42,90 @@
 <div class="viewcode-block" id="NellieVisualizer">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer">[docs]</a>
 <span class="k">class</span> <span class="nc">NellieVisualizer</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The NellieVisualizer class provides an interface for visualizing different stages of the Nellie pipeline, such as raw images,</span>
+<span class="sd">    preprocessed images, segmentation labels, mocap markers, and reassigned labels. It also enables track visualization for specific</span>
+<span class="sd">    labels and all frame labels using napari.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    nellie : object</span>
+<span class="sd">        Reference to the Nellie instance managing the pipeline.</span>
+<span class="sd">    viewer : napari.viewer.Viewer</span>
+<span class="sd">        Reference to the napari viewer instance.</span>
+<span class="sd">    scale : tuple of floats</span>
+<span class="sd">        Scaling factors for visualizing the images, based on the resolution of the image dimensions.</span>
+<span class="sd">    im_memmap : ndarray</span>
+<span class="sd">        Memory-mapped array for the raw image.</span>
+<span class="sd">    raw_layer : ImageLayer</span>
+<span class="sd">        The napari image layer for displaying the raw image.</span>
+<span class="sd">    im_branch_label_reassigned_layer : LabelsLayer</span>
+<span class="sd">        The napari labels layer for displaying reassigned branch labels.</span>
+<span class="sd">    im_branch_label_reassigned : ndarray</span>
+<span class="sd">        Memory-mapped array for reassigned branch labels.</span>
+<span class="sd">    im_obj_label_reassigned_layer : LabelsLayer</span>
+<span class="sd">        The napari labels layer for displaying reassigned object labels.</span>
+<span class="sd">    im_obj_label_reassigned : ndarray</span>
+<span class="sd">        Memory-mapped array for reassigned object labels.</span>
+<span class="sd">    im_marker_layer : ImageLayer</span>
+<span class="sd">        The napari image layer for displaying mocap markers.</span>
+<span class="sd">    im_marker : ndarray</span>
+<span class="sd">        Memory-mapped array for mocap marker images.</span>
+<span class="sd">    im_skel_relabelled_layer : LabelsLayer</span>
+<span class="sd">        The napari labels layer for displaying skeleton relabeled images.</span>
+<span class="sd">    im_instance_label_layer : LabelsLayer</span>
+<span class="sd">        The napari labels layer for displaying instance labels.</span>
+<span class="sd">    frangi_layer : ImageLayer</span>
+<span class="sd">        The napari image layer for displaying preprocessed images (Frangi-filtered).</span>
+<span class="sd">    im_skel_relabelled : ndarray</span>
+<span class="sd">        Memory-mapped array for skeleton relabeled images.</span>
+<span class="sd">    im_instance_label : ndarray</span>
+<span class="sd">        Memory-mapped array for instance labels.</span>
+<span class="sd">    im_frangi : ndarray</span>
+<span class="sd">        Memory-mapped array for the preprocessed (Frangi-filtered) images.</span>
+<span class="sd">    initialized : bool</span>
+<span class="sd">        Flag indicating whether the visualizer has been initialized.</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    set_ui()</span>
+<span class="sd">        Initializes and sets the layout and UI components for the NellieVisualizer.</span>
+<span class="sd">    post_init()</span>
+<span class="sd">        Initializes the visualizer by setting the scale and making the scale bar visible in napari.</span>
+<span class="sd">    check_3d()</span>
+<span class="sd">        Ensures that the napari viewer is in 3D mode if the dataset contains Z-dimension data.</span>
+<span class="sd">    set_scale()</span>
+<span class="sd">        Sets the scale for image display based on the image resolution in Z, Y, and X dimensions.</span>
+<span class="sd">    open_preprocess_image()</span>
+<span class="sd">        Opens and displays the preprocessed (Frangi-filtered) image in the napari viewer.</span>
+<span class="sd">    open_segment_image()</span>
+<span class="sd">        Opens and displays the segmentation labels (skeleton relabeled and instance labels) in the napari viewer.</span>
+<span class="sd">    on_track_selected()</span>
+<span class="sd">        Visualizes the tracks for the currently selected label in the napari viewer.</span>
+<span class="sd">    track_all()</span>
+<span class="sd">        Visualizes tracks for all labels across frames in the napari viewer.</span>
+<span class="sd">    open_mocap_image()</span>
+<span class="sd">        Opens and displays the mocap marker image in the napari viewer.</span>
+<span class="sd">    open_reassign_image()</span>
+<span class="sd">        Opens and displays the reassigned branch and object labels in the napari viewer.</span>
+<span class="sd">    open_raw()</span>
+<span class="sd">        Opens and displays the raw image in the napari viewer.</span>
+<span class="sd">    check_file_existence()</span>
+<span class="sd">        Checks for the existence of files related to different steps of the pipeline, enabling or disabling buttons accordingly.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the NellieVisualizer class, setting up buttons and layout for opening and visualizing images and tracks.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        napari_viewer : napari.viewer.Viewer</span>
+<span class="sd">            Reference to the napari viewer instance.</span>
+<span class="sd">        nellie : object</span>
+<span class="sd">            Reference to the Nellie instance managing the pipeline.</span>
+<span class="sd">        parent : QWidget, optional</span>
+<span class="sd">            Optional parent widget (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
@@ -113,6 +196,10 @@
 <div class="viewcode-block" id="NellieVisualizer.set_ui">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.set_ui">[docs]</a>
     <span class="k">def</span> <span class="nf">set_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes and sets the layout and UI components for the NellieVisualizer. It groups the buttons for image</span>
+<span class="sd">        and track visualization into separate sections and arranges them within a vertical layout.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
 
         <span class="c1"># visualization group</span>
@@ -140,6 +227,9 @@
 <div class="viewcode-block" id="NellieVisualizer.post_init">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.post_init">[docs]</a>
     <span class="k">def</span> <span class="nf">post_init</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Post-initialization method that sets the image scale based on the image resolution and makes the scale bar visible.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">set_scale</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">scale_bar</span><span class="o">.</span><span class="n">visible</span> <span class="o">=</span> <span class="kc">True</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">scale_bar</span><span class="o">.</span><span class="n">unit</span> <span class="o">=</span> <span class="s1">&#39;um&#39;</span>
@@ -149,6 +239,9 @@
 <div class="viewcode-block" id="NellieVisualizer.check_3d">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.check_3d">[docs]</a>
     <span class="k">def</span> <span class="nf">check_3d</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Ensures that the napari viewer is in 3D mode if the dataset contains Z-dimension data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">3</span><span class="p">:</span>
             <span class="c1"># ndimensions should be 3 for viewer</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">ndim</span> <span class="o">=</span> <span class="mi">3</span>
@@ -158,6 +251,9 @@
 <div class="viewcode-block" id="NellieVisualizer.set_scale">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.set_scale">[docs]</a>
     <span class="k">def</span> <span class="nf">set_scale</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets the scale for image display based on the resolution of the Z, Y, and X dimensions of the image.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">dim_res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">],</span> <span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">])</span>
@@ -168,6 +264,9 @@
 <div class="viewcode-block" id="NellieVisualizer.open_preprocess_image">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.open_preprocess_image">[docs]</a>
     <span class="k">def</span> <span class="nf">open_preprocess_image</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens and displays the preprocessed (Frangi-filtered) image in the napari viewer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_frangi</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_preprocessed&#39;</span><span class="p">])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_3d</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">frangi_layer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">add_image</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_frangi</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s1">&#39;Pre-processed&#39;</span><span class="p">,</span> <span class="n">colormap</span><span class="o">=</span><span class="s1">&#39;turbo&#39;</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">scale</span><span class="p">)</span>
@@ -178,6 +277,9 @@
 <div class="viewcode-block" id="NellieVisualizer.open_segment_image">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.open_segment_image">[docs]</a>
     <span class="k">def</span> <span class="nf">open_segment_image</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens and displays the segmentation labels (skeleton relabeled and instance labels) in the napari viewer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_instance_label</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_skel_relabelled</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_skel_relabelled&#39;</span><span class="p">])</span>
 
@@ -193,6 +295,9 @@
 <div class="viewcode-block" id="NellieVisualizer.on_track_selected">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.on_track_selected">[docs]</a>
     <span class="k">def</span> <span class="nf">on_track_selected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Visualizes the tracks for the currently selected label in the napari viewer, based on the active image layer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># if flow_vector_array path does not point to an existing file, return</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;flow_vector_array&#39;</span><span class="p">]):</span>
             <span class="k">return</span>
@@ -258,6 +363,9 @@
 <div class="viewcode-block" id="NellieVisualizer.track_all">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.track_all">[docs]</a>
     <span class="k">def</span> <span class="nf">track_all</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Visualizes tracks for all labels across frames in the napari viewer, based on the active image layer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">layer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">layers</span><span class="o">.</span><span class="n">selection</span><span class="o">.</span><span class="n">active</span>
         <span class="k">if</span> <span class="n">layer</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_instance_label_layer</span><span class="p">:</span>
             <span class="n">label_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">]</span>
@@ -303,6 +411,9 @@
 <div class="viewcode-block" id="NellieVisualizer.open_mocap_image">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.open_mocap_image">[docs]</a>
     <span class="k">def</span> <span class="nf">open_mocap_image</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens and displays the mocap marker image in the napari viewer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_3d</span><span class="p">()</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">im_marker</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_marker&#39;</span><span class="p">])</span>
@@ -315,6 +426,9 @@
 <div class="viewcode-block" id="NellieVisualizer.open_reassign_image">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.open_reassign_image">[docs]</a>
     <span class="k">def</span> <span class="nf">open_reassign_image</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens and displays the reassigned branch and object labels in the napari viewer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_3d</span><span class="p">()</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">im_branch_label_reassigned</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_branch_label_reassigned&#39;</span><span class="p">])</span>
@@ -328,6 +442,9 @@
 <div class="viewcode-block" id="NellieVisualizer.open_raw">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.open_raw">[docs]</a>
     <span class="k">def</span> <span class="nf">open_raw</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Opens and displays the raw image in the napari viewer.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_3d</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">raw_layer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">add_image</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s1">&#39;raw&#39;</span><span class="p">,</span> <span class="n">colormap</span><span class="o">=</span><span class="s1">&#39;gray&#39;</span><span class="p">,</span>
@@ -340,6 +457,9 @@
 <div class="viewcode-block" id="NellieVisualizer.check_file_existence">
 <a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_visualizer.NellieVisualizer.check_file_existence">[docs]</a>
     <span class="k">def</span> <span class="nf">check_file_existence</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Checks for the existence of files related to different steps of the pipeline, enabling or disabling buttons accordingly.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># set all other buttons to disabled first</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">raw_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">open_preprocess_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
@@ -414,6 +534,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

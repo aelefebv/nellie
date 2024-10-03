@@ -43,8 +43,73 @@
 <div class="viewcode-block" id="VoxelReassigner">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.voxel_reassignment.VoxelReassigner">[docs]</a>
 <span class="k">class</span> <span class="nc">VoxelReassigner</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class for voxel reassignment across time points using forward and backward flow interpolation.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        An object containing image metadata and memory-mapped image data.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of timepoints in the image.</span>
+<span class="sd">    flow_interpolator_fw : FlowInterpolator</span>
+<span class="sd">        Flow interpolator for forward timepoint matching.</span>
+<span class="sd">    flow_interpolator_bw : FlowInterpolator</span>
+<span class="sd">        Flow interpolator for backward timepoint matching.</span>
+<span class="sd">    running_matches : list</span>
+<span class="sd">        List of running matches for voxel reassignment between timepoints.</span>
+<span class="sd">    voxel_matches_path : str or None</span>
+<span class="sd">        Path to save the voxel matches array.</span>
+<span class="sd">    branch_label_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped data for relabeled branches.</span>
+<span class="sd">    obj_label_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped data for object labels.</span>
+<span class="sd">    reassigned_branch_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped data for reassigned branches.</span>
+<span class="sd">    reassigned_obj_memmap : np.ndarray or None</span>
+<span class="sd">        Memory-mapped data for reassigned object labels.</span>
+<span class="sd">    viewer : Any</span>
+<span class="sd">        Optional viewer (e.g., for visualization purposes).</span>
+
+<span class="sd">    Methods</span>
+<span class="sd">    -------</span>
+<span class="sd">    _match_forward(flow_interpolator, vox_prev, vox_next, t)</span>
+<span class="sd">        Matches voxels forward using flow interpolation.</span>
+<span class="sd">    _match_backward(flow_interpolator, vox_next, vox_prev, t)</span>
+<span class="sd">        Matches voxels backward using flow interpolation.</span>
+<span class="sd">    _match_voxels_to_centroids(coords_real, coords_interpx)</span>
+<span class="sd">        Matches voxels to centroids using nearest neighbor search.</span>
+<span class="sd">    _assign_unique_matches(vox_prev_matches, vox_next_matches, distances)</span>
+<span class="sd">        Assigns unique matches between timepoint voxels based on minimum distances.</span>
+<span class="sd">    _distance_threshold(vox_prev_matched, vox_next_matched)</span>
+<span class="sd">        Filters voxel matches by applying a distance threshold.</span>
+<span class="sd">    match_voxels(vox_prev, vox_next, t)</span>
+<span class="sd">        Matches voxels between two consecutive timepoints using forward and backward interpolation.</span>
+<span class="sd">    _get_t()</span>
+<span class="sd">        Gets the number of timepoints in the dataset.</span>
+<span class="sd">    _allocate_memory()</span>
+<span class="sd">        Allocates memory for voxel reassignment data, including memory-mapped arrays.</span>
+<span class="sd">    _run_frame(t, all_mask_coords, reassigned_memmap)</span>
+<span class="sd">        Runs the voxel reassignment process for a single timepoint.</span>
+<span class="sd">    _run_reassignment(label_type)</span>
+<span class="sd">        Runs the voxel reassignment process for all frames, for either branch or object labels.</span>
+<span class="sd">    run()</span>
+<span class="sd">        Main method to execute voxel reassignment for both branch and object labels.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
                  <span class="n">viewer</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initializes the VoxelReassigner class with image metadata and timepoints.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        im_info : ImInfo</span>
+<span class="sd">            Image metadata and memory-mapped data.</span>
+<span class="sd">        num_t : int, optional</span>
+<span class="sd">            Number of timepoints in the dataset. If None, it is inferred from the image metadata (default is None).</span>
+<span class="sd">        viewer : Any, optional</span>
+<span class="sd">            Optional viewer for visualization purposes (default is None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
 
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
@@ -69,6 +134,25 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">viewer</span>
 
     <span class="k">def</span> <span class="nf">_match_forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flow_interpolator</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Matches voxels forward in time using flow interpolation.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        flow_interpolator : FlowInterpolator</span>
+<span class="sd">            Flow interpolator for forward voxel matching.</span>
+<span class="sd">        vox_prev : np.ndarray</span>
+<span class="sd">            Voxels from the previous timepoint.</span>
+<span class="sd">        vox_next : np.ndarray</span>
+<span class="sd">            Voxels from the next timepoint.</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Current timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Arrays of matched voxels from the previous and next timepoints and valid distances between them.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">vectors_interpx_prev</span> <span class="o">=</span> <span class="n">flow_interpolator</span><span class="o">.</span><span class="n">interpolate_coord</span><span class="p">(</span><span class="n">vox_prev</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">vectors_interpx_prev</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">return</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
@@ -94,6 +178,25 @@
         <span class="k">return</span> <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span>
 
     <span class="k">def</span> <span class="nf">_match_backward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flow_interpolator</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Matches voxels backward in time using flow interpolation.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        flow_interpolator : FlowInterpolator</span>
+<span class="sd">            Flow interpolator for backward voxel matching.</span>
+<span class="sd">        vox_next : np.ndarray</span>
+<span class="sd">            Voxels from the next timepoint.</span>
+<span class="sd">        vox_prev : np.ndarray</span>
+<span class="sd">            Voxels from the previous timepoint.</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Current timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Arrays of matched voxels from the previous and next timepoints and valid distances between them.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># interpolate flow vectors to all voxels in t1 from centroids derived from t0 centroids + t0 flow vectors</span>
         <span class="n">vectors_interpx_prev</span> <span class="o">=</span> <span class="n">flow_interpolator</span><span class="o">.</span><span class="n">interpolate_coord</span><span class="p">(</span><span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
         <span class="k">if</span> <span class="n">vectors_interpx_prev</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
@@ -119,6 +222,21 @@
         <span class="k">return</span> <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span>
 
     <span class="k">def</span> <span class="nf">_match_voxels_to_centroids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coords_real</span><span class="p">,</span> <span class="n">coords_interpx</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Matches real voxel coordinates to interpolated centroids using nearest neighbor search.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        coords_real : np.ndarray</span>
+<span class="sd">            Real voxel coordinates.</span>
+<span class="sd">        coords_interpx : np.ndarray</span>
+<span class="sd">            Interpolated centroid coordinates.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Arrays of distances and indices of matched centroids.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">coords_interpx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coords_interpx</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span>
         <span class="n">coords_real</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coords_real</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span>
         <span class="n">tree</span> <span class="o">=</span> <span class="n">cKDTree</span><span class="p">(</span><span class="n">coords_real</span><span class="p">)</span>
@@ -126,6 +244,23 @@
         <span class="k">return</span> <span class="n">dist</span><span class="p">,</span> <span class="n">idx</span>
 
     <span class="k">def</span> <span class="nf">_assign_unique_matches</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vox_prev_matches</span><span class="p">,</span> <span class="n">vox_next_matches</span><span class="p">,</span> <span class="n">distances</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Assigns unique voxel matches based on the minimum distance criteria.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        vox_prev_matches : np.ndarray</span>
+<span class="sd">            Array of matched voxels from the previous timepoint.</span>
+<span class="sd">        vox_next_matches : np.ndarray</span>
+<span class="sd">            Array of matched voxels from the next timepoint.</span>
+<span class="sd">        distances : np.ndarray</span>
+<span class="sd">            Array of distances between matched voxels.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Arrays of uniquely matched voxels for the previous and next timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># create a dict where the key is a voxel in t1, and the value is a list of distances and t0 voxels matched to it</span>
         <span class="n">vox_next_dict</span> <span class="o">=</span> <span class="p">{}</span>
         <span class="k">for</span> <span class="n">match_idx</span><span class="p">,</span> <span class="n">match_next</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">vox_next_matches</span><span class="p">):</span>
@@ -171,6 +306,21 @@
         <span class="k">return</span> <span class="n">vox_prev_matches_final</span><span class="p">,</span> <span class="n">vox_next_matches_final</span>
 
     <span class="k">def</span> <span class="nf">_distance_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vox_prev_matched</span><span class="p">,</span> <span class="n">vox_next_matched</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Filters voxel matches by applying a distance threshold.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        vox_prev_matched : np.ndarray</span>
+<span class="sd">            Array of matched voxels from the previous timepoint.</span>
+<span class="sd">        vox_next_matched : np.ndarray</span>
+<span class="sd">            Array of matched voxels from the next timepoint.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Arrays of valid voxel matches and corresponding distances.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">((</span><span class="n">vox_prev_matched</span> <span class="o">-</span> <span class="n">vox_next_matched</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
         <span class="n">distance_mask</span> <span class="o">=</span> <span class="n">distances</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">max_distance_um</span>
         <span class="n">vox_prev_matched_valid</span> <span class="o">=</span> <span class="n">vox_prev_matched</span><span class="p">[</span><span class="n">distance_mask</span><span class="p">]</span>
@@ -181,6 +331,23 @@
 <div class="viewcode-block" id="VoxelReassigner.match_voxels">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.voxel_reassignment.VoxelReassigner.match_voxels">[docs]</a>
     <span class="k">def</span> <span class="nf">match_voxels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Matches voxels between two consecutive timepoints using both forward and backward interpolation.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        vox_prev : np.ndarray</span>
+<span class="sd">            Voxels from the previous timepoint.</span>
+<span class="sd">        vox_next : np.ndarray</span>
+<span class="sd">            Voxels from the next timepoint.</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Current timepoint index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Arrays of matched voxels from the previous and next timepoints.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># forward interpolation:</span>
         <span class="c1"># from t0 voxels and interpolated flow, get t1 centroids.</span>
         <span class="c1">#  match nearby t1 voxels to t1 centroids, which are linked to t0 voxels.</span>
@@ -238,6 +405,9 @@
 
 
     <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Gets the number of timepoints from the image metadata or sets it if not provided.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
@@ -247,6 +417,9 @@
             <span class="k">return</span>
 
     <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Allocates memory for voxel reassignment, including initializing memory-mapped arrays for branch and object labels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Allocating memory for voxel reassignment.&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">voxel_matches_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;voxel_matches&#39;</span><span class="p">]</span>
 
@@ -267,6 +440,23 @@
                                                                   <span class="n">return_memmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">all_mask_coords</span><span class="p">,</span> <span class="n">reassigned_memmap</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Reassigns voxels in a single timepoint based on voxel matches with the previous timepoint.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            Current timepoint index.</span>
+<span class="sd">        all_mask_coords : list</span>
+<span class="sd">            List of voxel coordinates for each timepoint.</span>
+<span class="sd">        reassigned_memmap : np.ndarray</span>
+<span class="sd">            Memory-mapped array for the reassigned labels.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        bool</span>
+<span class="sd">            Returns True if no matches are found, otherwise False.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Reassigning pixels in frame </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
 
         <span class="n">vox_prev</span> <span class="o">=</span> <span class="n">all_mask_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
@@ -287,6 +477,14 @@
         <span class="k">return</span> <span class="kc">False</span>
 
     <span class="k">def</span> <span class="nf">_run_reassignment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label_type</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Runs voxel reassignment for all frames based on the specified label type (either &#39;branch&#39; or &#39;obj&#39;).</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        label_type : str</span>
+<span class="sd">            The label type, either &#39;branch&#39; or &#39;obj&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># todo, be able to specify which frame to start at.</span>
         <span class="k">if</span> <span class="n">label_type</span> <span class="o">==</span> <span class="s1">&#39;branch&#39;</span><span class="p">:</span>
             <span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_label_memmap</span>
@@ -311,6 +509,9 @@
 <div class="viewcode-block" id="VoxelReassigner.run">
 <a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.voxel_reassignment.VoxelReassigner.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main method to execute voxel reassignment for both branch and object labels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
             <span class="k">return</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_get_t</span><span class="p">()</span>
@@ -456,6 +657,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>

@@ -382,21 +382,43 @@ Iterates over each frame to extract coordinates, intensity, structural features,
 <dl class="py function">
 <dt class="sig sig-object py" id="nellie.feature_extraction.hierarchical.aggregate_stats_for_class">
 <span class="sig-prename descclassname"><span class="pre">nellie.feature_extraction.hierarchical.</span></span><span class="sig-name descname"><span class="pre">aggregate_stats_for_class</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">child_class</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">list_of_idxs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/feature_extraction/hierarchical.html#aggregate_stats_for_class"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.feature_extraction.hierarchical.aggregate_stats_for_class" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="nellie.feature_extraction.hierarchical.append_to_array">
-<span class="sig-prename descclassname"><span class="pre">nellie.feature_extraction.hierarchical.</span></span><span class="sig-name descname"><span class="pre">append_to_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">to_append</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/feature_extraction/hierarchical.html#append_to_array"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.feature_extraction.hierarchical.append_to_array" title="Link to this definition">¶</a></dt>
-<dd><p>Converts feature dictionaries into lists of arrays and headers for saving to a CSV.</p>
+<dd><p>Aggregates statistical metrics (mean, standard deviation, min, max, sum) for features of a given class at
+a specific time frame.</p>
 <section id="id11">
 <h3>Parameters<a class="headerlink" href="#id11" title="Link to this heading">¶</a></h3>
 <dl class="simple">
-<dt>to_append<span class="classifier">dict</span></dt><dd><p>Dictionary containing feature names and values to append.</p>
+<dt>child_class<span class="classifier">object</span></dt><dd><p>The class from which the feature data is extracted. It should contain a list of statistics to aggregate
+(i.e., <cite>stats_to_aggregate</cite>) and corresponding feature arrays.</p>
+</dd>
+<dt>t<span class="classifier">int</span></dt><dd><p>The time frame index for which the aggregation is performed.</p>
+</dd>
+<dt>list_of_idxs<span class="classifier">list of lists</span></dt><dd><p>A list where each sublist contains the indices of data points that should be grouped together for aggregation.</p>
 </dd>
 </dl>
 </section>
 <section id="returns">
 <h3>Returns<a class="headerlink" href="#returns" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>dict</dt><dd><p>A dictionary where the keys are feature names and the values are dictionaries containing aggregated
+statistics for each feature (mean, standard deviation, min, max, sum).</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="nellie.feature_extraction.hierarchical.append_to_array">
+<span class="sig-prename descclassname"><span class="pre">nellie.feature_extraction.hierarchical.</span></span><span class="sig-name descname"><span class="pre">append_to_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">to_append</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/feature_extraction/hierarchical.html#append_to_array"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.feature_extraction.hierarchical.append_to_array" title="Link to this definition">¶</a></dt>
+<dd><p>Converts feature dictionaries into lists of arrays and headers for saving to a CSV.</p>
+<section id="id12">
+<h3>Parameters<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>to_append<span class="classifier">dict</span></dt><dd><p>Dictionary containing feature names and values to append.</p>
+</dd>
+</dl>
+</section>
+<section id="id13">
+<h3>Returns<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h3>
 <dl class="simple">
 <dt>list</dt><dd><p>List of feature arrays.</p>
 </dd>
@@ -410,8 +432,8 @@ Iterates over each frame to extract coordinates, intensity, structural features,
 <dt class="sig sig-object py" id="nellie.feature_extraction.hierarchical.create_feature_array">
 <span class="sig-prename descclassname"><span class="pre">nellie.feature_extraction.hierarchical.</span></span><span class="sig-name descname"><span class="pre">create_feature_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">level</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">labels</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/feature_extraction/hierarchical.html#create_feature_array"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.feature_extraction.hierarchical.create_feature_array" title="Link to this definition">¶</a></dt>
 <dd><p>Creates a 2D feature array and corresponding headers for saving features to CSV.</p>
-<section id="id12">
-<h3>Parameters<a class="headerlink" href="#id12" title="Link to this heading">¶</a></h3>
+<section id="id14">
+<h3>Parameters<a class="headerlink" href="#id14" title="Link to this heading">¶</a></h3>
 <dl class="simple">
 <dt>level<span class="classifier">object</span></dt><dd><p>The level (e.g., voxel, node, branch, etc.) from which features are extracted.</p>
 </dd>
@@ -419,8 +441,8 @@ Iterates over each frame to extract coordinates, intensity, structural features,
 </dd>
 </dl>
 </section>
-<section id="id13">
-<h3>Returns<a class="headerlink" href="#id13" title="Link to this heading">¶</a></h3>
+<section id="id15">
+<h3>Returns<a class="headerlink" href="#id15" title="Link to this heading">¶</a></h3>
 <dl class="simple">
 <dt>numpy.ndarray</dt><dd><p>2D array of features.</p>
 </dd>
@@ -433,7 +455,26 @@ Iterates over each frame to extract coordinates, intensity, structural features,
 <dl class="py function">
 <dt class="sig sig-object py" id="nellie.feature_extraction.hierarchical.distance_check">
 <span class="sig-prename descclassname"><span class="pre">nellie.feature_extraction.hierarchical.</span></span><span class="sig-name descname"><span class="pre">distance_check</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">border_mask</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_coords</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">spacing</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/nellie/feature_extraction/hierarchical.html#distance_check"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#nellie.feature_extraction.hierarchical.distance_check" title="Link to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Calculates the minimum distance between given coordinates and a border mask using a KD-tree.</p>
+<section id="id16">
+<h3>Parameters<a class="headerlink" href="#id16" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>border_mask<span class="classifier">numpy.ndarray</span></dt><dd><p>A binary mask where the border is marked as <cite>True</cite>.</p>
+</dd>
+<dt>check_coords<span class="classifier">numpy.ndarray</span></dt><dd><p>Coordinates of the points for which distances to the border will be calculated.</p>
+</dd>
+<dt>spacing<span class="classifier">tuple or list</span></dt><dd><p>The spacing of the image dimensions (used to scale the coordinates).</p>
+</dd>
+</dl>
+</section>
+<section id="id17">
+<h3>Returns<a class="headerlink" href="#id17" title="Link to this heading">¶</a></h3>
+<dl class="simple">
+<dt>numpy.ndarray</dt><dd><p>An array of distances from each point in <cite>check_coords</cite> to the nearest border point.</p>
+</dd>
+</dl>
+</section>
+</dd></dl>
 
 </section>
 <section id="module-nellie.feature_extraction">
