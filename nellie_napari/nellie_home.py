@@ -116,6 +116,10 @@ class Home(QWidget):
         self.layout.addWidget(self.screenshot_button, alignment=Qt.AlignCenter)
 
     def set_update_status(self):
+        """
+        Checks if the plugin is up to date by comparing the installed version with the latest version on PyPI.
+        If an update is available, it displays a warning to the user.
+        """
         if self.nellie.current_version is None:
             self.update_text.setText("Failed to check for updates. \n")
         elif self.nellie.latest_version is None:

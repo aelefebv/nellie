@@ -93,8 +93,7 @@ class NellieLoader(QTabWidget):
 
     def check_for_updates(self):
         """
-        Checks if the plugin is up to date by comparing the installed version with the latest version on PyPI.
-        If an update is available, it displays a warning to the user.
+        Gets the current installed version of the Nellie plugin and checks for the latest version available on PyPI.
         """
         show_info("Checking for updates...")
         try:
