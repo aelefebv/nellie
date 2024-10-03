@@ -1,5 +1,9 @@
 from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QTabWidget
+import json
+import urllib.request
+from importlib.metadata import version as get_version
+from napari.utils.notifications import show_warning
 
 from nellie_napari import NellieProcessor
 from nellie_napari.discover_plugins import add_nellie_plugins_to_menu
@@ -60,6 +64,11 @@ class NellieLoader(QTabWidget):
             Optional parent widget (default is None).
         """
         super().__init__(parent)
+        # Check for plugin updates
+        self.current_version = None
+        self.latest_version = None
+        self.check_for_updates()
+
         self.viewer = napari_viewer
         self.home = Home(self.viewer, self)
         self.file_select = NellieFileSelect(self.viewer, self)
@@ -81,6 +90,24 @@ class NellieLoader(QTabWidget):
         self.im_info = None
         self.im_info_list = None
         add_nellie_plugins_to_menu(self)
+
+    def check_for_updates(self):
+        """
+        Checks if the plugin is up to date by comparing the installed version with the latest version on PyPI.
+        If an update is available, it displays a warning to the user.
+        """
+        show_info("Checking for updates...")
+        try:
+            # Get the current installed version
+            self.current_version = get_version('nellie')
+
+            # Fetch the latest version from PyPI
+            with urllib.request.urlopen('https://pypi.org/pypi/nellie/json', timeout=5) as response:
+                data = json.loads(response.read().decode())
+                self.latest_version = data['info']['version']
+
+        except Exception as e:
+            pass
 
     def add_tabs(self):
         """
