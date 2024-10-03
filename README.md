@@ -181,3 +181,25 @@ https://github.com/aelefebv/nellie/assets/26515909/db76d388-a9cc-4650-b93d-69d35
 
 https://github.com/aelefebv/nellie/assets/26515909/58bda3cb-6489-4620-8584-a3728cd6b2ec
 
+## Code contents:
+Full documentation can be found within the code, and compiled by Sphinx in the file docs/_build/html/index.html
+
+### Nellie pipeline
+All the Nellie pipeline code is found within the nellie folder
+- File and metadata loading, and file preparation is found at nellie/im_info/verifier.py
+- Preprocessing is found at nellie/segmentation/filtering.py
+- Segmentation of organelles is found at nellie/segmentation/labelling.py
+- Skeletonization and segmentation of branches is found at nellie/segmentation/networking.py
+- Mocap marker detection is found at nellie/segmentation/mocap_marking.py
+- Mocap marker tracking is found at nellie/tracking/hu_tracking.py
+- Voxel reassignment via flow interpolation is found at nellie/tracking/voxel_reassignment.py
+- Hierarchical feature extraction is found at nellie/feature_extraction/hierarchical.py
+
+### Nellie Napari plugin
+All the Napari plugin code is found with the nellie_napari folder
+- The home tab is found at nellie_napari/nellie_home.py
+- The file selection tab is found at nellie_napari/nellie_fileselect.py
+- The processing tab is found at nellie_napari/nellie_processor.py
+- The visualization tab is found at nellie_napari/nellie_visualizer.py
+- The analysis tab is found at nellie_napari/nellie_analysis.py
+- The settings tab is found at nellie_napari/nellie_settings.py
