@@ -9,7 +9,100 @@ from nellie.im_info.verifier import FileInfo, ImInfo
 
 
 class NellieFileSelect(QWidget):
+    """
+    A class for selecting and configuring image files for processing in the Nellie pipeline within the napari viewer.
+
+    Attributes
+    ----------
+    viewer : napari.viewer.Viewer
+        The napari viewer instance.
+    nellie : object
+        Reference to the main Nellie object containing image processing pipelines and functions.
+    filepath : str or None
+        The selected file path.
+    file_info : FileInfo
+        Stores metadata and shape information about the selected image file.
+    im_info : ImInfo or None
+        Contains information about the image for processing after confirmation.
+    batch_fileinfo_list : list or None
+        List of FileInfo objects when a folder is selected for batch processing.
+    filepath_text : QLabel
+        Text widget displaying the selected file or folder path.
+    filepath_button : QPushButton
+        Button to open the file dialog for selecting an image file.
+    folder_button : QPushButton
+        Button to open the folder dialog for batch processing.
+    reset_button : QPushButton
+        Button to reset the file selection and clear all settings.
+    file_shape_text : QLabel
+        Displays the shape of the selected image file.
+    current_order_text : QLabel
+        Displays the current dimension order (axes) of the image file.
+    dim_order_button : QLineEdit
+        Input field for entering the dimension order of the image.
+    dim_t_button, dim_z_button, dim_xy_button : QLineEdit
+        Input fields for entering the resolution of the time (T), Z, and XY dimensions, respectively.
+    channel_button : QSpinBox
+        Spin box for selecting the channel in the multi-channel image.
+    start_frame_button, end_frame_button : QSpinBox
+        Spin boxes for selecting the start and end frame for temporal range selection.
+    confirm_button : QPushButton
+        Button to confirm the file selection and save the OME TIFF file.
+    preview_button : QPushButton
+        Button to preview the image in the napari viewer.
+    process_button : QPushButton
+        Button to process the selected image file(s) through the Nellie pipeline.
+
+    Methods
+    -------
+    init_ui()
+        Sets up the user interface layout with file selection, axes information, dimension resolutions, and actions.
+    select_filepath()
+        Opens a file dialog for selecting an image file and validates the selected file.
+    select_folder()
+        Opens a folder dialog for batch processing and validates the selected folder.
+    validate_path(filepath)
+        Validates the selected file or folder path and updates the file path attribute.
+    initialize_single_file()
+        Initializes the FileInfo for the selected image file, loads metadata, and updates UI elements.
+    initialize_folder()
+        Initializes the FileInfo objects for all image files in the selected folder.
+    on_change()
+        Updates UI elements based on the selected file's metadata, checking available dimensions and enabling buttons.
+    check_available_dims()
+        Checks the availability of specific dimensions (T, Z, XY) in the selected file and enables corresponding UI elements.
+    handle_dim_order_changed(text)
+        Handles changes in the dimension order (axes) input field and updates the metadata accordingly.
+    handle_t_changed(text)
+        Handles changes in the time (T) resolution input field and updates the metadata.
+    handle_z_changed(text)
+        Handles changes in the Z resolution input field and updates the metadata.
+    handle_xy_changed(text)
+        Handles changes in the XY resolution input field and updates the metadata.
+    change_channel()
+        Updates the selected channel for the image when the channel spin box is changed.
+    change_time()
+        Updates the temporal range when the start and end frame spin boxes are changed.
+    on_confirm()
+        Confirms the file selection, creates an ImInfo object, and prepares the file for processing.
+    on_process()
+        Prepares the selected file(s) for processing through the Nellie pipeline.
+    on_preview()
+        Opens a preview of the selected image in the napari viewer, adjusting the display settings based on the file's dimensionality.
+    """
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+        """
+        Initializes the NellieFileSelect class.
+
+        Parameters
+        ----------
+        napari_viewer : napari.viewer.Viewer
+            Reference to the napari viewer instance.
+        nellie : object
+            Reference to the main Nellie object containing image processing pipelines and functions.
+        parent : QWidget, optional
+            Optional parent widget (default is None).
+        """
         super().__init__(parent)
         self.nellie = nellie
         self.filepath = None
@@ -113,6 +206,9 @@ class NellieFileSelect(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        """
+        Sets up the user interface layout with sections for file selection, axes information, dimension resolutions, and action buttons.
+        """
         main_layout = QVBoxLayout()
 
         # File Selection Group
@@ -193,6 +289,9 @@ class NellieFileSelect(QWidget):
         self.setLayout(main_layout)
 
     def select_filepath(self):
+        """
+        Opens a file dialog for selecting an image file, validates the selected file, and updates the UI with metadata.
+        """
         self.batch_fileinfo_list = None
         filepath, _ = QFileDialog.getOpenFileName(self, "Select file")
         self.validate_path(filepath)
@@ -206,6 +305,9 @@ class NellieFileSelect(QWidget):
         self.filepath_text.setText(f"{filename}")
 
     def select_folder(self):
+        """
+        Opens a folder dialog for selecting a folder for batch processing and initializes FileInfo objects for all files in the folder.
+        """
         folderpath = QFileDialog.getExistingDirectory(self, "Select folder")
         self.validate_path(folderpath)
         if self.filepath is None:
@@ -217,12 +319,23 @@ class NellieFileSelect(QWidget):
 
 
     def validate_path(self, filepath):
+        """
+        Validates the selected file or folder path and updates the file path attribute.
+
+        Parameters
+        ----------
+        filepath : str
+            The file or folder path selected by the user.
+        """
         if not filepath:
             show_info("Invalid selection.")
             return None
         self.filepath = filepath
 
     def initialize_single_file(self):
+        """
+        Initializes the FileInfo object for the selected image file, loads metadata, and updates the dimension resolution fields.
+        """
         self.file_info.find_metadata()
         self.file_info.load_metadata()
         self.file_shape_text.setText(f"{self.file_info.shape}")
@@ -232,6 +345,9 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def initialize_folder(self):
+        """
+        Initializes FileInfo objects for all .tif, .tiff, and .nd2 files in the selected folder and loads their metadata.
+        """
         # get all .tif, .tiff, and .nd2 files in the folder
         files = [f for f in os.listdir(self.filepath) if f.endswith('.tif') or f.endswith('.tiff') or f.endswith('.nd2')]
         # for each file, create a FileInfo object
@@ -244,6 +360,9 @@ class NellieFileSelect(QWidget):
         # This assumes all files in the folder have the same metadata (dim order, resolutions, temporal range, channels)
 
     def on_change(self):
+        """
+        Updates the user interface elements, including enabling or disabling buttons based on the file metadata and resolution settings.
+        """
         self.confirm_button.setEnabled(False)
         self.check_available_dims()
         if len(self.file_info.shape) == 2:
@@ -279,6 +398,9 @@ class NellieFileSelect(QWidget):
             self.process_button.setEnabled(True)
 
     def check_available_dims(self):
+        """
+        Checks the availability of specific dimensions (T, Z, XY) in the selected file and enables the corresponding input fields for resolutions.
+        """
         def check_dim(dim, dim_button, dim_text):
             dim_button.setStyleSheet("background-color: green")
             if dim in self.file_info.axes:
@@ -324,6 +446,14 @@ class NellieFileSelect(QWidget):
                 self.end_frame_init = True
 
     def handle_dim_order_changed(self, text):
+        """
+        Handles changes in the dimension order input field and updates the FileInfo object accordingly.
+
+        Parameters
+        ----------
+        text : str
+            The new dimension order string entered by the user.
+        """
         if self.batch_fileinfo_list is None:
             self.file_info.change_axes(text)
         else:
@@ -334,6 +464,14 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def handle_t_changed(self, text):
+        """
+        Handles changes in the time (T) resolution input field and updates the FileInfo object accordingly.
+
+        Parameters
+        ----------
+        text : str
+            The new T resolution entered by the user.
+        """
         self.dim_t_text = text
         try:
             value = float(self.dim_t_text)
@@ -351,6 +489,14 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def handle_z_changed(self, text):
+        """
+        Handles changes in the Z resolution input field and updates the FileInfo object accordingly.
+
+        Parameters
+        ----------
+        text : str
+            The new Z resolution entered by the user.
+        """
         self.dim_z_text = text
         try:
             value = float(self.dim_z_text)
@@ -368,6 +514,14 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def handle_xy_changed(self, text):
+        """
+        Handles changes in the XY resolution input field and updates the FileInfo object accordingly.
+
+        Parameters
+        ----------
+        text : str
+            The new XY resolution entered by the user.
+        """
         self.dim_xy_text = text
         try:
             value = float(self.dim_xy_text)
@@ -389,6 +543,9 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def change_channel(self):
+        """
+        Updates the selected channel in the FileInfo object when the channel spin box value is changed.
+        """
         if self.batch_fileinfo_list is None:
             self.file_info.change_selected_channel(self.channel_button.value())
         else:
@@ -397,6 +554,9 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def change_time(self):
+        """
+        Updates the temporal range in the FileInfo object when the start or end frame spin box values are changed.
+        """
         if self.batch_fileinfo_list is None:
             self.file_info.select_temporal_range(self.start_frame_button.value(), self.end_frame_button.value())
         else:
@@ -405,6 +565,9 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def on_confirm(self):
+        """
+        Confirms the file selection, creates an ImInfo object for the file, and prepares it for processing.
+        """
         show_info("Saving OME TIFF file.")
         if self.batch_fileinfo_list is None:
             self.im_info = ImInfo(self.file_info)
@@ -413,6 +576,9 @@ class NellieFileSelect(QWidget):
         self.on_change()
 
     def on_process(self):
+        """
+        Prepares the selected file(s) for processing through the Nellie pipeline by creating ImInfo objects and switching to the processing tab.
+        """
         # switch to process tab
         if self.batch_fileinfo_list is None:
             self.im_info = ImInfo(self.file_info)
@@ -422,6 +588,9 @@ class NellieFileSelect(QWidget):
         self.nellie.go_process()
 
     def on_preview(self):
+        """
+        Opens a preview of the selected image in the napari viewer, adjusting display settings (e.g., 2D or 3D view) based on the file's dimensionality.
+        """
         im_memmap = tifffile.memmap(self.file_info.ome_output_path)
         # num_t = min(2, self.im_info.shape[self.im_info.axes.index('T')])
         if 'Z' in self.file_info.axes:
