@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie.run &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie.run</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">nellie.feature_extraction.hierarchical</span> <span class="kn">import</span> <span class="n">Hierarchy</span>
+<span class="kn">from</span> <span class="nn">nellie.im_info.verifier</span> <span class="kn">import</span> <span class="n">FileInfo</span><span class="p">,</span> <span class="n">ImInfo</span>
+<span class="kn">from</span> <span class="nn">nellie.segmentation.filtering</span> <span class="kn">import</span> <span class="n">Filter</span>
+<span class="kn">from</span> <span class="nn">nellie.segmentation.labelling</span> <span class="kn">import</span> <span class="n">Label</span>
+<span class="kn">from</span> <span class="nn">nellie.segmentation.mocap_marking</span> <span class="kn">import</span> <span class="n">Markers</span>
+<span class="kn">from</span> <span class="nn">nellie.segmentation.networking</span> <span class="kn">import</span> <span class="n">Network</span>
+<span class="kn">from</span> <span class="nn">nellie.tracking.hu_tracking</span> <span class="kn">import</span> <span class="n">HuMomentTracking</span>
+<span class="kn">from</span> <span class="nn">nellie.tracking.voxel_reassignment</span> <span class="kn">import</span> <span class="n">VoxelReassigner</span>
+
+
+<div class="viewcode-block" id="run">
+<a class="viewcode-back" href="../../nellie.html#nellie.run.run">[docs]</a>
+<span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="n">file_info</span><span class="p">,</span> <span class="n">remove_edges</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">otsu_thresh_intensity</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="n">file_info</span><span class="p">)</span>
+    <span class="n">preprocessing</span> <span class="o">=</span> <span class="n">Filter</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">remove_edges</span><span class="o">=</span><span class="n">remove_edges</span><span class="p">)</span>
+    <span class="n">preprocessing</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="n">segmenting</span> <span class="o">=</span> <span class="n">Label</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">otsu_thresh_intensity</span><span class="o">=</span><span class="n">otsu_thresh_intensity</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="n">threshold</span><span class="p">)</span>
+    <span class="n">segmenting</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="n">networking</span> <span class="o">=</span> <span class="n">Network</span><span class="p">(</span><span class="n">im_info</span><span class="p">)</span>
+    <span class="n">networking</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="n">mocap_marking</span> <span class="o">=</span> <span class="n">Markers</span><span class="p">(</span><span class="n">im_info</span><span class="p">)</span>
+    <span class="n">mocap_marking</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="n">hu_tracking</span> <span class="o">=</span> <span class="n">HuMomentTracking</span><span class="p">(</span><span class="n">im_info</span><span class="p">)</span>
+    <span class="n">hu_tracking</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="n">vox_reassign</span> <span class="o">=</span> <span class="n">VoxelReassigner</span><span class="p">(</span><span class="n">im_info</span><span class="p">)</span>
+    <span class="n">vox_reassign</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="n">hierarchy</span> <span class="o">=</span> <span class="n">Hierarchy</span><span class="p">(</span><span class="n">im_info</span><span class="p">)</span>
+    <span class="n">hierarchy</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">im_info</span></div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="c1"># # Single file run</span>
+    <span class="c1"># im_path = r&quot;/Users/austin/test_files/nellie_all_tests/ND Stimulation Parallel 12.nd2&quot;</span>
+    <span class="c1"># im_info = run(im_path, remove_edges=False, num_t=5)</span>
+    <span class="c1"># im_info = run(im_path, remove_edges=False, ch=1, dim_sizes={&#39;T&#39;: 1, &#39;Z&#39;: 0.1, &#39;Y&#39;: 0.1, &#39;X&#39;: 0.1}, otsu_thresh_intensity=True)</span>
+
+    <span class="c1"># Directory batch run</span>
+    <span class="c1"># import os</span>
+    <span class="c1"># top_dirs = [</span>
+    <span class="c1">#     r&quot;C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\multi_grid\outputs&quot;,</span>
+    <span class="c1">#     r&quot;C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\separation\outputs&quot;,</span>
+    <span class="c1">#     r&quot;C:\Users\austin\GitHub\nellie-supplemental\comparisons\simulations\px_sizes\outputs&quot;,</span>
+    <span class="c1">#     ]</span>
+    <span class="c1"># ch = 0</span>
+    <span class="c1"># num_t = 1</span>
+    <span class="c1"># # get all non-folder files</span>
+    <span class="c1"># for top_dir in top_dirs:</span>
+    <span class="c1">#     all_files = os.listdir(top_dir)</span>
+    <span class="c1">#     all_files = [os.path.join(top_dir, file) for file in all_files if not os.path.isdir(os.path.join(top_dir, file))]</span>
+    <span class="c1">#     all_files = [file for file in all_files if file.endswith(&#39;.tif&#39;)]</span>
+    <span class="c1">#     for file_num, tif_file in enumerate(all_files):</span>
+    <span class="c1">#         # for ch in range(1):</span>
+    <span class="c1">#         print(f&#39;Processing file {file_num + 1} of {len(all_files)}, channel {ch + 1} of 1&#39;)</span>
+    <span class="c1">#         im_info = ImInfo(tif_file, ch=ch)</span>
+    <span class="c1">#         if os.path.exists(im_info.pipeline_paths[&#39;im_skel_relabelled&#39;]):</span>
+    <span class="c1">#             print(f&#39;Already exists, skipping.&#39;)</span>
+    <span class="c1">#             continue</span>
+    <span class="c1">#         im_info = run(tif_file, remove_edges=False, ch=ch, num_t=num_t)</span>
+
+    <span class="n">test_file</span> <span class="o">=</span> <span class="s1">&#39;/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif&#39;</span>
+    <span class="c1"># test_file = all_paths[1]</span>
+    <span class="n">file_info</span> <span class="o">=</span> <span class="n">FileInfo</span><span class="p">(</span><span class="n">test_file</span><span class="p">)</span>
+    <span class="n">file_info</span><span class="o">.</span><span class="n">find_metadata</span><span class="p">()</span>
+    <span class="n">file_info</span><span class="o">.</span><span class="n">load_metadata</span><span class="p">()</span>
+    <span class="c1"># print(f&#39;{file_info.metadata_type=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.axes=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.shape=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.dim_res=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.good_axes=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.good_dims=}&#39;)</span>
+    <span class="c1"># print(&#39;\n&#39;)</span>
+
+    <span class="c1"># file_info.change_axes(&#39;TZYX&#39;)</span>
+    <span class="c1"># print(&#39;Axes changed&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.axes=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.dim_res=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.good_axes=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.good_dims=}&#39;)</span>
+    <span class="c1"># print(&#39;\n&#39;)</span>
+    <span class="c1">#</span>
+    <span class="c1"># file_info.change_dim_res(&#39;T&#39;, 1)</span>
+    <span class="c1"># file_info.change_dim_res(&#39;Z&#39;, 0.5)</span>
+    <span class="c1"># file_info.change_dim_res(&#39;Y&#39;, 0.2)</span>
+    <span class="c1"># file_info.change_dim_res(&#39;X&#39;, 0.2)</span>
+    <span class="c1">#</span>
+    <span class="c1"># print(&#39;Dimension resolutions changed&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.axes=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.dim_res=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.good_axes=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.good_dims=}&#39;)</span>
+    <span class="c1"># print(&#39;\n&#39;)</span>
+    <span class="c1">#</span>
+    <span class="c1"># # print(f&#39;{file_info.ch=}&#39;)</span>
+    <span class="c1"># # file_info.change_selected_channel(3)</span>
+    <span class="c1"># # print(&#39;Channel changed&#39;)</span>
+    <span class="c1"># # print(f&#39;{file_info.ch=}&#39;)</span>
+    <span class="c1">#</span>
+    <span class="c1"># print(f&#39;{file_info.t_start=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.t_end=}&#39;)</span>
+    <span class="c1"># file_info.select_temporal_range(1, 3)</span>
+    <span class="c1"># print(&#39;Temporal range selected&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.t_start=}&#39;)</span>
+    <span class="c1"># print(f&#39;{file_info.t_end=}&#39;)</span>
+    <span class="c1">#</span>
+    <span class="c1"># # file_info.save_ome_tiff()</span>
+    <span class="c1"># # im_info = ImInfo(file_info)</span>
+    <span class="n">run</span><span class="p">(</span><span class="n">file_info</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

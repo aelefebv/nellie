@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie.tracking.all_tracks_for_label &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie.tracking.all_tracks_for_label</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="kn">from</span> <span class="nn">nellie.im_info.verifier</span> <span class="kn">import</span> <span class="n">ImInfo</span>
+<span class="kn">from</span> <span class="nn">nellie.tracking.flow_interpolation</span> <span class="kn">import</span> <span class="n">interpolate_all_forward</span><span class="p">,</span> <span class="n">interpolate_all_backward</span>
+
+
+<div class="viewcode-block" id="LabelTracks">
+<a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.all_tracks_for_label.LabelTracks">[docs]</a>
+<span class="k">class</span> <span class="nc">LabelTracks</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">label_im_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">num_t</span>
+        <span class="k">if</span> <span class="n">label_im_path</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">label_im_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_im_path</span> <span class="o">=</span> <span class="n">label_im_path</span>
+
+        <span class="k">if</span> <span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">im_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">im_info</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span> <span class="o">=</span> <span class="kc">None</span>
+
+<div class="viewcode-block" id="LabelTracks.initialize">
+<a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.all_tracks_for_label.LabelTracks.initialize">[docs]</a>
+    <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_im_path</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="LabelTracks.run">
+<a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.all_tracks_for_label.LabelTracks.run">[docs]</a>
+    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label_num</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_frame</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">end_frame</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">min_track_num</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">skip_coords</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="mf">0.5</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">end_frame</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">end_frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span>
+        <span class="n">num_frames</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">start_frame</span> <span class="o">&gt;</span> <span class="n">num_frames</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">label_num</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span><span class="p">[</span><span class="n">start_frame</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_memmap</span><span class="p">[</span><span class="n">start_frame</span><span class="p">]</span> <span class="o">==</span> <span class="n">label_num</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">coords</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">{}</span>
+        <span class="n">coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coords</span><span class="p">[::</span><span class="n">skip_coords</span><span class="p">])</span>
+        <span class="n">coords_copy</span> <span class="o">=</span> <span class="n">coords</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">tracks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">track_properties</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">start_frame</span> <span class="o">&lt;</span> <span class="n">end_frame</span><span class="p">:</span>
+            <span class="n">tracks</span><span class="p">,</span> <span class="n">track_properties</span> <span class="o">=</span> <span class="n">interpolate_all_forward</span><span class="p">(</span><span class="n">coords</span><span class="p">,</span> <span class="n">start_frame</span><span class="p">,</span> <span class="n">end_frame</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="p">,</span>
+                                                               <span class="n">min_track_num</span><span class="p">,</span> <span class="n">max_distance_um</span><span class="o">=</span><span class="n">max_distance_um</span><span class="p">)</span>
+        <span class="n">new_end_frame</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># max(0, end_frame - start_frame)</span>
+        <span class="k">if</span> <span class="n">start_frame</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">tracks_bw</span><span class="p">,</span> <span class="n">track_properties_bw</span> <span class="o">=</span> <span class="n">interpolate_all_backward</span><span class="p">(</span><span class="n">coords_copy</span><span class="p">,</span> <span class="n">start_frame</span><span class="p">,</span> <span class="n">new_end_frame</span><span class="p">,</span>
+                                                                      <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="p">,</span> <span class="n">min_track_num</span><span class="p">,</span>
+                                                                      <span class="n">max_distance_um</span><span class="o">=</span><span class="n">max_distance_um</span><span class="p">)</span>
+            <span class="n">tracks_bw</span> <span class="o">=</span> <span class="n">tracks_bw</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">for</span> <span class="nb">property</span> <span class="ow">in</span> <span class="n">track_properties_bw</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">track_properties_bw</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span> <span class="o">=</span> <span class="n">track_properties_bw</span><span class="p">[</span><span class="nb">property</span><span class="p">][::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">sort_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">([</span><span class="n">track</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">track</span> <span class="ow">in</span> <span class="n">tracks_bw</span><span class="p">])</span>
+            <span class="n">tracks_bw</span> <span class="o">=</span> <span class="p">[</span><span class="n">tracks_bw</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">sort_idx</span><span class="p">]</span>
+            <span class="n">tracks</span> <span class="o">=</span> <span class="n">tracks_bw</span> <span class="o">+</span> <span class="n">tracks</span>
+            <span class="k">for</span> <span class="nb">property</span> <span class="ow">in</span> <span class="n">track_properties_bw</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">track_properties_bw</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">track_properties_bw</span><span class="p">[</span><span class="nb">property</span><span class="p">][</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">sort_idx</span><span class="p">]</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">track_properties</span><span class="p">:</span>
+                <span class="n">track_properties</span> <span class="o">=</span> <span class="n">track_properties_bw</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="nb">property</span> <span class="ow">in</span> <span class="n">track_properties_bw</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                    <span class="n">track_properties</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span> <span class="o">=</span> <span class="n">track_properties_bw</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span> <span class="o">+</span> <span class="n">track_properties</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">tracks</span><span class="p">,</span> <span class="n">track_properties</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">im_path</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;D:\test_files\nellie_longer_smorgasbord\deskewed-peroxisome.ome.tif&quot;</span>
+    <span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="n">im_path</span><span class="p">,</span> <span class="n">ch</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">num_t</span> <span class="o">=</span> <span class="mi">20</span>
+    <span class="n">label_tracks</span> <span class="o">=</span> <span class="n">LabelTracks</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="n">num_t</span><span class="p">)</span>
+    <span class="n">label_tracks</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+    <span class="c1"># tracks, track_properties = label_tracks.run(label_num=None, skip_coords=1)</span>
+
+    <span class="n">all_tracks</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">all_props</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">max_track_num</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">frame</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_t</span><span class="p">):</span>
+        <span class="n">tracks</span><span class="p">,</span> <span class="n">track_properties</span> <span class="o">=</span> <span class="n">label_tracks</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">label_num</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">start_frame</span><span class="o">=</span><span class="n">frame</span><span class="p">,</span> <span class="n">end_frame</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                                                    <span class="n">min_track_num</span><span class="o">=</span><span class="n">max_track_num</span><span class="p">,</span>
+                                                    <span class="n">skip_coords</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+        <span class="n">all_tracks</span> <span class="o">+=</span> <span class="n">tracks</span>
+        <span class="k">for</span> <span class="nb">property</span> <span class="ow">in</span> <span class="n">track_properties</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="nb">property</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">all_props</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">all_props</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">all_props</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span> <span class="o">+=</span> <span class="n">track_properties</span><span class="p">[</span><span class="nb">property</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">tracks</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">max_track_num</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="n">track</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">track</span> <span class="ow">in</span> <span class="n">tracks</span><span class="p">])</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="c1"># pickle tracks and track properties</span>
+    <span class="kn">import</span> <span class="nn">pickle</span>
+    <span class="kn">import</span> <span class="nn">datetime</span>
+    <span class="n">dt</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;%Y-%m-</span><span class="si">%d</span><span class="s2">_%H-%M-%S&quot;</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">dt</span><span class="si">}</span><span class="s1">-mt_tracks.pkl&#39;</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">all_tracks</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">dt</span><span class="si">}</span><span class="s1">-mt_props.pkl&#39;</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">pickle</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">all_props</span><span class="p">,</span> <span class="n">f</span><span class="p">)</span>
+
+    <span class="c1"># import napari</span>
+    <span class="c1"># viewer = napari.Viewer()</span>
+    <span class="c1">#</span>
+    <span class="c1"># raw_im = im_info.get_im_memmap(im_info.im_path)[:num_t]</span>
+    <span class="c1"># viewer.add_image(raw_im, name=&#39;raw_im&#39;)</span>
+    <span class="c1"># viewer.add_tracks(all_tracks, properties=all_props, name=&#39;tracks&#39;)</span>
+    <span class="c1"># napari.run()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
