@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie.utils.gpu_functions &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie.utils.gpu_functions</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span> <span class="nn">nellie</span> <span class="kn">import</span> <span class="n">xp</span><span class="p">,</span> <span class="n">device_type</span>
+
+
+<div class="viewcode-block" id="otsu_effectiveness">
+<a class="viewcode-back" href="../../../nellie.utils.html#nellie.utils.gpu_functions.otsu_effectiveness">[docs]</a>
+<span class="k">def</span> <span class="nf">otsu_effectiveness</span><span class="p">(</span><span class="n">image</span><span class="p">,</span> <span class="n">inter_variance</span><span class="p">):</span>
+    <span class="c1"># flatten image and create histogram</span>
+    <span class="n">flattened_image</span> <span class="o">=</span> <span class="n">image</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="n">sigma_total_squared</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">var</span><span class="p">(</span><span class="n">flattened_image</span><span class="p">)</span>
+    <span class="n">normalized_sigma_B_squared</span> <span class="o">=</span> <span class="n">inter_variance</span> <span class="o">/</span> <span class="n">sigma_total_squared</span>
+    <span class="k">return</span> <span class="n">normalized_sigma_B_squared</span></div>
+
+
+
+<div class="viewcode-block" id="otsu_threshold">
+<a class="viewcode-back" href="../../../nellie.utils.html#nellie.utils.gpu_functions.otsu_threshold">[docs]</a>
+<span class="k">def</span> <span class="nf">otsu_threshold</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span> <span class="n">nbins</span><span class="o">=</span><span class="mi">256</span><span class="p">):</span>
+    <span class="c1"># gpu version of skimage.filters.threshold_otsu</span>
+    <span class="n">counts</span><span class="p">,</span> <span class="n">bin_edges</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">matrix</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">bins</span><span class="o">=</span><span class="n">nbins</span><span class="p">,</span> <span class="nb">range</span><span class="o">=</span><span class="p">(</span><span class="n">matrix</span><span class="o">.</span><span class="n">min</span><span class="p">(),</span> <span class="n">matrix</span><span class="o">.</span><span class="n">max</span><span class="p">()))</span>
+    <span class="n">bin_centers</span> <span class="o">=</span> <span class="p">(</span><span class="n">bin_edges</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">bin_edges</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span> <span class="o">/</span> <span class="mf">2.</span>
+    <span class="n">counts</span> <span class="o">=</span> <span class="n">counts</span> <span class="o">/</span> <span class="n">xp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">counts</span><span class="p">)</span>
+
+    <span class="n">weight1</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">counts</span><span class="p">)</span>
+    <span class="n">mean1</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">counts</span> <span class="o">*</span> <span class="n">bin_centers</span><span class="p">)</span> <span class="o">/</span> <span class="n">weight1</span>
+    <span class="k">if</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s1">&#39;mps&#39;</span><span class="p">:</span>
+        <span class="n">weight2</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">counts</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="n">weight2</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">weight2</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">flipped_counts_bin_centers</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">counts</span> <span class="o">*</span> <span class="n">bin_centers</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">cumsum_flipped</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">flipped_counts_bin_centers</span><span class="p">)</span>
+        <span class="n">mean2</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">cumsum_flipped</span> <span class="o">/</span> <span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">weight2</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">weight2</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">counts</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">])[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">mean2</span> <span class="o">=</span> <span class="p">(</span><span class="n">xp</span><span class="o">.</span><span class="n">cumsum</span><span class="p">((</span><span class="n">counts</span> <span class="o">*</span> <span class="n">bin_centers</span><span class="p">)[::</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">/</span> <span class="n">weight2</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">])[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="n">variance12</span> <span class="o">=</span> <span class="n">weight1</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">weight2</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">*</span> <span class="p">(</span><span class="n">mean1</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">mean2</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span> <span class="o">**</span> <span class="mi">2</span>
+
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">variance12</span><span class="p">)</span>
+    <span class="n">threshold</span> <span class="o">=</span> <span class="n">bin_centers</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">threshold</span><span class="p">,</span> <span class="n">variance12</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="triangle_threshold">
+<a class="viewcode-back" href="../../../nellie.utils.html#nellie.utils.gpu_functions.triangle_threshold">[docs]</a>
+<span class="k">def</span> <span class="nf">triangle_threshold</span><span class="p">(</span><span class="n">matrix</span><span class="p">,</span> <span class="n">nbins</span><span class="o">=</span><span class="mi">256</span><span class="p">):</span>
+    <span class="c1"># gpu version of skimage.filters.threshold_triangle</span>
+    <span class="n">hist</span><span class="p">,</span> <span class="n">bin_edges</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">histogram</span><span class="p">(</span><span class="n">matrix</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">bins</span><span class="o">=</span><span class="n">nbins</span><span class="p">,</span> <span class="nb">range</span><span class="o">=</span><span class="p">(</span><span class="n">xp</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">matrix</span><span class="p">),</span> <span class="n">xp</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">matrix</span><span class="p">)))</span>
+    <span class="n">bin_centers</span> <span class="o">=</span> <span class="p">(</span><span class="n">bin_edges</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">bin_edges</span><span class="p">[</span><span class="mi">1</span><span class="p">:])</span> <span class="o">/</span> <span class="mf">2.</span>
+    <span class="n">hist</span> <span class="o">=</span> <span class="n">hist</span> <span class="o">/</span> <span class="n">xp</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">hist</span><span class="p">)</span>
+
+    <span class="n">arg_peak_height</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">hist</span><span class="p">)</span>
+    <span class="n">peak_height</span> <span class="o">=</span> <span class="n">hist</span><span class="p">[</span><span class="n">arg_peak_height</span><span class="p">]</span>
+    <span class="n">arg_low_level</span><span class="p">,</span> <span class="n">arg_high_level</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">hist</span><span class="p">)[[</span><span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]]</span>
+
+    <span class="n">flip</span> <span class="o">=</span> <span class="n">arg_peak_height</span> <span class="o">-</span> <span class="n">arg_low_level</span> <span class="o">&lt;</span> <span class="n">arg_high_level</span> <span class="o">-</span> <span class="n">arg_peak_height</span>
+    <span class="k">if</span> <span class="n">flip</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">device_type</span> <span class="o">==</span> <span class="s1">&#39;mps&#39;</span><span class="p">:</span>
+            <span class="n">hist</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">hist</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">hist</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">hist</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+            <span class="c1"># todo check this</span>
+        <span class="n">arg_low_level</span> <span class="o">=</span> <span class="n">nbins</span> <span class="o">-</span> <span class="n">arg_high_level</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">arg_peak_height</span> <span class="o">=</span> <span class="n">nbins</span> <span class="o">-</span> <span class="n">arg_peak_height</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="k">del</span> <span class="p">(</span><span class="n">arg_high_level</span><span class="p">)</span>
+
+    <span class="n">width</span> <span class="o">=</span> <span class="n">arg_peak_height</span> <span class="o">-</span> <span class="n">arg_low_level</span>
+    <span class="n">x1</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">width</span><span class="p">)</span>
+    <span class="n">y1</span> <span class="o">=</span> <span class="n">hist</span><span class="p">[</span><span class="n">x1</span> <span class="o">+</span> <span class="n">arg_low_level</span><span class="p">]</span>
+
+    <span class="n">norm</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">peak_height</span> <span class="o">**</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">width</span> <span class="o">**</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="n">peak_height</span> <span class="o">=</span> <span class="n">peak_height</span> <span class="o">/</span> <span class="n">norm</span>
+    <span class="n">width</span> <span class="o">=</span> <span class="n">width</span> <span class="o">/</span> <span class="n">norm</span>
+
+    <span class="n">length</span> <span class="o">=</span> <span class="n">peak_height</span> <span class="o">*</span> <span class="n">x1</span> <span class="o">-</span> <span class="n">width</span> <span class="o">*</span> <span class="n">y1</span>
+    <span class="n">arg_level</span> <span class="o">=</span> <span class="n">xp</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">length</span><span class="p">)</span> <span class="o">+</span> <span class="n">arg_low_level</span>
+
+    <span class="k">if</span> <span class="n">flip</span><span class="p">:</span>
+        <span class="n">arg_level</span> <span class="o">=</span> <span class="n">nbins</span> <span class="o">-</span> <span class="n">arg_level</span> <span class="o">-</span> <span class="mi">1</span>
+
+    <span class="k">return</span> <span class="n">bin_centers</span><span class="p">[</span><span class="n">arg_level</span><span class="p">]</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

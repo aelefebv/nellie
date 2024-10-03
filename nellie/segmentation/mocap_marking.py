@@ -6,9 +6,92 @@ from nellie.im_info.verifier import ImInfo
 
 
 class Markers:
+    """
+    A class for generating motion capture markers in microscopy images using distance transforms and peak detection.
+
+    Attributes
+    ----------
+    im_info : ImInfo
+        An object containing image metadata and memory-mapped image data.
+    num_t : int
+        Number of timepoints in the image.
+    min_radius_um : float
+        Minimum radius of detected objects in micrometers.
+    max_radius_um : float
+        Maximum radius of detected objects in micrometers.
+    min_radius_px : float
+        Minimum radius of detected objects in pixels.
+    max_radius_px : float
+        Maximum radius of detected objects in pixels.
+    use_im : str
+        Specifies which image to use for peak detection ('distance' or 'frangi').
+    num_sigma : int
+        Number of sigma steps for multi-scale filtering.
+    shape : tuple
+        Shape of the input image.
+    im_memmap : np.ndarray or None
+        Memory-mapped original image data.
+    im_frangi_memmap : np.ndarray or None
+        Memory-mapped Frangi-filtered image data.
+    label_memmap : np.ndarray or None
+        Memory-mapped label data from instance segmentation.
+    im_marker_memmap : np.ndarray or None
+        Memory-mapped output for motion capture markers.
+    im_distance_memmap : np.ndarray or None
+        Memory-mapped output for distance transform.
+    im_border_memmap : np.ndarray or None
+        Memory-mapped output for image borders.
+    debug : dict or None
+        Debugging information for tracking the marking process.
+    viewer : object or None
+        Viewer object for displaying status during processing.
+
+    Methods
+    -------
+    _get_sigma_vec(sigma)
+        Computes the sigma vector for multi-scale filtering based on image dimensions.
+    _set_default_sigmas()
+        Sets the default sigma values for multi-scale filtering.
+    _get_t()
+        Determines the number of timepoints to process.
+    _allocate_memory()
+        Allocates memory for the markers, distance transform, and border images.
+    _distance_im(mask)
+        Computes the distance transform of the binary mask and identifies border pixels.
+    _remove_close_peaks(coord, check_im)
+        Removes peaks that are too close together, keeping the brightest peak in each cluster.
+    _local_max_peak(use_im, mask, distance_im)
+        Detects local maxima in the image based on multi-scale filtering.
+    _run_frame(t)
+        Runs marker detection for a single timepoint in the image.
+    _run_mocap_marking()
+        Runs the marker detection process for all timepoints in the image.
+    run()
+        Main method to execute the motion capture marking process over the image data.
+    """
     def __init__(self, im_info: ImInfo, num_t=None,
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5,
                  viewer=None):
+        """
+        Initializes the Markers object with image metadata and marking parameters.
+
+        Parameters
+        ----------
+        im_info : ImInfo
+            An instance of the ImInfo class, containing metadata and paths for the image file.
+        num_t : int, optional
+            Number of timepoints to process. If None, defaults to the number of timepoints in the image.
+        min_radius_um : float, optional
+            Minimum radius of detected objects in micrometers (default is 0.20).
+        max_radius_um : float, optional
+            Maximum radius of detected objects in micrometers (default is 1).
+        use_im : str, optional
+            Specifies which image to use for peak detection ('distance' or 'frangi', default is 'distance').
+        num_sigma : int, optional
+            Number of sigma steps for multi-scale filtering (default is 5).
+        viewer : object or None, optional
+            Viewer object for displaying status during processing (default is None).
+        """
         self.im_info = im_info
 
         # if self.im_info.no_t:
@@ -43,6 +126,19 @@ class Markers:
         self.viewer = viewer
 
     def _get_sigma_vec(self, sigma):
+        """
+        Computes the sigma vector for multi-scale filtering based on image dimensions.
+
+        Parameters
+        ----------
+        sigma : float
+            The sigma value to use for filtering.
+
+        Returns
+        -------
+        tuple
+            Sigma vector for Gaussian filtering in (Z, Y, X).
+        """
         if self.im_info.no_z:
             sigma_vec = (sigma, sigma)
         else:
@@ -50,6 +146,9 @@ class Markers:
         return sigma_vec
 
     def _set_default_sigmas(self):
+        """
+        Sets the default sigma values for multi-scale filtering based on the minimum and maximum radius in pixels.
+        """
         logger.debug('Setting sigma values.')
         min_sigma_step_size = 0.2
 
@@ -63,6 +162,11 @@ class Markers:
         logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
 
     def _get_t(self):
+        """
+        Determines the number of timepoints to process.
+
+        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.
+        """
         if self.num_t is None:
             if self.im_info.no_t:
                 self.num_t = 1
@@ -72,6 +176,11 @@ class Markers:
             return
 
     def _allocate_memory(self):
+        """
+        Allocates memory for motion capture markers, distance transform, and border images.
+
+        This method creates memory-mapped arrays for the instance label data, original image data, Frangi-filtered data, markers, distance transforms, and borders.
+        """
         logger.debug('Allocating memory for mocap marking.')
 
         self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
@@ -98,6 +207,19 @@ class Markers:
                                                              return_memmap=True)
 
     def _distance_im(self, mask):
+        """
+        Computes the distance transform of the binary mask and identifies border pixels.
+
+        Parameters
+        ----------
+        mask : np.ndarray
+            Binary mask of segmented objects.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the distance transform, border mask, and updated distance frame.
+        """
         border_mask = ndi.binary_dilation(mask, iterations=1) ^ mask
 
         if device_type == 'cuda':
@@ -119,6 +241,21 @@ class Markers:
         return distances_im_frame, border_mask
 
     def _remove_close_peaks(self, coord, check_im):
+        """
+        Removes peaks that are too close together, keeping only the brightest peak within a given distance.
+
+        Parameters
+        ----------
+        coord : np.ndarray
+            Coordinates of detected peaks.
+        check_im : np.ndarray
+            Intensity image used for peak sorting.
+
+        Returns
+        -------
+        np.ndarray
+            Coordinates of the remaining peaks after filtering.
+        """
         check_im_max = ndi.maximum_filter(check_im, size=3, mode='nearest')
         if not self.im_info.no_z:
             intensities = check_im_max[coord[:, 0], coord[:, 1], coord[:, 2]]
@@ -157,6 +294,23 @@ class Markers:
         return cleaned_coords
 
     def _local_max_peak(self, use_im, mask, distance_im):
+        """
+        Detects local maxima in the image based on multi-scale filtering.
+
+        Parameters
+        ----------
+        use_im : np.ndarray
+            Image to use for detecting peaks ('distance' or 'frangi').
+        mask : np.ndarray
+            Binary mask of segmented objects.
+        distance_im : np.ndarray
+            Distance transform of the binary mask.
+
+        Returns
+        -------
+        np.ndarray
+            Coordinates of the detected peaks.
+        """
         lapofg = xp.empty(((len(self.sigmas),) + use_im.shape), dtype=float)
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
@@ -183,6 +337,19 @@ class Markers:
         return coords_idx
 
     def _run_frame(self, t):
+        """
+        Runs marker detection for a single timepoint in the image.
+
+        Parameters
+        ----------
+        t : int
+            Timepoint index.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the detected marker image, distance transform, and border mask for the given timepoint.
+        """
         logger.info(f'Running motion capture marking, volume {t}/{self.num_t - 1}')
         intensity_frame = xp.asarray(self.im_memmap[t])
         mask_frame = xp.asarray(self.label_memmap[t] > 0)
@@ -200,6 +367,11 @@ class Markers:
             return peak_im, distance_im, border_mask
 
     def _run_mocap_marking(self):
+        """
+        Runs the marker detection process for all timepoints in the image.
+
+        This method processes each timepoint sequentially and applies motion capture marking.
+        """
         for t in range(self.num_t):
             if self.viewer is not None:
                 self.viewer.status = f'Mocap marking. Frame: {t + 1} of {self.num_t}.'
@@ -213,6 +385,11 @@ class Markers:
             self.im_border_memmap.flush()
 
     def run(self):
+        """
+        Main method to execute the motion capture marking process over the image data.
+
+        This method allocates memory, sets sigma values, and runs the marking process for all timepoints.
+        """
         # if self.im_info.no_t:
         #     return
         self._get_t()

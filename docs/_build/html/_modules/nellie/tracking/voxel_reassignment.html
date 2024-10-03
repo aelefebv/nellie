@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie.tracking.voxel_reassignment &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+   
+  <link rel="stylesheet" href="../../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie.tracking.voxel_reassignment</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">heapq</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">scipy.spatial</span> <span class="kn">import</span> <span class="n">cKDTree</span>
+
+<span class="kn">from</span> <span class="nn">nellie</span> <span class="kn">import</span> <span class="n">logger</span>
+<span class="kn">from</span> <span class="nn">nellie.im_info.verifier</span> <span class="kn">import</span> <span class="n">ImInfo</span>
+<span class="kn">from</span> <span class="nn">nellie.tracking.flow_interpolation</span> <span class="kn">import</span> <span class="n">FlowInterpolator</span>
+
+
+<div class="viewcode-block" id="VoxelReassigner">
+<a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.voxel_reassignment.VoxelReassigner">[docs]</a>
+<span class="k">class</span> <span class="nc">VoxelReassigner</span><span class="p">:</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                 <span class="n">viewer</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">num_t</span>
+        <span class="k">if</span> <span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="n">im_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">im_info</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span> <span class="o">=</span> <span class="n">FlowInterpolator</span><span class="p">(</span><span class="n">im_info</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_bw</span> <span class="o">=</span> <span class="n">FlowInterpolator</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">forward</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">running_matches</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">voxel_matches_path</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">branch_label_memmap</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">obj_label_memmap</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reassigned_branch_memmap</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reassigned_obj_memmap</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">viewer</span>
+
+    <span class="k">def</span> <span class="nf">_match_forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flow_interpolator</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+        <span class="n">vectors_interpx_prev</span> <span class="o">=</span> <span class="n">flow_interpolator</span><span class="o">.</span><span class="n">interpolate_coord</span><span class="p">(</span><span class="n">vox_prev</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">vectors_interpx_prev</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="c1"># only keep voxels that are not nan</span>
+        <span class="n">kept_prev_vox_idxs</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">vectors_interpx_prev</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="c1"># only keep vectors where the voxel is not nan</span>
+        <span class="n">vectors_interpx_prev</span> <span class="o">=</span> <span class="n">vectors_interpx_prev</span><span class="p">[</span><span class="n">kept_prev_vox_idxs</span><span class="p">]</span>
+        <span class="c1"># get centroids in t1 from voxels in t0 + interpolated flow at that voxel</span>
+        <span class="n">vox_prev_kept</span> <span class="o">=</span> <span class="n">vox_prev</span><span class="p">[</span><span class="n">kept_prev_vox_idxs</span><span class="p">]</span>
+        <span class="n">centroids_next_interpx</span> <span class="o">=</span> <span class="n">vox_prev_kept</span> <span class="o">+</span> <span class="n">vectors_interpx_prev</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">centroids_next_interpx</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="c1"># now we have estimated centroids in t1 (centroids_next_interpx) and linked voxels in t0 (vox_prev[kept_prev_vox_idxs]).</span>
+        <span class="c1"># we then have to match t1 voxels (vox_next) to estimated t1 centroids (centroids_next_interpx)</span>
+        <span class="n">match_dist</span><span class="p">,</span> <span class="n">matched_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_match_voxels_to_centroids</span><span class="p">(</span><span class="n">vox_next</span><span class="p">,</span> <span class="n">centroids_next_interpx</span><span class="p">)</span>
+        <span class="n">vox_matched_to_centroids</span> <span class="o">=</span> <span class="n">vox_next</span><span class="p">[</span><span class="n">matched_idx</span><span class="o">.</span><span class="n">tolist</span><span class="p">()]</span>
+        <span class="c1"># then link those t1 voxels back to the t0 voxels</span>
+        <span class="c1"># now we have linked t0 voxels (vox_prev_kept) to t1 voxels (vox_matched_to_centroids)</span>
+        <span class="c1"># but we have to make sure the link is within a distance constraint.</span>
+        <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_distance_threshold</span><span class="p">(</span>
+            <span class="n">vox_prev_kept</span><span class="p">,</span> <span class="n">vox_matched_to_centroids</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span>
+
+    <span class="k">def</span> <span class="nf">_match_backward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">flow_interpolator</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+        <span class="c1"># interpolate flow vectors to all voxels in t1 from centroids derived from t0 centroids + t0 flow vectors</span>
+        <span class="n">vectors_interpx_prev</span> <span class="o">=</span> <span class="n">flow_interpolator</span><span class="o">.</span><span class="n">interpolate_coord</span><span class="p">(</span><span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">vectors_interpx_prev</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="c1"># only keep voxels that are not nan</span>
+        <span class="n">kept_next_vox_idxs</span> <span class="o">=</span> <span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">vectors_interpx_prev</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="c1"># only keep vectors where the voxel is not nan</span>
+        <span class="n">vectors_interpx_prev</span> <span class="o">=</span> <span class="n">vectors_interpx_prev</span><span class="p">[</span><span class="n">kept_next_vox_idxs</span><span class="p">]</span>
+        <span class="c1"># get centroids in t0 from voxels in t1 - interpolated flow (from t0 to t1) at that voxel</span>
+        <span class="n">vox_next_kept</span> <span class="o">=</span> <span class="n">vox_next</span><span class="p">[</span><span class="n">kept_next_vox_idxs</span><span class="p">]</span>
+        <span class="n">centroids_prev_interpx</span> <span class="o">=</span> <span class="n">vox_next_kept</span> <span class="o">-</span> <span class="n">vectors_interpx_prev</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">centroids_prev_interpx</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="c1"># now we have estimated centroids in t0 (centroids_prev_interpx) and linked voxels in t1 (vox_next[kept_next_vox_idxs]).</span>
+        <span class="c1"># we then have to match t0 voxels (vox_prev) to estimated t0 centroids (centroids_prev_interpx)</span>
+        <span class="n">match_dist</span><span class="p">,</span> <span class="n">matched_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_match_voxels_to_centroids</span><span class="p">(</span><span class="n">vox_prev</span><span class="p">,</span> <span class="n">centroids_prev_interpx</span><span class="p">)</span>
+        <span class="n">vox_matched_to_centroids</span> <span class="o">=</span> <span class="n">vox_prev</span><span class="p">[</span><span class="n">matched_idx</span><span class="o">.</span><span class="n">tolist</span><span class="p">()]</span>
+        <span class="c1"># then link those t1 voxels (vox_next_kept) back to the t0 voxels (vox_matched_to_centroids).</span>
+        <span class="c1"># but we have to make sure the link is within a distance constraint.</span>
+        <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_distance_threshold</span><span class="p">(</span>
+            <span class="n">vox_matched_to_centroids</span><span class="p">,</span> <span class="n">vox_next_kept</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span>
+
+    <span class="k">def</span> <span class="nf">_match_voxels_to_centroids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coords_real</span><span class="p">,</span> <span class="n">coords_interpx</span><span class="p">):</span>
+        <span class="n">coords_interpx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coords_interpx</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span>
+        <span class="n">coords_real</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">coords_real</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span>
+        <span class="n">tree</span> <span class="o">=</span> <span class="n">cKDTree</span><span class="p">(</span><span class="n">coords_real</span><span class="p">)</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">idx</span> <span class="o">=</span> <span class="n">tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">coords_interpx</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">workers</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">dist</span><span class="p">,</span> <span class="n">idx</span>
+
+    <span class="k">def</span> <span class="nf">_assign_unique_matches</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vox_prev_matches</span><span class="p">,</span> <span class="n">vox_next_matches</span><span class="p">,</span> <span class="n">distances</span><span class="p">):</span>
+        <span class="c1"># create a dict where the key is a voxel in t1, and the value is a list of distances and t0 voxels matched to it</span>
+        <span class="n">vox_next_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">match_idx</span><span class="p">,</span> <span class="n">match_next</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">vox_next_matches</span><span class="p">):</span>
+            <span class="n">match_next_tuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">match_next</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">match_next_tuple</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">vox_next_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">vox_next_dict</span><span class="p">[</span><span class="n">match_next_tuple</span><span class="p">]</span> <span class="o">=</span> <span class="p">[[],</span> <span class="p">[]]</span>
+            <span class="n">vox_next_dict</span><span class="p">[</span><span class="n">match_next_tuple</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">distances</span><span class="p">[</span><span class="n">match_idx</span><span class="p">])</span>
+            <span class="n">vox_next_dict</span><span class="p">[</span><span class="n">match_next_tuple</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">vox_prev_matches</span><span class="p">[</span><span class="n">match_idx</span><span class="p">])</span>
+
+        <span class="c1"># now assign matches based on the t1 voxel&#39;s closest (in distance) matched t0 voxel</span>
+        <span class="n">vox_prev_matches_final</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">vox_next_matches_final</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">match_next_tuple</span><span class="p">,</span> <span class="p">(</span><span class="n">distance_match_list</span><span class="p">,</span> <span class="n">vox_prev_match_list</span><span class="p">)</span> <span class="ow">in</span> <span class="n">vox_next_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">distance_match_list</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">vox_prev_matches_final</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">vox_prev_match_list</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="n">vox_next_matches_final</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">match_next_tuple</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="n">min_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">distance_match_list</span><span class="p">)</span>
+            <span class="n">vox_prev_matches_final</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">vox_prev_match_list</span><span class="p">[</span><span class="n">min_idx</span><span class="p">])</span>
+            <span class="n">vox_next_matches_final</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">match_next_tuple</span><span class="p">)</span>
+
+        <span class="c1"># create a priority queue with (distance, prev_voxel, next_voxel) tuples</span>
+        <span class="n">priority_queue</span> <span class="o">=</span> <span class="p">[(</span><span class="n">distances</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">vox_prev_matches</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">vox_next_matches</span><span class="p">[</span><span class="n">i</span><span class="p">]))</span>
+                          <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">distances</span><span class="p">))]</span>
+        <span class="n">heapq</span><span class="o">.</span><span class="n">heapify</span><span class="p">(</span><span class="n">priority_queue</span><span class="p">)</span>  <span class="c1"># Convert list to a heap in-place</span>
+
+        <span class="n">assigned_prev</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">assigned_next</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">vox_prev_matches_final</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">vox_next_matches_final</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">while</span> <span class="n">priority_queue</span><span class="p">:</span>
+            <span class="c1"># pop the smallest distance tuple from the heap</span>
+            <span class="n">distance</span><span class="p">,</span> <span class="n">prev_voxel</span><span class="p">,</span> <span class="n">next_voxel</span> <span class="o">=</span> <span class="n">heapq</span><span class="o">.</span><span class="n">heappop</span><span class="p">(</span><span class="n">priority_queue</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">prev_voxel</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">assigned_prev</span> <span class="ow">or</span> <span class="n">next_voxel</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">assigned_next</span><span class="p">:</span>
+                <span class="c1"># if neither of the voxels has been assigned, then assign them</span>
+                <span class="n">vox_prev_matches_final</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">prev_voxel</span><span class="p">)</span>
+                <span class="n">vox_next_matches_final</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">next_voxel</span><span class="p">)</span>
+                <span class="n">assigned_prev</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">prev_voxel</span><span class="p">)</span>
+                <span class="n">assigned_next</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">next_voxel</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">vox_prev_matches_final</span><span class="p">,</span> <span class="n">vox_next_matches_final</span>
+
+    <span class="k">def</span> <span class="nf">_distance_threshold</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vox_prev_matched</span><span class="p">,</span> <span class="n">vox_next_matched</span><span class="p">):</span>
+        <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">((</span><span class="n">vox_prev_matched</span> <span class="o">-</span> <span class="n">vox_next_matched</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">distance_mask</span> <span class="o">=</span> <span class="n">distances</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">max_distance_um</span>
+        <span class="n">vox_prev_matched_valid</span> <span class="o">=</span> <span class="n">vox_prev_matched</span><span class="p">[</span><span class="n">distance_mask</span><span class="p">]</span>
+        <span class="n">vox_next_matched_valid</span> <span class="o">=</span> <span class="n">vox_next_matched</span><span class="p">[</span><span class="n">distance_mask</span><span class="p">]</span>
+        <span class="n">distances_valid</span> <span class="o">=</span> <span class="n">distances</span><span class="p">[</span><span class="n">distance_mask</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">vox_prev_matched_valid</span><span class="p">,</span> <span class="n">vox_next_matched_valid</span><span class="p">,</span> <span class="n">distances_valid</span>
+
+<div class="viewcode-block" id="VoxelReassigner.match_voxels">
+<a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.voxel_reassignment.VoxelReassigner.match_voxels">[docs]</a>
+    <span class="k">def</span> <span class="nf">match_voxels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+        <span class="c1"># forward interpolation:</span>
+        <span class="c1"># from t0 voxels and interpolated flow, get t1 centroids.</span>
+        <span class="c1">#  match nearby t1 voxels to t1 centroids, which are linked to t0 voxels.</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Forward voxel matching for t: </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="n">vox_prev_matches_fw</span><span class="p">,</span> <span class="n">vox_next_matches_fw</span><span class="p">,</span> <span class="n">distances_fw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_match_forward</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span>
+        <span class="p">)</span>
+
+        <span class="c1"># backward interpolation:</span>
+        <span class="c1"># from t0 centroids and real flow, get t1 centroids.</span>
+        <span class="c1">#  interpolate flow at nearby t1 voxels. subtract flow from voxels to get t0 centroids.</span>
+        <span class="c1">#  match nearby t0 voxels to t0 centroids, which are linked to t1 voxels.</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Backward voxel matching for t: </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="n">vox_prev_matches_bw</span><span class="p">,</span> <span class="n">vox_next_matches_bw</span><span class="p">,</span> <span class="n">distances_bw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_match_backward</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_bw</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">vox_prev</span><span class="p">,</span> <span class="n">t</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="p">)</span>
+
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Assigning unique matches for t: </span><span class="si">{</span><span class="n">t</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+        <span class="n">vox_prev_matches</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">vox_prev_matches_fw</span><span class="p">,</span> <span class="n">vox_prev_matches_bw</span><span class="p">])</span>
+        <span class="n">vox_next_matches</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">vox_next_matches_fw</span><span class="p">,</span> <span class="n">vox_next_matches_bw</span><span class="p">])</span>
+        <span class="n">distances</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">distances_fw</span><span class="p">,</span> <span class="n">distances_bw</span><span class="p">])</span>
+
+        <span class="n">vox_prev_matches_unique</span><span class="p">,</span> <span class="n">vox_next_matches_unique</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_assign_unique_matches</span><span class="p">(</span><span class="n">vox_prev_matches</span><span class="p">,</span>
+                                                                                       <span class="n">vox_next_matches</span><span class="p">,</span> <span class="n">distances</span><span class="p">)</span>
+
+        <span class="n">vox_next_matches_unique</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">vox_next_matches_unique</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">vox_next_matches_unique</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[],</span> <span class="p">[]</span>
+        <span class="n">vox_next_matched_tuples</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">)</span> <span class="k">for</span> <span class="n">coord</span> <span class="ow">in</span> <span class="n">vox_next_matches_unique</span><span class="p">])</span>
+        <span class="n">vox_next_unmatched</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">coord</span> <span class="k">for</span> <span class="n">coord</span> <span class="ow">in</span> <span class="n">vox_next</span> <span class="k">if</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">vox_next_matched_tuples</span><span class="p">])</span>
+
+        <span class="n">unmatched_diff</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+        <span class="k">while</span> <span class="n">unmatched_diff</span><span class="p">:</span>
+            <span class="n">num_unmatched</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">vox_next_unmatched</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">num_unmatched</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="n">tree</span> <span class="o">=</span> <span class="n">cKDTree</span><span class="p">(</span><span class="n">vox_next_matches_unique</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span><span class="p">)</span>
+            <span class="n">dists</span><span class="p">,</span> <span class="n">idxs</span> <span class="o">=</span> <span class="n">tree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span><span class="n">vox_next_unmatched</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">scaling</span><span class="p">,</span> <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">workers</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">unmatched_matches</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span>
+                <span class="p">[</span><span class="n">vox_prev_matches_unique</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">vox_next_unmatched</span><span class="p">[</span><span class="n">i</span><span class="p">]]</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">idx</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">idxs</span><span class="p">)</span> <span class="k">if</span> <span class="n">dists</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">flow_interpolator_fw</span><span class="o">.</span><span class="n">max_distance_um</span>
+            <span class="p">])</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unmatched_matches</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="c1"># add unmatched matches to coords_matched</span>
+            <span class="n">vox_prev_matches_unique</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">vox_prev_matches_unique</span><span class="p">,</span> <span class="n">unmatched_matches</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]])</span>
+            <span class="n">vox_next_matches_unique</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">vox_next_matches_unique</span><span class="p">,</span> <span class="n">unmatched_matches</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]])</span>
+            <span class="n">vox_next_matched_tuples</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">)</span> <span class="k">for</span> <span class="n">coord</span> <span class="ow">in</span> <span class="n">vox_next_matches_unique</span><span class="p">])</span>
+            <span class="n">vox_next_unmatched</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">coord</span> <span class="k">for</span> <span class="n">coord</span> <span class="ow">in</span> <span class="n">vox_next</span> <span class="k">if</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">vox_next_matched_tuples</span><span class="p">])</span>
+            <span class="n">new_num_unmatched</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">vox_next_unmatched</span><span class="p">)</span>
+            <span class="n">unmatched_diff</span> <span class="o">=</span> <span class="n">num_unmatched</span> <span class="o">-</span> <span class="n">new_num_unmatched</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Reassigned </span><span class="si">{</span><span class="n">unmatched_diff</span><span class="si">}</span><span class="s1">/</span><span class="si">{</span><span class="n">num_unmatched</span><span class="si">}</span><span class="s1"> unassigned voxels. &#39;</span>
+                         <span class="sa">f</span><span class="s1">&#39;</span><span class="si">{</span><span class="n">new_num_unmatched</span><span class="si">}</span><span class="s1"> remain.&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">vox_prev_matches_unique</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">vox_next_matches_unique</span><span class="p">)</span></div>
+
+
+    <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s1">&#39;Allocating memory for voxel reassignment.&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voxel_matches_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;voxel_matches&#39;</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">branch_label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_skel_relabelled&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">obj_label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_instance_label&#39;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shape</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_label_memmap</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">reassigned_branch_label_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_branch_label_reassigned&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reassigned_branch_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">allocate_memory</span><span class="p">(</span><span class="n">reassigned_branch_label_path</span><span class="p">,</span>
+                                                                     <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;int32&#39;</span><span class="p">,</span>
+                                                                     <span class="n">description</span><span class="o">=</span><span class="s1">&#39;branch label reassigned&#39;</span><span class="p">,</span>
+                                                                     <span class="n">return_memmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">reassigned_obj_label_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_obj_label_reassigned&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reassigned_obj_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">allocate_memory</span><span class="p">(</span><span class="n">reassigned_obj_label_path</span><span class="p">,</span>
+                                                                  <span class="n">dtype</span><span class="o">=</span><span class="s1">&#39;int32&#39;</span><span class="p">,</span>
+                                                                  <span class="n">description</span><span class="o">=</span><span class="s1">&#39;object label reassigned&#39;</span><span class="p">,</span>
+                                                                  <span class="n">return_memmap</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">all_mask_coords</span><span class="p">,</span> <span class="n">reassigned_memmap</span><span class="p">):</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;Reassigning pixels in frame </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1">&#39;</span><span class="p">)</span>
+
+        <span class="n">vox_prev</span> <span class="o">=</span> <span class="n">all_mask_coords</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
+        <span class="n">vox_next</span> <span class="o">=</span> <span class="n">all_mask_coords</span><span class="p">[</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">vox_prev</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">vox_next</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+
+        <span class="n">matched_prev</span><span class="p">,</span> <span class="n">matched_next</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">match_voxels</span><span class="p">(</span><span class="n">vox_prev</span><span class="p">,</span> <span class="n">vox_next</span><span class="p">,</span> <span class="n">t</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">matched_prev</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">True</span>
+        <span class="n">matched_prev</span> <span class="o">=</span> <span class="n">matched_prev</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;uint16&#39;</span><span class="p">)</span>
+        <span class="n">matched_next</span> <span class="o">=</span> <span class="n">matched_next</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;uint16&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">running_matches</span><span class="o">.</span><span class="n">append</span><span class="p">([</span><span class="n">matched_prev</span><span class="p">,</span> <span class="n">matched_next</span><span class="p">])</span>
+
+        <span class="n">reassigned_memmap</span><span class="p">[</span><span class="n">t</span> <span class="o">+</span> <span class="mi">1</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">matched_next</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">reassigned_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">matched_prev</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span>
+
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="k">def</span> <span class="nf">_run_reassignment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">label_type</span><span class="p">):</span>
+        <span class="c1"># todo, be able to specify which frame to start at.</span>
+        <span class="k">if</span> <span class="n">label_type</span> <span class="o">==</span> <span class="s1">&#39;branch&#39;</span><span class="p">:</span>
+            <span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_label_memmap</span>
+            <span class="n">reassigned_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reassigned_branch_memmap</span>
+        <span class="k">elif</span> <span class="n">label_type</span> <span class="o">==</span> <span class="s1">&#39;obj&#39;</span><span class="p">:</span>
+            <span class="n">label_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">obj_label_memmap</span>
+            <span class="n">reassigned_memmap</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">reassigned_obj_memmap</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s1">&#39;label_type must be &quot;branch&quot; or &quot;obj&quot;.&#39;</span><span class="p">)</span>
+        <span class="n">vox_prev</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">label_memmap</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">reassigned_memmap</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">vox_prev</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">label_memmap</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">vox_prev</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span>
+        <span class="n">all_mask_coords</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">label_memmap</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="p">)]</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Reassigning voxels. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
+            <span class="n">no_matches</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_frame</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">all_mask_coords</span><span class="p">,</span> <span class="n">reassigned_memmap</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">no_matches</span><span class="p">:</span>
+                <span class="k">break</span>
+
+<div class="viewcode-block" id="VoxelReassigner.run">
+<a class="viewcode-back" href="../../../nellie.tracking.html#nellie.tracking.voxel_reassignment.VoxelReassigner.run">[docs]</a>
+    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_get_t</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_allocate_memory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_run_reassignment</span><span class="p">(</span><span class="s1">&#39;branch&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_run_reassignment</span><span class="p">(</span><span class="s1">&#39;obj&#39;</span><span class="p">)</span>
+        <span class="c1"># save running matches to npy</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">voxel_matches_path</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">running_matches</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">object</span><span class="p">))</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">im_path</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif&quot;</span>
+    <span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="n">im_path</span><span class="p">)</span>
+    <span class="n">num_t</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="n">run_obj</span> <span class="o">=</span> <span class="n">VoxelReassigner</span><span class="p">(</span><span class="n">im_info</span><span class="p">,</span> <span class="n">num_t</span><span class="o">=</span><span class="n">num_t</span><span class="p">)</span>
+    <span class="n">run_obj</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+    <span class="kn">import</span> <span class="nn">pickle</span>
+
+    <span class="c1"># This section seems random, but it allows for finding links between any level of the hierarchy to any</span>
+    <span class="c1">#  other level in the hierarchy at any time point via lots of dot products.</span>
+    <span class="n">edges_loaded</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;adjacency_maps&#39;</span><span class="p">],</span> <span class="s2">&quot;rb&quot;</span><span class="p">))</span>
+
+    <span class="n">mask_01</span> <span class="o">=</span> <span class="n">run_obj</span><span class="o">.</span><span class="n">obj_label_memmap</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="n">mask_voxels_0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">mask_01</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">mask_voxels_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">mask_01</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+
+    <span class="n">t0_coords_in_mask_0</span> <span class="o">=</span> <span class="p">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">):</span> <span class="n">idx</span> <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">coord</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">mask_voxels_0</span><span class="p">)}</span>
+    <span class="n">t1_coords_in_mask_1</span> <span class="o">=</span> <span class="p">{</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">):</span> <span class="n">idx</span> <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">coord</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">mask_voxels_1</span><span class="p">)}</span>
+
+    <span class="n">idx_matches_0</span> <span class="o">=</span> <span class="p">[</span><span class="n">t0_coords_in_mask_0</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">)]</span> <span class="k">for</span> <span class="n">coord</span> <span class="ow">in</span> <span class="n">run_obj</span><span class="o">.</span><span class="n">running_matches</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span>
+    <span class="n">idx_matches_1</span> <span class="o">=</span> <span class="p">[</span><span class="n">t1_coords_in_mask_1</span><span class="p">[</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coord</span><span class="p">)]</span> <span class="k">for</span> <span class="n">coord</span> <span class="ow">in</span> <span class="n">run_obj</span><span class="o">.</span><span class="n">running_matches</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]]</span>
+    <span class="c1"># sort based on idx_matches_0</span>
+    <span class="n">sorted_idx_matches_0_order</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argsort</span><span class="p">(</span><span class="n">idx_matches_0</span><span class="p">)</span>
+    <span class="n">sorted_idx_matches_0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">idx_matches_0</span><span class="p">)[</span><span class="n">sorted_idx_matches_0_order</span><span class="p">]</span>
+    <span class="n">sorted_idx_matches_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">idx_matches_1</span><span class="p">)[</span><span class="n">sorted_idx_matches_0_order</span><span class="p">]</span>
+
+    <span class="n">v_t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">mask_voxels_0</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">mask_voxels_1</span><span class="p">)),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="n">v_t</span><span class="p">[</span><span class="n">sorted_idx_matches_0</span><span class="p">,</span> <span class="n">sorted_idx_matches_1</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="n">b_v</span> <span class="o">=</span> <span class="n">edges_loaded</span><span class="p">[</span><span class="s1">&#39;b_v&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="c1"># dot product b_v and v_t</span>
+    <span class="kn">import</span> <span class="nn">cupy</span> <span class="k">as</span> <span class="nn">cp</span>
+
+
+    <span class="k">def</span> <span class="nf">dot_product_in_chunks</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">chunk_size</span><span class="o">=</span><span class="mi">100</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">b</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">cp</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">start_row</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">a</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">chunk_size</span><span class="p">):</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">start_row</span><span class="p">,</span> <span class="n">start_row</span> <span class="o">+</span> <span class="n">chunk_size</span><span class="p">)</span>
+            <span class="n">end_row</span> <span class="o">=</span> <span class="n">start_row</span> <span class="o">+</span> <span class="n">chunk_size</span>
+            <span class="n">v_t_chunk</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="n">start_row</span><span class="p">:</span><span class="n">end_row</span><span class="p">,</span> <span class="p">:]</span>
+            <span class="n">b_v_chunk</span> <span class="o">=</span> <span class="n">a</span><span class="p">[:,</span> <span class="n">start_row</span><span class="p">:</span><span class="n">end_row</span><span class="p">]</span>
+            <span class="n">result</span> <span class="o">+=</span> <span class="n">cp</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">b_v_chunk</span><span class="p">,</span> <span class="n">v_t_chunk</span><span class="p">)</span>  <span class="c1"># Adjust this line as per your logic</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+
+    <span class="c1"># Convert your numpy arrays to cupy arrays</span>
+    <span class="n">v_t_cp</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">v_t</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">cp</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+    <span class="n">b_v_cp</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">b_v</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">cp</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+
+    <span class="c1"># Perform dot product in chunks</span>
+    <span class="n">b0_v1_cp</span> <span class="o">=</span> <span class="n">dot_product_in_chunks</span><span class="p">(</span><span class="n">b_v_cp</span><span class="p">,</span> <span class="n">v_t_cp</span><span class="p">)</span>
+
+    <span class="c1"># Convert the result back to a numpy array if needed</span>
+    <span class="n">b1_v1</span> <span class="o">=</span> <span class="n">edges_loaded</span><span class="p">[</span><span class="s1">&#39;b_v&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="n">b1_v1_cp</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">b1_v1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">cp</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+    <span class="n">b0_b1_cp</span> <span class="o">=</span> <span class="n">dot_product_in_chunks</span><span class="p">(</span><span class="n">b0_v1_cp</span><span class="p">,</span> <span class="n">b1_v1_cp</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+    <span class="n">b0_b1</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">asnumpy</span><span class="p">(</span><span class="n">b0_b1_cp</span><span class="p">)</span>
+    <span class="c1"># b0_b1 are the new edges between branches in time 0 and time 1, values are the number of voxels in common between (aka weighting to give the edges)</span>
+
+    <span class="c1"># find the indices of the maximum value in each col</span>
+    <span class="n">max_idx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">b0_b1</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="n">mask_branches</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">mask_01</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="n">branch_labels_0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">b_v</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">branch_labels_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">b1_v1</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+    <span class="n">mask_branches</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">mask_voxels_0</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">branch_labels_0</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="c1"># replace any non-zero values in b1_v1 with the max_idx</span>
+    <span class="n">new_branch_labels_1</span> <span class="o">=</span> <span class="n">max_idx</span><span class="p">[</span><span class="n">branch_labels_1</span><span class="p">]</span>
+    <span class="n">mask_branches</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">mask_voxels_1</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">new_branch_labels_1</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="c1"># these branches are relabelled by t0 branch labels.</span>
+
+    <span class="c1"># lets do this with nodes, too</span>
+    <span class="n">n_v</span> <span class="o">=</span> <span class="n">edges_loaded</span><span class="p">[</span><span class="s1">&#39;n_v&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="n">n_v_cp</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">n_v</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">cp</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+    <span class="n">n0_v1_cp</span> <span class="o">=</span> <span class="n">dot_product_in_chunks</span><span class="p">(</span><span class="n">n_v_cp</span><span class="p">,</span> <span class="n">v_t_cp</span><span class="p">)</span>
+    <span class="n">n1_v1</span> <span class="o">=</span> <span class="n">edges_loaded</span><span class="p">[</span><span class="s1">&#39;n_v&#39;</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="n">n1_v1_cp</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">n1_v1</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">cp</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span>
+    <span class="n">n0_n1_cp</span> <span class="o">=</span> <span class="n">dot_product_in_chunks</span><span class="p">(</span><span class="n">n0_v1_cp</span><span class="p">,</span> <span class="n">n1_v1_cp</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+
+    <span class="n">n0_n1</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">asnumpy</span><span class="p">(</span><span class="n">n0_n1_cp</span><span class="p">)</span>
+    <span class="n">max_idx_n</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">n0_n1</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="n">mask_nodes</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">mask_01</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">uint16</span><span class="p">)</span>
+    <span class="n">node_labels_0</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">n_v</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">node_labels_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">n1_v1</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">mask_nodes</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">mask_voxels_0</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">node_labels_0</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="n">new_node_labels_1</span> <span class="o">=</span> <span class="n">max_idx_n</span><span class="p">[</span><span class="n">node_labels_1</span><span class="p">]</span>
+    <span class="n">mask_nodes</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">mask_voxels_1</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span> <span class="o">=</span> <span class="n">new_node_labels_1</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="c1"># # todo useful for getting continuous tracks for voxels</span>
+    <span class="c1"># matches_t0_t1 = run_obj.running_matches[0][1]</span>
+    <span class="c1"># matches_t1_t2 = run_obj.running_matches[1][0]</span>
+    <span class="c1">#</span>
+    <span class="c1"># t1_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(matches_t0_t1)}</span>
+    <span class="c1"># t1_coords_in_t1_t2 = {tuple(coord): idx for idx, coord in enumerate(matches_t1_t2)}</span>
+    <span class="c1">#</span>
+    <span class="c1"># t0_coords_in_t0_t1 = {tuple(coord): idx for idx, coord in enumerate(run_obj.running_matches[0][0])}</span>
+    <span class="c1">#</span>
+    <span class="c1"># # Create the continuous track list</span>
+    <span class="c1"># continuous_tracks = []</span>
+    <span class="c1"># for t1_coord, t0_idx in t1_coords_in_t0_t1.items():</span>
+    <span class="c1">#     if t1_coord in t1_coords_in_t1_t2:</span>
+    <span class="c1">#         t0_coord = run_obj.running_matches[0][0][t0_idx]</span>
+    <span class="c1">#         t2_idx = t1_coords_in_t1_t2[t1_coord]</span>
+    <span class="c1">#         t2_coord = run_obj.running_matches[1][1][t2_idx]</span>
+    <span class="c1">#         continuous_tracks.append([t0_coord, t1_coord, t2_coord])</span>
+    <span class="c1">#</span>
+    <span class="c1"># napari_tracks = []</span>
+    <span class="c1"># for i, track in enumerate(continuous_tracks):</span>
+    <span class="c1">#     napari_tracks.append([i, 0, track[0][0], track[0][1], track[0][2]])</span>
+    <span class="c1">#     napari_tracks.append([i, 1, track[1][0], track[1][1], track[1][2]])</span>
+    <span class="c1">#     napari_tracks.append([i, 2, track[2][0], track[2][1], track[2][2]])</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../../index.html">Documentation overview</a><ul>
+  <li><a href="../../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

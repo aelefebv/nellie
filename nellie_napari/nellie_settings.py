@@ -3,7 +3,55 @@ import napari
 
 
 class Settings(QWidget):
+    """
+    The Settings class provides a user interface for configuring various options and settings for the Nellie pipeline
+    and visualizations. Users can enable or disable specific processing options, control track visualization settings,
+    and configure voxel visualization parameters.
+
+    Attributes
+    ----------
+    nellie : object
+        Reference to the Nellie instance managing the pipeline.
+    viewer : napari.viewer.Viewer
+        Reference to the napari viewer instance.
+    remove_edges_checkbox : QCheckBox
+        Checkbox for enabling or disabling the removal of image edges.
+    remove_intermediates_checkbox : QCheckBox
+        Checkbox for enabling or disabling the removal of intermediate files after processing.
+    voxel_reassign : QCheckBox
+        Checkbox to enable or disable the automatic voxel reassignment step after tracking.
+    analyze_node_level : QCheckBox
+        Checkbox to enable or disable node-level analysis during feature extraction.
+    track_all_frames : QCheckBox
+        Checkbox to enable or disable the visualization of voxel tracks for all frames.
+    skip_vox_label : QLabel
+        Label describing the setting for skipping voxels during track visualization.
+    skip_vox : QSpinBox
+        Spin box for selecting the value of N to visualize tracks for every Nth voxel.
+    initialized : bool
+        Flag to indicate whether the settings interface has been initialized.
+
+    Methods
+    -------
+    post_init()
+        Post-initialization method that sets the initialized flag to True.
+    set_ui()
+        Initializes and sets the layout and UI components for the Settings class.
+    """
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+        """
+        Initializes the Settings class, setting up the user interface and options for configuring
+        processing and track visualization.
+
+        Parameters
+        ----------
+        napari_viewer : napari.viewer.Viewer
+            Reference to the napari viewer instance.
+        nellie : object
+            Reference to the Nellie instance that manages the pipeline.
+        parent : QWidget, optional
+            Optional parent widget (default is None).
+        """
         super().__init__(parent)
         self.nellie = nellie
         self.viewer = napari_viewer
@@ -48,9 +96,17 @@ class Settings(QWidget):
         self.initialized = False
 
     def post_init(self):
+        """
+        Post-initialization method that sets the initialized flag to True.
+        """
         self.initialized = True
 
     def set_ui(self):
+        """
+        Initializes and sets the layout and UI components for the Settings class. This includes checkboxes for
+        configuring the processing pipeline and track visualization options, as well as a spin box for setting
+        voxel track visualization parameters.
+        """
         main_layout = QVBoxLayout()
 
         # Processor settings

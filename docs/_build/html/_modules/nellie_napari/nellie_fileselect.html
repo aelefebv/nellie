@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+
+<html lang="en" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nellie_napari.nellie_fileselect &#8212; Nellie 0.3.2 documentation</title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=d1102ebc" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=12dfc556" />
+    <script src="../../_static/documentation_options.js?v=71d9d8e6"></script>
+    <script src="../../_static/doctools.js?v=9a2dae69"></script>
+    <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for nellie_napari.nellie_fileselect</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">napari</span>
+<span class="kn">from</span> <span class="nn">PyQt5.QtWidgets</span> <span class="kn">import</span> <span class="n">QSpinBox</span>
+<span class="kn">from</span> <span class="nn">qtpy.QtWidgets</span> <span class="kn">import</span> <span class="n">QWidget</span><span class="p">,</span> <span class="n">QLabel</span><span class="p">,</span> <span class="n">QPushButton</span><span class="p">,</span> <span class="n">QLineEdit</span><span class="p">,</span> <span class="n">QFileDialog</span><span class="p">,</span> <span class="n">QVBoxLayout</span><span class="p">,</span> <span class="n">QHBoxLayout</span><span class="p">,</span> <span class="n">QGroupBox</span>
+<span class="kn">from</span> <span class="nn">napari.utils.notifications</span> <span class="kn">import</span> <span class="n">show_info</span>
+<span class="kn">from</span> <span class="nn">tifffile</span> <span class="kn">import</span> <span class="n">tifffile</span>
+
+<span class="kn">from</span> <span class="nn">nellie.im_info.verifier</span> <span class="kn">import</span> <span class="n">FileInfo</span><span class="p">,</span> <span class="n">ImInfo</span>
+
+
+<div class="viewcode-block" id="NellieFileSelect">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect">[docs]</a>
+<span class="k">class</span> <span class="nc">NellieFileSelect</span><span class="p">(</span><span class="n">QWidget</span><span class="p">):</span>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">napari_viewer</span><span class="p">:</span> <span class="s1">&#39;napari.viewer.Viewer&#39;</span><span class="p">,</span> <span class="n">nellie</span><span class="p">,</span> <span class="n">parent</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="n">parent</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span> <span class="o">=</span> <span class="n">nellie</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="p">:</span> <span class="n">FileInfo</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">napari_viewer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">title</span> <span class="o">=</span> <span class="s1">&#39;Nellie Napari&#39;</span>
+        <span class="c1"># Add text showing what filepath is selected</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_text</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;No file selected.&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_text</span><span class="o">.</span><span class="n">setWordWrap</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># Filepath selector button</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;Select File&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">select_filepath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># Folder selector button</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">folder_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;Select Folder&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">folder_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">select_folder</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">folder_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">selection_text</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Selected file:&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">selection_text</span><span class="o">.</span><span class="n">setWordWrap</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;Reset&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">reset</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_shape_text</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_shape_text</span><span class="o">.</span><span class="n">setWordWrap</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">current_order_text</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">current_order_text</span><span class="o">.</span><span class="n">setWordWrap</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span> <span class="o">=</span> <span class="n">QLineEdit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setToolTip</span><span class="p">(</span><span class="s2">&quot;Accepted axes: None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">textChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handle_dim_order_changed</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_text</span> <span class="o">=</span> <span class="s1">&#39;None&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_text</span> <span class="o">=</span> <span class="s1">&#39;None&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span> <span class="o">=</span> <span class="s1">&#39;None&#39;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_t</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;T resolution (s):&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_button</span> <span class="o">=</span> <span class="n">QLineEdit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_button</span><span class="o">.</span><span class="n">textChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handle_t_changed</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_z</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Z resolution (um):&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_button</span> <span class="o">=</span> <span class="n">QLineEdit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_button</span><span class="o">.</span><span class="n">textChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handle_z_changed</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_xy</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;X &amp; Y resolution (um):&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span> <span class="o">=</span> <span class="n">QLineEdit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span><span class="o">.</span><span class="n">textChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">handle_xy_changed</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_channel</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Channel:&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span> <span class="o">=</span> <span class="n">QSpinBox</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">change_channel</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_time</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Start frame:&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">label_time_2</span> <span class="o">=</span> <span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;End frame:&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span> <span class="o">=</span> <span class="n">QSpinBox</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">change_time</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span> <span class="o">=</span> <span class="n">QSpinBox</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">valueChanged</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">change_time</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_init</span> <span class="o">=</span> <span class="kc">False</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;Confirm&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_confirm</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">preview_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;Preview image&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preview_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_preview</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preview_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="c1"># self.delete_button = QPushButton(text=&quot;Delete image&quot;)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">process_button</span> <span class="o">=</span> <span class="n">QPushButton</span><span class="p">(</span><span class="n">text</span><span class="o">=</span><span class="s2">&quot;Process image&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">process_button</span><span class="o">.</span><span class="n">clicked</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">on_process</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">process_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">init_ui</span><span class="p">()</span>
+
+<div class="viewcode-block" id="NellieFileSelect.init_ui">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.init_ui">[docs]</a>
+    <span class="k">def</span> <span class="nf">init_ui</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">main_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+
+        <span class="c1"># File Selection Group</span>
+        <span class="n">file_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;File Selection&quot;</span><span class="p">)</span>
+        <span class="n">file_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+        <span class="n">file_button_sublayout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">file_button_sublayout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath_button</span><span class="p">)</span>
+        <span class="n">file_button_sublayout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">folder_button</span><span class="p">)</span>
+        <span class="n">file_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">file_button_sublayout</span><span class="p">)</span>
+        <span class="n">file_sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">file_sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">selection_text</span><span class="p">)</span>
+        <span class="n">file_sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath_text</span><span class="p">)</span>
+        <span class="n">file_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">file_sub_layout</span><span class="p">)</span>
+        <span class="n">file_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">reset_button</span><span class="p">)</span>
+        <span class="n">file_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">file_layout</span><span class="p">)</span>
+
+        <span class="c1"># Axes Info Group</span>
+        <span class="n">axes_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Axes Information&quot;</span><span class="p">)</span>
+        <span class="n">axes_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Dimension order:&quot;</span><span class="p">))</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="p">)</span>
+        <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Only T, C, Z, Y, and X allowed.&quot;</span><span class="p">))</span>
+        <span class="n">axes_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">button</span> <span class="ow">in</span> <span class="p">[</span>
+            <span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;File shape:&quot;</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_shape_text</span><span class="p">),</span>
+            <span class="p">(</span><span class="n">QLabel</span><span class="p">(</span><span class="s2">&quot;Current order:&quot;</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_order_text</span><span class="p">)</span>
+        <span class="p">]:</span>
+            <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+            <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+            <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">button</span><span class="p">)</span>
+            <span class="n">axes_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="n">axes_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">axes_layout</span><span class="p">)</span>
+
+        <span class="c1"># Dimensions Group</span>
+        <span class="n">dim_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Dimension Resolutions&quot;</span><span class="p">)</span>
+        <span class="n">dim_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">button</span> <span class="ow">in</span> <span class="p">[</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_button</span><span class="p">),</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_z</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_button</span><span class="p">),</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_xy</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span><span class="p">)</span>
+        <span class="p">]:</span>
+            <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+            <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+            <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">button</span><span class="p">)</span>
+            <span class="n">dim_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="n">dim_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">dim_layout</span><span class="p">)</span>
+
+        <span class="c1"># Slice Settings Group</span>
+        <span class="n">slice_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Slice Settings&quot;</span><span class="p">)</span>
+        <span class="n">slice_layout</span> <span class="o">=</span> <span class="n">QVBoxLayout</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">label</span><span class="p">,</span> <span class="n">button</span> <span class="ow">in</span> <span class="p">[</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_time</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="p">),</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_time_2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="p">),</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">label_channel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="p">)</span>
+        <span class="p">]:</span>
+            <span class="n">sub_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+            <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+            <span class="n">sub_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">button</span><span class="p">)</span>
+            <span class="n">slice_layout</span><span class="o">.</span><span class="n">addLayout</span><span class="p">(</span><span class="n">sub_layout</span><span class="p">)</span>
+        <span class="n">slice_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">slice_layout</span><span class="p">)</span>
+
+        <span class="c1"># Action Buttons Group</span>
+        <span class="n">action_group</span> <span class="o">=</span> <span class="n">QGroupBox</span><span class="p">(</span><span class="s2">&quot;Actions&quot;</span><span class="p">)</span>
+        <span class="n">action_layout</span> <span class="o">=</span> <span class="n">QHBoxLayout</span><span class="p">()</span>
+        <span class="n">action_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span><span class="p">)</span>
+        <span class="n">action_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">preview_button</span><span class="p">)</span>
+        <span class="n">action_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">process_button</span><span class="p">)</span>
+        <span class="n">action_group</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">action_layout</span><span class="p">)</span>
+
+        <span class="c1"># Add all groups to main layout</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">file_group</span><span class="p">)</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">axes_group</span><span class="p">)</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">dim_group</span><span class="p">)</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">slice_group</span><span class="p">)</span>
+        <span class="n">main_layout</span><span class="o">.</span><span class="n">addWidget</span><span class="p">(</span><span class="n">action_group</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">setLayout</span><span class="p">(</span><span class="n">main_layout</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.select_filepath">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.select_filepath">[docs]</a>
+    <span class="k">def</span> <span class="nf">select_filepath</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">filepath</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">QFileDialog</span><span class="o">.</span><span class="n">getOpenFileName</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;Select file&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_path</span><span class="p">(</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">selection_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;Selected file:&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span> <span class="o">=</span> <span class="n">FileInfo</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialize_single_file</span><span class="p">()</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.select_folder">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.select_folder">[docs]</a>
+    <span class="k">def</span> <span class="nf">select_folder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">folderpath</span> <span class="o">=</span> <span class="n">QFileDialog</span><span class="o">.</span><span class="n">getExistingDirectory</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">&quot;Select folder&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_path</span><span class="p">(</span><span class="n">folderpath</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">selection_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;Selected folder:&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialize_folder</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">folderpath</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="NellieFileSelect.validate_path">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.validate_path">[docs]</a>
+    <span class="k">def</span> <span class="nf">validate_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filepath</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">filepath</span><span class="p">:</span>
+            <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Invalid selection.&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filepath</span> <span class="o">=</span> <span class="n">filepath</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.initialize_single_file">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.initialize_single_file">[docs]</a>
+    <span class="k">def</span> <span class="nf">initialize_single_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">find_metadata</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">load_metadata</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_shape_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.initialize_folder">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.initialize_folder">[docs]</a>
+    <span class="k">def</span> <span class="nf">initialize_folder</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># get all .tif, .tiff, and .nd2 files in the folder</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">)</span> <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tif&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">f</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.tiff&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">f</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;.nd2&#39;</span><span class="p">)]</span>
+        <span class="c1"># for each file, create a FileInfo object</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="o">=</span> <span class="p">[</span><span class="n">FileInfo</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filepath</span><span class="p">,</span> <span class="n">f</span><span class="p">))</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">files</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+            <span class="n">file_info</span><span class="o">.</span><span class="n">find_metadata</span><span class="p">()</span>
+            <span class="n">file_info</span><span class="o">.</span><span class="n">load_metadata</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialize_single_file</span><span class="p">()</span></div>
+
+        <span class="c1"># This assumes all files in the folder have the same metadata (dim order, resolutions, temporal range, channels)</span>
+
+<div class="viewcode-block" id="NellieFileSelect.on_change">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_change">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_change</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_available_dims</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setToolTip</span><span class="p">(</span><span class="s2">&quot;Accepted axes: &#39;Y&#39;, &#39;X&#39; (e.g. &#39;YX&#39;)&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setToolTip</span><span class="p">(</span><span class="s2">&quot;Accepted axes: [&#39;T&#39; or &#39;C&#39; or &#39;Z&#39;], &#39;Y&#39;, &#39;X&#39; (e.g. &#39;ZYX&#39;)&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setToolTip</span><span class="p">(</span><span class="s2">&quot;Accepted axes: [&#39;T&#39; or &#39;C&#39; or &#39;Z&#39;]x2, &#39;Y&#39;, &#39;X&#39; (e.g. &#39;TZYX&#39;)&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setToolTip</span><span class="p">(</span><span class="s2">&quot;Accepted axes: [&#39;T&#39; or &#39;C&#39; or &#39;Z&#39;]x3, &#39;Y&#39;, &#39;X&#39; (e.g. &#39;TZCYX&#39;)&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: red&quot;</span><span class="p">)</span>
+            <span class="n">show_info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Error: Too many dimensions found (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2">).&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_axes</span><span class="p">:</span>
+            <span class="n">current_order_text</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">current_order_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">current_order_text</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: green&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">current_order_text</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;Invalid&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dim_order_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: red&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_dims</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_axes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">confirm_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="c1"># self.delete_button.setEnabled(False)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preview_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">process_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="c1"># check file_info output path. if it exists, enable the delete and preview button</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">ome_output_path</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_dims</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">good_axes</span><span class="p">:</span>
+            <span class="c1"># self.delete_button.setEnabled(True)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">preview_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">process_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.check_available_dims">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.check_available_dims">[docs]</a>
+    <span class="k">def</span> <span class="nf">check_available_dims</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">check_dim</span><span class="p">(</span><span class="n">dim</span><span class="p">,</span> <span class="n">dim_button</span><span class="p">,</span> <span class="n">dim_text</span><span class="p">):</span>
+            <span class="n">dim_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: green&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+                <span class="n">dim_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">dim_text</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">dim_text</span> <span class="o">==</span> <span class="s1">&#39;None&#39;</span><span class="p">:</span>
+                    <span class="n">dim_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="n">dim</span><span class="p">]))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">dim_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="n">dim_text</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="n">dim</span><span class="p">]</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                        <span class="n">dim_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: red&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">dim_button</span><span class="o">.</span><span class="n">text</span><span class="p">()</span> <span class="o">==</span> <span class="s1">&#39;None&#39;</span> <span class="ow">or</span> <span class="n">dim_button</span><span class="o">.</span><span class="n">text</span><span class="p">()</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">dim_button</span><span class="o">.</span><span class="n">setStyleSheet</span><span class="p">(</span><span class="s2">&quot;background-color: red&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">dim_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">:</span>
+                    <span class="n">dim_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="n">dim</span><span class="p">]))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">dim_button</span><span class="o">.</span><span class="n">setText</span><span class="p">(</span><span class="s2">&quot;None&quot;</span><span class="p">)</span>
+
+        <span class="n">check_dim</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_button</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_text</span><span class="p">)</span>
+        <span class="n">check_dim</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_button</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_text</span><span class="p">)</span>
+        <span class="n">check_dim</span><span class="p">(</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span><span class="p">)</span>
+        <span class="n">check_dim</span><span class="p">(</span><span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_button</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;C&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;C&#39;</span><span class="p">)]</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s1">&#39;T&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setEnabled</span><span class="p">(</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">current_start_frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
+            <span class="n">current_end_frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">()</span>
+            <span class="n">max_t</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">)]</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">current_end_frame</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setRange</span><span class="p">(</span><span class="n">current_start_frame</span><span class="p">,</span> <span class="n">max_t</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_init</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">setValue</span><span class="p">(</span><span class="n">max_t</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_init</span> <span class="o">=</span> <span class="kc">True</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.handle_dim_order_changed">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_dim_order_changed">[docs]</a>
+    <span class="k">def</span> <span class="nf">handle_dim_order_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_axes</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                <span class="n">file_info</span><span class="o">.</span><span class="n">change_axes</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_init</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.handle_t_changed">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_t_changed">[docs]</a>
+    <span class="k">def</span> <span class="nf">handle_t_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_t_text</span> <span class="o">=</span> <span class="n">text</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_t_text</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;T&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.handle_z_changed">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_z_changed">[docs]</a>
+    <span class="k">def</span> <span class="nf">handle_z_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_z_text</span> <span class="o">=</span> <span class="n">text</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_z_text</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Z&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.handle_xy_changed">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.handle_xy_changed">[docs]</a>
+    <span class="k">def</span> <span class="nf">handle_xy_changed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span> <span class="o">=</span> <span class="n">text</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dim_xy_text</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;X&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+                    <span class="n">file_info</span><span class="o">.</span><span class="n">change_dim_res</span><span class="p">(</span><span class="s1">&#39;Y&#39;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.change_channel">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.change_channel">[docs]</a>
+    <span class="k">def</span> <span class="nf">change_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">change_selected_channel</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">value</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                <span class="n">file_info</span><span class="o">.</span><span class="n">change_selected_channel</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_button</span><span class="o">.</span><span class="n">value</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.change_time">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.change_time">[docs]</a>
+    <span class="k">def</span> <span class="nf">change_time</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">select_temporal_range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">:</span>
+                <span class="n">file_info</span><span class="o">.</span><span class="n">select_temporal_range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">start_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_frame_button</span><span class="o">.</span><span class="n">value</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.on_confirm">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_confirm">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_confirm</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">show_info</span><span class="p">(</span><span class="s2">&quot;Saving OME TIFF file.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="p">[</span><span class="n">ImInfo</span><span class="p">(</span><span class="n">file_info</span><span class="p">)</span> <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.on_process">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_process">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># switch to process tab</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">ImInfo</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="p">[</span><span class="n">ImInfo</span><span class="p">(</span><span class="n">file_info</span><span class="p">)</span> <span class="k">for</span> <span class="n">file_info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">batch_fileinfo_list</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">on_change</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nellie</span><span class="o">.</span><span class="n">go_process</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="NellieFileSelect.on_preview">
+<a class="viewcode-back" href="../../nellie_napari.html#nellie_napari.nellie_fileselect.NellieFileSelect.on_preview">[docs]</a>
+    <span class="k">def</span> <span class="nf">on_preview</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">im_memmap</span> <span class="o">=</span> <span class="n">tifffile</span><span class="o">.</span><span class="n">memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">ome_output_path</span><span class="p">)</span>
+        <span class="c1"># num_t = min(2, self.im_info.shape[self.im_info.axes.index(&#39;T&#39;)])</span>
+        <span class="k">if</span> <span class="s1">&#39;Z&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">axes</span><span class="p">:</span>
+            <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Z&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">ndisplay</span> <span class="o">=</span> <span class="mi">3</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">scale</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;Y&#39;</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;X&#39;</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">dims</span><span class="o">.</span><span class="n">ndisplay</span> <span class="o">=</span> <span class="mi">2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">add_image</span><span class="p">(</span><span class="n">im_memmap</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">filename_no_ext</span><span class="p">,</span> <span class="n">scale</span><span class="o">=</span><span class="n">scale</span><span class="p">,</span> <span class="n">blending</span><span class="o">=</span><span class="s1">&#39;additive&#39;</span><span class="p">,</span>
+                              <span class="n">interpolation3d</span><span class="o">=</span><span class="s1">&#39;nearest&#39;</span><span class="p">,</span> <span class="n">interpolation2d</span><span class="o">=</span><span class="s1">&#39;nearest&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">scale_bar</span><span class="o">.</span><span class="n">visible</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">scale_bar</span><span class="o">.</span><span class="n">unit</span> <span class="o">=</span> <span class="s1">&#39;um&#39;</span></div>
+</div>
+
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">napari</span>
+    <span class="n">viewer</span> <span class="o">=</span> <span class="n">napari</span><span class="o">.</span><span class="n">Viewer</span><span class="p">()</span>
+    <span class="n">napari</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Nellie</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<search id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"/>
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;2024, Austin E. Y. T. Lefebvre.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 8.0.2</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 0.7.16</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

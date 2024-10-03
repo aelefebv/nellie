@@ -13,6 +13,53 @@ import time
 
 
 class Hierarchy:
+    """
+    A class to handle the hierarchical structure of image data, including voxel, node, branch, and component features.
+
+    Parameters
+    ----------
+    im_info : ImInfo
+        Object containing metadata and pathways related to the image.
+    skip_nodes : bool, optional
+        Whether to skip node processing (default is True).
+    viewer : optional
+        Viewer for updating status messages (default is None).
+
+    Attributes
+    ----------
+    im_info : ImInfo
+        The ImInfo object containing the image metadata.
+    num_t : int
+        Number of time frames in the image.
+    spacing : tuple
+        Spacing between dimensions (Z, Y, X) or (Y, X) depending on the presence of Z.
+    im_raw : memmap
+        Raw image data loaded from disk.
+    im_struct : memmap
+        Preprocessed structural image data.
+    im_distance : memmap
+        Distance-transformed image data.
+    im_skel : memmap
+        Skeletonized image data.
+    label_components : memmap
+        Instance-labeled image data of components.
+    label_branches : memmap
+        Re-labeled skeleton data of branches.
+    im_border_mask : memmap
+        Image data with border mask.
+    im_pixel_class : memmap
+        Image data classified by pixel types.
+    im_obj_reassigned : memmap
+        Object reassigned labels across time.
+    im_branch_reassigned : memmap
+        Branch reassigned labels across time.
+    flow_interpolator_fw : FlowInterpolator
+        Forward flow interpolator.
+    flow_interpolator_bw : FlowInterpolator
+        Backward flow interpolator.
+    viewer : optional
+        Viewer to display status updates.
+    """
     def __init__(self, im_info: ImInfo, skip_nodes=True,
                  viewer=None):
         self.im_info = im_info
@@ -50,6 +97,14 @@ class Hierarchy:
         self.viewer = viewer
 
     def _get_t(self):
+        """
+        Retrieves the number of time frames from image metadata, raising an error if the information is insufficient.
+
+        Returns
+        -------
+        int
+            Number of time frames.
+        """
         if self.num_t is None and not self.im_info.no_t:
             # if self.im_info.no_t:
             #     raise ValueError("No time dimension in image.")
@@ -59,6 +114,10 @@ class Hierarchy:
         return self.num_t
 
     def _allocate_memory(self):
+        """
+        Loads the required image data into memory using memory-mapped arrays. This includes raw image data, structural
+        data, skeletons, component labels, and other features related to the image pipeline.
+        """
         # getting reshaped image will load the image into memory.. should probably do this case by case
         self.im_raw = self.im_info.get_memmap(self.im_info.im_path)
         self.im_struct = self.im_info.get_memmap(self.im_info.pipeline_paths['im_preprocessed'])
@@ -89,6 +148,10 @@ class Hierarchy:
         # self.im_info.shape = self.shape
 
     def _get_hierarchies(self):
+        """
+        Executes the hierarchical feature extraction process, which includes running voxel, node, branch, component,
+        and image analyses.
+        """
         self.voxels = Voxels(self)
         logger.info("Running voxel analysis")
         start = time.time()
@@ -131,6 +194,10 @@ class Hierarchy:
         logger.debug(f"Image analysis took {i_time} seconds")
 
     def _save_dfs(self):
+        """
+        Saves the extracted features to CSV files, including voxel, node, branch, component, and image features.
+        """
+
         if self.viewer is not None:
             self.viewer.status = f'Saving features to csv files.'
         voxel_features, voxel_headers = create_feature_array(self.voxels)
@@ -155,6 +222,9 @@ class Hierarchy:
         image_df.to_csv(self.im_info.pipeline_paths['features_image'], index=True)
 
     def _save_adjacency_maps(self):
+        """
+        Constructs adjacency maps for voxels, nodes, branches, and components and saves them as a pickle file.
+        """
         # edge list:
         v_n = []
         v_b = []
@@ -243,6 +313,10 @@ class Hierarchy:
             pickle.dump(edges, f)
 
     def run(self):
+        """
+        Main function to run the entire hierarchical feature extraction process, which includes memory allocation,
+        hierarchical analysis, and saving the results.
+        """
         self._get_t()
         self._allocate_memory()
         self._get_hierarchies()
@@ -255,6 +329,21 @@ class Hierarchy:
 
 
 def append_to_array(to_append):
+    """
+    Converts feature dictionaries into lists of arrays and headers for saving to a CSV.
+
+    Parameters
+    ----------
+    to_append : dict
+        Dictionary containing feature names and values to append.
+
+    Returns
+    -------
+    list
+        List of feature arrays.
+    list
+        List of corresponding feature headers.
+    """
     new_array = []
     new_headers = []
     for feature, stats in to_append.items():
@@ -274,6 +363,23 @@ def append_to_array(to_append):
 
 
 def create_feature_array(level, labels=None):
+    """
+    Creates a 2D feature array and corresponding headers for saving features to CSV.
+
+    Parameters
+    ----------
+    level : object
+        The level (e.g., voxel, node, branch, etc.) from which features are extracted.
+    labels : array-like, optional
+        Array of labels to use for the first column of the output (default is None).
+
+    Returns
+    -------
+    numpy.ndarray
+        2D array of features.
+    list
+        List of corresponding feature headers.
+    """
     full_array = None
     headers = None
     all_attr = []
@@ -321,6 +427,55 @@ def create_feature_array(level, labels=None):
 
 
 class Voxels:
+    """
+    A class to extract and store voxel-level features from hierarchical image data.
+
+    Parameters
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object containing the image data and metadata.
+
+    Attributes
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object.
+    time : list
+        List of time frames associated with the extracted voxel features.
+    coords : list
+        List of voxel coordinates.
+    intensity : list
+        List of voxel intensity values.
+    structure : list
+        List of voxel structural values.
+    vec01 : list
+        List of vectors from frame t-1 to t.
+    vec12 : list
+        List of vectors from frame t to t+1.
+    lin_vel : list
+        List of linear velocity vectors.
+    ang_vel : list
+        List of angular velocity vectors.
+    directionality_rel : list
+        List of directionality features.
+    node_labels : list
+        List of node labels assigned to voxels.
+    branch_labels : list
+        List of branch labels assigned to voxels.
+    component_labels : list
+        List of component labels assigned to voxels.
+    node_dim0_lims : list
+        List of node bounding box limits in dimension 0 (Z or Y).
+    node_dim1_lims : list
+        List of node bounding box limits in dimension 1 (Y or X).
+    node_dim2_lims : list
+        List of node bounding box limits in dimension 2 (X).
+    node_voxel_idxs : list
+        List of voxel indices associated with each node.
+    stats_to_aggregate : list
+        List of statistics to aggregate for features.
+    features_to_save : list
+        List of voxel features to save.
+    """
     def __init__(self, hierarchy: Hierarchy):
         self.hierarchy = hierarchy
 
@@ -404,6 +559,16 @@ class Voxels:
         self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
     def _get_node_info(self, t, frame_coords):
+        """
+        Gathers node-related information for each frame, including pixel classes, skeleton radii, and bounding boxes.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        frame_coords : array-like
+            The coordinates of the voxels in the current frame.
+        """
         # get all network pixels
         skeleton_pixels = np.argwhere(self.hierarchy.im_pixel_class[t] > 0)
         skeleton_radius = self.hierarchy.im_distance[t][tuple(skeleton_pixels.T)]
@@ -481,6 +646,21 @@ class Voxels:
         self.node_voxel_idxs.append(chunk_node_voxel_idxs)
 
     def _get_min_euc_dist(self, t, vec):
+        """
+        Calculates the minimum Euclidean distance for voxels to their nearest branch.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        vec : array-like
+            The vector field for the current time frame.
+
+        Returns
+        -------
+        pandas.Series
+            The indices of the minimum distance for each branch.
+        """
         euc_dist = np.linalg.norm(vec, axis=1)
         branch_labels = self.branch_labels[t]
 
@@ -495,6 +675,25 @@ class Voxels:
         return idxmin
 
     def _get_ref_coords(self, coords_a, coords_b, idxmin, t):
+        """
+        Retrieves the reference coordinates for calculating relative velocity and acceleration.
+
+        Parameters
+        ----------
+        coords_a : array-like
+            The coordinates in frame A.
+        coords_b : array-like
+            The coordinates in frame B.
+        idxmin : pandas.Series
+            Indices of minimum Euclidean distances.
+        t : int
+            The time frame index.
+
+        Returns
+        -------
+        tuple
+            The reference coordinates for frames A and B.
+        """
         vals_a = idxmin[self.branch_labels[t]].values
         vals_a_no_nan = vals_a.copy()
         vals_a_no_nan[np.isnan(vals_a_no_nan)] = 0
@@ -513,6 +712,17 @@ class Voxels:
         return ref_a, ref_b
 
     def _get_motility_stats(self, t, coords_1_px):
+        """
+        Computes motility-related features for each voxel, including linear and angular velocities, accelerations,
+        and directionality.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        coords_1_px : array-like
+            Coordinates of the voxels in pixel space for frame t.
+        """
         coords_1_px = coords_1_px.astype('float32')
         if self.hierarchy.im_info.no_z:
             dims = 2
@@ -709,6 +919,21 @@ class Voxels:
 #         self.directionality_acc_rel.append(directionality_acc_rel)
 
     def _get_linear_velocity(self, ra, rb):
+        """
+        Computes the linear velocity, its magnitude, and orientation between two sets of coordinates.
+
+        Parameters
+        ----------
+        ra : array-like
+            Coordinates in the earlier frame (frame t-1 or t).
+        rb : array-like
+            Coordinates in the later frame (frame t or t+1).
+
+        Returns
+        -------
+        tuple
+            Tuple containing linear velocity vectors, magnitudes, and orientations.
+        """
         lin_disp = rb - ra
         lin_vel = lin_disp / self.hierarchy.im_info.dim_res['T']
         lin_vel_mag = np.linalg.norm(lin_vel, axis=1)
@@ -721,6 +946,22 @@ class Voxels:
         return lin_vel, lin_vel_mag, lin_vel_orient
 
     def _get_angular_velocity_2d(self, ra, rb):
+        """
+        Computes the angular velocity, its magnitude, and orientation between two sets of coordinates.
+        Uses either 2D or 3D calculations depending on the image dimensionality.
+
+        Parameters
+        ----------
+        ra : array-like
+            Coordinates in the earlier frame (frame t-1 or t).
+        rb : array-like
+            Coordinates in the later frame (frame t or t+1).
+
+        Returns
+        -------
+        tuple
+            Tuple containing angular velocity vectors, magnitudes, and orientations.
+        """
         # calculate angles of ra and rb relative to x-axis
         theta_a = np.arctan2(ra[:, 1], ra[:, 0])
         theta_b = np.arctan2(rb[:, 1], rb[:, 0])
@@ -798,6 +1039,10 @@ class Voxels:
         self._get_motility_stats(t, frame_coords)
 
     def run(self):
+        """
+        Main function to run the extraction of voxel features over all time frames.
+        Iterates over each frame to extract coordinates, intensity, structural features, and motility statistics.
+        """
         if self.hierarchy.num_t is None:
             self.hierarchy.num_t = 1
         for t in range(self.hierarchy.num_t):
@@ -807,6 +1052,26 @@ class Voxels:
 
 
 def aggregate_stats_for_class(child_class, t, list_of_idxs):
+    """
+    Aggregates statistical metrics (mean, standard deviation, min, max, sum) for features of a given class at
+    a specific time frame.
+
+    Parameters
+    ----------
+    child_class : object
+        The class from which the feature data is extracted. It should contain a list of statistics to aggregate
+        (i.e., `stats_to_aggregate`) and corresponding feature arrays.
+    t : int
+        The time frame index for which the aggregation is performed.
+    list_of_idxs : list of lists
+        A list where each sublist contains the indices of data points that should be grouped together for aggregation.
+
+    Returns
+    -------
+    dict
+        A dictionary where the keys are feature names and the values are dictionaries containing aggregated
+        statistics for each feature (mean, standard deviation, min, max, sum).
+    """
     # initialize a dictionary to hold lists of aggregated stats for each stat name
     # aggregate_stats = {
     #     stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": [],
@@ -865,6 +1130,47 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
 
 
 class Nodes:
+    """
+    A class to extract and store node-level features from hierarchical image data.
+
+    Parameters
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object containing the image data and metadata.
+
+    Attributes
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object.
+    time : list
+        List of time frames associated with the extracted node features.
+    nodes : list
+        List of node coordinates for each frame.
+    z, x, y : list
+        List of node coordinates in 3D or 2D space.
+    node_thickness : list
+        List of node thickness values.
+    divergence : list
+        List of divergence values for nodes.
+    convergence : list
+        List of convergence values for nodes.
+    vergere : list
+        List of vergere values (convergence + divergence).
+    aggregate_voxel_metrics : list
+        List of aggregated voxel metrics for each node.
+    voxel_idxs : list
+        List of voxel indices associated with each node.
+    branch_label : list
+        List of branch labels assigned to nodes.
+    component_label : list
+        List of component labels assigned to nodes.
+    image_name : list
+        List of image file names.
+    stats_to_aggregate : list
+        List of statistics to aggregate for nodes.
+    features_to_save : list
+        List of node features to save.
+    """
     def __init__(self, hierarchy):
         self.hierarchy = hierarchy
 
@@ -905,10 +1211,26 @@ class Nodes:
         self.node_x_lims = self.hierarchy.voxels.node_dim2_lims
 
     def _get_aggregate_voxel_stats(self, t):
+        """
+        Aggregates voxel-level statistics for each node in the frame.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         frame_agg = aggregate_stats_for_class(self.hierarchy.voxels, t, self.hierarchy.voxels.node_voxel_idxs[t])
         self.aggregate_voxel_metrics.append(frame_agg)
 
     def _get_node_stats(self, t):
+        """
+        Computes node-level statistics, including thickness, divergence, convergence, and vergere.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         radius = distance_check(self.hierarchy.im_border_mask[t], self.nodes[t], self.hierarchy.spacing)
         self.node_thickness.append(radius * 2)
 
@@ -988,6 +1310,14 @@ class Nodes:
         self.x.append(x)
 
     def _run_frame(self, t):
+        """
+        Extracts node features for a single time frame, including voxel metrics, node coordinates, and node statistics.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         frame_skel_coords = np.argwhere(self.hierarchy.im_pixel_class[t] > 0)
         self.nodes.append(frame_skel_coords)
 
@@ -1007,6 +1337,10 @@ class Nodes:
         self._get_node_stats(t)
 
     def run(self):
+        """
+        Main function to run the extraction of node features over all time frames.
+        Iterates over each frame to extract node features and calculate metrics.
+        """
         if self.hierarchy.skip_nodes:
             return
         for t in range(self.hierarchy.num_t):
@@ -1016,6 +1350,23 @@ class Nodes:
 
 
 def distance_check(border_mask, check_coords, spacing):
+    """
+    Calculates the minimum distance between given coordinates and a border mask using a KD-tree.
+
+    Parameters
+    ----------
+    border_mask : numpy.ndarray
+        A binary mask where the border is marked as `True`.
+    check_coords : numpy.ndarray
+        Coordinates of the points for which distances to the border will be calculated.
+    spacing : tuple or list
+        The spacing of the image dimensions (used to scale the coordinates).
+
+    Returns
+    -------
+    numpy.ndarray
+        An array of distances from each point in `check_coords` to the nearest border point.
+    """
     border_coords = np.argwhere(border_mask) * spacing
     border_tree = spatial.cKDTree(border_coords)
     dist, _ = border_tree.query(check_coords * spacing, k=1)
@@ -1023,6 +1374,51 @@ def distance_check(border_mask, check_coords, spacing):
 
 
 class Branches:
+    """
+    A class to extract and store branch-level features from hierarchical image data.
+
+    Parameters
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object containing the image data and metadata.
+
+    Attributes
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object.
+    time : list
+        List of time frames associated with the extracted branch features.
+    branch_label : list
+        List of branch labels for each frame.
+    aggregate_voxel_metrics : list
+        List of aggregated voxel metrics for each branch.
+    aggregate_node_metrics : list
+        List of aggregated node metrics for each branch.
+    z, x, y : list
+        List of branch centroid coordinates in 3D or 2D space.
+    branch_length : list
+        List of branch length values.
+    branch_thickness : list
+        List of branch thickness values.
+    branch_aspect_ratio : list
+        List of aspect ratios for branches.
+    branch_tortuosity : list
+        List of tortuosity values for branches.
+    branch_area : list
+        List of branch area values.
+    branch_axis_length_maj, branch_axis_length_min : list
+        List of major and minor axis lengths for branches.
+    branch_extent : list
+        List of extent values for branches.
+    branch_solidity : list
+        List of solidity values for branches.
+    reassigned_label : list
+        List of reassigned branch labels across time.
+    stats_to_aggregate : list
+        List of statistics to aggregate for branches.
+    features_to_save : list
+        List of branch features to save.
+    """
     def __init__(self, hierarchy):
         self.hierarchy = hierarchy
 
@@ -1058,6 +1454,14 @@ class Branches:
         self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
     def _get_aggregate_stats(self, t):
+        """
+        Aggregates voxel and node-level statistics for each branch in the frame.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         voxel_labels = self.hierarchy.voxels.branch_labels[t]
         grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten()
                             for label in np.unique(voxel_labels) if label != 0]
@@ -1072,6 +1476,14 @@ class Branches:
             self.aggregate_node_metrics.append(node_agg)
 
     def _get_branch_stats(self, t):
+        """
+        Computes branch-level statistics, including length, thickness, aspect ratio, tortuosity, and solidity.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         branch_idx_array_1 = np.array(self.branch_idxs[t])
         branch_idx_array_2 = np.array(self.branch_idxs[t])[:, None, :]
         dist = np.linalg.norm(branch_idx_array_1 - branch_idx_array_2, axis=-1)
@@ -1200,6 +1612,15 @@ class Branches:
         self.x.append(x)
 
     def _run_frame(self, t):
+        """
+        Extracts branch features for a single time frame, including voxel and node metrics, branch coordinates, and
+        branch statistics.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         frame_branch_idxs = np.argwhere(self.hierarchy.im_skel[t] > 0)
         self.branch_idxs.append(frame_branch_idxs)
 
@@ -1234,6 +1655,10 @@ class Branches:
         self._get_branch_stats(t)
 
     def run(self):
+        """
+        Main function to run the extraction of branch features over all time frames.
+        Iterates over each frame to extract branch features and calculate metrics.
+        """
         for t in range(self.hierarchy.num_t):
             if self.hierarchy.viewer is not None:
                 self.hierarchy.viewer.status = f'Extracting branch features. Frame: {t + 1} of {self.hierarchy.num_t}.'
@@ -1241,6 +1666,45 @@ class Branches:
 
 
 class Components:
+    """
+    A class to extract and store component-level features from hierarchical image data.
+
+    Parameters
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object containing the image data and metadata.
+
+    Attributes
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object.
+    time : list
+        List of time frames associated with the extracted component features.
+    component_label : list
+        List of component labels for each frame.
+    aggregate_voxel_metrics : list
+        List of aggregated voxel metrics for each component.
+    aggregate_node_metrics : list
+        List of aggregated node metrics for each component.
+    aggregate_branch_metrics : list
+        List of aggregated branch metrics for each component.
+    z, x, y : list
+        List of component centroid coordinates in 3D or 2D space.
+    organelle_area : list
+        List of component area values.
+    organelle_axis_length_maj, organelle_axis_length_min : list
+        List of major and minor axis lengths for components.
+    organelle_extent : list
+        List of extent values for components.
+    organelle_solidity : list
+        List of solidity values for components.
+    reassigned_label : list
+        List of reassigned component labels across time.
+    stats_to_aggregate : list
+        List of statistics to aggregate for components.
+    features_to_save : list
+        List of component features to save.
+    """
     def __init__(self, hierarchy):
         self.hierarchy = hierarchy
 
@@ -1269,6 +1733,14 @@ class Components:
         self.features_to_save = self.stats_to_aggregate + ["x", "y", "z"]
 
     def _get_aggregate_stats(self, t):
+        """
+        Aggregates voxel, node, and branch-level statistics for each component in the frame.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         voxel_labels = self.hierarchy.voxels.component_labels[t]
         grouped_vox_idxs = [np.argwhere(voxel_labels == label).flatten() for label in np.unique(voxel_labels) if
                             label != 0]
@@ -1289,6 +1761,14 @@ class Components:
         self.aggregate_branch_metrics.append(branch_agg)
 
     def _get_component_stats(self, t):
+        """
+        Computes component-level statistics, including area, axis lengths, extent, and solidity.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         regions = regionprops(self.hierarchy.label_components[t], spacing=self.hierarchy.spacing)
         areas = []
         axis_length_maj = []
@@ -1336,6 +1816,15 @@ class Components:
         self.x.append(x)
 
     def _run_frame(self, t):
+        """
+        Extracts component features for a single time frame, including voxel, node, and branch metrics, and component
+        statistics.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         smallest_label = int(np.min(self.hierarchy.label_components[t][self.hierarchy.label_components[t] > 0]))
         largest_label = int(np.max(self.hierarchy.label_components[t]))
         frame_component_labels = np.arange(smallest_label, largest_label + 1)
@@ -1352,6 +1841,10 @@ class Components:
         self._get_component_stats(t)
 
     def run(self):
+        """
+        Main function to run the extraction of component features over all time frames.
+        Iterates over each frame to extract component features and calculate metrics.
+        """
         for t in range(self.hierarchy.num_t):
             if self.hierarchy.viewer is not None:
                 self.hierarchy.viewer.status = f'Extracting organelle features. Frame: {t + 1} of {self.hierarchy.num_t}.'
@@ -1359,6 +1852,35 @@ class Components:
 
 
 class Image:
+    """
+    A class to extract and store global image-level features from hierarchical image data.
+
+    Parameters
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object containing the image data and metadata.
+
+    Attributes
+    ----------
+    hierarchy : Hierarchy
+        The Hierarchy object.
+    time : list
+        List of time frames associated with the extracted image-level features.
+    image_name : list
+        List of image file names.
+    aggregate_voxel_metrics : list
+        List of aggregated voxel metrics for the entire image.
+    aggregate_node_metrics : list
+        List of aggregated node metrics for the entire image.
+    aggregate_branch_metrics : list
+        List of aggregated branch metrics for the entire image.
+    aggregate_component_metrics : list
+        List of aggregated component metrics for the entire image.
+    stats_to_aggregate : list
+        List of statistics to aggregate for the entire image.
+    features_to_save : list
+        List of image-level features to save.
+    """
     def __init__(self, hierarchy):
         self.hierarchy = hierarchy
 
@@ -1372,6 +1894,14 @@ class Image:
         self.features_to_save = []
 
     def _get_aggregate_stats(self, t):
+        """
+        Aggregates voxel, node, branch, and component-level statistics for the entire image in the frame.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         voxel_agg = aggregate_stats_for_class(self.hierarchy.voxels, t,
                                               [np.arange(len(self.hierarchy.voxels.coords[t]))])
         self.aggregate_voxel_metrics.append(voxel_agg)
@@ -1389,12 +1919,25 @@ class Image:
         self.aggregate_component_metrics.append(component_agg)
 
     def _run_frame(self, t):
+        """
+        Extracts image-level features for a single time frame, including aggregated voxel, node, branch, and
+        component metrics.
+
+        Parameters
+        ----------
+        t : int
+            The time frame index.
+        """
         self.time.append(t)
         self.image_name.append(self.hierarchy.im_info.file_info.filename_no_ext)
 
         self._get_aggregate_stats(t)
 
     def run(self):
+        """
+        Main function to run the extraction of image-level features over all time frames.
+        Iterates over each frame to extract and aggregate voxel, node, branch, and component-level features.
+        """
         for t in range(self.hierarchy.num_t):
             if self.hierarchy.viewer is not None:
                 self.hierarchy.viewer.status = f'Extracting image features. Frame: {t + 1} of {self.hierarchy.num_t}.'

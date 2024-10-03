@@ -6,9 +6,98 @@ from nellie.im_info.verifier import ImInfo
 
 
 class HuMomentTracking:
+    """
+    A class for tracking objects in microscopy images using Hu moments and distance-based matching.
+
+    Attributes
+    ----------
+    im_info : ImInfo
+        An object containing image metadata and memory-mapped image data.
+    num_t : int
+        Number of timepoints in the image.
+    max_distance_um : float
+        Maximum allowed movement (in micrometers) for an object between frames.
+    scaling : tuple
+        Scaling factors for Z, Y, and X dimensions.
+    vector_start_coords : list
+        List of coordinates where vectors start.
+    vectors : list
+        List of tracking vectors between timepoints.
+    vector_magnitudes : list
+        List of magnitudes of tracking vectors.
+    shape : tuple
+        Shape of the input image.
+    im_memmap : np.ndarray or None
+        Memory-mapped original image data.
+    im_frangi_memmap : np.ndarray or None
+        Memory-mapped Frangi-filtered image data.
+    im_distance_memmap : np.ndarray or None
+        Memory-mapped distance transform data.
+    im_marker_memmap : np.ndarray or None
+        Memory-mapped marker data for object tracking.
+    flow_vector_array_path : str or None
+        Path to save the flow vector array.
+    debug : dict or None
+        Debugging information for tracking processing steps.
+    viewer : object or None
+        Viewer object for displaying status during processing.
+
+    Methods
+    -------
+    _calculate_normalized_moments(images)
+        Calculates the normalized moments for a set of images.
+    _calculate_hu_moments(eta)
+        Calculates the first six Hu moments for a set of images.
+    _calculate_mean_and_variance(images)
+        Calculates the mean and variance of intensity for a set of images.
+    _get_im_bounds(markers, distance_frame)
+        Calculates the bounds of the region around each marker in the image.
+    _get_sub_volumes(im_frame, im_bounds, max_radius)
+        Extracts sub-volumes from the image within the specified bounds.
+    _get_orthogonal_projections(sub_volumes)
+        Computes the orthogonal projections of the sub-volumes along each axis.
+    _get_t()
+        Determines the number of timepoints to process.
+    _allocate_memory()
+        Allocates memory for the necessary image data.
+    _get_hu_moments(sub_volumes)
+        Calculates Hu moments for the given sub-volumes of the image.
+    _concatenate_hu_matrices(hu_matrices)
+        Concatenates multiple Hu moment matrices into a single matrix.
+    _get_feature_matrix(t)
+        Extracts the feature matrix (mean, variance, Hu moments) for a specific timepoint.
+    _get_distance_mask(t)
+        Computes the distance matrix and mask between objects in consecutive frames.
+    _get_difference_matrix(m1, m2)
+        Computes the difference matrix between two feature matrices.
+    _zscore_normalize(m, mask)
+        Z-score normalizes the values in a matrix, using a binary mask to exclude certain regions.
+    _get_cost_matrix(t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs)
+        Calculates the cost matrix for matching objects between consecutive frames.
+    _find_best_matches(cost_matrix)
+        Finds the best object matches between two frames based on the cost matrix.
+    _run_hu_tracking()
+        Runs the full tracking algorithm over all timepoints, saving the results to disk.
+    run()
+        Main method to execute the Hu moment-based tracking process over the image data.
+    """
     def __init__(self, im_info: ImInfo, num_t=None,
                  max_distance_um=1,
                  viewer=None):
+        """
+        Initializes the HuMomentTracking object with image metadata and tracking parameters.
+
+        Parameters
+        ----------
+        im_info : ImInfo
+            An instance of the ImInfo class, containing metadata and paths for the image file.
+        num_t : int, optional
+            Number of timepoints to process. If None, defaults to the number of timepoints in the image.
+        max_distance_um : float, optional
+            Maximum allowed movement (in micrometers) for an object between frames (default is 1).
+        viewer : object or None, optional
+            Viewer object for displaying status during processing (default is None).
+        """
         self.im_info = im_info
 
         if self.im_info.no_t:
@@ -43,6 +132,19 @@ class HuMomentTracking:
         self.viewer = viewer
 
     def _calculate_normalized_moments(self, images):
+        """
+        Calculates the normalized moments for a set of images.
+
+        Parameters
+        ----------
+        images : np.ndarray
+            Input image data.
+
+        Returns
+        -------
+        np.ndarray
+            Normalized moments for each image.
+        """
         # I know the broadcasting is super confusing, but it makes it so much faster (400x)...
 
         num_images, height, width = images.shape
@@ -77,6 +179,19 @@ class HuMomentTracking:
         return eta
 
     def _calculate_hu_moments(self, eta):
+        """
+        Calculates the first six Hu moments for a set of images.
+
+        Parameters
+        ----------
+        eta : np.ndarray
+            The normalized moments for each image.
+
+        Returns
+        -------
+        np.ndarray
+            The first six Hu moments for each image.
+        """
         num_images = eta.shape[0]
         hu = xp.zeros((num_images, 6))  # initialize Hu moments for each image
 
@@ -100,6 +215,19 @@ class HuMomentTracking:
         return hu  # return the first 5 Hu moments for each image
 
     def _calculate_mean_and_variance(self, images):
+        """
+        Calculates the mean and variance of intensity for a set of images.
+
+        Parameters
+        ----------
+        images : np.ndarray
+            Input image data.
+
+        Returns
+        -------
+        np.ndarray
+            Array containing the mean and variance of each image.
+        """
         num_images = images.shape[0]
         features = xp.zeros((num_images, 2))
         mask = images != 0
@@ -120,6 +248,21 @@ class HuMomentTracking:
         return features
 
     def _get_im_bounds(self, markers, distance_frame):
+        """
+        Calculates the bounds of the region around each marker in the image.
+
+        Parameters
+        ----------
+        markers : np.ndarray
+            Coordinates of markers in the image.
+        distance_frame : np.ndarray
+            Distance transform of the image.
+
+        Returns
+        -------
+        tuple
+            Boundaries for sub-volumes around each marker.
+        """
         if not self.im_info.no_z:
             radii = distance_frame[markers[:, 0], markers[:, 1], markers[:, 2]]
         else:
@@ -136,6 +279,23 @@ class HuMomentTracking:
         return low_0, high_0, low_1, high_1
 
     def _get_sub_volumes(self, im_frame, im_bounds, max_radius):
+        """
+        Extracts sub-volumes from the image within the specified bounds.
+
+        Parameters
+        ----------
+        im_frame : np.ndarray
+            Image data for a single frame.
+        im_bounds : tuple
+            Bounds for extracting sub-volumes.
+        max_radius : int
+            Maximum radius for the sub-volumes.
+
+        Returns
+        -------
+        np.ndarray
+            Extracted sub-volumes from the image.
+        """
         if self.im_info.no_z:
             y_low, y_high, x_low, x_high = im_bounds
         else:
@@ -160,6 +320,19 @@ class HuMomentTracking:
         return sub_volumes
 
     def _get_orthogonal_projections(self, sub_volumes):
+        """
+        Computes the orthogonal projections of the sub-volumes along each axis.
+
+        Parameters
+        ----------
+        sub_volumes : np.ndarray
+            Sub-volumes of the image.
+
+        Returns
+        -------
+        tuple
+            Z, Y, and X projections of the sub-volumes.
+        """
         # max projections along each axis
         z_projections = xp.max(sub_volumes, axis=1)
         y_projections = xp.max(sub_volumes, axis=2)
@@ -168,6 +341,11 @@ class HuMomentTracking:
         return z_projections, y_projections, x_projections
 
     def _get_t(self):
+        """
+        Determines the number of timepoints to process.
+
+        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.
+        """
         if self.num_t is None:
             if self.im_info.no_t:
                 self.num_t = 1
@@ -177,6 +355,11 @@ class HuMomentTracking:
             return
 
     def _allocate_memory(self):
+        """
+        Allocates memory for the necessary image data.
+
+        This method creates memory-mapped arrays for the original image data, Frangi-filtered data, distance transform, markers, and more.
+        """
         logger.debug('Allocating memory for hu-based tracking.')
         self.label_memmap = self.im_info.get_memmap(self.im_info.pipeline_paths['im_instance_label'])
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
@@ -188,6 +371,19 @@ class HuMomentTracking:
         self.flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
 
     def _get_hu_moments(self, sub_volumes):
+        """
+        Calculates Hu moments for the given sub-volumes of the image.
+
+        Parameters
+        ----------
+        sub_volumes : np.ndarray
+            Sub-volumes of the image.
+
+        Returns
+        -------
+        np.ndarray
+            The Hu moments for the sub-volumes.
+        """
         if self.im_info.no_z:
             etas = self._calculate_normalized_moments(sub_volumes)
             hu_moments = self._calculate_hu_moments(etas)
@@ -203,9 +399,35 @@ class HuMomentTracking:
         return hu_moments
 
     def _concatenate_hu_matrices(self, hu_matrices):
+        """
+        Concatenates multiple Hu moment matrices into a single matrix.
+
+        Parameters
+        ----------
+        hu_matrices : list
+            List of Hu moment matrices.
+
+        Returns
+        -------
+        np.ndarray
+            Concatenated matrix of Hu moments.
+        """
         return xp.concatenate(hu_matrices, axis=1)
 
     def _get_feature_matrix(self, t):
+        """
+        Extracts the feature matrix (mean, variance, Hu moments) for a specific timepoint.
+
+        Parameters
+        ----------
+        t : int
+            Timepoint index.
+
+        Returns
+        -------
+        tuple
+            Feature matrix containing statistics and Hu moments for the timepoint.
+        """
         intensity_frame = xp.array(self.im_memmap[t])
         frangi_frame = xp.array(self.im_frangi_memmap[t])
         frangi_frame[frangi_frame > 0] = xp.log10(frangi_frame[frangi_frame > 0])
@@ -237,6 +459,19 @@ class HuMomentTracking:
         return stats_feature_matrix, log_hu_feature_matrix
 
     def _get_distance_mask(self, t):
+        """
+        Computes the distance matrix and mask between objects in consecutive frames.
+
+        Parameters
+        ----------
+        t : int
+            Timepoint index.
+
+        Returns
+        -------
+        tuple
+            Distance matrix and mask for matching objects between frames.
+        """
         marker_frame_pre = np.array(self.im_marker_memmap[t - 1]) > 0
         marker_indices_pre = np.argwhere(marker_frame_pre)
         marker_indices_pre_scaled = marker_indices_pre * self.scaling
@@ -250,6 +485,21 @@ class HuMomentTracking:
         return distance_matrix, distance_mask
 
     def _get_difference_matrix(self, m1, m2):
+        """
+        Computes the difference matrix between two feature matrices.
+
+        Parameters
+        ----------
+        m1 : np.ndarray
+            Feature matrix for the current frame.
+        m2 : np.ndarray
+            Feature matrix for the previous frame.
+
+        Returns
+        -------
+        np.ndarray
+            Difference matrix between the two feature matrices.
+        """
         if len(m1) == 0 or len(m2) == 0:
             return xp.array([])
         m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float16)
@@ -258,6 +508,21 @@ class HuMomentTracking:
         return difference_matrix
 
     def _zscore_normalize(self, m, mask):
+        """
+        Z-score normalizes the values in a matrix, using a binary mask to exclude certain regions.
+
+        Parameters
+        ----------
+        m : np.ndarray
+            Input matrix to be normalized.
+        mask : np.ndarray
+            Binary mask indicating which values to include.
+
+        Returns
+        -------
+        np.ndarray
+            Z-score normalized matrix.
+        """
         if len(m) == 0:
             return xp.array([])
         depth = m.shape[2]
@@ -286,6 +551,27 @@ class HuMomentTracking:
         return m
 
     def _get_cost_matrix(self, t, stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
+        """
+        Calculates the cost matrix for matching objects between consecutive frames.
+
+        Parameters
+        ----------
+        t : int
+            Timepoint index.
+        stats_vecs : np.ndarray
+            Feature matrix for the current frame.
+        pre_stats_vecs : np.ndarray
+            Feature matrix for the previous frame.
+        hu_vecs : np.ndarray
+            Hu moments for the current frame.
+        pre_hu_vecs : np.ndarray
+            Hu moments for the previous frame.
+
+        Returns
+        -------
+        np.ndarray
+            Cost matrix for matching objects between frames.
+        """
         if len(stats_vecs) == 0 or len(pre_stats_vecs) == 0 or len(hu_vecs) == 0 or len(pre_hu_vecs) == 0:
             return xp.array([])
         distance_matrix, distance_mask = self._get_distance_mask(t)
@@ -306,6 +592,19 @@ class HuMomentTracking:
         return cost_matrix
 
     def _find_best_matches(self, cost_matrix):
+        """
+        Finds the best object matches between two frames based on the cost matrix.
+
+        Parameters
+        ----------
+        cost_matrix : np.ndarray
+            Cost matrix for matching objects.
+
+        Returns
+        -------
+        tuple
+            Best matches for rows, columns, and their corresponding costs.
+        """
         if len(cost_matrix) == 0:
             return [], [], []
         candidates = []
@@ -343,6 +642,11 @@ class HuMomentTracking:
         return row_matches, col_matches, costs
 
     def _run_hu_tracking(self):
+        """
+        Runs the full tracking algorithm over all timepoints, saving the results to disk.
+
+        This method processes each timepoint sequentially and tracks objects using Hu moments and distance-based matching.
+        """
         pre_stats_vecs = None
         pre_hu_vecs = None
         flow_vector_array = None
@@ -392,6 +696,11 @@ class HuMomentTracking:
         np.save(self.flow_vector_array_path, flow_vector_array)
 
     def run(self):
+        """
+        Main method to execute the Hu moment-based tracking process over the image data.
+
+        This method allocates memory, extracts features, and tracks objects across timepoints.
+        """
         if self.im_info.no_t:
             return
         self._get_t()
