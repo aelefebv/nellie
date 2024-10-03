@@ -10,11 +10,11 @@ def discover_nellie_plugins():
     return nellie_plugins
 
 
-def add_nellie_plugins_to_menu(napari_viewer):
+def add_nellie_plugins_to_menu(nellie_loader):
     nellie_plugins = discover_nellie_plugins()
 
     # Get the main menu bar
-    menu_bar = napari_viewer.window._qt_window.menuBar()
+    menu_bar = nellie_loader.viewer.window._qt_window.menuBar()
 
     # Find the Plugins menu
     plugins_menu = None
@@ -35,13 +35,13 @@ def add_nellie_plugins_to_menu(napari_viewer):
             break
 
     if nellie_menu is None:
-        nellie_menu = QMenu("Nellie plugins", napari_viewer.window._qt_window)
+        nellie_menu = QMenu("Nellie plugins", nellie_loader.viewer.window._qt_window)
         plugins_menu.addMenu(nellie_menu)
 
     # Add plugins to Nellie submenu
     for plugin_name, plugin_func in nellie_plugins.items():
-        action = QAction(plugin_name, napari_viewer.window._qt_window)
-        action.triggered.connect(lambda checked, func=plugin_func: func(napari_viewer))
+        action = QAction(plugin_name, nellie_loader.viewer.window._qt_window)
+        action.triggered.connect(lambda checked, func=plugin_func: func(nellie_loader))
         nellie_menu.addAction(action)
 
 

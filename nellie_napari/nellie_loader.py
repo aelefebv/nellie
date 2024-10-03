@@ -60,13 +60,13 @@ class NellieLoader(QTabWidget):
             Optional parent widget (default is None).
         """
         super().__init__(parent)
-        add_nellie_plugins_to_menu(napari_viewer)
-        self.home = Home(napari_viewer, self)
-        self.file_select = NellieFileSelect(napari_viewer, self)
-        self.processor = NellieProcessor(napari_viewer, self)
-        self.visualizer = NellieVisualizer(napari_viewer, self)
-        self.analyzer = NellieAnalysis(napari_viewer, self)
-        self.settings = Settings(napari_viewer, self)
+        self.viewer = napari_viewer
+        self.home = Home(self.viewer, self)
+        self.file_select = NellieFileSelect(self.viewer, self)
+        self.processor = NellieProcessor(self.viewer, self)
+        self.visualizer = NellieVisualizer(self.viewer, self)
+        self.analyzer = NellieAnalysis(self.viewer, self)
+        self.settings = Settings(self.viewer, self)
 
         self.home_tab = None
         self.file_select_tab = None
@@ -80,6 +80,7 @@ class NellieLoader(QTabWidget):
 
         self.im_info = None
         self.im_info_list = None
+        add_nellie_plugins_to_menu(self)
 
     def add_tabs(self):
         """
