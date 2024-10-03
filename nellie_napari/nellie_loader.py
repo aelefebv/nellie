@@ -1,7 +1,12 @@
 from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QTabWidget
+import json
+import urllib.request
+from importlib.metadata import version as get_version
+from napari.utils.notifications import show_warning
 
 from nellie_napari import NellieProcessor
+from nellie_napari.discover_plugins import add_nellie_plugins_to_menu
 from nellie_napari.nellie_home import Home
 from nellie_napari.nellie_analysis import NellieAnalysis
 from nellie_napari.nellie_fileselect import NellieFileSelect
@@ -59,12 +64,18 @@ class NellieLoader(QTabWidget):
             Optional parent widget (default is None).
         """
         super().__init__(parent)
-        self.home = Home(napari_viewer, self)
-        self.file_select = NellieFileSelect(napari_viewer, self)
-        self.processor = NellieProcessor(napari_viewer, self)
-        self.visualizer = NellieVisualizer(napari_viewer, self)
-        self.analyzer = NellieAnalysis(napari_viewer, self)
-        self.settings = Settings(napari_viewer, self)
+        # Check for plugin updates
+        self.current_version = None
+        self.latest_version = None
+        self.check_for_updates()
+
+        self.viewer = napari_viewer
+        self.home = Home(self.viewer, self)
+        self.file_select = NellieFileSelect(self.viewer, self)
+        self.processor = NellieProcessor(self.viewer, self)
+        self.visualizer = NellieVisualizer(self.viewer, self)
+        self.analyzer = NellieAnalysis(self.viewer, self)
+        self.settings = Settings(self.viewer, self)
 
         self.home_tab = None
         self.file_select_tab = None
@@ -78,6 +89,24 @@ class NellieLoader(QTabWidget):
 
         self.im_info = None
         self.im_info_list = None
+        add_nellie_plugins_to_menu(self)
+
+    def check_for_updates(self):
+        """
+        Gets the current installed version of the Nellie plugin and checks for the latest version available on PyPI.
+        """
+        show_info("Checking for updates...")
+        try:
+            # Get the current installed version
+            self.current_version = get_version('nellie')
+
+            # Fetch the latest version from PyPI
+            with urllib.request.urlopen('https://pypi.org/pypi/nellie/json', timeout=5) as response:
+                data = json.loads(response.read().decode())
+                self.latest_version = data['info']['version']
+
+        except Exception as e:
+            pass
 
     def add_tabs(self):
         """

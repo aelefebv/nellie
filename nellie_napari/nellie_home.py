@@ -76,6 +76,14 @@ class Home(QWidget):
         subtitle.setWordWrap(True)
         self.layout.addWidget(subtitle)
 
+        self.update_text = QLabel("Checking for updates...")
+        self.update_text.setFont(QFont("Arial", 16))
+        self.update_text.setStyleSheet("color: red")
+        self.update_text.setAlignment(Qt.AlignCenter)
+        self.update_text.setWordWrap(True)
+        self.layout.addWidget(self.update_text)
+        self.set_update_status()
+
         # Add a large "Start" button
         self.start_button = QPushButton("Start")
         self.start_button.setFont(QFont("Arial", 20))
@@ -106,6 +114,33 @@ class Home(QWidget):
         self.viewer.bind_key('Ctrl-Shift-E', self.screenshot, overwrite=True)
 
         self.layout.addWidget(self.screenshot_button, alignment=Qt.AlignCenter)
+
+    def set_update_status(self):
+        """
+        Checks if the plugin is up to date by comparing the installed version with the latest version on PyPI.
+        If an update is available, it displays a warning to the user.
+        """
+        if self.nellie.current_version is None:
+            self.update_text.setText("Failed to check for updates. \n")
+        elif self.nellie.latest_version is None:
+            self.update_text.setText("Failed to check for updates. \n"
+                                     "Please check your internet connection.\n"
+                                     f"Current: v{self.nellie.current_version}")
+            return
+        elif self.nellie.current_version == self.nellie.latest_version:
+            self.update_text.setText("Nellie is up-to-date!\n"
+                                     f"v{self.nellie.current_version}")
+            # green
+            self.update_text.setStyleSheet("color: green")
+        else:
+            self.update_text.setText(
+                f"New version available!\n"
+                f"Current: v{self.nellie.current_version}\n"
+                f"Newest: v{self.nellie.latest_version}\n. "
+                f"Please update to the latest version!"
+            )
+            self.update_text.setStyleSheet("color: red")
+
 
     def screenshot(self, event=None):
         """
