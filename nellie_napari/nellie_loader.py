@@ -2,6 +2,7 @@ from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QTabWidget
 
 from nellie_napari import NellieProcessor
+from nellie_napari.discover_plugins import add_nellie_plugins_to_menu
 from nellie_napari.nellie_home import Home
 from nellie_napari.nellie_analysis import NellieAnalysis
 from nellie_napari.nellie_fileselect import NellieFileSelect
@@ -59,6 +60,7 @@ class NellieLoader(QTabWidget):
             Optional parent widget (default is None).
         """
         super().__init__(parent)
+        add_nellie_plugins_to_menu(napari_viewer)
         self.home = Home(napari_viewer, self)
         self.file_select = NellieFileSelect(napari_viewer, self)
         self.processor = NellieProcessor(napari_viewer, self)
