@@ -8,7 +8,90 @@ from nellie.tracking.all_tracks_for_label import LabelTracks
 
 
 class NellieVisualizer(QWidget):
+    """
+    The NellieVisualizer class provides an interface for visualizing different stages of the Nellie pipeline, such as raw images,
+    preprocessed images, segmentation labels, mocap markers, and reassigned labels. It also enables track visualization for specific
+    labels and all frame labels using napari.
+
+    Attributes
+    ----------
+    nellie : object
+        Reference to the Nellie instance managing the pipeline.
+    viewer : napari.viewer.Viewer
+        Reference to the napari viewer instance.
+    scale : tuple of floats
+        Scaling factors for visualizing the images, based on the resolution of the image dimensions.
+    im_memmap : ndarray
+        Memory-mapped array for the raw image.
+    raw_layer : ImageLayer
+        The napari image layer for displaying the raw image.
+    im_branch_label_reassigned_layer : LabelsLayer
+        The napari labels layer for displaying reassigned branch labels.
+    im_branch_label_reassigned : ndarray
+        Memory-mapped array for reassigned branch labels.
+    im_obj_label_reassigned_layer : LabelsLayer
+        The napari labels layer for displaying reassigned object labels.
+    im_obj_label_reassigned : ndarray
+        Memory-mapped array for reassigned object labels.
+    im_marker_layer : ImageLayer
+        The napari image layer for displaying mocap markers.
+    im_marker : ndarray
+        Memory-mapped array for mocap marker images.
+    im_skel_relabelled_layer : LabelsLayer
+        The napari labels layer for displaying skeleton relabeled images.
+    im_instance_label_layer : LabelsLayer
+        The napari labels layer for displaying instance labels.
+    frangi_layer : ImageLayer
+        The napari image layer for displaying preprocessed images (Frangi-filtered).
+    im_skel_relabelled : ndarray
+        Memory-mapped array for skeleton relabeled images.
+    im_instance_label : ndarray
+        Memory-mapped array for instance labels.
+    im_frangi : ndarray
+        Memory-mapped array for the preprocessed (Frangi-filtered) images.
+    initialized : bool
+        Flag indicating whether the visualizer has been initialized.
+
+    Methods
+    -------
+    set_ui()
+        Initializes and sets the layout and UI components for the NellieVisualizer.
+    post_init()
+        Initializes the visualizer by setting the scale and making the scale bar visible in napari.
+    check_3d()
+        Ensures that the napari viewer is in 3D mode if the dataset contains Z-dimension data.
+    set_scale()
+        Sets the scale for image display based on the image resolution in Z, Y, and X dimensions.
+    open_preprocess_image()
+        Opens and displays the preprocessed (Frangi-filtered) image in the napari viewer.
+    open_segment_image()
+        Opens and displays the segmentation labels (skeleton relabeled and instance labels) in the napari viewer.
+    on_track_selected()
+        Visualizes the tracks for the currently selected label in the napari viewer.
+    track_all()
+        Visualizes tracks for all labels across frames in the napari viewer.
+    open_mocap_image()
+        Opens and displays the mocap marker image in the napari viewer.
+    open_reassign_image()
+        Opens and displays the reassigned branch and object labels in the napari viewer.
+    open_raw()
+        Opens and displays the raw image in the napari viewer.
+    check_file_existence()
+        Checks for the existence of files related to different steps of the pipeline, enabling or disabling buttons accordingly.
+    """
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+        """
+        Initializes the NellieVisualizer class, setting up buttons and layout for opening and visualizing images and tracks.
+
+        Parameters
+        ----------
+        napari_viewer : napari.viewer.Viewer
+            Reference to the napari viewer instance.
+        nellie : object
+            Reference to the Nellie instance managing the pipeline.
+        parent : QWidget, optional
+            Optional parent widget (default is None).
+        """
         super().__init__(parent)
         self.nellie = nellie
         self.viewer = napari_viewer
@@ -77,6 +160,10 @@ class NellieVisualizer(QWidget):
         self.initialized = False
 
     def set_ui(self):
+        """
+        Initializes and sets the layout and UI components for the NellieVisualizer. It groups the buttons for image
+        and track visualization into separate sections and arranges them within a vertical layout.
+        """
         main_layout = QVBoxLayout()
 
         # visualization group
@@ -101,18 +188,27 @@ class NellieVisualizer(QWidget):
         self.setLayout(main_layout)
 
     def post_init(self):
+        """
+        Post-initialization method that sets the image scale based on the image resolution and makes the scale bar visible.
+        """
         self.set_scale()
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = 'um'
         self.initialized = True
 
     def check_3d(self):
+        """
+        Ensures that the napari viewer is in 3D mode if the dataset contains Z-dimension data.
+        """
         if not self.nellie.im_info.no_z and self.viewer.dims.ndim != 3:
             # ndimensions should be 3 for viewer
             self.viewer.dims.ndim = 3
             self.viewer.dims.ndisplay = 3
 
     def set_scale(self):
+        """
+        Sets the scale for image display based on the resolution of the Z, Y, and X dimensions of the image.
+        """
         dim_res = self.nellie.im_info.dim_res
         if self.nellie.im_info.no_z:
             self.scale = (dim_res['Y'], dim_res['X'])
@@ -120,6 +216,9 @@ class NellieVisualizer(QWidget):
             self.scale = (dim_res['Z'], dim_res['Y'], dim_res['X'])
 
     def open_preprocess_image(self):
+        """
+        Opens and displays the preprocessed (Frangi-filtered) image in the napari viewer.
+        """
         self.im_frangi = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_preprocessed'])
         self.check_3d()
         self.frangi_layer = self.viewer.add_image(self.im_frangi, name='Pre-processed', colormap='turbo', scale=self.scale)
@@ -127,6 +226,9 @@ class NellieVisualizer(QWidget):
         self.viewer.layers.selection.active = self.frangi_layer
 
     def open_segment_image(self):
+        """
+        Opens and displays the segmentation labels (skeleton relabeled and instance labels) in the napari viewer.
+        """
         self.im_instance_label = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
         self.im_skel_relabelled = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_skel_relabelled'])
 
@@ -139,6 +241,9 @@ class NellieVisualizer(QWidget):
         self.viewer.layers.selection.active = self.im_instance_label_layer
 
     def on_track_selected(self):
+        """
+        Visualizes the tracks for the currently selected label in the napari viewer, based on the active image layer.
+        """
         # if flow_vector_array path does not point to an existing file, return
         if not os.path.exists(self.nellie.im_info.pipeline_paths['flow_vector_array']):
             return
@@ -201,6 +306,9 @@ class NellieVisualizer(QWidget):
         self.check_file_existence()
 
     def track_all(self):
+        """
+        Visualizes tracks for all labels across frames in the napari viewer, based on the active image layer.
+        """
         layer = self.viewer.layers.selection.active
         if layer == self.im_instance_label_layer:
             label_path = self.nellie.im_info.pipeline_paths['im_instance_label']
@@ -243,6 +351,9 @@ class NellieVisualizer(QWidget):
         self.check_file_existence()
 
     def open_mocap_image(self):
+        """
+        Opens and displays the mocap marker image in the napari viewer.
+        """
         self.check_3d()
 
         self.im_marker = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_marker'])
@@ -252,6 +363,9 @@ class NellieVisualizer(QWidget):
         self.viewer.layers.selection.active = self.im_marker_layer
 
     def open_reassign_image(self):
+        """
+        Opens and displays the reassigned branch and object labels in the napari viewer.
+        """
         self.check_3d()
 
         self.im_branch_label_reassigned = tifffile.memmap(self.nellie.im_info.pipeline_paths['im_branch_label_reassigned'])
@@ -262,6 +376,9 @@ class NellieVisualizer(QWidget):
         self.viewer.layers.selection.active = self.im_obj_label_reassigned_layer
 
     def open_raw(self):
+        """
+        Opens and displays the raw image in the napari viewer.
+        """
         self.check_3d()
         self.im_memmap = tifffile.memmap(self.nellie.im_info.im_path)
         self.raw_layer = self.viewer.add_image(self.im_memmap, name='raw', colormap='gray',
@@ -271,6 +388,9 @@ class NellieVisualizer(QWidget):
         self.viewer.layers.selection.active = self.raw_layer
 
     def check_file_existence(self):
+        """
+        Checks for the existence of files related to different steps of the pipeline, enabling or disabling buttons accordingly.
+        """
         # set all other buttons to disabled first
         self.raw_button.setEnabled(False)
         self.open_preprocess_button.setEnabled(False)
