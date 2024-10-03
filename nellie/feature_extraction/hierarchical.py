@@ -1052,6 +1052,26 @@ class Voxels:
 
 
 def aggregate_stats_for_class(child_class, t, list_of_idxs):
+    """
+    Aggregates statistical metrics (mean, standard deviation, min, max, sum) for features of a given class at
+    a specific time frame.
+
+    Parameters
+    ----------
+    child_class : object
+        The class from which the feature data is extracted. It should contain a list of statistics to aggregate
+        (i.e., `stats_to_aggregate`) and corresponding feature arrays.
+    t : int
+        The time frame index for which the aggregation is performed.
+    list_of_idxs : list of lists
+        A list where each sublist contains the indices of data points that should be grouped together for aggregation.
+
+    Returns
+    -------
+    dict
+        A dictionary where the keys are feature names and the values are dictionaries containing aggregated
+        statistics for each feature (mean, standard deviation, min, max, sum).
+    """
     # initialize a dictionary to hold lists of aggregated stats for each stat name
     # aggregate_stats = {
     #     stat_name: {"mean": [], "std_dev": [], "25%": [], "50%": [], "75%": [], "min": [], "max": [], "range": [],
@@ -1330,6 +1350,23 @@ class Nodes:
 
 
 def distance_check(border_mask, check_coords, spacing):
+    """
+    Calculates the minimum distance between given coordinates and a border mask using a KD-tree.
+
+    Parameters
+    ----------
+    border_mask : numpy.ndarray
+        A binary mask where the border is marked as `True`.
+    check_coords : numpy.ndarray
+        Coordinates of the points for which distances to the border will be calculated.
+    spacing : tuple or list
+        The spacing of the image dimensions (used to scale the coordinates).
+
+    Returns
+    -------
+    numpy.ndarray
+        An array of distances from each point in `check_coords` to the nearest border point.
+    """
     border_coords = np.argwhere(border_mask) * spacing
     border_tree = spatial.cKDTree(border_coords)
     dist, _ = border_tree.query(check_coords * spacing, k=1)

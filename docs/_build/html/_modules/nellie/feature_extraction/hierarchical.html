@@ -47,6 +47,53 @@
 <div class="viewcode-block" id="Hierarchy">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Hierarchy">[docs]</a>
 <span class="k">class</span> <span class="nc">Hierarchy</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to handle the hierarchical structure of image data, including voxel, node, branch, and component features.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        Object containing metadata and pathways related to the image.</span>
+<span class="sd">    skip_nodes : bool, optional</span>
+<span class="sd">        Whether to skip node processing (default is True).</span>
+<span class="sd">    viewer : optional</span>
+<span class="sd">        Viewer for updating status messages (default is None).</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    im_info : ImInfo</span>
+<span class="sd">        The ImInfo object containing the image metadata.</span>
+<span class="sd">    num_t : int</span>
+<span class="sd">        Number of time frames in the image.</span>
+<span class="sd">    spacing : tuple</span>
+<span class="sd">        Spacing between dimensions (Z, Y, X) or (Y, X) depending on the presence of Z.</span>
+<span class="sd">    im_raw : memmap</span>
+<span class="sd">        Raw image data loaded from disk.</span>
+<span class="sd">    im_struct : memmap</span>
+<span class="sd">        Preprocessed structural image data.</span>
+<span class="sd">    im_distance : memmap</span>
+<span class="sd">        Distance-transformed image data.</span>
+<span class="sd">    im_skel : memmap</span>
+<span class="sd">        Skeletonized image data.</span>
+<span class="sd">    label_components : memmap</span>
+<span class="sd">        Instance-labeled image data of components.</span>
+<span class="sd">    label_branches : memmap</span>
+<span class="sd">        Re-labeled skeleton data of branches.</span>
+<span class="sd">    im_border_mask : memmap</span>
+<span class="sd">        Image data with border mask.</span>
+<span class="sd">    im_pixel_class : memmap</span>
+<span class="sd">        Image data classified by pixel types.</span>
+<span class="sd">    im_obj_reassigned : memmap</span>
+<span class="sd">        Object reassigned labels across time.</span>
+<span class="sd">    im_branch_reassigned : memmap</span>
+<span class="sd">        Branch reassigned labels across time.</span>
+<span class="sd">    flow_interpolator_fw : FlowInterpolator</span>
+<span class="sd">        Forward flow interpolator.</span>
+<span class="sd">    flow_interpolator_bw : FlowInterpolator</span>
+<span class="sd">        Backward flow interpolator.</span>
+<span class="sd">    viewer : optional</span>
+<span class="sd">        Viewer to display status updates.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">im_info</span><span class="p">:</span> <span class="n">ImInfo</span><span class="p">,</span> <span class="n">skip_nodes</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
                  <span class="n">viewer</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span> <span class="o">=</span> <span class="n">im_info</span>
@@ -84,6 +131,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="o">=</span> <span class="n">viewer</span>
 
     <span class="k">def</span> <span class="nf">_get_t</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Retrieves the number of time frames from image metadata, raising an error if the information is insufficient.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of time frames.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_t</span><span class="p">:</span>
             <span class="c1"># if self.im_info.no_t:</span>
             <span class="c1">#     raise ValueError(&quot;No time dimension in image.&quot;)</span>
@@ -93,6 +148,10 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_t</span>
 
     <span class="k">def</span> <span class="nf">_allocate_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Loads the required image data into memory using memory-mapped arrays. This includes raw image data, structural</span>
+<span class="sd">        data, skeletons, component labels, and other features related to the image pipeline.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># getting reshaped image will load the image into memory.. should probably do this case by case</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_raw</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">im_path</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">im_struct</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">get_memmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;im_preprocessed&#39;</span><span class="p">])</span>
@@ -123,6 +182,10 @@
         <span class="c1"># self.im_info.shape = self.shape</span>
 
     <span class="k">def</span> <span class="nf">_get_hierarchies</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Executes the hierarchical feature extraction process, which includes running voxel, node, branch, component,</span>
+<span class="sd">        and image analyses.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">voxels</span> <span class="o">=</span> <span class="n">Voxels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
         <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Running voxel analysis&quot;</span><span class="p">)</span>
         <span class="n">start</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
@@ -165,6 +228,10 @@
         <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Image analysis took </span><span class="si">{</span><span class="n">i_time</span><span class="si">}</span><span class="s2"> seconds&quot;</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_save_dfs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Saves the extracted features to CSV files, including voxel, node, branch, component, and image features.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Saving features to csv files.&#39;</span>
         <span class="n">voxel_features</span><span class="p">,</span> <span class="n">voxel_headers</span> <span class="o">=</span> <span class="n">create_feature_array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">voxels</span><span class="p">)</span>
@@ -189,6 +256,9 @@
         <span class="n">image_df</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">pipeline_paths</span><span class="p">[</span><span class="s1">&#39;features_image&#39;</span><span class="p">],</span> <span class="n">index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_save_adjacency_maps</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Constructs adjacency maps for voxels, nodes, branches, and components and saves them as a pickle file.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># edge list:</span>
         <span class="n">v_n</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">v_b</span> <span class="o">=</span> <span class="p">[]</span>
@@ -279,6 +349,10 @@
 <div class="viewcode-block" id="Hierarchy.run">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Hierarchy.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function to run the entire hierarchical feature extraction process, which includes memory allocation,</span>
+<span class="sd">        hierarchical analysis, and saving the results.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_get_t</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_allocate_memory</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_get_hierarchies</span><span class="p">()</span>
@@ -295,6 +369,21 @@
 <div class="viewcode-block" id="append_to_array">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.append_to_array">[docs]</a>
 <span class="k">def</span> <span class="nf">append_to_array</span><span class="p">(</span><span class="n">to_append</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Converts feature dictionaries into lists of arrays and headers for saving to a CSV.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    to_append : dict</span>
+<span class="sd">        Dictionary containing feature names and values to append.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    list</span>
+<span class="sd">        List of feature arrays.</span>
+<span class="sd">    list</span>
+<span class="sd">        List of corresponding feature headers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">new_array</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">new_headers</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">feature</span><span class="p">,</span> <span class="n">stats</span> <span class="ow">in</span> <span class="n">to_append</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
@@ -317,6 +406,23 @@
 <div class="viewcode-block" id="create_feature_array">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.create_feature_array">[docs]</a>
 <span class="k">def</span> <span class="nf">create_feature_array</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="n">labels</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Creates a 2D feature array and corresponding headers for saving features to CSV.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    level : object</span>
+<span class="sd">        The level (e.g., voxel, node, branch, etc.) from which features are extracted.</span>
+<span class="sd">    labels : array-like, optional</span>
+<span class="sd">        Array of labels to use for the first column of the output (default is None).</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    numpy.ndarray</span>
+<span class="sd">        2D array of features.</span>
+<span class="sd">    list</span>
+<span class="sd">        List of corresponding feature headers.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="n">full_array</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">headers</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="n">all_attr</span> <span class="o">=</span> <span class="p">[]</span>
@@ -367,6 +473,55 @@
 <div class="viewcode-block" id="Voxels">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Voxels">[docs]</a>
 <span class="k">class</span> <span class="nc">Voxels</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to extract and store voxel-level features from hierarchical image data.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object containing the image data and metadata.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object.</span>
+<span class="sd">    time : list</span>
+<span class="sd">        List of time frames associated with the extracted voxel features.</span>
+<span class="sd">    coords : list</span>
+<span class="sd">        List of voxel coordinates.</span>
+<span class="sd">    intensity : list</span>
+<span class="sd">        List of voxel intensity values.</span>
+<span class="sd">    structure : list</span>
+<span class="sd">        List of voxel structural values.</span>
+<span class="sd">    vec01 : list</span>
+<span class="sd">        List of vectors from frame t-1 to t.</span>
+<span class="sd">    vec12 : list</span>
+<span class="sd">        List of vectors from frame t to t+1.</span>
+<span class="sd">    lin_vel : list</span>
+<span class="sd">        List of linear velocity vectors.</span>
+<span class="sd">    ang_vel : list</span>
+<span class="sd">        List of angular velocity vectors.</span>
+<span class="sd">    directionality_rel : list</span>
+<span class="sd">        List of directionality features.</span>
+<span class="sd">    node_labels : list</span>
+<span class="sd">        List of node labels assigned to voxels.</span>
+<span class="sd">    branch_labels : list</span>
+<span class="sd">        List of branch labels assigned to voxels.</span>
+<span class="sd">    component_labels : list</span>
+<span class="sd">        List of component labels assigned to voxels.</span>
+<span class="sd">    node_dim0_lims : list</span>
+<span class="sd">        List of node bounding box limits in dimension 0 (Z or Y).</span>
+<span class="sd">    node_dim1_lims : list</span>
+<span class="sd">        List of node bounding box limits in dimension 1 (Y or X).</span>
+<span class="sd">    node_dim2_lims : list</span>
+<span class="sd">        List of node bounding box limits in dimension 2 (X).</span>
+<span class="sd">    node_voxel_idxs : list</span>
+<span class="sd">        List of voxel indices associated with each node.</span>
+<span class="sd">    stats_to_aggregate : list</span>
+<span class="sd">        List of statistics to aggregate for features.</span>
+<span class="sd">    features_to_save : list</span>
+<span class="sd">        List of voxel features to save.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hierarchy</span><span class="p">:</span> <span class="n">Hierarchy</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span> <span class="o">=</span> <span class="n">hierarchy</span>
 
@@ -450,6 +605,16 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">features_to_save</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_to_aggregate</span> <span class="o">+</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">]</span>
 
     <span class="k">def</span> <span class="nf">_get_node_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">frame_coords</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Gathers node-related information for each frame, including pixel classes, skeleton radii, and bounding boxes.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        frame_coords : array-like</span>
+<span class="sd">            The coordinates of the voxels in the current frame.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># get all network pixels</span>
         <span class="n">skeleton_pixels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_pixel_class</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
         <span class="n">skeleton_radius</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_distance</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="nb">tuple</span><span class="p">(</span><span class="n">skeleton_pixels</span><span class="o">.</span><span class="n">T</span><span class="p">)]</span>
@@ -527,6 +692,21 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">node_voxel_idxs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunk_node_voxel_idxs</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_min_euc_dist</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">vec</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculates the minimum Euclidean distance for voxels to their nearest branch.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        vec : array-like</span>
+<span class="sd">            The vector field for the current time frame.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        pandas.Series</span>
+<span class="sd">            The indices of the minimum distance for each branch.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">euc_dist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">vec</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
         <span class="n">branch_labels</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">branch_labels</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
 
@@ -541,6 +721,25 @@
         <span class="k">return</span> <span class="n">idxmin</span>
 
     <span class="k">def</span> <span class="nf">_get_ref_coords</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coords_a</span><span class="p">,</span> <span class="n">coords_b</span><span class="p">,</span> <span class="n">idxmin</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Retrieves the reference coordinates for calculating relative velocity and acceleration.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        coords_a : array-like</span>
+<span class="sd">            The coordinates in frame A.</span>
+<span class="sd">        coords_b : array-like</span>
+<span class="sd">            The coordinates in frame B.</span>
+<span class="sd">        idxmin : pandas.Series</span>
+<span class="sd">            Indices of minimum Euclidean distances.</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            The reference coordinates for frames A and B.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">vals_a</span> <span class="o">=</span> <span class="n">idxmin</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">branch_labels</span><span class="p">[</span><span class="n">t</span><span class="p">]]</span><span class="o">.</span><span class="n">values</span>
         <span class="n">vals_a_no_nan</span> <span class="o">=</span> <span class="n">vals_a</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
         <span class="n">vals_a_no_nan</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">vals_a_no_nan</span><span class="p">)]</span> <span class="o">=</span> <span class="mi">0</span>
@@ -559,6 +758,17 @@
         <span class="k">return</span> <span class="n">ref_a</span><span class="p">,</span> <span class="n">ref_b</span>
 
     <span class="k">def</span> <span class="nf">_get_motility_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">coords_1_px</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes motility-related features for each voxel, including linear and angular velocities, accelerations,</span>
+<span class="sd">        and directionality.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        coords_1_px : array-like</span>
+<span class="sd">            Coordinates of the voxels in pixel space for frame t.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">coords_1_px</span> <span class="o">=</span> <span class="n">coords_1_px</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s1">&#39;float32&#39;</span><span class="p">)</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">no_z</span><span class="p">:</span>
             <span class="n">dims</span> <span class="o">=</span> <span class="mi">2</span>
@@ -755,6 +965,21 @@
 <span class="c1">#         self.directionality_acc_rel.append(directionality_acc_rel)</span>
 
     <span class="k">def</span> <span class="nf">_get_linear_velocity</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">rb</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the linear velocity, its magnitude, and orientation between two sets of coordinates.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ra : array-like</span>
+<span class="sd">            Coordinates in the earlier frame (frame t-1 or t).</span>
+<span class="sd">        rb : array-like</span>
+<span class="sd">            Coordinates in the later frame (frame t or t+1).</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Tuple containing linear velocity vectors, magnitudes, and orientations.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">lin_disp</span> <span class="o">=</span> <span class="n">rb</span> <span class="o">-</span> <span class="n">ra</span>
         <span class="n">lin_vel</span> <span class="o">=</span> <span class="n">lin_disp</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">dim_res</span><span class="p">[</span><span class="s1">&#39;T&#39;</span><span class="p">]</span>
         <span class="n">lin_vel_mag</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">lin_vel</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
@@ -767,6 +992,22 @@
         <span class="k">return</span> <span class="n">lin_vel</span><span class="p">,</span> <span class="n">lin_vel_mag</span><span class="p">,</span> <span class="n">lin_vel_orient</span>
 
     <span class="k">def</span> <span class="nf">_get_angular_velocity_2d</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">rb</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes the angular velocity, its magnitude, and orientation between two sets of coordinates.</span>
+<span class="sd">        Uses either 2D or 3D calculations depending on the image dimensionality.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ra : array-like</span>
+<span class="sd">            Coordinates in the earlier frame (frame t-1 or t).</span>
+<span class="sd">        rb : array-like</span>
+<span class="sd">            Coordinates in the later frame (frame t or t+1).</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple</span>
+<span class="sd">            Tuple containing angular velocity vectors, magnitudes, and orientations.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="c1"># calculate angles of ra and rb relative to x-axis</span>
         <span class="n">theta_a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan2</span><span class="p">(</span><span class="n">ra</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">ra</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])</span>
         <span class="n">theta_b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan2</span><span class="p">(</span><span class="n">rb</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">],</span> <span class="n">rb</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])</span>
@@ -846,6 +1087,10 @@
 <div class="viewcode-block" id="Voxels.run">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Voxels.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function to run the extraction of voxel features over all time frames.</span>
+<span class="sd">        Iterates over each frame to extract coordinates, intensity, structural features, and motility statistics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span> <span class="o">=</span> <span class="mi">1</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
@@ -920,6 +1165,47 @@
 <div class="viewcode-block" id="Nodes">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Nodes">[docs]</a>
 <span class="k">class</span> <span class="nc">Nodes</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to extract and store node-level features from hierarchical image data.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object containing the image data and metadata.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object.</span>
+<span class="sd">    time : list</span>
+<span class="sd">        List of time frames associated with the extracted node features.</span>
+<span class="sd">    nodes : list</span>
+<span class="sd">        List of node coordinates for each frame.</span>
+<span class="sd">    z, x, y : list</span>
+<span class="sd">        List of node coordinates in 3D or 2D space.</span>
+<span class="sd">    node_thickness : list</span>
+<span class="sd">        List of node thickness values.</span>
+<span class="sd">    divergence : list</span>
+<span class="sd">        List of divergence values for nodes.</span>
+<span class="sd">    convergence : list</span>
+<span class="sd">        List of convergence values for nodes.</span>
+<span class="sd">    vergere : list</span>
+<span class="sd">        List of vergere values (convergence + divergence).</span>
+<span class="sd">    aggregate_voxel_metrics : list</span>
+<span class="sd">        List of aggregated voxel metrics for each node.</span>
+<span class="sd">    voxel_idxs : list</span>
+<span class="sd">        List of voxel indices associated with each node.</span>
+<span class="sd">    branch_label : list</span>
+<span class="sd">        List of branch labels assigned to nodes.</span>
+<span class="sd">    component_label : list</span>
+<span class="sd">        List of component labels assigned to nodes.</span>
+<span class="sd">    image_name : list</span>
+<span class="sd">        List of image file names.</span>
+<span class="sd">    stats_to_aggregate : list</span>
+<span class="sd">        List of statistics to aggregate for nodes.</span>
+<span class="sd">    features_to_save : list</span>
+<span class="sd">        List of node features to save.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hierarchy</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span> <span class="o">=</span> <span class="n">hierarchy</span>
 
@@ -960,10 +1246,26 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">node_x_lims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="o">.</span><span class="n">node_dim2_lims</span>
 
     <span class="k">def</span> <span class="nf">_get_aggregate_voxel_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Aggregates voxel-level statistics for each node in the frame.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">frame_agg</span> <span class="o">=</span> <span class="n">aggregate_stats_for_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="o">.</span><span class="n">node_voxel_idxs</span><span class="p">[</span><span class="n">t</span><span class="p">])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">aggregate_voxel_metrics</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">frame_agg</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_node_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes node-level statistics, including thickness, divergence, convergence, and vergere.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">radius</span> <span class="o">=</span> <span class="n">distance_check</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_border_mask</span><span class="p">[</span><span class="n">t</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">nodes</span><span class="p">[</span><span class="n">t</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">spacing</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">node_thickness</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">radius</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
 
@@ -1043,6 +1345,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Extracts node features for a single time frame, including voxel metrics, node coordinates, and node statistics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">frame_skel_coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_pixel_class</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">frame_skel_coords</span><span class="p">)</span>
 
@@ -1064,6 +1374,10 @@
 <div class="viewcode-block" id="Nodes.run">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Nodes.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function to run the extraction of node features over all time frames.</span>
+<span class="sd">        Iterates over each frame to extract node features and calculate metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">skip_nodes</span><span class="p">:</span>
             <span class="k">return</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
@@ -1087,6 +1401,51 @@
 <div class="viewcode-block" id="Branches">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Branches">[docs]</a>
 <span class="k">class</span> <span class="nc">Branches</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to extract and store branch-level features from hierarchical image data.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object containing the image data and metadata.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object.</span>
+<span class="sd">    time : list</span>
+<span class="sd">        List of time frames associated with the extracted branch features.</span>
+<span class="sd">    branch_label : list</span>
+<span class="sd">        List of branch labels for each frame.</span>
+<span class="sd">    aggregate_voxel_metrics : list</span>
+<span class="sd">        List of aggregated voxel metrics for each branch.</span>
+<span class="sd">    aggregate_node_metrics : list</span>
+<span class="sd">        List of aggregated node metrics for each branch.</span>
+<span class="sd">    z, x, y : list</span>
+<span class="sd">        List of branch centroid coordinates in 3D or 2D space.</span>
+<span class="sd">    branch_length : list</span>
+<span class="sd">        List of branch length values.</span>
+<span class="sd">    branch_thickness : list</span>
+<span class="sd">        List of branch thickness values.</span>
+<span class="sd">    branch_aspect_ratio : list</span>
+<span class="sd">        List of aspect ratios for branches.</span>
+<span class="sd">    branch_tortuosity : list</span>
+<span class="sd">        List of tortuosity values for branches.</span>
+<span class="sd">    branch_area : list</span>
+<span class="sd">        List of branch area values.</span>
+<span class="sd">    branch_axis_length_maj, branch_axis_length_min : list</span>
+<span class="sd">        List of major and minor axis lengths for branches.</span>
+<span class="sd">    branch_extent : list</span>
+<span class="sd">        List of extent values for branches.</span>
+<span class="sd">    branch_solidity : list</span>
+<span class="sd">        List of solidity values for branches.</span>
+<span class="sd">    reassigned_label : list</span>
+<span class="sd">        List of reassigned branch labels across time.</span>
+<span class="sd">    stats_to_aggregate : list</span>
+<span class="sd">        List of statistics to aggregate for branches.</span>
+<span class="sd">    features_to_save : list</span>
+<span class="sd">        List of branch features to save.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hierarchy</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span> <span class="o">=</span> <span class="n">hierarchy</span>
 
@@ -1122,6 +1481,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">features_to_save</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_to_aggregate</span> <span class="o">+</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">]</span>
 
     <span class="k">def</span> <span class="nf">_get_aggregate_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Aggregates voxel and node-level statistics for each branch in the frame.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">voxel_labels</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="o">.</span><span class="n">branch_labels</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
         <span class="n">grouped_vox_idxs</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">voxel_labels</span> <span class="o">==</span> <span class="n">label</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
                             <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">voxel_labels</span><span class="p">)</span> <span class="k">if</span> <span class="n">label</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">]</span>
@@ -1136,6 +1503,14 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">aggregate_node_metrics</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">node_agg</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_branch_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes branch-level statistics, including length, thickness, aspect ratio, tortuosity, and solidity.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">branch_idx_array_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">branch_idxs</span><span class="p">[</span><span class="n">t</span><span class="p">])</span>
         <span class="n">branch_idx_array_2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">branch_idxs</span><span class="p">[</span><span class="n">t</span><span class="p">])[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>
         <span class="n">dist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span><span class="n">branch_idx_array_1</span> <span class="o">-</span> <span class="n">branch_idx_array_2</span><span class="p">,</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
@@ -1264,6 +1639,15 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Extracts branch features for a single time frame, including voxel and node metrics, branch coordinates, and</span>
+<span class="sd">        branch statistics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">frame_branch_idxs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_skel</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">branch_idxs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">frame_branch_idxs</span><span class="p">)</span>
 
@@ -1300,6 +1684,10 @@
 <div class="viewcode-block" id="Branches.run">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Branches.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function to run the extraction of branch features over all time frames.</span>
+<span class="sd">        Iterates over each frame to extract branch features and calculate metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Extracting branch features. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
@@ -1311,6 +1699,45 @@
 <div class="viewcode-block" id="Components">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Components">[docs]</a>
 <span class="k">class</span> <span class="nc">Components</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to extract and store component-level features from hierarchical image data.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object containing the image data and metadata.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object.</span>
+<span class="sd">    time : list</span>
+<span class="sd">        List of time frames associated with the extracted component features.</span>
+<span class="sd">    component_label : list</span>
+<span class="sd">        List of component labels for each frame.</span>
+<span class="sd">    aggregate_voxel_metrics : list</span>
+<span class="sd">        List of aggregated voxel metrics for each component.</span>
+<span class="sd">    aggregate_node_metrics : list</span>
+<span class="sd">        List of aggregated node metrics for each component.</span>
+<span class="sd">    aggregate_branch_metrics : list</span>
+<span class="sd">        List of aggregated branch metrics for each component.</span>
+<span class="sd">    z, x, y : list</span>
+<span class="sd">        List of component centroid coordinates in 3D or 2D space.</span>
+<span class="sd">    organelle_area : list</span>
+<span class="sd">        List of component area values.</span>
+<span class="sd">    organelle_axis_length_maj, organelle_axis_length_min : list</span>
+<span class="sd">        List of major and minor axis lengths for components.</span>
+<span class="sd">    organelle_extent : list</span>
+<span class="sd">        List of extent values for components.</span>
+<span class="sd">    organelle_solidity : list</span>
+<span class="sd">        List of solidity values for components.</span>
+<span class="sd">    reassigned_label : list</span>
+<span class="sd">        List of reassigned component labels across time.</span>
+<span class="sd">    stats_to_aggregate : list</span>
+<span class="sd">        List of statistics to aggregate for components.</span>
+<span class="sd">    features_to_save : list</span>
+<span class="sd">        List of component features to save.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hierarchy</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span> <span class="o">=</span> <span class="n">hierarchy</span>
 
@@ -1339,6 +1766,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">features_to_save</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stats_to_aggregate</span> <span class="o">+</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">]</span>
 
     <span class="k">def</span> <span class="nf">_get_aggregate_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Aggregates voxel, node, and branch-level statistics for each component in the frame.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">voxel_labels</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="o">.</span><span class="n">component_labels</span><span class="p">[</span><span class="n">t</span><span class="p">]</span>
         <span class="n">grouped_vox_idxs</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">voxel_labels</span> <span class="o">==</span> <span class="n">label</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">voxel_labels</span><span class="p">)</span> <span class="k">if</span>
                             <span class="n">label</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">]</span>
@@ -1359,6 +1794,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">aggregate_branch_metrics</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">branch_agg</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_get_component_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Computes component-level statistics, including area, axis lengths, extent, and solidity.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">regions</span> <span class="o">=</span> <span class="n">regionprops</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">label_components</span><span class="p">[</span><span class="n">t</span><span class="p">],</span> <span class="n">spacing</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">spacing</span><span class="p">)</span>
         <span class="n">areas</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">axis_length_maj</span> <span class="o">=</span> <span class="p">[]</span>
@@ -1406,6 +1849,15 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">x</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Extracts component features for a single time frame, including voxel, node, and branch metrics, and component</span>
+<span class="sd">        statistics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">smallest_label</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">label_components</span><span class="p">[</span><span class="n">t</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">label_components</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">]))</span>
         <span class="n">largest_label</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">label_components</span><span class="p">[</span><span class="n">t</span><span class="p">]))</span>
         <span class="n">frame_component_labels</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">smallest_label</span><span class="p">,</span> <span class="n">largest_label</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
@@ -1424,6 +1876,10 @@
 <div class="viewcode-block" id="Components.run">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Components.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function to run the extraction of component features over all time frames.</span>
+<span class="sd">        Iterates over each frame to extract component features and calculate metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Extracting organelle features. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
@@ -1435,6 +1891,35 @@
 <div class="viewcode-block" id="Image">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Image">[docs]</a>
 <span class="k">class</span> <span class="nc">Image</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A class to extract and store global image-level features from hierarchical image data.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object containing the image data and metadata.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    hierarchy : Hierarchy</span>
+<span class="sd">        The Hierarchy object.</span>
+<span class="sd">    time : list</span>
+<span class="sd">        List of time frames associated with the extracted image-level features.</span>
+<span class="sd">    image_name : list</span>
+<span class="sd">        List of image file names.</span>
+<span class="sd">    aggregate_voxel_metrics : list</span>
+<span class="sd">        List of aggregated voxel metrics for the entire image.</span>
+<span class="sd">    aggregate_node_metrics : list</span>
+<span class="sd">        List of aggregated node metrics for the entire image.</span>
+<span class="sd">    aggregate_branch_metrics : list</span>
+<span class="sd">        List of aggregated branch metrics for the entire image.</span>
+<span class="sd">    aggregate_component_metrics : list</span>
+<span class="sd">        List of aggregated component metrics for the entire image.</span>
+<span class="sd">    stats_to_aggregate : list</span>
+<span class="sd">        List of statistics to aggregate for the entire image.</span>
+<span class="sd">    features_to_save : list</span>
+<span class="sd">        List of image-level features to save.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">hierarchy</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span> <span class="o">=</span> <span class="n">hierarchy</span>
 
@@ -1448,6 +1933,14 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">features_to_save</span> <span class="o">=</span> <span class="p">[]</span>
 
     <span class="k">def</span> <span class="nf">_get_aggregate_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Aggregates voxel, node, branch, and component-level statistics for the entire image in the frame.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="n">voxel_agg</span> <span class="o">=</span> <span class="n">aggregate_stats_for_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span>
                                               <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">voxels</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="n">t</span><span class="p">]))])</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">aggregate_voxel_metrics</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">voxel_agg</span><span class="p">)</span>
@@ -1465,6 +1958,15 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">aggregate_component_metrics</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">component_agg</span><span class="p">)</span>
 
     <span class="k">def</span> <span class="nf">_run_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">t</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Extracts image-level features for a single time frame, including aggregated voxel, node, branch, and</span>
+<span class="sd">        component metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        t : int</span>
+<span class="sd">            The time frame index.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">image_name</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">im_info</span><span class="o">.</span><span class="n">file_info</span><span class="o">.</span><span class="n">filename_no_ext</span><span class="p">)</span>
 
@@ -1473,6 +1975,10 @@
 <div class="viewcode-block" id="Image.run">
 <a class="viewcode-back" href="../../../nellie.feature_extraction.html#nellie.feature_extraction.hierarchical.Image.run">[docs]</a>
     <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Main function to run the extraction of image-level features over all time frames.</span>
+<span class="sd">        Iterates over each frame to extract and aggregate voxel, node, branch, and component-level features.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="p">):</span>
             <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">viewer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
                 <span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">viewer</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;Extracting image features. Frame: </span><span class="si">{</span><span class="n">t</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s1"> of </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">hierarchy</span><span class="o">.</span><span class="n">num_t</span><span class="si">}</span><span class="s1">.&#39;</span>
@@ -1508,6 +2014,10 @@
 
 
 <h3>Navigation</h3>
+<p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../modules.html">nellie</a></li>
+</ul>
 
 <div class="relations">
 <h3>Related Topics</h3>
