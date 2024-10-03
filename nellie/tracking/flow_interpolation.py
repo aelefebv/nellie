@@ -6,7 +6,71 @@ from nellie.im_info.verifier import ImInfo
 
 
 class FlowInterpolator:
+    """
+    A class for interpolating flow vectors between timepoints in microscopy images using precomputed flow data.
+
+    Attributes
+    ----------
+    im_info : ImInfo
+        An object containing image metadata and memory-mapped image data.
+    num_t : int
+        Number of timepoints in the image.
+    max_distance_um : float
+        Maximum distance allowed for interpolation (in micrometers).
+    forward : bool
+        Indicates if the interpolation is performed in the forward direction (True) or backward direction (False).
+    scaling : tuple
+        Scaling factors for Z, Y, and X dimensions.
+    shape : tuple
+        Shape of the input image.
+    im_memmap : np.ndarray or None
+        Memory-mapped original image data.
+    flow_vector_array : np.ndarray or None
+        Precomputed flow vector array loaded from disk.
+    current_t : int or None
+        Cached timepoint for the current flow vector calculation.
+    check_rows : np.ndarray or None
+        Flow vector data for the current timepoint.
+    check_coords : np.ndarray or None
+        Coordinates corresponding to the flow vector data for the current timepoint.
+    current_tree : cKDTree or None
+        KDTree for fast lookup of nearby coordinates in the current timepoint.
+    debug : dict or None
+        Debugging information for tracking processing steps.
+
+    Methods
+    -------
+    _allocate_memory()
+        Allocates memory and loads the precomputed flow vector array.
+    _get_t()
+        Determines the number of timepoints to process.
+    _get_nearby_coords(t, coords)
+        Finds nearby coordinates within a defined radius from the given coordinates using a KDTree.
+    _get_vector_weights(nearby_idxs, distances_all)
+        Computes the weights for nearby flow vectors based on their distances and costs.
+    _get_final_vector(nearby_idxs, weights_all)
+        Computes the final interpolated vector for each coordinate using distance-weighted vectors.
+    interpolate_coord(coords, t)
+        Interpolates the flow vector at the given coordinates and timepoint.
+    _initialize()
+        Initializes the FlowInterpolator by allocating memory and setting the timepoints.
+
+    """
     def __init__(self, im_info: ImInfo, num_t=None, max_distance_um=0.5, forward=True):
+        """
+        Initializes the FlowInterpolator with image metadata and interpolation parameters.
+
+        Parameters
+        ----------
+        im_info : ImInfo
+            An instance of the ImInfo class, containing metadata and paths for the image file.
+        num_t : int, optional
+            Number of timepoints to process. If None, defaults to the number of timepoints in the image.
+        max_distance_um : float, optional
+            Maximum distance allowed for interpolation (in micrometers, default is 0.5).
+        forward : bool, optional
+            Indicates if the interpolation is performed in the forward direction (default is True).
+        """
         self.im_info = im_info
 
         if self.im_info.no_t:
@@ -41,6 +105,11 @@ class FlowInterpolator:
         self._initialize()
 
     def _allocate_memory(self):
+        """
+        Allocates memory and loads the precomputed flow vector array.
+
+        This method reads the flow vector data from disk and prepares it for use during interpolation.
+        """
         logger.debug('Allocating memory for mocap marking.')
 
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
@@ -50,6 +119,11 @@ class FlowInterpolator:
         self.flow_vector_array = np.load(flow_vector_array_path)
 
     def _get_t(self):
+        """
+        Determines the number of timepoints to process.
+
+        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.
+        """
         if self.num_t is None:
             if self.im_info.no_t:
                 self.num_t = 1
@@ -59,6 +133,21 @@ class FlowInterpolator:
             return
 
     def _get_nearby_coords(self, t, coords):
+        """
+        Finds nearby coordinates within a defined radius from the given coordinates using a KDTree.
+
+        Parameters
+        ----------
+        t : int
+            Timepoint index.
+        coords : np.ndarray
+            Coordinates for which to find nearby points.
+
+        Returns
+        -------
+        tuple
+            Nearby indices and distances from the input coordinates.
+        """
         # using a ckdtree, check for any nearby coords from coord
         if self.current_t != t:
             self.current_tree = cKDTree(self.check_coords * self.scaling)
@@ -90,6 +179,21 @@ class FlowInterpolator:
         return nearby_idxs_return, distance_return
 
     def _get_vector_weights(self, nearby_idxs, distances_all):
+        """
+        Computes the weights for nearby flow vectors based on their distances and costs.
+
+        Parameters
+        ----------
+        nearby_idxs : list
+            Indices of nearby coordinates.
+        distances_all : list
+            Distances from the input coordinates to the nearby points.
+
+        Returns
+        -------
+        list
+            Weights for each nearby flow vector.
+        """
         weights_all = []
         for i in range(len(nearby_idxs)):
             # lowest cost should be most highly weighted
@@ -111,6 +215,21 @@ class FlowInterpolator:
         return weights_all
 
     def _get_final_vector(self, nearby_idxs, weights_all):
+        """
+        Computes the final interpolated vector for each coordinate using distance-weighted vectors.
+
+        Parameters
+        ----------
+        nearby_idxs : list
+            Indices of nearby coordinates.
+        weights_all : list
+            Weights for the flow vectors.
+
+        Returns
+        -------
+        np.ndarray
+            Final interpolated vectors for each input coordinate.
+        """
         if self.im_info.no_z:
             final_vectors = np.zeros((len(nearby_idxs), 2))
         else:
@@ -131,6 +250,21 @@ class FlowInterpolator:
         return final_vectors
 
     def interpolate_coord(self, coords, t):
+        """
+        Interpolates the flow vector at the given coordinates and timepoint.
+
+        Parameters
+        ----------
+        coords : np.ndarray
+            Input coordinates for interpolation.
+        t : int
+            Timepoint index.
+
+        Returns
+        -------
+        np.ndarray
+            Interpolated flow vectors at the given coordinates and timepoint.
+        """
         # interpolate the flow vector at the coordinate at time t, either forward in time or backward in time.
         # For forward, simply find nearby LMPs, interpolate based on distance-weighted vectors
         # For backward, get coords from t-1 + vector, then find nearby coords from that, and interpolate based on distance-weighted vectors
@@ -163,6 +297,11 @@ class FlowInterpolator:
         return final_vectors
 
     def _initialize(self):
+        """
+        Initializes the FlowInterpolator by allocating memory and setting the timepoints.
+
+        This method prepares the internal state of the object, including reading the flow vector array.
+        """
         if self.im_info.no_t:
             return
         self._get_t()
@@ -170,6 +309,29 @@ class FlowInterpolator:
 
 
 def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5):
+    """
+    Interpolates coordinates forward in time across multiple timepoints using flow vectors.
+
+    Parameters
+    ----------
+    coords : np.ndarray
+        Array of input coordinates to track.
+    start_t : int
+        Starting timepoint.
+    end_t : int
+        Ending timepoint.
+    im_info : ImInfo
+        An instance of the ImInfo class containing image metadata and paths.
+    min_track_num : int, optional
+        Minimum track number to assign to coordinates (default is 0).
+    max_distance_um : float, optional
+        Maximum distance allowed for interpolation (in micrometers, default is 0.5).
+
+    Returns
+    -------
+    tuple
+        List of tracks and associated track properties.
+    """
     flow_interpx = FlowInterpolator(im_info, forward=True, max_distance_um=max_distance_um)
     tracks = []
     track_properties = {'frame_num': []}
@@ -203,6 +365,29 @@ def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0, ma
 
 
 def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5):
+    """
+    Interpolates coordinates backward in time across multiple timepoints using flow vectors.
+
+    Parameters
+    ----------
+    coords : np.ndarray
+        Array of input coordinates to track.
+    start_t : int
+        Starting timepoint.
+    end_t : int
+        Ending timepoint.
+    im_info : ImInfo
+        An instance of the ImInfo class containing image metadata and paths.
+    min_track_num : int, optional
+        Minimum track number to assign to coordinates (default is 0).
+    max_distance_um : float, optional
+        Maximum distance allowed for interpolation (in micrometers, default is 0.5).
+
+    Returns
+    -------
+    tuple
+        List of tracks and associated track properties.
+    """
     flow_interpx = FlowInterpolator(im_info, forward=False, max_distance_um=max_distance_um)
     tracks = []
     track_properties = {'frame_num': []}
