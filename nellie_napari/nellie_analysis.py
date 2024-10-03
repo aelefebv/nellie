@@ -13,7 +13,98 @@ import datetime
 
 
 class NellieAnalysis(QWidget):
+    """
+    A class for analyzing and visualizing multi-dimensional microscopy data using histograms, graphs, and overlays in the napari viewer.
+
+    Attributes
+    ----------
+    viewer : napari.viewer.Viewer
+        An instance of the napari viewer.
+    nellie : object
+        Reference to the main Nellie object that contains the pipeline and analysis data.
+    canvas : FigureCanvasQTAgg
+        Canvas for rendering matplotlib plots.
+    scale : tuple
+        The scaling factors for X, Y, and Z dimensions, default is (1, 1, 1).
+    log_scale : bool
+        Boolean flag to toggle logarithmic scaling in histogram plots.
+    is_median : bool
+        Boolean flag to toggle between mean and median views.
+    match_t : bool
+        Boolean flag to enable/disable timepoint matching in data analysis.
+    hist_reset : bool
+        Boolean flag indicating whether the histogram settings are reset.
+    voxel_df, node_df, branch_df, organelle_df, image_df : pd.DataFrame
+        DataFrames containing features at different hierarchy levels (voxel, node, branch, organelle, image).
+    attr_data : pd.Series or None
+        Data for the selected attribute to be plotted.
+    time_col : pd.Series or None
+        Time column data from the currently selected level's DataFrame.
+    adjacency_maps : dict or None
+        Dictionary containing adjacency matrices for mapping hierarchy levels.
+    mean, std, median, iqr, perc75, perc25 : float
+        Statistical values for the selected attribute data (mean, std, median, interquartile range, 75th percentile, 25th percentile).
+
+    Methods
+    -------
+    reset()
+        Resets the internal state, including dataframes and initialization flags.
+    post_init()
+        Initializes UI elements such as checkboxes, buttons, and connects them to respective event handlers.
+    set_ui()
+        Sets up the user interface layout, including attribute selection, histogram, and export options.
+    _create_dropdown_selection()
+        Creates and configures the dropdowns for selecting hierarchy levels and attributes.
+    set_default_dropdowns()
+        Sets default values for the hierarchy level and attribute dropdowns.
+    check_for_adjacency_map()
+        Checks if an adjacency map is available and enables the overlay button accordingly.
+    rewrite_dropdown()
+        Rewrites the dropdown options based on the available data and features.
+    export_data()
+        Exports the current graph data to a CSV file.
+    save_graph()
+        Saves the current graph as a PNG file.
+    on_hist_change(event)
+        Event handler for histogram changes (e.g., adjusting bins or min/max values).
+    get_index(layer, event)
+        Gets the voxel index based on mouse hover coordinates in the napari viewer.
+    overlay()
+        Applies an overlay of selected attribute data onto the image, using adjacency maps to map voxel to higher-level features.
+    on_t_change(event)
+        Event handler that updates the graph when the timepoint changes in the napari viewer.
+    toggle_match_t(state)
+        Toggles timepoint matching and updates the graph accordingly.
+    toggle_mean_med(state)
+        Toggles between mean and median views and updates the graph.
+    get_csvs()
+        Loads the feature CSV files into DataFrames for voxels, nodes, branches, organelles, and images.
+    on_level_selected(index)
+        Event handler for when a hierarchy level is selected from the dropdown.
+    on_attr_selected(index)
+        Event handler for when an attribute is selected from the dropdown.
+    get_stats()
+        Computes basic statistics (mean, std, median, percentiles) for the selected attribute data.
+    draw_stats()
+        Draws the computed statistics on the histogram plot (e.g., mean, std, median, percentiles).
+    plot_data(title)
+        Plots the selected attribute data as a histogram, updates the UI, and displays statistical information.
+    on_log_scale(state)
+        Toggles logarithmic scaling for the histogram plot and refreshes the data.
+    """
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+        """
+        Initializes the NellieAnalysis class.
+
+        Parameters
+        ----------
+        napari_viewer : napari.viewer.Viewer
+            Reference to the napari viewer instance.
+        nellie : object
+            Reference to the main Nellie object containing image and pipeline data.
+        parent : QWidget, optional
+            Optional parent widget (default is None).
+        """
         super().__init__(parent)
         self.nellie = nellie
         self.viewer = napari_viewer
@@ -80,6 +171,9 @@ class NellieAnalysis(QWidget):
         self.initialized = False
 
     def reset(self):
+        """
+        Resets the internal state, including the DataFrames and initialization flags.
+        """
         self.initialized = False
         self.voxel_df = None
         self.node_df = None
@@ -88,6 +182,9 @@ class NellieAnalysis(QWidget):
         self.image_df = None
 
     def post_init(self):
+        """
+        Initializes UI elements such as checkboxes, buttons, and connects them to their respective event handlers.
+        """
         self.log_scale_checkbox = QCheckBox("Log scale")
         self.log_scale_checkbox.stateChanged.connect(self.on_log_scale)
 
@@ -144,6 +241,9 @@ class NellieAnalysis(QWidget):
         self.initialized = True
 
     def set_ui(self):
+        """
+        Sets up the user interface layout, including dropdowns for attribute selection, histogram controls, and export buttons.
+        """
         main_layout = QVBoxLayout()
 
         # Attribute dropdown group
@@ -195,6 +295,9 @@ class NellieAnalysis(QWidget):
         self.setLayout(main_layout)
 
     def _create_dropdown_selection(self):
+        """
+        Creates and configures the dropdown menus for selecting hierarchy levels and attributes.
+        """
         # Create the dropdown menu
         self.dropdown = QComboBox()
         self.dropdown.currentIndexChanged.connect(self.on_level_selected)
@@ -207,17 +310,26 @@ class NellieAnalysis(QWidget):
         self.set_default_dropdowns()
 
     def set_default_dropdowns(self):
+        """
+        Sets the default values for the hierarchy level and attribute dropdowns.
+        """
         organelle_idx = self.dropdown.findText('organelle')
         self.dropdown.setCurrentIndex(organelle_idx)
         area_raw_idx = self.dropdown_attr.findText('organelle_area_raw')
         self.dropdown_attr.setCurrentIndex(area_raw_idx)
 
     def check_for_adjacency_map(self):
+        """
+        Checks whether an adjacency map exists, and enables the overlay button if found.
+        """
         self.overlay_button.setEnabled(False)
         if os.path.exists(self.nellie.im_info.pipeline_paths['adjacency_maps']):
             self.overlay_button.setEnabled(True)
 
     def rewrite_dropdown(self):
+        """
+        Updates the hierarchy level dropdown based on the available data, and checks for adjacency maps.
+        """
         self.check_for_adjacency_map()
 
         self.dropdown.clear()
@@ -234,6 +346,9 @@ class NellieAnalysis(QWidget):
         self.adjacency_maps = None
 
     def export_data(self):
+        """
+        Exports the current graph data as a CSV file to a specified directory.
+        """
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         export_dir = self.nellie.im_info.graph_dir
         if not os.path.exists(export_dir):
@@ -254,6 +369,9 @@ class NellieAnalysis(QWidget):
         show_info(f"Data exported to {export_path}")
 
     def save_graph(self):
+        """
+        Saves the current graph as a PNG file to a specified directory.
+        """
         dt = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         export_dir = self.nellie.im_info.graph_dir
         if not os.path.exists(export_dir):
@@ -267,9 +385,22 @@ class NellieAnalysis(QWidget):
         show_info(f"Graph saved to {export_path}")
 
     def on_hist_change(self, event):
+        """
+        Event handler for updating the histogram when changes are made (e.g., adjusting the number of bins, min/max values).
+        """
         self.plot_data(self.dropdown_attr.currentText())
 
     def get_index(self, layer, event):
+        """
+        Retrieves the index of the voxel or feature based on mouse hover coordinates in the napari viewer.
+
+        Parameters
+        ----------
+        layer : Layer
+            The layer on which the event is triggered.
+        event : Event
+            The event triggered by mouse hover.
+        """
         # get the coordinates of where the mouse is hovering
         pos = self.viewer.cursor.position
         matched_row = None
@@ -316,6 +447,9 @@ class NellieAnalysis(QWidget):
         self.click_match_table.setVerticalHeaderLabels([f"{t, y, x}\nCSV row"])
 
     def overlay(self):
+        """
+        Applies an overlay of attribute data onto the image in the napari viewer, using adjacency maps for mapping between hierarchy levels.
+        """
         if self.label_mask is None:
             label_mask = self.nellie.im_info.get_memmap(self.nellie.im_info.pipeline_paths['im_instance_label'])
             self.label_mask = (label_mask > 0).astype(float)
@@ -446,10 +580,21 @@ class NellieAnalysis(QWidget):
         self.viewer.reset_view()
 
     def on_t_change(self, event):
+        """
+        Event handler for timepoint changes in the napari viewer. Updates the attribute data and refreshes the plot accordingly.
+        """
         if self.match_t:
             self.on_attr_selected(self.dropdown_attr.currentIndex())
 
     def toggle_match_t(self, state):
+        """
+        Toggles timepoint matching and updates the graph and data accordingly.
+
+        Parameters
+        ----------
+        state : int
+            The state of the checkbox (checked or unchecked).
+        """
         if state == 2:
             self.match_t = True
         else:
@@ -457,6 +602,14 @@ class NellieAnalysis(QWidget):
         self.on_attr_selected(self.dropdown_attr.currentIndex())
 
     def toggle_mean_med(self, state):
+        """
+        Toggles between mean and median views for the histogram plot.
+
+        Parameters
+        ----------
+        state : int
+            The state of the checkbox (checked or unchecked).
+        """
         if state == 2:
             self.is_median = True
         else:
@@ -464,6 +617,9 @@ class NellieAnalysis(QWidget):
         self.on_attr_selected(self.dropdown_attr.currentIndex())
 
     def get_csvs(self):
+        """
+        Loads the CSV files containing voxel, node, branch, organelle, and image features into DataFrames.
+        """
         self.voxel_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_voxels'])
         if os.path.exists(self.nellie.im_info.pipeline_paths['features_nodes']):
             self.node_df = pd.read_csv(self.nellie.im_info.pipeline_paths['features_nodes'])
@@ -475,6 +631,14 @@ class NellieAnalysis(QWidget):
         # self.voxel_df_idxs = voxel_df[voxel_df.columns[0]]
 
     def on_level_selected(self, index):
+        """
+        Event handler for when a hierarchy level is selected from the dropdown menu.
+
+        Parameters
+        ----------
+        index : int
+            The index of the selected item in the dropdown.
+        """
         # This method is called whenever a radio button is selected
         # 'button' parameter is the clicked radio button
         self.selected_level = self.dropdown.itemText(index)
@@ -516,6 +680,14 @@ class NellieAnalysis(QWidget):
             self.dropdown_attr.addItem(col)
 
     def on_attr_selected(self, index):
+        """
+        Event handler for when an attribute is selected from the dropdown menu.
+
+        Parameters
+        ----------
+        index : int
+            The index of the selected attribute in the dropdown.
+        """
         self.hist_reset = True
         # if there are no items in dropdown_attr, return
         if self.dropdown_attr.count() == 0:
@@ -541,6 +713,9 @@ class NellieAnalysis(QWidget):
         self.plot_data(selected_attr)
 
     def get_stats(self):
+        """
+        Computes basic statistics (mean, std, median, percentiles) for the currently selected attribute data.
+        """
         if self.attr_data is None:
             return
         if not self.log_scale:
@@ -566,6 +741,9 @@ class NellieAnalysis(QWidget):
             self.iqr = self.perc75 - self.perc25
 
     def draw_stats(self):
+        """
+        Draws statistics on the histogram plot, including lines for mean, median, std, and percentiles.
+        """
         if self.attr_data is None:
             return
         # draw lines for mean, median, std, percentiles on the canvas
@@ -582,6 +760,14 @@ class NellieAnalysis(QWidget):
         self.canvas.draw()
 
     def plot_data(self, title):
+        """
+        Plots the selected attribute data as a histogram, updates the canvas, and displays the computed statistics.
+
+        Parameters
+        ----------
+        title : str
+            The title for the plot, usually the name of the selected attribute.
+        """
         self.canvas.figure.clear()
         ax = self.canvas.figure.add_subplot(111)
         self.data_to_plot = self.data_to_plot.replace([np.inf, -np.inf], np.nan)
@@ -635,6 +821,14 @@ class NellieAnalysis(QWidget):
             self.hist_reset = False
 
     def on_log_scale(self, state):
+        """
+        Toggles logarithmic scaling for the histogram plot and refreshes the data accordingly.
+
+        Parameters
+        ----------
+        state : int
+            The state of the checkbox (checked or unchecked).
+        """
         self.hist_reset = True
         if state == 2:
             self.log_scale = True
