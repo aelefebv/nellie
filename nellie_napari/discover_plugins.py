@@ -1,4 +1,4 @@
-from importlib_metadata import entry_points
+from importlib.metadata import entry_points
 from qtpy.QtWidgets import QAction, QMenu
 
 

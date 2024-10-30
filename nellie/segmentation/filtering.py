@@ -326,6 +326,7 @@ class Filter:
         else:
             frobenius_threshold = self.frob_thresh
         mask = frobenius_norm > frobenius_threshold
+        print('hi')
         return mask
 
     def _compute_chunkwise_eigenvalues(self, hessian_matrices, chunk_size=1E6):
