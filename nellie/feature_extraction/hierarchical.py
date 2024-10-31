@@ -1105,6 +1105,9 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs):
 
         # populate the idxs_array with the values from the stat_array at the indices in idxs_array
         stat_values = stat_array[idxs_array.astype(int)]
+        # if the shape has a second dimension of length 0, reshape it to have a second dimension of length 1, where all values are nan
+        if stat_values.shape[1] == 0:
+            stat_values = np.full((stat_values.shape[0], 1), np.nan)
 
         # calculate various statistics for the subset
         mean = np.nanmean(stat_values, axis=1)
