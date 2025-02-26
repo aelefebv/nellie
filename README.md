@@ -16,43 +16,45 @@ https://github.com/aelefebv/nellie/assets/26515909/1df8bf1b-7116-4d19-b5fb-9658f
 ## Installation (~ 1 minute)
 
 **Notes:** 
-- It is recommended (but usually not required) to [create a new environment](https://docs.python.org/3/library/venv.html) for Nellie to avoid conflicts with other packages.
+- It is recommended (but usually not required) to create a new environment [via venv](https://docs.python.org/3/library/venv.html) or [via conda](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html#creating-environments) before installing Nellie to avoid conflicts with other packages.
 - May take several minutes to install.
 - Choose one of the following methods, and only one!
-- If you do not already have Python 3.9 or higher installed, download it via the [python website]([url](https://www.python.org/downloads/)).
+
+### Step 0: If you do not already have Python 3.9 or higher installed, download it via the [python website](https://www.python.org/downloads/):
 
 https://github.com/user-attachments/assets/50b1cd4b-6df7-4f19-8db3-4dcc03388513
 
-
-### Option 1. Via Napari plugin manager:
-If not already installed, install Napari: https://napari.org/stable/tutorials/fundamentals/installation
-
-https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
-
-
+### Option 1. If you already have Napari installed:
 1. Open Napari
 2. Go to ```Plugins > Install/Uninstall Plugins...```
 3. Search for Nellie and click ```Install```
 4. Make sure Nellie is updated to the latest version.
 5. Restart Napari.
-### Option 2. Via PIP:
+
+
+https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
+
+
+### Option 2. If you don't have Nellie installed or Option 1 didn't work:
+1. Open up Terminal (or Powershell on Windows)
+2. pip install nellie:
+```bash
+python3 -m pip install nellie
+```
 
 
 https://github.com/user-attachments/assets/b63df093-e3e1-49cb-925b-7efce36b9015
 
 
-```bash
-python3 -m pip install nellie
-```
 #### Option 2a for NVIDIA GPU acceleration, optional (Windows, Linux):
 To use GPU acceleration via NVIDIA GPUs, you also need to install cupy:
 ```bash
-pip install cupy-cudaXXx
+python3 -m pip install cupy-cudaXXx
 ```
 - replace ```cupy-cudaXXx``` with the [appropriate version](https://docs.cupy.dev/en/stable/install.html#installing-cupy) for your CUDA version.
   - i.e. ```cupy-cuda11x``` for CUDA 11.x or ```cupy-cuda12x``` for CUDA 12.x
 - if you don't have CUDA installed, [go here](https://docs.cupy.dev/en/stable/install.html).
-- Mac Metal GPU-acceleration coming... eventually.
+- Mac Metal GPU-acceleration coming... eventually. Let me know if this is important to you!
 
 ## Usage
 The sample dataset shown below is in the repo if you want to play around without, and can be downloaded [here](https://github.com/aelefebv/nellie/tree/main/sample_data).
