@@ -37,6 +37,7 @@ https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
 
 ### Option 2. If you don't have Nellie installed or Option 1 didn't work:
 1. Open up Terminal (or Powershell on Windows)
+- (optional but recommended) Create and activate a new [Python](https://docs.python.org/3/library/venv.html) or [Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html#creating-environments) environment.
 2. pip install nellie:
 ```bash
 python3 -m pip install nellie
