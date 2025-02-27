@@ -1,11 +1,11 @@
 # Nellie
 ## Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy
 
-<img src="https://github.com/aelefebv/nellie/assets/26515909/96b7a113-be60-4028-bcd9-b444bdb943f6" width="200px" align="left" /> *arXiv* 
+<img src="https://github.com/aelefebv/nellie/assets/26515909/96b7a113-be60-4028-bcd9-b444bdb943f6" width="200px" align="left" /> *Nature Methods (2025)* 
 
-  [Preprint Link](https://arxiv.org/abs/2403.13214) | [Cite](#reference)
+  [Article Link](https://www.nature.com/articles/s41592-025-02612-7) | [Cite](#reference)
 
-**Abstract:** The analysis of dynamic organelles remains a formidable challenge, though key to understanding biological processes. We introduce Nellie, an automated and unbiased pipeline for segmentation, tracking, and feature extraction of diverse intracellular structures. Nellie adapts to image metadata, eliminating user input. Nellie’s preprocessing pipeline enhances structural contrast on multiple intracellular scales allowing for robust hierarchical segmentation of sub-organellar regions. Internal motion capture markers are generated and tracked via a radius-adaptive pattern matching scheme, and used as guides for sub-voxel flow interpolation. Nellie extracts a plethora of features at multiple hierarchical levels for deep and customizable analysis. Nellie features a Napari-based GUI that allows for code-free operation and visualization, while its modular open-source codebase invites customization by experienced users. 
+**Abstract:** Cellular organelles undergo constant morphological changes and dynamic interactions that are fundamental to cell homeostasis, stress responses and disease progression. Despite their importance, quantifying organelle morphology and motility remains challenging due to their complex architectures, rapid movements and the technical limitations of existing analysis tools. Here we introduce Nellie, an automated and unbiased pipeline for segmentation, tracking and feature extraction of diverse intracellular structures. Nellie adapts to image metadata and employs hierarchical segmentation to resolve sub-organellar regions, while its radius-adaptive pattern matching enables precise motion tracking. Through a user-friendly Napari-based interface, Nellie enables comprehensive organelle analysis without coding expertise. We demonstrate Nellie’s versatility by unmixing multiple organelles from single-channel data, quantifying mitochondrial responses to ionomycin via graph autoencoders and characterizing endoplasmic reticulum networks across cell types and time points. This tool addresses a critical need in cell biology by providing accessible, automated analysis of organelle dynamics. 
 
 **Nellie's pipeline and Napari plugin are both very much in early stages,** therefore [I highly encourage any and all feedback](#getting-help).
 
@@ -156,19 +156,10 @@ Nellie has been tested on the following configurations:
 Nellie © 2024 by [Austin E. Y. T. Lefebvre](https://github.com/aelefebv) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 
 ## Reference
-If you used Nelly or found this work useful in your own research, please cite our [arXiv preprint](https://arxiv.org/abs/2403.13214):
-
-Lefebvre, A. E. Y. T., Sturm, G., et. al. Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy, arXiv, 2024, https://arxiv.org/abs/2403.13214
+If you used Nellie or found this work useful in your own research, please cite our [Nature Methods Paper](https://www.nature.com/articles/s41592-025-02612-7):
 
 ```
-@misc{lefebvre2024nellie,
-      title={Nellie: Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy}, 
-      author={Austin E. Y. T. Lefebvre and Gabriel Sturm and Ting-Yu Lin and Emily Stoops and Magdalena Preciado Lopez and Benjamin Kaufmann-Malaga and Kayley Hake},
-      year={2024},
-      eprint={2403.13214},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV}
-}
+Lefebvre, A.E.Y.T., Sturm, G., Lin, TY. et al. Nellie: automated organelle segmentation, tracking and hierarchical feature extraction in 2D/3D live-cell microscopy. Nat Methods (2025). https://doi.org/10.1038/s41592-025-02612-7
 ```
 
 ## More fun examples
