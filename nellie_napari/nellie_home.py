@@ -95,7 +95,7 @@ class Home(QWidget):
         self.start_button.clicked.connect(lambda: self.nellie.setCurrentIndex(self.nellie.file_select_tab))
         self.layout.addWidget(self.start_button, alignment=Qt.AlignCenter)
 
-        github_link = QLabel("<a href='https://arxiv.org/abs/2403.13214'>Cite our paper!</a>")
+        github_link = QLabel("<a href='https://www.nature.com/articles/s41592-025-02612-7'>Cite our paper!</a>")
         github_link.setOpenExternalLinks(True)
         github_link.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(github_link)
