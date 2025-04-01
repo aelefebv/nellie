@@ -20,7 +20,7 @@ https://github.com/aelefebv/nellie/assets/26515909/1df8bf1b-7116-4d19-b5fb-9658f
 - May take several minutes to install.
 - Choose one of the following methods, and only one!
 
-### Step 0: If you do not already have Python 3.9 or higher installed, download it via the [python website](https://www.python.org/downloads/):
+### Step 0: If you do not already have Python 3.10 or higher installed, download it via the [python website](https://www.python.org/downloads/):
 
 https://github.com/user-attachments/assets/50b1cd4b-6df7-4f19-8db3-4dcc03388513
 
@@ -150,7 +150,7 @@ For a 16bit dataset, the output:input ratio is ~15x. There is an option in the G
 ## Requirements
 Nellie has been tested on the following configurations:
 - Mac, Linux, and Windows operating systems
-- Python >= 3.9
+- Python >= 3.10
 
 ## License
 Nellie © 2024 by [Austin E. Y. T. Lefebvre](https://github.com/aelefebv) is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
