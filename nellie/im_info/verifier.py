@@ -785,7 +785,7 @@ class ImInfo:
             )
         ome = self.ome_metadata
         ome.images[0].description = description
-        ome.images[0].pixels.type = dtype
+        # ome.images[0].pixels.type = dtype
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(output_path, ome_xml)
         if return_memmap:

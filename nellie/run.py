@@ -64,7 +64,8 @@ if __name__ == "__main__":
     #         im_info = run(tif_file, remove_edges=False, ch=ch, num_t=num_t)
 
     # test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif'
-    test_file = '/Users/austin/Downloads/26598942-Pos213-t_008-y_1744-x_0329.ome.tif'
+    # test_file = '/Users/austin/Downloads/26598942-Pos213-t_008-y_1744-x_0329.ome.tif'
+    test_file = "/Users/austin/test_files/nellie_all_tests/test.tif"
     # test_file = all_paths[1]
     file_info = FileInfo(test_file)
     file_info.find_metadata()
