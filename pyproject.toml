@@ -1,3 +1,20 @@
+[project]
+name = "nellie"
+version = "1.0.0"
+description = "Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "imagecodecs",
+    "matplotlib",
+    "nd2",
+    "numpy",
+    "ome-types",
+    "pandas",
+    "scikit-image",
+    "scipy",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
