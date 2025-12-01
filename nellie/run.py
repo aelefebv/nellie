@@ -10,20 +10,20 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
     im_info = ImInfo(file_info)
-    # preprocessing = Filter(im_info, remove_edges=remove_edges)
-    # preprocessing.run()
+    preprocessing = Filter(im_info, remove_edges=remove_edges)
+    preprocessing.run()
 
-    # segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
-    # segmenting.run()
+    segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
+    segmenting.run()
 
-    # networking = Network(im_info)
-    # networking.run()
+    networking = Network(im_info)
+    networking.run()
 
     mocap_marking = Markers(im_info)
     mocap_marking.run()
 
-    # hu_tracking = HuMomentTracking(im_info)
-    # hu_tracking.run()
+    hu_tracking = HuMomentTracking(im_info)
+    hu_tracking.run()
 
     # vox_reassign = VoxelReassigner(im_info)
     # vox_reassign.run()
@@ -65,7 +65,7 @@ if __name__ == "__main__":
 
     # test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif'
     # test_file = '/Users/austin/Downloads/26598942-Pos213-t_008-y_1744-x_0329.ome.tif'
-    test_file = "/Users/austin/test_files/nellie_all_tests/test.tif"
+    test_file = "sample_data/yeast_3d_mitochondria.ome.tif"
     # test_file = all_paths[1]
     file_info = FileInfo(test_file)
     file_info.find_metadata()
