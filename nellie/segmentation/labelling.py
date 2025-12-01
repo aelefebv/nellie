@@ -1,92 +1,60 @@
-
 from nellie import xp, ndi, logger, device_type
 from nellie.im_info.verifier import ImInfo
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 
+try:
+    import cupy  # type: ignore
+    CuPyOutOfMemoryError = cupy.cuda.memory.OutOfMemoryError
+except Exception:  # cupy not available or not using CUDA backend
+    CuPyOutOfMemoryError = MemoryError
+
 
 class Label:
     """
-    A class for semantic and instance segmentation of microscopy images using thresholding and signal-to-noise ratio (SNR) techniques.
-
-    Attributes
-    ----------
-    im_info : ImInfo
-        An object containing image metadata and memory-mapped image data.
-    num_t : int
-        Number of timepoints in the image.
-    threshold : float or None
-        Intensity threshold for segmenting objects.
-    snr_cleaning : bool
-        Flag to enable or disable signal-to-noise ratio (SNR) based cleaning of segmented objects.
-    otsu_thresh_intensity : bool
-        Whether to apply Otsu's thresholding method to segment objects based on intensity.
-    im_memmap : np.ndarray or None
-        Memory-mapped original image data.
-    frangi_memmap : np.ndarray or None
-        Memory-mapped Frangi-filtered image data.
-    max_label_num : int
-        Maximum label number used for segmented objects.
-    min_z_radius_um : float
-        Minimum radius for Z-axis objects based on Z resolution, used for filtering objects in the Z dimension.
-    semantic_mask_memmap : np.ndarray or None
-        Memory-mapped mask for semantic segmentation.
-    instance_label_memmap : np.ndarray or None
-        Memory-mapped mask for instance segmentation.
-    shape : tuple
-        Shape of the segmented image.
-    debug : dict
-        Debugging information for tracking segmentation steps.
-    viewer : object or None
-        Viewer object for displaying status during processing.
-
-    Methods
-    -------
-    _get_t()
-        Determines the number of timepoints to process.
-    _allocate_memory()
-        Allocates memory for the original image, Frangi-filtered image, and instance segmentation masks.
-    _get_labels(frame)
-        Generates binary labels for segmented objects in a single frame based on thresholding.
-    _get_subtraction_mask(original_frame, labels_frame)
-        Creates a mask by subtracting labeled regions from the original frame.
-    _get_object_snrs(original_frame, labels_frame)
-        Calculates the signal-to-noise ratios (SNR) of segmented objects and removes objects with low SNR.
-    _run_frame(t)
-        Runs segmentation for a single timepoint in the image.
-    _run_segmentation()
-        Runs the full segmentation process for all timepoints in the image.
-    run()
-        Main method to execute the full segmentation process over the image data.
+    A class for semantic and instance segmentation of microscopy images using
+    thresholding techniques, optimized for large volumes and optional GPU acceleration.
     """
+
     def __init__(self, im_info: ImInfo,
                  num_t=None,
                  threshold=None,
-                 snr_cleaning=False, otsu_thresh_intensity=False,
-                 viewer=None):
+                 otsu_thresh_intensity=False,
+                 viewer=None,
+                 chunk_z=None,
+                 flush_interval=1,
+                 threshold_sampling_pixels=1_000_000,
+                 histogram_nbins=256,
+                 bg_min_pixels=10):
         """
-        Initializes the Label object with image metadata and segmentation parameters.
-
         Parameters
         ----------
         im_info : ImInfo
-            An instance of the ImInfo class, containing metadata and paths for the image file.
+            Image metadata and paths.
         num_t : int, optional
-            Number of timepoints to process. If None, defaults to the number of timepoints in the image.
+            Number of timepoints to process.
         threshold : float or None, optional
-            Intensity threshold for segmenting objects (default is None).
-        snr_cleaning : bool, optional
-            Whether to apply SNR-based cleaning to the segmented objects (default is False).
+            Fixed intensity threshold for segmentation (if not using Otsu).
         otsu_thresh_intensity : bool, optional
-            Whether to apply Otsu's method for intensity thresholding (default is False).
+            Whether to apply Otsu's method for intensity thresholding.
         viewer : object or None, optional
-            Viewer object for displaying status during processing (default is None).
+            Viewer object for displaying status.
+        chunk_z : int or None, optional
+            If not None and image has Z, process each timepoint in Z-chunks of
+            this size instead of the full volume. This reduces peak memory
+            at the cost of losing connectivity across chunks.
+        flush_interval : int, optional
+            How often (in frames) to flush the output memmap to disk.
+        threshold_sampling_pixels : int, optional
+            Maximum number of pixels sampled when computing global thresholds
+            to reduce histogram cost for very large volumes.
+        histogram_nbins : int, optional
+            Number of bins to use in histogram-based thresholding.
         """
         self.im_info = im_info
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
         self.threshold = threshold
-        self.snr_cleaning = snr_cleaning
         self.otsu_thresh_intensity = otsu_thresh_intensity
 
         self.im_memmap = None
@@ -105,11 +73,28 @@ class Label:
 
         self.viewer = viewer
 
+        # Optimization / configuration parameters
+        self.chunk_z = chunk_z if (not self.im_info.no_z and chunk_z is not None) else None
+        self.flush_interval = max(1, int(flush_interval))
+        self.threshold_sampling_pixels = int(threshold_sampling_pixels)
+        self.histogram_nbins = int(histogram_nbins)
+        self.eps = 1e-8
+
+        # Dimensionality and structuring elements (pre-computed)
+        self.ndim = 2 if self.im_info.no_z else 3
+        self.footprint = ndi.generate_binary_structure(self.ndim, 1)
+        self.min_area_pixels = 4
+
+        if not self.im_info.no_z and self.im_info.dim_res['Z'] >= self.min_z_radius_um:
+            self.opening_structure = xp.ones((2, 2, 2), dtype=bool)
+        elif self.im_info.no_z:
+            self.opening_structure = xp.ones((2, 2), dtype=bool)
+        else:
+            self.opening_structure = None
+
     def _get_t(self):
         """
         Determines the number of timepoints to process.
-
-        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.
         """
         if self.num_t is None:
             if self.im_info.no_t:
@@ -121,9 +106,8 @@ class Label:
 
     def _allocate_memory(self):
         """
-        Allocates memory for the original image, Frangi-filtered image, and instance segmentation masks.
-
-        This method creates memory-mapped arrays for the original image data, Frangi-filtered data, and instance label data.
+        Allocates memory for the original image, Frangi-filtered image, and
+        instance segmentation masks.
         """
         logger.debug('Allocating memory for semantic segmentation.')
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
@@ -131,181 +115,309 @@ class Label:
         self.shape = self.frangi_memmap.shape
 
         im_instance_label_path = self.im_info.pipeline_paths['im_instance_label']
-        self.instance_label_memmap = self.im_info.allocate_memory(im_instance_label_path,
-                                                                  dtype='int32',
-                                                                  description='instance segmentation',
-                                                                  return_memmap=True)
+        self.instance_label_memmap = self.im_info.allocate_memory(
+            im_instance_label_path,
+            dtype='int32',
+            description='instance segmentation',
+            return_memmap=True
+        )
+
+    # ------------------------------------------------------------------
+    # Helpers for accessing per-frame views and writing to memmaps
+    # ------------------------------------------------------------------
+
+    def _get_frame_views(self, t):
+        """
+        Return CPU views (memmap slices) for original and Frangi frames at time t.
+        Handles both 3D (Z,Y,X) and 4D (T,Z,Y,X) shapes.
+        """
+        if self.im_memmap.ndim == 4:
+            original_view = self.im_memmap[t, ...]
+            frangi_view = self.frangi_memmap[t, ...]
+        elif self.im_memmap.ndim == 3:
+            original_view = self.im_memmap[...]
+            frangi_view = self.frangi_memmap[...]
+        else:
+            raise RuntimeError(f"Unsupported im_memmap ndim={self.im_memmap.ndim}")
+        return original_view, frangi_view
+
+    def _write_labels_for_frame(self, t, labels):
+        """
+        Write a full label volume for timepoint t into the instance_label_memmap.
+        Handles both 3D (Z,Y,X) and 4D (T,Z,Y,X) shapes.
+        """
+        dst = self.instance_label_memmap
+        if dst.ndim == 4:
+            if self.num_t is not None and self.num_t > 1:
+                dst[t, ...] = labels
+            else:
+                dst[...] = labels  # broadcast over T axis if length-1
+        elif dst.ndim == 3:
+            dst[...] = labels
+        else:
+            raise RuntimeError(f"Unsupported instance_label_memmap ndim={dst.ndim}")
+
+    def _write_labels_chunk(self, t, z_start, z_end, labels_chunk):
+        """
+        Write a Z-chunk of labels for timepoint t into the instance_label_memmap.
+        """
+        dst = self.instance_label_memmap
+        if dst.ndim == 4:
+            if self.num_t is not None and self.num_t > 1:
+                dst[t, z_start:z_end, ...] = labels_chunk
+            else:
+                dst[:, z_start:z_end, ...] = labels_chunk  # broadcast over T axis of length-1
+        elif dst.ndim == 3:
+            dst[z_start:z_end, ...] = labels_chunk
+        else:
+            raise RuntimeError(f"Unsupported instance_label_memmap ndim={dst.ndim}")
+
+    # ------------------------------------------------------------------
+    # Thresholding and labeling
+    # ------------------------------------------------------------------
+
+    def _sample_nonzero(self, frame):
+        """
+        Return a (possibly) downsampled 1D array of non-zero values from frame,
+        used for histogram-based threshold estimation.
+        """
+        nonzero = frame[frame > 0]
+        if nonzero.size == 0:
+            return nonzero
+        if nonzero.size > self.threshold_sampling_pixels:
+            step = max(nonzero.size // self.threshold_sampling_pixels, 1)
+            return nonzero[::step]
+        return nonzero
+
+    def _compute_frangi_threshold(self, frame):
+        """
+        Compute a combined triangle/Otsu threshold for a given frame (Frangi).
+        """
+        values = self._sample_nonzero(frame)
+        if values.size == 0:
+            return None
+
+        # work in log10 domain to match original logic
+        log_values = xp.log10(values)
+        triangle = triangle_threshold(log_values, nbins=self.histogram_nbins)
+        triangle = 10 ** triangle
+        otsu, _ = otsu_threshold(log_values, nbins=self.histogram_nbins)
+        otsu = 10 ** otsu
+        return min(triangle, otsu)
+
+    def _compute_intensity_otsu_threshold(self, frame):
+        """
+        Compute Otsu threshold on the original intensity frame using sampling.
+        """
+        values = self._sample_nonzero(frame)
+        if values.size == 0:
+            return None
+        thresh, _ = otsu_threshold(values, nbins=self.histogram_nbins)
+        return thresh
 
     def _get_labels(self, frame):
         """
-        Generates binary labels for segmented objects in a single frame based on thresholding.
-
-        Uses triangle and Otsu thresholding to generate a mask, then labels the mask using connected component labeling.
-
-        Parameters
-        ----------
-        frame : np.ndarray
-            The input frame to be segmented.
-
-        Returns
-        -------
-        tuple
-            A tuple containing the mask and the labeled objects.
+        Generates binary labels for segmented objects in a single frame based
+        on triangle/Otsu thresholding and connected components.
         """
-        ndim = 2 if self.im_info.no_z else 3
-        footprint = ndi.generate_binary_structure(ndim, 1)
+        min_thresh = self._compute_frangi_threshold(frame)
+        if min_thresh is None:
+            mask = xp.zeros_like(frame, dtype=bool)
+        else:
+            mask = frame > min_thresh
 
-        triangle = 10 ** triangle_threshold(xp.log10(frame[frame > 0]))
-        otsu, _ = otsu_threshold(xp.log10(frame[frame > 0]))
-        otsu = 10 ** otsu
-        min_thresh = min([triangle, otsu])
+        # Morphological cleanup
+        if self.opening_structure is not None:
+            mask = ndi.binary_opening(mask, structure=self.opening_structure)
 
-        mask = frame > min_thresh
-
+        # Fill holes for 3D data
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
 
-        if not self.im_info.no_z and self.im_info.dim_res['Z'] >= self.min_z_radius_um:
-            mask = ndi.binary_opening(mask, structure=xp.ones((2, 2, 2)))
-        elif self.im_info.no_z:
-            mask = ndi.binary_opening(mask, structure=xp.ones((2, 2)))
+        # Connected component labeling
+        labels, _ = ndi.label(mask, structure=self.footprint)
 
-        labels, _ = ndi.label(mask, structure=footprint)
-        # remove anything 4 pixels or under using bincounts
-        areas = xp.bincount(labels.ravel())[1:]
-        mask = xp.where(xp.isin(labels, xp.where(areas >= 4)[0]+1), labels, 0) > 0
-        labels, _ = ndi.label(mask, structure=footprint)
+        # Remove very small objects using bincount + lookup table
+        if labels.size == 0:
+            return mask, labels
+
+        areas = xp.bincount(labels.ravel())
+        if areas.size <= 1:
+            return mask, labels
+
+        areas[0] = 0  # ignore background
+        keep = areas >= self.min_area_pixels  # boolean array indexed by label id
+        mask = keep[labels]
+        labels, _ = ndi.label(mask, structure=self.footprint)
+
         return mask, labels
 
-    def _get_subtraction_mask(self, original_frame, labels_frame):
+    # ------------------------------------------------------------------
+    # Per-frame execution (full-volume or chunked)
+    # ------------------------------------------------------------------
+
+    def _run_frame_full_volume(self, t):
         """
-        Creates a mask by subtracting labeled regions from the original frame.
-
-        Parameters
-        ----------
-        original_frame : np.ndarray
-            The original image data.
-        labels_frame : np.ndarray
-            The labeled objects in the frame.
-
-        Returns
-        -------
-        np.ndarray
-            The subtraction mask where labeled objects are removed.
-        """
-        subtraction_mask = original_frame.copy()
-        subtraction_mask[labels_frame > 0] = 0
-        return subtraction_mask
-
-    def _get_object_snrs(self, original_frame, labels_frame):
-        """
-        Calculates the signal-to-noise ratios (SNR) of segmented objects and removes objects with low SNR.
-
-        Parameters
-        ----------
-        original_frame : np.ndarray
-            The original image data.
-        labels_frame : np.ndarray
-            Labeled objects in the frame.
-
-        Returns
-        -------
-        np.ndarray
-            The labels of objects that meet the SNR threshold.
-        """
-        logger.debug('Calculating object SNRs.')
-        subtraction_mask = self._get_subtraction_mask(original_frame, labels_frame)
-        unique_labels = xp.unique(labels_frame)
-        extend_bbox_by = 1
-        keep_labels = []
-        for label in unique_labels:
-            if label == 0:
-                continue
-            coords = xp.nonzero(labels_frame == label)
-            z_coords, r_coords, c_coords = coords
-
-            zmin, zmax = xp.min(z_coords), xp.max(z_coords)
-            rmin, rmax = xp.min(r_coords), xp.max(r_coords)
-            cmin, cmax = xp.min(c_coords), xp.max(c_coords)
-
-            zmin, zmax = xp.clip(zmin - extend_bbox_by, 0, labels_frame.shape[0]), xp.clip(zmax + extend_bbox_by, 0,
-                                                                                           labels_frame.shape[0])
-            rmin, rmax = xp.clip(rmin - extend_bbox_by, 0, labels_frame.shape[1]), xp.clip(rmax + extend_bbox_by, 0,
-                                                                                           labels_frame.shape[1])
-            cmin, cmax = xp.clip(cmin - extend_bbox_by, 0, labels_frame.shape[2]), xp.clip(cmax + extend_bbox_by, 0,
-                                                                                           labels_frame.shape[2])
-
-            # only keep objects over 1 std from its surroundings
-            local_intensity = subtraction_mask[zmin:zmax, rmin:rmax, cmin:cmax]
-            local_intensity_mean = local_intensity[local_intensity > 0].mean()
-            local_intensity_std = local_intensity[local_intensity > 0].std()
-            label_intensity_mean = original_frame[coords].mean()
-            intensity_cutoff = label_intensity_mean / (local_intensity_mean + local_intensity_std)
-            if intensity_cutoff > 1:
-                keep_labels.append(label)
-
-        keep_labels = xp.asarray(keep_labels)
-        labels_frame = xp.where(xp.isin(labels_frame, keep_labels), labels_frame, 0)
-        return labels_frame
-
-    def _run_frame(self, t):
-        """
-        Runs segmentation for a single timepoint in the image.
-
-        Applies thresholding and optional SNR-based cleaning to segment objects in a single timepoint.
-
-        Parameters
-        ----------
-        t : int
-            Timepoint index.
-
-        Returns
-        -------
-        np.ndarray
-            The labeled objects for the given timepoint.
+        Runs segmentation for a single timepoint as a full volume.
         """
         logger.info(f'Running semantic segmentation, volume {t}/{self.num_t - 1}')
-        original_in_mem = xp.asarray(self.im_memmap[t, ...])
-        frangi_in_mem = xp.asarray(self.frangi_memmap[t, ...])
+
+        # Load full timepoint volume into xp array
+        original_view, frangi_view = self._get_frame_views(t)
+        original_in_mem = xp.asarray(original_view)
+        frangi_in_mem = xp.asarray(frangi_view)
+
+        # Optional intensity-based masking
         if self.otsu_thresh_intensity or self.threshold is not None:
             if self.otsu_thresh_intensity:
-                thresh, _ = otsu_threshold(original_in_mem[original_in_mem > 0])
+                thresh = self._compute_intensity_otsu_threshold(original_in_mem)
+                if thresh is None:
+                    thresh = 0
             else:
                 thresh = self.threshold
-            mask = original_in_mem > thresh
-            original_in_mem *= mask
-            frangi_in_mem *= mask
+
+            if thresh is not None:
+                mask = original_in_mem > thresh
+                original_in_mem *= mask
+                frangi_in_mem *= mask
+
+        # Labeling on Frangi image
         _, labels = self._get_labels(frangi_in_mem)
-        if self.snr_cleaning:
-            labels = self._get_object_snrs(original_in_mem, labels)
-        labels[labels > 0] += self.max_label_num
-        self.max_label_num = xp.max(labels)
+
+        # Ensure labels are positive and globally unique across frames
+        if labels.size > 0:
+            max_label = int(labels.max())
+        else:
+            max_label = 0
+
+        if max_label > 0:
+            offset = int(self.max_label_num)
+            labels = labels.astype('int32', copy=False)
+            labels[labels > 0] += offset
+            self.max_label_num = offset + max_label
+
         return labels
+
+    def _run_frame_chunked_z(self, t):
+        """
+        Runs segmentation for a single timepoint, processing in Z-chunks.
+        Labels are not connected across chunks.
+        """
+        logger.info(f'Running semantic segmentation in Z-chunks, volume {t}/{self.num_t - 1}')
+
+        original_view, frangi_view = self._get_frame_views(t)
+
+        if self.im_info.no_z:
+            # No Z dimension: fall back to full-volume 2D processing
+            labels = self._run_frame_full_volume(t)
+            if device_type == 'cuda':
+                labels = labels.get()
+            self._write_labels_for_frame(t, labels)
+            return
+
+        # Assume Z is the first axis of the per-timepoint 3D volume
+        z_dim = frangi_view.shape[0]
+        if self.chunk_z is None or self.chunk_z <= 0:
+            # Safety fallback
+            labels = self._run_frame_full_volume(t)
+            if device_type == 'cuda':
+                labels = labels.get()
+            self._write_labels_for_frame(t, labels)
+            return
+
+        current_chunk = int(self.chunk_z)
+        z_start = 0
+
+        while z_start < z_dim:
+            z_end = min(z_start + current_chunk, z_dim)
+
+            # Extract CPU chunks from memmap
+            original_chunk_cpu = original_view[z_start:z_end, ...]
+            frangi_chunk_cpu = frangi_view[z_start:z_end, ...]
+
+            try:
+                original_chunk = xp.asarray(original_chunk_cpu)
+                frangi_chunk = xp.asarray(frangi_chunk_cpu)
+            except CuPyOutOfMemoryError:
+                # Reduce chunk size and retry
+                if current_chunk > 1:
+                    current_chunk = max(current_chunk // 2, 1)
+                    logger.warning(
+                        f'CUDA OOM at Z range [{z_start}, {z_end}); '
+                        f'reducing chunk_z to {current_chunk}.'
+                    )
+                    continue
+                else:
+                    logger.error('CUDA OOM even with chunk_z=1; aborting.')
+                    raise
+
+            # Optional intensity-based masking per chunk
+            if self.otsu_thresh_intensity or self.threshold is not None:
+                if self.otsu_thresh_intensity:
+                    thresh = self._compute_intensity_otsu_threshold(original_chunk)
+                    if thresh is None:
+                        thresh = 0
+                else:
+                    thresh = self.threshold
+
+                if thresh is not None:
+                    mask = original_chunk > thresh
+                    original_chunk *= mask
+                    frangi_chunk *= mask
+
+            # Labeling on Frangi chunk
+            _, labels_chunk = self._get_labels(frangi_chunk)
+
+            # Offset labels to make them unique across chunks/timepoints
+            if labels_chunk.size > 0:
+                max_label_chunk = int(labels_chunk.max())
+            else:
+                max_label_chunk = 0
+
+            if max_label_chunk > 0:
+                offset = int(self.max_label_num)
+                labels_chunk = labels_chunk.astype('int32', copy=False)
+                labels_chunk[labels_chunk > 0] += offset
+                self.max_label_num = offset + max_label_chunk
+
+            # Move to host if on CUDA and write to memmap
+            if device_type == 'cuda':
+                labels_chunk = labels_chunk.get()
+
+            self._write_labels_chunk(t, z_start, z_end, labels_chunk)
+
+            z_start = z_end  # advance to next chunk
+
+    # ------------------------------------------------------------------
+    # Main segmentation loop
+    # ------------------------------------------------------------------
 
     def _run_segmentation(self):
         """
-        Runs the full segmentation process for all timepoints in the image.
-
-        Segments each timepoint sequentially, applying thresholding, labeling, and optional SNR cleaning.
+        Runs the full segmentation process for all timepoints.
         """
         for t in range(self.num_t):
             if self.viewer is not None:
                 self.viewer.status = f'Extracting organelles. Frame: {t + 1} of {self.num_t}.'
-            labels = self._run_frame(t)
-            if device_type == 'cuda':
-                labels = labels.get()
-            if self.im_info.no_t or self.num_t == 1:
-                self.instance_label_memmap[:] = labels[:]
-            else:
-                self.instance_label_memmap[t, ...] = labels
 
-            self.instance_label_memmap.flush()
+            if self.chunk_z is not None and not self.im_info.no_z:
+                # Chunked processing writes directly to memmap
+                self._run_frame_chunked_z(t)
+            else:
+                # Full-volume processing
+                labels = self._run_frame_full_volume(t)
+                if device_type == 'cuda':
+                    labels = labels.get()
+                self._write_labels_for_frame(t, labels)
+
+            if (t + 1) % self.flush_interval == 0:
+                self.instance_label_memmap.flush()
+
+        self.instance_label_memmap.flush()
 
     def run(self):
         """
         Main method to execute the full segmentation process over the image data.
-
-        This method allocates necessary memory, segments each timepoint, and applies labeling.
         """
         logger.info('Running semantic segmentation.')
         self._get_t()
@@ -315,6 +427,10 @@ class Label:
 
 if __name__ == "__main__":
     im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
-    im_info = ImInfo(im_path, dim_res={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1}, dimension_order='ZYX')
+    im_info = ImInfo(
+        im_path,
+        dim_res={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1},
+        dimension_order='ZYX'
+    )
     segment_unique = Label(im_info)
     segment_unique.run()
