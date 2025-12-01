@@ -10,8 +10,8 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
     im_info = ImInfo(file_info)
-    preprocessing = Filter(im_info, remove_edges=remove_edges)
-    preprocessing.run()
+    # preprocessing = Filter(im_info, remove_edges=remove_edges)
+    # preprocessing.run()
 
     segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
     segmenting.run()
