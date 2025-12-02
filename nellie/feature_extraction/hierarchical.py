@@ -609,18 +609,18 @@ class Voxels:
         self.vec01 = []
         self.vec12 = []
 
-        self.ang_acc_mag = []
-        self.ang_vel_mag = []
-        self.ang_vel = []
-        self.lin_acc_mag = []
-        self.lin_vel_mag = []
-        self.lin_vel = []
+        self.angular_acc = []
+        self.angular_vel = []
+        self.angular_vel_vector = []
+        self.linear_acc = []
+        self.linear_vel = []
+        self.linear_vel_vector = []
 
-        self.ang_acc_mag_rel = []
-        self.ang_vel_mag_rel = []
-        self.lin_acc_mag_rel = []
-        self.lin_vel_mag_rel = []
-        self.directionality_rel = []
+        self.rel_angular_acc = []
+        self.rel_angular_vel = []
+        self.rel_linear_acc = []
+        self.rel_linear_vel = []
+        self.rel_directionality = []
 
         self.node_labels = []
         self.branch_labels = []
@@ -633,15 +633,15 @@ class Voxels:
         self.node_voxel_idxs = []
 
         self.stats_to_aggregate = [
-            "lin_vel_mag",
-            "lin_vel_mag_rel",
-            "ang_vel_mag",
-            "ang_vel_mag_rel",
-            "lin_acc_mag",
-            "lin_acc_mag_rel",
-            "ang_acc_mag",
-            "ang_acc_mag_rel",
-            "directionality_rel",
+            "linear_vel",
+            "angular_vel",
+            "linear_acc",
+            "angular_acc",
+            "rel_linear_vel",
+            "rel_angular_vel",
+            "rel_linear_acc",
+            "rel_angular_acc",
+            "rel_directionality",
             "structure",
             "intensity",
         ]
@@ -859,17 +859,17 @@ class Voxels:
             nan_vec = np.full((n, dims), np.nan, dtype=np.float32)
             nan_arr = np.full(n, np.nan, dtype=np.float32)
 
-            self.lin_vel.append(nan_vec)
-            self.lin_vel_mag.append(nan_arr)
-            self.ang_vel.append(nan_arr if dims == 2 else nan_vec)
-            self.ang_vel_mag.append(nan_arr)
-            self.lin_vel_mag_rel.append(nan_arr)
-            self.ang_vel_mag_rel.append(nan_arr)
-            self.directionality_rel.append(nan_arr)
-            self.lin_acc_mag.append(nan_arr)
-            self.ang_acc_mag.append(nan_arr)
-            self.lin_acc_mag_rel.append(nan_arr)
-            self.ang_acc_mag_rel.append(nan_arr)
+            self.linear_vel_vector.append(nan_vec)
+            self.linear_vel.append(nan_arr)
+            self.angular_vel_vector.append(nan_arr if dims == 2 else nan_vec)
+            self.angular_vel.append(nan_arr)
+            self.rel_linear_vel.append(nan_arr)
+            self.rel_angular_vel.append(nan_arr)
+            self.rel_directionality.append(nan_arr)
+            self.linear_acc.append(nan_arr)
+            self.angular_acc.append(nan_arr)
+            self.rel_linear_acc.append(nan_arr)
+            self.rel_angular_acc.append(nan_arr)
             return
 
         vec01 = []
@@ -954,13 +954,13 @@ class Voxels:
                 ang_vel = np.full(n, np.nan, dtype=np.float32)
                 ang_vel_rel = np.full(n, np.nan, dtype=np.float32)
 
-        self.lin_vel.append(lin_vel.astype(np.float32))
-        self.lin_vel_mag.append(lin_vel_mag.astype(np.float32))
-        self.ang_vel.append(ang_vel.astype(np.float32))
-        self.ang_vel_mag.append(ang_vel_mag.astype(np.float32))
-        self.lin_vel_mag_rel.append(lin_vel_mag_rel.astype(np.float32))
-        self.ang_vel_mag_rel.append(ang_vel_mag_rel.astype(np.float32))
-        self.directionality_rel.append(directionality_rel.astype(np.float32))
+        self.linear_vel_vector.append(lin_vel.astype(np.float32))
+        self.linear_vel.append(lin_vel_mag.astype(np.float32))
+        self.angular_vel_vector.append(ang_vel.astype(np.float32))
+        self.angular_vel.append(ang_vel_mag.astype(np.float32))
+        self.rel_linear_vel.append(lin_vel_mag_rel.astype(np.float32))
+        self.rel_angular_vel.append(ang_vel_mag_rel.astype(np.float32))
+        self.rel_directionality.append(directionality_rel.astype(np.float32))
 
         if len(vec01) and len(vec12):
             dt = self.hierarchy.im_info.dim_res["T"]
@@ -984,10 +984,10 @@ class Voxels:
             lin_acc_rel_mag = np.full(n, np.nan, dtype=np.float32)
             ang_acc_rel_mag = np.full(n, np.nan, dtype=np.float32)
 
-        self.lin_acc_mag.append(lin_acc_mag.astype(np.float32))
-        self.ang_acc_mag.append(ang_acc_mag.astype(np.float32))
-        self.lin_acc_mag_rel.append(lin_acc_rel_mag.astype(np.float32))
-        self.ang_acc_mag_rel.append(ang_acc_rel_mag.astype(np.float32))
+        self.linear_acc.append(lin_acc_mag.astype(np.float32))
+        self.angular_acc.append(ang_acc_mag.astype(np.float32))
+        self.rel_linear_acc.append(lin_acc_rel_mag.astype(np.float32))
+        self.rel_angular_acc.append(ang_acc_rel_mag.astype(np.float32))
 
     def _run_frame(self, t=None):
         frame_coords = np.argwhere(self.hierarchy.label_components[t] > 0)
@@ -1698,10 +1698,9 @@ class Branches:
             self.x.append([])
             return
 
-        smallest_label = int(np.min(frame_skel_branch_labels))
-        largest_label = int(np.max(frame_skel_branch_labels))
-        frame_branch_labels = np.arange(smallest_label, largest_label + 1, dtype=int)
-        num_branches = len(frame_branch_labels)
+        unique_branch_labels = np.unique(frame_skel_branch_labels)
+        unique_branch_labels = unique_branch_labels[unique_branch_labels > 0]
+        num_branches = len(unique_branch_labels)
 
         frame_t = np.ones(num_branches, dtype=int) * t
         self.time.append(frame_t)
@@ -1711,17 +1710,19 @@ class Branches:
         else:
             frame_branch_coords = np.zeros((num_branches, 3), dtype=int)
 
-        for i in frame_branch_labels:
-            branch_voxels = frame_branch_idxs[frame_skel_branch_labels == i]
+        for idx, lbl in enumerate(unique_branch_labels):
+            branch_voxels = frame_branch_idxs[frame_skel_branch_labels == lbl]
+            # there should always be at least one voxel for each label here
             if len(branch_voxels) == 0:
                 continue
-            frame_branch_coords[i - smallest_label] = branch_voxels[0]
+            frame_branch_coords[idx] = branch_voxels[0]
 
+        # Component labels for each branch
         frame_component_label = self.hierarchy.label_components[t][tuple(frame_branch_coords.T)]
         self.component_label.append(frame_component_label)
 
-        frame_branch_label = self.hierarchy.im_skel[t][tuple(frame_branch_coords.T)]
-        self.branch_label.append(frame_branch_label)
+        # Store the actual branch labels (sorted, unique)
+        self.branch_label.append(unique_branch_labels.astype(int))
 
         im_name = (
             np.ones(num_branches, dtype=object)
@@ -1882,9 +1883,7 @@ class Components:
             self.x.append([])
             return
 
-        smallest_label = int(np.min(component_labels_t[mask]))
-        largest_label = int(np.max(component_labels_t))
-        frame_component_labels = np.arange(smallest_label, largest_label + 1, dtype=int)
+        frame_component_labels = np.unique(component_labels_t[mask])
         self.component_label.append(frame_component_labels)
         num_components = len(frame_component_labels)
 
@@ -1927,35 +1926,43 @@ class Image:
         self.features_to_save = []
 
     def _get_aggregate_stats(self, t):
+        # Voxels: one group containing all voxels in frame t
         voxel_agg = aggregate_stats_for_class(
             self.hierarchy.voxels,
             t,
-            [np.arange(len(self.hierarchy.voxels.coords[t]))],
+            [np.arange(len(self.hierarchy.voxels.coords[t]), dtype=int)],
             low_memory=self.hierarchy.low_memory,
         )
         self.aggregate_voxel_metrics.append(voxel_agg)
 
+        # Nodes: one group containing all nodes (if any)
         if not self.hierarchy.skip_nodes:
             node_agg = aggregate_stats_for_class(
                 self.hierarchy.nodes,
                 t,
-                [np.arange(len(self.hierarchy.nodes.nodes[t]))],
+                [np.arange(len(self.hierarchy.nodes.nodes[t]), dtype=int)],
                 low_memory=self.hierarchy.low_memory,
             )
             self.aggregate_node_metrics.append(node_agg)
 
+        # Branches: one group containing all branches
+        n_branches = len(self.hierarchy.branches.branch_length[t])
+        branch_idxs = np.arange(n_branches, dtype=int)
         branch_agg = aggregate_stats_for_class(
             self.hierarchy.branches,
             t,
-            [self.hierarchy.branches.branch_label[t].flatten() - 1],
+            [branch_idxs],
             low_memory=self.hierarchy.low_memory,
         )
         self.aggregate_branch_metrics.append(branch_agg)
 
+        # Components: one group containing all components
+        n_components = len(self.hierarchy.components.organelle_area[t])
+        comp_idxs = np.arange(n_components, dtype=int)
         component_agg = aggregate_stats_for_class(
             self.hierarchy.components,
             t,
-            [np.arange(len(self.hierarchy.components.component_label[t]))],
+            [comp_idxs],
             low_memory=self.hierarchy.low_memory,
         )
         self.aggregate_component_metrics.append(component_agg)
