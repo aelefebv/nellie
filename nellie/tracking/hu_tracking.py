@@ -9,7 +9,9 @@ from dataclasses import dataclass
 from scipy.spatial.distance import cdist
 from scipy.spatial import cKDTree
 
-from nellie import xp, ndi, logger
+from nellie.utils.base_logger import logger
+
+from nellie import xp, ndi
 from nellie.im_info.verifier import ImInfo
 
 # Optional: GPU OOM handling (safe if CuPy is not installed)

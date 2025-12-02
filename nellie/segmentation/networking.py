@@ -10,7 +10,8 @@ import skimage.morphology as morph
 from scipy.spatial import cKDTree
 from scipy import ndimage as ndi_cpu
 
-from nellie import xp, ndi, logger, device_type
+from nellie import xp, ndi, device_type
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 

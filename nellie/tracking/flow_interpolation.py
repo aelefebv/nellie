@@ -7,7 +7,7 @@ optimizations for large datasets and optional GPU acceleration.
 import numpy as np
 from scipy.spatial import cKDTree
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 
 # Optional GPU support (CuPy). If unavailable, everything runs on CPU.

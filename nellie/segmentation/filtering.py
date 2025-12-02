@@ -6,7 +6,7 @@ optimized for large datasets with optional GPU acceleration.
 """
 from itertools import combinations_with_replacement  # kept for compatibility, may be unused
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 import numpy as np
 from nellie import ndi, xp, device_type

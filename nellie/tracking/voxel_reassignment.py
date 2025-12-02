@@ -7,7 +7,7 @@ across time using forward and backward flow interpolation.
 import numpy as np
 from scipy.spatial import cKDTree
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
 

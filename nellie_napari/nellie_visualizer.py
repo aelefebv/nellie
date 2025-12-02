@@ -3,7 +3,7 @@ import os
 from qtpy.QtWidgets import QGridLayout, QWidget, QPushButton, QGroupBox, QHBoxLayout, QVBoxLayout
 from tifffile import tifffile
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 from nellie.tracking.all_tracks_for_label import LabelTracks
 
 

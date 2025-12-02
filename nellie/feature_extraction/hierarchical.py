@@ -35,7 +35,7 @@ warnings.filterwarnings(
     message="invalid value encountered in divide"
 )
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
 

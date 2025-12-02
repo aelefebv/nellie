@@ -11,7 +11,7 @@ import numpy as np
 import ome_types
 from tifffile import tifffile
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 
 
 class FileInfo:

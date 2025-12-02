@@ -7,7 +7,8 @@ structures using distance transforms and multi-scale peak detection.
 import numpy as np
 from scipy import ndimage as sp_ndi  # CPU ndimage backend
 
-from nellie import xp, ndi, logger, device_type
+from nellie import xp, ndi, device_type
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 
 # Try to capture GPU OOM errors if cupy is used under the hood
