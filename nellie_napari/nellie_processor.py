@@ -555,6 +555,10 @@ class NellieProcessor(QWidget):
 
         if next_step is not None and self.pipeline:
             next_step()
+        
+        # Show completion notification for individual steps or when pipeline finishes
+        if not self.pipeline or final:
+            show_info("Done processing!")
 
     def _start_worker(self, worker, *, next_step=None, final=False):
         """
