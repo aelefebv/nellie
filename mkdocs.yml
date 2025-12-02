@@ -40,3 +40,4 @@ nav:
       - Feature Extraction: api/feature_extraction.md
       - Image Info: api/im_info.md
       - Utilities: api/utils.md
+      - Nellie Napari Plugin: api/nellie_napari.md

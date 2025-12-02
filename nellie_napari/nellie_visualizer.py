@@ -16,7 +16,7 @@ class NellieVisualizer(QWidget):
 
     def __init__(self, napari_viewer: "napari.viewer.Viewer", nellie, parent=None):
         """
-        Initializes the NellieVisualizer class, setting up buttons and layout for opening and visualizing images
+        Initialize the NellieVisualizer class, setting up buttons and layout for opening and visualizing images
         and tracks.
 
         Parameters
@@ -96,7 +96,7 @@ class NellieVisualizer(QWidget):
 
     def set_ui(self):
         """
-        Initializes and sets the layout and UI components for the NellieVisualizer. It groups the buttons for image
+        Initialize and set the layout and UI components for the NellieVisualizer. It groups the buttons for image
         and track visualization into separate sections and arranges them within a vertical layout.
         """
         main_layout = QVBoxLayout()
@@ -138,7 +138,7 @@ class NellieVisualizer(QWidget):
 
     def check_3d(self):
         """
-        Ensures that the napari viewer is in 3D display mode if the dataset contains Z-dimension data.
+        Ensure that the napari viewer is in 3D display mode if the dataset contains Z-dimension data.
         """
         if not self.nellie.im_info.no_z:
             try:
@@ -149,7 +149,7 @@ class NellieVisualizer(QWidget):
 
     def set_scale(self):
         """
-        Sets the scale for image display based on the resolution of the Z, Y, and X dimensions of the image.
+        Set the scale for image display based on the resolution of the Z, Y, and X dimensions of the image.
         """
         dim_res = getattr(self.nellie.im_info, "dim_res", None)
         if not dim_res:
@@ -168,7 +168,7 @@ class NellieVisualizer(QWidget):
 
     def open_preprocess_image(self):
         """
-        Opens and displays the preprocessed (Frangi-filtered) image in the napari viewer.
+        Open and display the preprocessed (Frangi-filtered) image in the napari viewer.
         Reuses an existing layer if it has already been created.
         """
         self.check_3d()
@@ -194,7 +194,7 @@ class NellieVisualizer(QWidget):
 
     def open_segment_image(self):
         """
-        Opens and displays the segmentation labels (skeleton relabeled and instance labels) in the napari viewer.
+        Open and display the segmentation labels (skeleton relabeled and instance labels) in the napari viewer.
         Reuses existing layers if they have already been created.
         """
         self.check_3d()
@@ -232,7 +232,7 @@ class NellieVisualizer(QWidget):
 
     def on_track_selected(self):
         """
-        Visualizes the tracks for the currently selected label in the napari viewer, based on the active image layer.
+        Visualize the tracks for the currently selected label in the napari viewer, based on the active image layer.
         """
         if not self._has_flow_vectors():
             self._set_status(
@@ -299,7 +299,7 @@ class NellieVisualizer(QWidget):
 
     def track_all(self):
         """
-        Visualizes tracks for all labels across frames in the napari viewer, based on the active image layer.
+        Visualize tracks for all labels across frames in the napari viewer, based on the active image layer.
         """
         if not self._has_flow_vectors():
             self._set_status(
@@ -355,7 +355,7 @@ class NellieVisualizer(QWidget):
 
     def open_mocap_image(self):
         """
-        Opens and displays the mocap marker image in the napari viewer.
+        Open and display the mocap marker image in the napari viewer.
         Reuses an existing layer if it has already been created.
         """
         self.check_3d()
@@ -383,7 +383,7 @@ class NellieVisualizer(QWidget):
 
     def open_reassign_image(self):
         """
-        Opens and displays the reassigned branch and object labels in the napari viewer.
+        Open and display the reassigned branch and object labels in the napari viewer.
         Reuses existing layers if they have already been created.
         """
         self.check_3d()
@@ -425,7 +425,7 @@ class NellieVisualizer(QWidget):
 
     def open_raw(self):
         """
-        Opens and displays the raw image in the napari viewer.
+        Open and display the raw image in the napari viewer.
         Reuses an existing layer if it has already been created.
         """
         self.check_3d()
@@ -453,7 +453,7 @@ class NellieVisualizer(QWidget):
 
     def check_file_existence(self):
         """
-        Checks for the existence of files related to different steps of the pipeline, enabling or disabling buttons
+        Check for the existence of files related to different steps of the pipeline, enabling or disabling buttons
         accordingly.
         """
         # Disable all buttons by default; enable selectively based on file existence.
@@ -525,6 +525,13 @@ class NellieVisualizer(QWidget):
     def _set_status(self, message: str, level: str = "info"):
         """
         Set a message in the napari viewer status bar and log it.
+
+        Parameters
+        ----------
+        message : str
+            The message to display and log.
+        level : str, optional
+            The logging level ('info', 'warning', 'error'), by default "info".
         """
         if not message:
             return
@@ -546,6 +553,18 @@ class NellieVisualizer(QWidget):
     def _memmap_tiff_path(self, path: str, description: str = ""):
         """
         Safely memory-map a TIFF file from a filesystem path.
+
+        Parameters
+        ----------
+        path : str
+            The path to the TIFF file.
+        description : str, optional
+            A description of the file for logging, by default "".
+
+        Returns
+        -------
+        numpy.memmap or None
+            The memory-mapped image, or None if loading fails.
         """
         if not path:
             self._set_status(f"No path provided for {description}.", level="warning")
@@ -564,6 +583,18 @@ class NellieVisualizer(QWidget):
     def _memmap_pipeline_image(self, key: str, description: str = ""):
         """
         Convenience wrapper around _memmap_tiff_path for images in pipeline_paths.
+
+        Parameters
+        ----------
+        key : str
+            The key in `pipeline_paths` corresponding to the image.
+        description : str, optional
+            A description of the file for logging, by default "".
+
+        Returns
+        -------
+        numpy.memmap or None
+            The memory-mapped image, or None if loading fails.
         """
         path = self.nellie.im_info.pipeline_paths.get(key)
         if not path:
@@ -574,7 +605,11 @@ class NellieVisualizer(QWidget):
     def _get_active_label_layer_and_path(self):
         """
         Determine the currently active labels layer and its corresponding image path.
-        Returns (layer, label_path, key) or (None, None, None) if not applicable.
+
+        Returns
+        -------
+        tuple
+            (layer, label_path, key) or (None, None, None) if not applicable.
         """
         layer = self.viewer.layers.selection.active
 
@@ -595,6 +630,11 @@ class NellieVisualizer(QWidget):
     def _has_flow_vectors(self) -> bool:
         """
         Check whether the flow vector array required for tracking exists.
+
+        Returns
+        -------
+        bool
+            True if the flow vector array exists, False otherwise.
         """
         flow_path = self.nellie.im_info.pipeline_paths.get("flow_vector_array")
         return bool(flow_path and os.path.exists(flow_path))
@@ -616,8 +656,8 @@ class NellieVisualizer(QWidget):
 
         Returns
         -------
-        all_tracks : list
-        all_props : dict
+        tuple
+            (all_tracks, all_props) where all_tracks is a list of tracks and all_props is a dict of properties.
         """
         all_tracks = []
         all_props = {}

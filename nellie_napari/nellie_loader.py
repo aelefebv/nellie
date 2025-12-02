@@ -85,7 +85,7 @@ class NellieLoader(QTabWidget):
 
     def __init__(self, napari_viewer: "napari.viewer.Viewer", parent=None):
         """
-        Initializes the NellieLoader class, creating instances of the individual tabs for home, file selection,
+        Initialize the NellieLoader class, creating instances of the individual tabs for home, file selection,
         processing, visualization, analysis, and settings.
 
         Parameters
@@ -135,7 +135,7 @@ class NellieLoader(QTabWidget):
     def on_version_checked(self, current_version, latest_version):
         """
         Slot called when the version check worker finishes.
-        Updates the version info and the Home tab status.
+        Update the version info and the Home tab status.
         """
         self.current_version = current_version
         self.latest_version = latest_version
@@ -165,7 +165,7 @@ class NellieLoader(QTabWidget):
 
     def add_tabs(self):
         """
-        Adds the individual tabs for Home, File validation, Process, Visualize, Analyze, and Settings.
+        Add the individual tabs for Home, File validation, Process, Visualize, Analyze, and Settings.
         Initially disables the Process, Visualize, and Analyze tabs until they are needed.
         """
         # Any additional layout / configuration for the QTabWidget can go here
@@ -184,7 +184,7 @@ class NellieLoader(QTabWidget):
 
     def reset(self):
         """
-        Resets the state of the loader, reinitializing all tabs. This method is typically called when the user
+        Reset the state of the loader, reinitializing all tabs. This method is typically called when the user
         wants to start a new session with a fresh file selection and settings.
         """
         # Remove and delete all existing tab widgets
@@ -246,7 +246,7 @@ class NellieLoader(QTabWidget):
 
     def go_process(self):
         """
-        Prepares the image(s) for processing and visualization. This method is called after a file has been selected
+        Prepare the image(s) for processing and visualization. This method is called after a file has been selected
         and validated. It enables the Process and Visualize tabs and initializes them.
         """
         if self.file_select.batch_fileinfo_list is None:

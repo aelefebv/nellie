@@ -40,7 +40,7 @@ class Home(QWidget):
 
     def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
         """
-        Initializes the Home screen with a logo, title, description, and
+        Initialize the Home screen with a logo, title, description, and
         buttons for navigation and screenshot functionality.
 
         Parameters
@@ -144,7 +144,7 @@ class Home(QWidget):
 
     def set_update_status(self):
         """
-        Checks if the plugin is up to date by comparing the installed version
+        Check if the plugin is up to date by comparing the installed version
         with the latest version on PyPI. If an update is available, it displays
         a warning to the user.
         """
@@ -181,7 +181,7 @@ class Home(QWidget):
 
     def screenshot(self, checked: bool = False):
         """
-        Takes a screenshot of the napari viewer and saves it as a PNG file in
+        Take a screenshot of the napari viewer and saves it as a PNG file in
         a specified folder.
 
         Parameters

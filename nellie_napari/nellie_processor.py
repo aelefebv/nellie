@@ -98,7 +98,7 @@ class NellieProcessor(QWidget):
 
     def __init__(self, napari_viewer: "napari.viewer.Viewer", nellie, parent=None):
         """
-        Initializes the NellieProcessor class, setting up the user interface and preparing for running various steps of the pipeline.
+        Initialize the NellieProcessor class, setting up the user interface and preparing for running various steps of the pipeline.
 
         Parameters
         ----------
@@ -178,7 +178,7 @@ class NellieProcessor(QWidget):
 
     def set_ui(self):
         """
-        Initializes and sets the layout and user interface components for the NellieProcessor. This includes the status label,
+        Initialize and set the layout and user interface components for the NellieProcessor. This includes the status label,
         buttons for running individual steps, and the button for running the entire pipeline.
         """
         main_layout = QVBoxLayout()
@@ -230,7 +230,7 @@ class NellieProcessor(QWidget):
 
     def check_file_existence(self):
         """
-        Checks the existence of files required for each step of the pipeline (e.g., preprocessed images, segmented labels).
+        Check the existence of files required for each step of the pipeline (e.g., preprocessed images, segmented labels).
         Enables or disables buttons based on the existence of these files.
         """
         self.nellie.visualizer.check_file_existence()
@@ -308,7 +308,14 @@ class NellieProcessor(QWidget):
     @thread_worker(ignore_errors=True)
     def _run_preprocessing(self, im_info_list, remove_edges):
         """
-        Runs the preprocessing step in a separate thread. Filters the image to remove noise or unwanted edges before segmentation.
+        Run the preprocessing step in a separate thread. Filters the image to remove noise or unwanted edges before segmentation.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        remove_edges : bool
+            Whether to remove edges.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(im_info_list)}")
@@ -322,7 +329,7 @@ class NellieProcessor(QWidget):
 
     def run_preprocessing(self):
         """
-        Starts the preprocessing step and updates the UI to reflect that preprocessing is running.
+        Start the preprocessing step and updates the UI to reflect that preprocessing is running.
         If the full pipeline is running, it automatically proceeds to segmentation after preprocessing is finished.
         """
         self.status = "preprocessing"
@@ -334,7 +341,12 @@ class NellieProcessor(QWidget):
     @thread_worker(ignore_errors=True)
     def _run_segmentation(self, im_info_list):
         """
-        Runs the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.
+        Run the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)}")
@@ -346,7 +358,7 @@ class NellieProcessor(QWidget):
 
     def run_segmentation(self):
         """
-        Starts the segmentation step and updates the UI to reflect that segmentation is running.
+        Start the segmentation step and updates the UI to reflect that segmentation is running.
         If the full pipeline is running, it automatically proceeds to mocap marking after segmentation is finished.
         """
         self.status = "segmentation"
@@ -357,7 +369,12 @@ class NellieProcessor(QWidget):
     @thread_worker(ignore_errors=True)
     def _run_mocap(self, im_info_list):
         """
-        Runs the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.
+        Run the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)}")
@@ -367,7 +384,7 @@ class NellieProcessor(QWidget):
 
     def run_mocap(self):
         """
-        Starts the mocap marking step and updates the UI to reflect that mocap marking is running.
+        Start the mocap marking step and updates the UI to reflect that mocap marking is running.
         If the full pipeline is running, it automatically proceeds to tracking after mocap marking is finished.
         """
         self.status = "mocap marking"
@@ -378,7 +395,12 @@ class NellieProcessor(QWidget):
     @thread_worker(ignore_errors=True)
     def _run_tracking(self, im_info_list):
         """
-        Runs the tracking step in a separate thread. Tracks the motion of the marked points over time.
+        Run the tracking step in a separate thread. Tracks the motion of the marked points over time.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(im_info_list)}")
@@ -388,7 +410,7 @@ class NellieProcessor(QWidget):
 
     def run_tracking(self):
         """
-        Starts the tracking step and updates the UI to reflect that tracking is running.
+        Start the tracking step and updates the UI to reflect that tracking is running.
         If the full pipeline is running, it automatically proceeds to voxel reassignment or feature extraction depending on the settings.
         """
         self.status = "tracking"
@@ -404,7 +426,12 @@ class NellieProcessor(QWidget):
     @thread_worker(ignore_errors=True)
     def _run_reassign(self, im_info_list):
         """
-        Runs the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.
+        Run the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)}")
@@ -414,7 +441,7 @@ class NellieProcessor(QWidget):
 
     def run_reassign(self):
         """
-        Starts the voxel reassignment step and updates the UI to reflect that voxel reassignment is running.
+        Start the voxel reassignment step and updates the UI to reflect that voxel reassignment is running.
         If the full pipeline is running, it automatically proceeds to feature extraction after voxel reassignment is finished.
         """
         self.status = "voxel reassignment"
@@ -425,7 +452,16 @@ class NellieProcessor(QWidget):
     @thread_worker(ignore_errors=True)
     def _run_feature_export(self, im_info_list, analyze_node_level_checked, remove_intermediates_checked):
         """
-        Runs the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
+        Run the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        analyze_node_level_checked : bool
+            Whether to analyze node level.
+        remove_intermediates_checked : bool
+            Whether to remove intermediate files.
         """
         skip_nodes = not bool(analyze_node_level_checked)
         for im_num, im_info in enumerate(im_info_list):
@@ -445,7 +481,7 @@ class NellieProcessor(QWidget):
 
     def _post_feature_export(self):
         """
-        Runs any main-thread post-processing needed after feature export
+        Run any main-thread post-processing needed after feature export
         (e.g., updating analysis dropdowns).
         """
         analyzer = getattr(self.nellie, "analyzer", None)
@@ -457,7 +493,7 @@ class NellieProcessor(QWidget):
 
     def run_feature_export(self):
         """
-        Starts the feature extraction step and updates the UI to reflect that feature extraction is running.
+        Start the feature extraction step and updates the UI to reflect that feature extraction is running.
         """
         self.status = "feature export"
         analyze_node_level_checked = self.nellie.settings.analyze_node_level.isChecked()
@@ -477,6 +513,11 @@ class NellieProcessor(QWidget):
     def _handle_worker_error(self, exc: Exception):
         """
         Handle errors raised in worker threads, updating status message and UI.
+
+        Parameters
+        ----------
+        exc : Exception
+            The exception raised.
         """
         self._last_step_had_error = True
         self.running = False
@@ -491,6 +532,13 @@ class NellieProcessor(QWidget):
     def _on_worker_finished(self, next_step=None, final=False):
         """
         Common handler for worker completion, called in the main thread.
+
+        Parameters
+        ----------
+        next_step : callable, optional
+            The next step to run.
+        final : bool, optional
+            Whether this is the final step.
         """
         self.reset_status()
         if self.current_im_info is not None:
@@ -511,6 +559,15 @@ class NellieProcessor(QWidget):
     def _start_worker(self, worker, *, next_step=None, final=False):
         """
         Attach common signals and start a given worker.
+
+        Parameters
+        ----------
+        worker : GeneratorWorker
+            The worker to start.
+        next_step : callable, optional
+            The next step to run.
+        final : bool, optional
+            Whether this is the final step.
         """
         worker.started.connect(self.turn_off_buttons)
         worker.started.connect(self.set_status)
@@ -524,20 +581,20 @@ class NellieProcessor(QWidget):
 
     def turn_off_pipeline(self):
         """
-        Turns off the pipeline flag to indicate that the full pipeline is no longer running.
+        Turn off the pipeline flag to indicate that the full pipeline is no longer running.
         """
         self.pipeline = False
 
     def run_nellie(self):
         """
-        Starts the entire Nellie pipeline from preprocessing to feature extraction.
+        Start the entire Nellie pipeline from preprocessing to feature extraction.
         """
         self.pipeline = True
         self.run_preprocessing()
 
     def set_status(self):
         """
-        Sets the status of the processor to indicate that a process is running, and starts the status update timer.
+        Set the status of the processor to indicate that a process is running, and starts the status update timer.
         """
         self.running = True
         self._last_step_had_error = False
@@ -547,7 +604,7 @@ class NellieProcessor(QWidget):
 
     def update_status(self):
         """
-        Updates the status label with an ellipsis effect to indicate ongoing processing.
+        Update the status label with an ellipsis effect to indicate ongoing processing.
         """
         if self.running:
             self.status_label.setText(f"Running {self.status}{'.' * (self.num_ellipses % 4)}")
@@ -557,7 +614,7 @@ class NellieProcessor(QWidget):
 
     def reset_status(self):
         """
-        Resets the status label to indicate that no process is running.
+        Reset the status label to indicate that no process is running.
         """
         self.running = False
         if self._last_error_message:
@@ -570,7 +627,7 @@ class NellieProcessor(QWidget):
 
     def turn_off_buttons(self):
         """
-        Disables all buttons to prevent multiple processes from running simultaneously.
+        Disable all buttons to prevent multiple processes from running simultaneously.
         """
         self.run_button.setEnabled(False)
         self.preprocess_button.setEnabled(False)
@@ -582,7 +639,7 @@ class NellieProcessor(QWidget):
 
     def open_directory(self):
         """
-        Opens the output directory of the current image in the system file explorer.
+        Open the output directory of the current image in the system file explorer.
         """
         directory = self.current_im_info.file_info.output_dir
         if os.path.exists(directory):

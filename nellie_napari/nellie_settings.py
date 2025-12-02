@@ -63,7 +63,7 @@ class Settings(QWidget):
 
     def __init__(self, napari_viewer: "napari.viewer.Viewer", nellie, parent=None):
         """
-        Initializes the Settings class, setting up the user interface and options
+        Initialize the Settings class, setting up the user interface and options
         for configuring processing and track visualization.
 
         Parameters
@@ -162,7 +162,7 @@ class Settings(QWidget):
 
     def set_ui(self):
         """
-        Initializes and sets the layout and UI components for the Settings class.
+        Initialize and set the layout and UI components for the Settings class.
         This includes checkboxes for configuring the processing pipeline and track
         visualization options, as well as a spin box for setting voxel track
         visualization parameters.
@@ -201,7 +201,7 @@ class Settings(QWidget):
 
     def _connect_signals(self):
         """
-        Connects internal signals/slots to keep the UI consistent.
+        Connect internal signals/slots to keep the UI consistent.
         """
         self.subsample_voxels_checkbox.toggled.connect(
             self._update_skip_vox_enabled

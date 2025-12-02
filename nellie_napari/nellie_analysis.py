@@ -65,6 +65,18 @@ class NellieAnalysis(QWidget):
     }
 
     def __init__(self, napari_viewer: "napari.viewer.Viewer", nellie, parent=None):
+        """
+        Initialize the NellieAnalysis widget.
+
+        Parameters
+        ----------
+        napari_viewer : napari.viewer.Viewer
+            The napari viewer instance.
+        nellie : object
+            The main Nellie plugin instance.
+        parent : QWidget, optional
+            The parent widget, by default None.
+        """
         super().__init__(parent)
         self.nellie = nellie
         self.viewer = napari_viewer
@@ -376,10 +388,16 @@ class NellieAnalysis(QWidget):
     # small helpers
     # -------------------------------------------------------------------------
     def _clear_canvas(self):
+        """
+        Clear the plotting canvas.
+        """
         self.canvas.figure.clear()
         self.canvas.draw()
 
     def _disable_hist_controls(self):
+        """
+        Disable all histogram control widgets.
+        """
         for w in (
             self.hist_min,
             self.hist_max,
@@ -392,6 +410,9 @@ class NellieAnalysis(QWidget):
                 w.setEnabled(False)
 
     def _enable_hist_controls(self):
+        """
+        Enable histogram control widgets.
+        """
         for w in (self.hist_min, self.hist_max, self.num_bins):
             if w is not None:
                 w.setEnabled(True)
@@ -407,6 +428,16 @@ class NellieAnalysis(QWidget):
         """
         Split a column name into (feature, form) using known suffixes.
         If no suffix matches, treat the entire name as the feature and form='value'.
+
+        Parameters
+        ----------
+        col : str
+            The column name to split.
+
+        Returns
+        -------
+        tuple[str, str]
+            A tuple containing the base feature name and the statistic form.
         """
         for suffix, key in self.STAT_SUFFIXES:
             if col.endswith(suffix):
@@ -415,14 +446,45 @@ class NellieAnalysis(QWidget):
         return col, "value"
 
     def _form_label(self, form: str) -> str:
+        """
+        Get the human-readable label for a statistic form.
+
+        Parameters
+        ----------
+        form : str
+            The statistic form key.
+
+        Returns
+        -------
+        str
+            The human-readable label.
+        """
         return self.STAT_LABELS.get(form, form)
 
     def _form_sort_key(self, form: str) -> int:
+        """
+        Get the sort key for a statistic form.
+
+        Parameters
+        ----------
+        form : str
+            The statistic form key.
+
+        Returns
+        -------
+        int
+            The sort key.
+        """
         return self.STAT_ORDER.get(form, 100)
 
     def _populate_stat_dropdown(self, feature: str):
         """
         Populate the statistic dropdown for a given feature name.
+
+        Parameters
+        ----------
+        feature : str
+            The feature name to populate statistics for.
         """
         if self.dropdown_stat is None:
             return
@@ -454,6 +516,14 @@ class NellieAnalysis(QWidget):
         self.dropdown_stat.blockSignals(False)
 
     def _current_feature_name(self) -> str | None:
+        """
+        Get the currently selected feature name.
+
+        Returns
+        -------
+        str | None
+            The selected feature name, or None if no valid selection.
+        """
         if self.dropdown_attr is None or self.dropdown_attr.count() == 0:
             return None
         text = self.dropdown_attr.currentText()
@@ -462,6 +532,14 @@ class NellieAnalysis(QWidget):
         return text
 
     def _current_form_key(self) -> str | None:
+        """
+        Get the currently selected statistic form key.
+
+        Returns
+        -------
+        str | None
+            The selected form key, or None if no valid selection.
+        """
         if self.dropdown_stat is None or self.dropdown_stat.count() == 0:
             return None
         text = self.dropdown_stat.currentText()
@@ -475,6 +553,11 @@ class NellieAnalysis(QWidget):
     def _current_attr_name(self) -> str | None:
         """
         Resolve the currently selected (feature, form) back to a concrete column name.
+
+        Returns
+        -------
+        str | None
+            The concrete column name, or None if resolution fails.
         """
         feature = self._current_feature_name()
         if feature is None:
@@ -544,6 +627,11 @@ class NellieAnalysis(QWidget):
     def _refresh_plot(self, reset_hist: bool):
         """
         Recompute stats and redraw histogram for the current selection.
+
+        Parameters
+        ----------
+        reset_hist : bool
+            Whether to reset the histogram range and bins.
         """
         self.hist_reset = reset_hist
         self._update_data_for_current_selection()
@@ -655,6 +743,11 @@ class NellieAnalysis(QWidget):
     def on_hist_change(self, event):
         """
         Called when histogram ranges or bin count change.
+
+        Parameters
+        ----------
+        event : Any
+            The event that triggered the change (unused).
         """
         if self.attr_data is None or self.data_to_plot is None:
             return
@@ -666,6 +759,13 @@ class NellieAnalysis(QWidget):
     def get_index(self, layer, event):
         """
         Retrieve indices of voxel and mapped features based on mouse position.
+
+        Parameters
+        ----------
+        layer : napari.layers.Layer
+            The layer that was clicked.
+        event : Any
+            The mouse event containing the position.
         """
         if self.label_coords is None or len(self.label_coords) == 0:
             return
@@ -1108,6 +1208,11 @@ class NellieAnalysis(QWidget):
     def on_t_change(self, event):
         """
         Called when the current timepoint changes in the viewer.
+
+        Parameters
+        ----------
+        event : Any
+            The event that triggered the change.
         """
         if self.match_t:
             self._refresh_plot(reset_hist=False)
@@ -1115,6 +1220,11 @@ class NellieAnalysis(QWidget):
     def toggle_match_t(self, state):
         """
         Toggle whether to pool across all timepoints or use the current one.
+
+        Parameters
+        ----------
+        state : int
+            The state of the checkbox (Qt.Checked or Qt.Unchecked).
         """
         self.match_t = state == Qt.Checked
         self._refresh_plot(reset_hist=True)
@@ -1122,6 +1232,11 @@ class NellieAnalysis(QWidget):
     def toggle_mean_med(self, state):
         """
         Toggle between mean/std view and median/quartiles.
+
+        Parameters
+        ----------
+        state : int
+            The state of the checkbox (Qt.Checked or Qt.Unchecked).
         """
         self.is_median = state == Qt.Checked
         self._refresh_plot(reset_hist=False)
@@ -1146,6 +1261,11 @@ class NellieAnalysis(QWidget):
     def on_level_selected(self, index):
         """
         Called when a hierarchy level is selected from the dropdown.
+
+        Parameters
+        ----------
+        index : int
+            The index of the selected item.
         """
         if self.dropdown is None:
             return
@@ -1244,6 +1364,11 @@ class NellieAnalysis(QWidget):
     def on_attr_selected(self, index):
         """
         Called when a feature (base attribute) is selected from the dropdown.
+
+        Parameters
+        ----------
+        index : int
+            The index of the selected item.
         """
         if self.dropdown_attr is None or self.df is None:
             return
@@ -1281,6 +1406,11 @@ class NellieAnalysis(QWidget):
     def on_form_selected(self, index):
         """
         Called when a statistic form (mean, std, min, max, ...) is selected.
+
+        Parameters
+        ----------
+        index : int
+            The index of the selected item.
         """
         if self.dropdown_stat is None or self.df is None:
             return
@@ -1361,6 +1491,11 @@ class NellieAnalysis(QWidget):
     def plot_data(self, title: str):
         """
         Plot the currently selected attribute data as a histogram.
+
+        Parameters
+        ----------
+        title : str
+            The title for the plot.
         """
         if self.data_to_plot is None or len(self.data_to_plot) == 0:
             self._clear_canvas()
@@ -1433,6 +1568,11 @@ class NellieAnalysis(QWidget):
     def on_log_scale(self, state):
         """
         Toggle logarithmic scaling for the histogram and refresh.
+
+        Parameters
+        ----------
+        state : int
+            The state of the checkbox (Qt.Checked or Qt.Unchecked).
         """
         self.log_scale = state == Qt.Checked
         self._refresh_plot(reset_hist=True)

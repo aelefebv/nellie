@@ -69,7 +69,7 @@ class NellieFileSelect(QWidget):
 
     def __init__(self, napari_viewer: napari.viewer.Viewer, nellie, parent=None):
         """
-        Initializes the NellieFileSelect class.
+        Initialize the NellieFileSelect class.
 
         Parameters
         ----------
@@ -194,7 +194,9 @@ class NellieFileSelect(QWidget):
     # -------------------------------------------------------------------------
 
     def _setup_numeric_validators(self) -> None:
-        """Attach QDoubleValidator to resolution fields for numeric input."""
+        """
+        Attach QDoubleValidator to resolution fields for numeric input.
+        """
         validator = QDoubleValidator(0.0, 1e9, 6, self)
         # Allow empty text as "intermediate" during editing
         validator.setNotation(QDoubleValidator.StandardNotation)
@@ -203,18 +205,39 @@ class NellieFileSelect(QWidget):
             line_edit.setValidator(validator)
 
     def _each_file_info(self) -> List[FileInfo]:
-        """Return a list of all FileInfo objects (single or batch)."""
+        """
+        Return a list of all FileInfo objects (single or batch).
+
+        Returns
+        -------
+        List[FileInfo]
+            List of FileInfo objects.
+        """
         if self.batch_fileinfo_list:
             return self.batch_fileinfo_list
         return [self.file_info] if self.file_info is not None else []
 
     @property
     def _has_batch(self) -> bool:
-        """Return True if in batch mode."""
+        """
+        Return True if in batch mode.
+
+        Returns
+        -------
+        bool
+            True if in batch mode.
+        """
         return bool(self.batch_fileinfo_list)
 
     def _create_im_info(self) -> Union[ImInfo, List[ImInfo]]:
-        """Create ImInfo instance(s) from the current FileInfo object(s)."""
+        """
+        Create ImInfo instance(s) from the current FileInfo object(s).
+
+        Returns
+        -------
+        Union[ImInfo, List[ImInfo]]
+            ImInfo object or list of ImInfo objects.
+        """
         file_infos = self._each_file_info()
         if not file_infos:
             raise RuntimeError("No file(s) selected.")
@@ -227,7 +250,7 @@ class NellieFileSelect(QWidget):
 
     def init_ui(self) -> None:
         """
-        Sets up the user interface layout with sections for file selection,
+        Set up the user interface layout with sections for file selection,
         axes information, dimension resolutions, slice settings, and action buttons.
         """
         main_layout = QVBoxLayout()
@@ -319,7 +342,7 @@ class NellieFileSelect(QWidget):
 
     def select_filepath(self) -> None:
         """
-        Opens a file dialog for selecting an image file, validates the selected
+        Open a file dialog for selecting an image file, validates the selected
         file, and updates the UI with metadata.
         """
         self.batch_fileinfo_list = None
@@ -336,7 +359,7 @@ class NellieFileSelect(QWidget):
 
     def select_folder(self) -> None:
         """
-        Opens a folder dialog for selecting a folder for batch processing and
+        Open a folder dialog for selecting a folder for batch processing and
         initializes FileInfo objects for all files in the folder.
         """
         folderpath = QFileDialog.getExistingDirectory(self, "Select folder")
@@ -351,7 +374,7 @@ class NellieFileSelect(QWidget):
 
     def validate_path(self, filepath: str) -> bool:
         """
-        Validates the selected file or folder path and updates the file path
+        Validate the selected file or folder path and updates the file path
         attribute. Canceling the dialog is treated as a no-op.
 
         Parameters
@@ -378,7 +401,7 @@ class NellieFileSelect(QWidget):
 
     def initialize_single_file(self, metadata_already_loaded: bool = False) -> None:
         """
-        Initializes the FileInfo object for the selected image file, loads metadata,
+        Initialize the FileInfo object for the selected image file, loads metadata,
         and updates the dimension resolution fields.
 
         Parameters
@@ -401,7 +424,7 @@ class NellieFileSelect(QWidget):
 
     def initialize_folder(self) -> bool:
         """
-        Initializes FileInfo objects for all .tif, .tiff, and .nd2 files in the
+        Initialize FileInfo objects for all .tif, .tiff, and .nd2 files in the
         selected folder and loads their metadata.
 
         Returns
@@ -444,7 +467,7 @@ class NellieFileSelect(QWidget):
 
     def on_change(self) -> None:
         """
-        Updates the user interface elements, including enabling or disabling buttons
+        Update the user interface elements, including enabling or disabling buttons
         based on the file metadata and resolution settings.
         """
         # Default: disable actions until we prove they are valid
@@ -524,7 +547,7 @@ class NellieFileSelect(QWidget):
 
     def check_available_dims(self) -> None:
         """
-        Checks the availability of specific dimensions (T, Z, XY) in the selected
+        Check the availability of specific dimensions (T, Z, XY) in the selected
         file and enables the corresponding input fields for resolutions.
         """
         if self.file_info is None:
@@ -630,7 +653,7 @@ class NellieFileSelect(QWidget):
 
     def handle_dim_order_changed(self, text: str) -> None:
         """
-        Handles changes in the dimension order input field and updates the
+        Handle changes in the dimension order input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
@@ -647,7 +670,7 @@ class NellieFileSelect(QWidget):
 
     def handle_t_changed(self, text: str) -> None:
         """
-        Handles changes in the time (T) resolution input field and updates the
+        Handle changes in the time (T) resolution input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
@@ -668,7 +691,7 @@ class NellieFileSelect(QWidget):
 
     def handle_z_changed(self, text: str) -> None:
         """
-        Handles changes in the Z resolution input field and updates the
+        Handle changes in the Z resolution input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
@@ -689,7 +712,7 @@ class NellieFileSelect(QWidget):
 
     def handle_xy_changed(self, text: str) -> None:
         """
-        Handles changes in the XY resolution input field and updates the
+        Handle changes in the XY resolution input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
@@ -711,7 +734,7 @@ class NellieFileSelect(QWidget):
 
     def change_channel(self) -> None:
         """
-        Updates the selected channel in the FileInfo object(s) when the channel
+        Update the selected channel in the FileInfo object(s) when the channel
         spin box value is changed.
         """
         channel = self.channel_button.value()
@@ -721,7 +744,7 @@ class NellieFileSelect(QWidget):
 
     def change_time(self) -> None:
         """
-        Updates the temporal range in the FileInfo object(s) when the start or
+        Update the temporal range in the FileInfo object(s) when the start or
         end frame spin box values are changed.
         """
         start = self.start_frame_button.value()
@@ -736,7 +759,7 @@ class NellieFileSelect(QWidget):
 
     def on_confirm(self) -> None:
         """
-        Confirms the file selection, creates ImInfo object(s) for the file(s),
+        Confirm the file selection, creates ImInfo object(s) for the file(s),
         and prepares them for processing (creating OME-TIFF files).
         """
         if self._has_batch:
@@ -754,7 +777,7 @@ class NellieFileSelect(QWidget):
 
     def on_process(self) -> None:
         """
-        Prepares the selected file(s) for processing through the Nellie pipeline
+        Prepare the selected file(s) for processing through the Nellie pipeline
         by creating ImInfo object(s) and switching to the processing tab.
         """
         try:
@@ -768,7 +791,7 @@ class NellieFileSelect(QWidget):
 
     def on_preview(self) -> None:
         """
-        Opens a preview of the selected image in the napari viewer, adjusting
+        Open a preview of the selected image in the napari viewer, adjusting
         display settings (e.g., 2D or 3D view) based on the file's dimensionality.
         """
         if self.file_info is None or not hasattr(self.file_info, "ome_output_path"):
