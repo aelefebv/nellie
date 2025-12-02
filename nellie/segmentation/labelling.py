@@ -89,15 +89,14 @@ class Label:
 
         # Dimensionality and structuring elements (pre-computed)
         self.ndim = 2 if self.im_info.no_z else 3
-        self.footprint = ndi.generate_binary_structure(self.ndim, 1)
         self.min_area_pixels = 4
 
         if not self.im_info.no_z and self.im_info.dim_res['Z'] >= self.min_z_radius_um:
-            self.opening_structure = xp.ones((2, 2, 2), dtype=bool)
+            self.footprint = xp.ones((2, 2, 2), dtype=bool)
         elif self.im_info.no_z:
-            self.opening_structure = xp.ones((2, 2), dtype=bool)
+            self.footprint = xp.ones((1, 2, 2), dtype=bool)
         else:
-            self.opening_structure = None
+            self.footprint = None
 
     def _get_t(self):
         """
@@ -234,15 +233,15 @@ class Label:
             mask = frame > min_thresh
 
         # Morphological cleanup
-        if self.opening_structure is not None:
-            mask = ndi.binary_opening(mask, structure=self.opening_structure)
+        if self.footprint is not None:
+            mask = ndi.binary_opening(mask, structure=self.footprint)
 
         # Fill holes for 3D data
         if not self.im_info.no_z:
             mask = ndi.binary_fill_holes(mask)
 
         # Connected component labeling
-        labels, _ = ndi.label(mask, structure=self.footprint)
+        labels, _ = ndi.label(mask)
 
         # Remove very small objects using bincount + lookup table
         if labels.size == 0:
@@ -255,7 +254,7 @@ class Label:
         areas[0] = 0  # ignore background
         keep = areas >= self.min_area_pixels  # boolean array indexed by label id
         mask = keep[labels]
-        labels, _ = ndi.label(mask, structure=self.footprint)
+        labels, _ = ndi.label(mask)
 
         return mask, labels
 
