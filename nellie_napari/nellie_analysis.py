@@ -30,6 +30,40 @@ class NellieAnalysis(QWidget):
     and overlays in the napari viewer.
     """
 
+    # known statistic suffixes and their normalized keys
+    STAT_SUFFIXES = [
+        ("_raw", "raw"),
+        ("_std_dev", "std_dev"),
+        ("_std", "std_dev"),
+        ("_mean", "mean"),
+        ("_median", "median"),
+        ("_min", "min"),
+        ("_max", "max"),
+        ("_sum", "sum"),
+    ]
+
+    STAT_LABELS = {
+        "value": "Value",
+        "raw": "Raw",
+        "mean": "Mean",
+        "median": "Median",
+        "std_dev": "St. Dev.",
+        "min": "Min",
+        "max": "Max",
+        "sum": "Sum",
+    }
+
+    STAT_ORDER = {
+        "value": 0,
+        "raw": 1,
+        "mean": 2,
+        "median": 3,
+        "std_dev": 4,
+        "min": 5,
+        "max": 6,
+        "sum": 7,
+    }
+
     def __init__(self, napari_viewer: "napari.viewer.Viewer", nellie, parent=None):
         super().__init__(parent)
         self.nellie = nellie
@@ -58,8 +92,9 @@ class NellieAnalysis(QWidget):
         self.export_data_button = None
         self.save_graph_button = None
         self.log_scale_checkbox = None
-        self.dropdown = None
-        self.dropdown_attr = None
+        self.dropdown = None          # level (voxel/node/...)
+        self.dropdown_attr = None     # feature (e.g. divergence)
+        self.dropdown_stat = None     # statistic/form (e.g. mean)
         self.click_match_table = None
         self.click_match_group = None
 
@@ -73,10 +108,15 @@ class NellieAnalysis(QWidget):
 
         # current selection
         self.selected_level: str | None = None
-        self.selected_attr: str | None = None
+        self.selected_attr: str | None = None       # concrete column name
+        self.selected_feature: str | None = None    # base feature name
+        self.selected_form: str | None = None       # statistic/form key
         self.all_attr_data: pd.Series | None = None  # full series (all timepoints)
         self.attr_data: pd.Series | None = None      # current plotted series (all or per-t)
         self.time_col: pd.Series | None = None
+
+        # attribute grouping (feature -> form -> column name)
+        self.feature_map: dict[str, dict[str, str]] = {}
 
         # adjacency / overlay
         self.adjacency_maps: dict | None = None
@@ -115,9 +155,14 @@ class NellieAnalysis(QWidget):
         # selections
         self.selected_level = None
         self.selected_attr = None
+        self.selected_feature = None
+        self.selected_form = None
         self.all_attr_data = None
         self.attr_data = None
         self.time_col = None
+
+        # attribute grouping
+        self.feature_map = {}
 
         # adjacency & overlay
         self.adjacency_maps = None
@@ -141,6 +186,10 @@ class NellieAnalysis(QWidget):
         if self.dropdown_attr is not None:
             self.dropdown_attr.clear()
             self.dropdown_attr.addItem("None")
+        if self.dropdown_stat is not None:
+            self.dropdown_stat.clear()
+            self.dropdown_stat.addItem("None")
+            self.dropdown_stat.setEnabled(False)
         if self.dropdown is not None:
             idx = self.dropdown.findText("none")
             if idx >= 0:
@@ -232,8 +281,9 @@ class NellieAnalysis(QWidget):
         # Attribute dropdown group
         attr_group = QGroupBox("Select hierarchy level and attribute")
         attr_layout = QHBoxLayout()
-        attr_layout.addWidget(self.dropdown)
-        attr_layout.addWidget(self.dropdown_attr)
+        attr_layout.addWidget(self.dropdown)        # level
+        attr_layout.addWidget(self.dropdown_attr)   # feature
+        attr_layout.addWidget(self.dropdown_stat)   # form
         attr_group.setLayout(attr_layout)
 
         # Histogram group
@@ -289,13 +339,21 @@ class NellieAnalysis(QWidget):
 
     def _create_dropdown_selection(self):
         """
-        Create and configure the dropdown menus for selecting hierarchy levels and attributes.
+        Create and configure the dropdown menus for selecting hierarchy levels,
+        features, and statistic forms.
         """
+        # hierarchy level (voxel / node / branch / organelle / image)
         self.dropdown = QComboBox()
         self.dropdown.currentIndexChanged.connect(self.on_level_selected)
 
+        # base feature (e.g. divergence, lin_vel_mag_rel)
         self.dropdown_attr = QComboBox()
         self.dropdown_attr.currentIndexChanged.connect(self.on_attr_selected)
+
+        # statistic / form (e.g. mean, std dev, min, max, sum)
+        self.dropdown_stat = QComboBox()
+        self.dropdown_stat.currentIndexChanged.connect(self.on_form_selected)
+        self.dropdown_stat.setEnabled(False)
 
         self.rewrite_dropdown()
         self.set_default_dropdowns()
@@ -345,7 +403,57 @@ class NellieAnalysis(QWidget):
         if self.match_t_toggle is not None and self.df is not None and "t" in self.df.columns:
             self.match_t_toggle.setEnabled(True)
 
-    def _current_attr_name(self) -> str | None:
+    def _split_feature_form(self, col: str) -> tuple[str, str]:
+        """
+        Split a column name into (feature, form) using known suffixes.
+        If no suffix matches, treat the entire name as the feature and form='value'.
+        """
+        for suffix, key in self.STAT_SUFFIXES:
+            if col.endswith(suffix):
+                base = col[: -len(suffix)]
+                return base, key
+        return col, "value"
+
+    def _form_label(self, form: str) -> str:
+        return self.STAT_LABELS.get(form, form)
+
+    def _form_sort_key(self, form: str) -> int:
+        return self.STAT_ORDER.get(form, 100)
+
+    def _populate_stat_dropdown(self, feature: str):
+        """
+        Populate the statistic dropdown for a given feature name.
+        """
+        if self.dropdown_stat is None:
+            return
+
+        self.dropdown_stat.blockSignals(True)
+        self.dropdown_stat.clear()
+        self.dropdown_stat.addItem("None")
+
+        forms_dict = self.feature_map.get(feature, {})
+        if not forms_dict:
+            self.dropdown_stat.setEnabled(False)
+            self.dropdown_stat.blockSignals(False)
+            return
+
+        forms = sorted(forms_dict.keys(), key=self._form_sort_key)
+        for form in forms:
+            label = self._form_label(form)
+            # store the canonical form key in userData
+            self.dropdown_stat.addItem(label, userData=form)
+
+        # default to first real form (index 1 because index 0 is "None")
+        if self.dropdown_stat.count() > 1:
+            self.dropdown_stat.setCurrentIndex(1)
+        else:
+            self.dropdown_stat.setCurrentIndex(0)
+
+        # enable only if there is at least one real option
+        self.dropdown_stat.setEnabled(self.dropdown_stat.count() > 1)
+        self.dropdown_stat.blockSignals(False)
+
+    def _current_feature_name(self) -> str | None:
         if self.dropdown_attr is None or self.dropdown_attr.count() == 0:
             return None
         text = self.dropdown_attr.currentText()
@@ -353,17 +461,67 @@ class NellieAnalysis(QWidget):
             return None
         return text
 
+    def _current_form_key(self) -> str | None:
+        if self.dropdown_stat is None or self.dropdown_stat.count() == 0:
+            return None
+        text = self.dropdown_stat.currentText()
+        if text in ("", "None"):
+            return None
+        data = self.dropdown_stat.currentData()
+        if data is None:
+            return text.lower()
+        return data
+
+    def _current_attr_name(self) -> str | None:
+        """
+        Resolve the currently selected (feature, form) back to a concrete column name.
+        """
+        feature = self._current_feature_name()
+        if feature is None:
+            return None
+
+        forms_dict = self.feature_map.get(feature, {})
+
+        # no grouping information: fall back to direct column name
+        if not forms_dict:
+            if self.df is not None and feature in self.df.columns:
+                return feature
+            return None
+
+        form = self._current_form_key()
+
+        # if form is not selected but there is exactly one choice, use it
+        if form is None:
+            if len(forms_dict) == 1:
+                return next(iter(forms_dict.values()))
+            # otherwise, pick the first one in a stable order
+            form = sorted(forms_dict.keys(), key=self._form_sort_key)[0]
+
+        if form in forms_dict:
+            return forms_dict[form]
+
+        # last resort: treat feature name as the column name
+        if self.df is not None and feature in self.df.columns:
+            return feature
+        return None
+
     def _update_data_for_current_selection(self):
         """
         Update self.attr_data / self.all_attr_data / self.time_col based on
-        current level, attribute, and match_t flag.
+        current level, feature, statistic form, and match_t flag.
         """
         if self.df is None:
             self.selected_attr = None
+            self.selected_feature = None
+            self.selected_form = None
             self.all_attr_data = None
             self.attr_data = None
             self.time_col = None
             return
+
+        # keep track of current selections
+        self.selected_feature = self._current_feature_name()
+        self.selected_form = self._current_form_key()
 
         attr = self._current_attr_name()
         self.selected_attr = attr
@@ -1040,37 +1198,96 @@ class NellieAnalysis(QWidget):
         except FileNotFoundError:
             self.df = None
 
+        # reset feature/form selection and mapping
+        self.feature_map = {}
+        self.selected_attr = None
+        self.selected_feature = None
+        self.selected_form = None
+        self.all_attr_data = None
+        self.attr_data = None
+        self.time_col = None
+
+        # rebuild dropdowns
         self.dropdown_attr.blockSignals(True)
         self.dropdown_attr.clear()
         self.dropdown_attr.addItem("None")
 
+        if self.dropdown_stat is not None:
+            self.dropdown_stat.blockSignals(True)
+            self.dropdown_stat.clear()
+            self.dropdown_stat.addItem("None")
+            self.dropdown_stat.setEnabled(False)
+
         if self.df is not None:
+            base_order: list[str] = []
             for col in self.df.columns:
                 if col == "t":
                     continue
-                if pd.api.types.is_numeric_dtype(self.df[col]):
-                    self.dropdown_attr.addItem(col)
+                if not pd.api.types.is_numeric_dtype(self.df[col]):
+                    continue
+                base, form = self._split_feature_form(col)
+                if base not in self.feature_map:
+                    self.feature_map[base] = {}
+                    base_order.append(base)
+                self.feature_map[base][form] = col
+
+            for base in base_order:
+                self.dropdown_attr.addItem(base)
 
         self.dropdown_attr.blockSignals(False)
+        if self.dropdown_stat is not None:
+            self.dropdown_stat.blockSignals(False)
 
-        self.selected_attr = None
-        self.all_attr_data = None
-        self.attr_data = None
-        self.time_col = None
         self._clear_canvas()
         self._disable_hist_controls()
 
     def on_attr_selected(self, index):
         """
-        Called when an attribute is selected from the dropdown.
+        Called when a feature (base attribute) is selected from the dropdown.
         """
         if self.dropdown_attr is None or self.df is None:
             return
 
-        if index < 0 or index >= self.dropdown_attr.count():
+        # index 0 is "None"
+        if index <= 0 or index >= self.dropdown_attr.count():
+            self.selected_feature = None
+            self.selected_form = None
+            self.selected_attr = None
+            self.all_attr_data = None
+            self.attr_data = None
+            self.time_col = None
+            self._clear_canvas()
+            self._disable_hist_controls()
+            if self.dropdown_stat is not None:
+                self.dropdown_stat.blockSignals(True)
+                self.dropdown_stat.clear()
+                self.dropdown_stat.addItem("None")
+                self.dropdown_stat.setEnabled(False)
+                self.dropdown_stat.blockSignals(False)
             return
 
-        if self.dropdown_attr.itemText(index) == "None":
+        feature = self.dropdown_attr.itemText(index)
+        self.selected_feature = feature
+
+        # update the form/statistic dropdown for this feature
+        self._populate_stat_dropdown(feature)
+
+        # update current selected_form from the populated dropdown
+        self.selected_form = self._current_form_key()
+
+        # recompute and redraw
+        self._refresh_plot(reset_hist=True)
+
+    def on_form_selected(self, index):
+        """
+        Called when a statistic form (mean, std, min, max, ...) is selected.
+        """
+        if self.dropdown_stat is None or self.df is None:
+            return
+
+        # index 0 is "None"
+        if index <= 0 or index >= self.dropdown_stat.count():
+            self.selected_form = None
             self.selected_attr = None
             self.all_attr_data = None
             self.attr_data = None
@@ -1079,6 +1296,7 @@ class NellieAnalysis(QWidget):
             self._disable_hist_controls()
             return
 
+        self.selected_form = self._current_form_key()
         self._refresh_plot(reset_hist=True)
 
     # -------------------------------------------------------------------------
