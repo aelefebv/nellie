@@ -4,7 +4,7 @@ from .nellie_analysis import NellieAnalysis
 from .nellie_visualizer import NellieVisualizer
 from .nellie_settings import Settings
 from .nellie_home import Home
-from .nellie_fileselect import FileSelect
+from .nellie_fileselect import NellieFileSelect
 
 __all__ = [
     "NellieProcessor",
@@ -13,5 +13,5 @@ __all__ = [
     "NellieVisualizer",
     "Settings",
     "Home",
-    "FileSelect",
+    "NellieFileSelect",
 ]
