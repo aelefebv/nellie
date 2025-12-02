@@ -174,7 +174,8 @@ class NellieFileSelect(QWidget):
         self.end_frame_init = False
 
         # Action buttons
-        self.confirm_button = QPushButton(text="Save OME-TIFF")
+        self.confirm_button = QPushButton(text="Confirm metadata")
+        self.confirm_button.setToolTip("This will save the image as an OME-TIFF for use in processing")
         self.confirm_button.clicked.connect(self.on_confirm)
         self.confirm_button.setEnabled(False)
 

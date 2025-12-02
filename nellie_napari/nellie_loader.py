@@ -4,6 +4,7 @@ import urllib.request
 from importlib.metadata import version as get_version
 
 from qtpy.QtWidgets import QTabWidget
+from qtpy.QtCore import QThread, Signal
 from napari.utils.notifications import show_info, show_warning
 
 from nellie_napari import NellieProcessor
@@ -15,6 +16,33 @@ from nellie_napari.nellie_settings import Settings
 from nellie_napari.nellie_visualizer import NellieVisualizer
 
 logger = logging.getLogger(__name__)
+
+
+class VersionWorker(QThread):
+    """
+    Worker thread to check for the latest version of Nellie on PyPI.
+    """
+    finished_check = Signal(str, str)  # current_version, latest_version
+
+    def run(self):
+        current_version = None
+        latest_version = None
+
+        try:
+            current_version = get_version("nellie")
+        except Exception as e:
+            logger.debug("Unable to determine current Nellie version: %s", e)
+
+        try:
+            with urllib.request.urlopen(
+                "https://pypi.org/pypi/nellie/json", timeout=5
+            ) as response:
+                data = json.loads(response.read().decode())
+                latest_version = data["info"]["version"]
+        except Exception as e:
+            logger.debug("Unable to fetch Nellie version info from PyPI: %s", e)
+
+        self.finished_check.emit(current_version, latest_version)
 
 
 class NellieLoader(QTabWidget):
@@ -74,7 +102,11 @@ class NellieLoader(QTabWidget):
         # Version information for update checking
         self.current_version = None
         self.latest_version = None
-        self._updates_checked = False
+
+        # Start version check in background
+        self.version_worker = VersionWorker()
+        self.version_worker.finished_check.connect(self.on_version_checked)
+        self.version_worker.start()
 
         # Tab widgets
         self.home = Home(self.viewer, self)
@@ -100,38 +132,20 @@ class NellieLoader(QTabWidget):
 
         add_nellie_plugins_to_menu(self)
 
-    def check_for_updates(self):
+    def on_version_checked(self, current_version, latest_version):
         """
-        Gets the current installed version of the Nellie plugin and checks for the latest version available on PyPI.
-
-        This method is designed to be called lazily (e.g. when the Settings tab is opened) to avoid blocking
-        plugin startup on network I/O. It only shows a user-facing notification if a newer version is available.
+        Slot called when the version check worker finishes.
+        Updates the version info and the Home tab status.
         """
-        if self._updates_checked:
-            return
+        self.current_version = current_version
+        self.latest_version = latest_version
 
-        try:
-            try:
-                self.current_version = get_version("nellie")
-            except Exception as e:
-                logger.debug("Unable to determine current Nellie version: %s", e)
-                self.current_version = None
-                return
+        # Update Home tab
+        if hasattr(self.home, "set_update_status"):
+            self.home.set_update_status()
 
-            try:
-                with urllib.request.urlopen(
-                    "https://pypi.org/pypi/nellie/json", timeout=5
-                ) as response:
-                    data = json.loads(response.read().decode())
-                    self.latest_version = data["info"]["version"]
-            except Exception as e:
-                logger.debug("Unable to fetch Nellie version info from PyPI: %s", e)
-                self.latest_version = None
-                return
-
-            if not self.current_version or not self.latest_version:
-                return
-
+        # Show warning if update available
+        if self.current_version and self.latest_version:
             # Compare versions robustly if packaging is available
             try:
                 from packaging.version import Version
@@ -148,10 +162,6 @@ class NellieLoader(QTabWidget):
                         f"A new version of Nellie ({self.latest_version}) is available. "
                         f"You are using {self.current_version}."
                     )
-
-        finally:
-            # Avoid repeated network calls; reset() can clear this flag if a new check is desired.
-            self._updates_checked = True
 
     def add_tabs(self):
         """
@@ -201,9 +211,10 @@ class NellieLoader(QTabWidget):
         self.im_info_list = None
 
         # Allow update check to run again in the new session if needed
-        self._updates_checked = False
         self.current_version = None
         self.latest_version = None
+        if not self.version_worker.isRunning():
+            self.version_worker.start()
 
     def on_tab_change(self, index: int):
         """
@@ -229,8 +240,6 @@ class NellieLoader(QTabWidget):
 
         elif index == self.settings_tab:
             # Run the update check lazily when the user opens Settings
-            if not self._updates_checked:
-                self.check_for_updates()
             # Allow Settings to perform any initialization it needs
             if hasattr(self.settings, "post_init"):
                 self.settings.post_init()

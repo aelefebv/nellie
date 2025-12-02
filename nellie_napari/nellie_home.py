@@ -93,7 +93,6 @@ class Home(QWidget):
         self.update_text.setAlignment(Qt.AlignCenter)
         self.update_text.setWordWrap(True)
         self.layout.addWidget(self.update_text)
-        self.set_update_status()
 
         # Add a large "Start" button
         self.start_button = QPushButton("Start")
