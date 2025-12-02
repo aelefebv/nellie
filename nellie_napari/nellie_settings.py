@@ -70,12 +70,12 @@ class Settings(QWidget):
             "Remove intermediate files after processing. This means only csv files will be saved.")
 
         self.voxel_reassign = QCheckBox("Auto-run voxel reassignment")
-        self.voxel_reassign.setChecked(False)
+        self.voxel_reassign.setChecked(True)
         self.voxel_reassign.setEnabled(True)
 
         # Analyze node level
         self.analyze_node_level = QCheckBox("Analyze node level (slow)")
-        self.analyze_node_level.setChecked(False)
+        self.analyze_node_level.setChecked(True)
         self.analyze_node_level.setEnabled(True)
 
         # Track all frames
