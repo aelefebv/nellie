@@ -1125,6 +1125,7 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs, low_memory: bool = F
             if len(idxs) > 0:
                 idxs_array[i, : len(idxs)] = idxs
 
+        # TODO this errors for TYX for some reason? Is this not the correct way to do this?
         stat_values = stat_array[idxs_array.astype(int)]
         if stat_values.shape[1] == 0:
             stat_values = np.full((stat_values.shape[0], 1), np.nan)

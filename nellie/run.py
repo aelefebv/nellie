@@ -35,23 +35,23 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
         ImInfo object containing processed image data and paths.
     """
     im_info = ImInfo(file_info)
-    preprocessing = Filter(im_info, remove_edges=remove_edges)
-    preprocessing.run()
+    # preprocessing = Filter(im_info, remove_edges=remove_edges)
+    # preprocessing.run()
 
-    segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
-    segmenting.run()
+    # segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
+    # segmenting.run()
 
-    networking = Network(im_info)
-    networking.run()
+    # networking = Network(im_info)
+    # networking.run()
 
-    mocap_marking = Markers(im_info)
-    mocap_marking.run()
+    # mocap_marking = Markers(im_info)
+    # mocap_marking.run()
 
-    hu_tracking = HuMomentTracking(im_info)
-    hu_tracking.run()
+    # hu_tracking = HuMomentTracking(im_info)
+    # hu_tracking.run()
 
-    vox_reassign = VoxelReassigner(im_info)
-    vox_reassign.run()
+    # vox_reassign = VoxelReassigner(im_info)
+    # vox_reassign.run()
 
     hierarchy = Hierarchy(im_info, skip_nodes=False)
     hierarchy.run()
