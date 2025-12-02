@@ -23,6 +23,13 @@ dependencies = [
 ]
 urls = {Homepage = "https://github.com/aelefebv/nellie"}
 
+[project.optional-dependencies]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"

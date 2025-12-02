@@ -9,6 +9,25 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 
 def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
+    """
+    Main entry point for the Nellie pipeline.
+
+    Parameters
+    ----------
+    file_info : FileInfo
+        FileInfo object containing metadata about the input image.
+    remove_edges : bool, optional
+        Whether to remove edges during filtering (default is False).
+    otsu_thresh_intensity : bool, optional
+        Whether to use Otsu thresholding for intensity (default is False).
+    threshold : float, optional
+        Manual threshold value (default is None).
+
+    Returns
+    -------
+    ImInfo
+        ImInfo object containing processed image data and paths.
+    """
     im_info = ImInfo(file_info)
     preprocessing = Filter(im_info, remove_edges=remove_edges)
     preprocessing.run()

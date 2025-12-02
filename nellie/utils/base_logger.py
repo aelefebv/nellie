@@ -1,4 +1,8 @@
+"""
+Configures the base logger for the Nellie package.
+"""
 import logging
+
 
 logger = logging
 logger.basicConfig(
