@@ -1,3 +1,9 @@
+"""
+Label tracking across timepoints using flow interpolation.
+
+This module provides the LabelTracks class for tracking labeled objects over time
+using forward and backward flow interpolation.
+"""
 import numpy as np
 
 from nellie.im_info.verifier import ImInfo

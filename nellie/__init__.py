@@ -1,5 +1,5 @@
 from .segmentation import Filter, Label, Markers, Network
-from .tracking import HuMomentTracking, VoxelReassigner, get_all_tracks_for_label, FlowInterpolator
+from .tracking import HuMomentTracking, VoxelReassigner, LabelTracks, FlowInterpolator
 from .feature_extraction import Hierarchy
 from .im_info import FileInfo, ImInfo
 from .run import run

@@ -1,3 +1,9 @@
+"""
+GPU/CPU-agnostic utility functions for image thresholding.
+
+This module provides implementations of Otsu and triangle thresholding methods
+that work with both NumPy (CPU) and CuPy (GPU) backends.
+"""
 from nellie import xp, device_type
 
 

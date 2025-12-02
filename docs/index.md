@@ -17,4 +17,4 @@ pip install nellie
 
 ## Usage
 
-See the [API Reference](api.md) for detailed usage information.
+See the [API Reference](api/index.md) for detailed usage information.

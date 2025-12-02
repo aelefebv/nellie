@@ -1,3 +1,9 @@
+"""
+Motion capture marker generation for microscopy images.
+
+This module provides the Markers class for detecting and marking key points in segmented
+structures using distance transforms and multi-scale peak detection.
+"""
 import numpy as np
 from scipy import ndimage as sp_ndi  # CPU ndimage backend
 

@@ -1,4 +1,10 @@
 import os.path
+"""
+Hierarchical feature extraction for microscopy images.
+
+This module provides the Hierarchy class for extracting multi-level features (voxels, nodes,
+branches, organelles, and images) from segmented and tracked microscopy data.
+"""
 import pickle
 import time
 

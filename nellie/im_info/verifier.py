@@ -1,3 +1,9 @@
+"""
+File verification and image metadata handling for microscopy images.
+
+This module provides FileInfo and ImInfo classes for loading, validating, and managing
+metadata from various microscopy file formats (TIFF, OME-TIFF, ND2).
+"""
 import os
 
 import nd2

@@ -1,3 +1,9 @@
+"""
+Frangi-like vesselness filter for 3D/4D microscopy image data.
+
+This module provides the Filter class, which implements a multi-scale Frangi filtering approach
+optimized for large datasets with optional GPU acceleration.
+"""
 from itertools import combinations_with_replacement  # kept for compatibility, may be unused
 
 from nellie import logger

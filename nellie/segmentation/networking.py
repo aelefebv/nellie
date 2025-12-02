@@ -1,3 +1,9 @@
+"""
+Network skeletonization and analysis for microscopy images.
+
+This module provides the Network class for skeletonizing network-like structures
+and analyzing their topology with optimized CPU/GPU processing.
+"""
 import numpy as np
 import skimage.measure
 import skimage.morphology as morph

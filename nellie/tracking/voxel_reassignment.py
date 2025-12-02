@@ -1,5 +1,9 @@
-import heapq  # no longer used but kept for compatibility if imported elsewhere
+"""
+Voxel reassignment across timepoints using flow interpolation.
 
+This module provides the VoxelReassigner class for tracking and reassigning voxel labels
+across time using forward and backward flow interpolation.
+"""
 import numpy as np
 from scipy.spatial import cKDTree
 

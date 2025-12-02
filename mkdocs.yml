@@ -18,8 +18,25 @@ plugins:
       handlers:
         python:
           paths: [.]
-      
+          options:
+            docstring_style: numpy
+            docstring_section_style: table
+            show_source: false
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            merge_init_into_class: true
+            separate_signature: true
 
 nav:
   - Home: index.md
-  - API Reference: api.md
+  - API Reference:
+      - Overview: api/index.md
+      - Main Interface: api/run.md
+      - Segmentation: api/segmentation.md
+      - Tracking: api/tracking.md
+      - Feature Extraction: api/feature_extraction.md
+      - Image Info: api/im_info.md
+      - Utilities: api/utils.md

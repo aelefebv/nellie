@@ -1,3 +1,9 @@
+"""
+Semantic and instance segmentation for microscopy images.
+
+This module provides the Label class for thresholding-based segmentation with
+optimizations for large volumes and optional GPU acceleration.
+"""
 from nellie import xp, ndi, logger, device_type
 from nellie.im_info.verifier import ImInfo
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold

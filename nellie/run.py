@@ -1,3 +1,9 @@
+"""
+Main entry point for the Nellie image analysis pipeline.
+
+This module provides the run function, which orchestrates the complete Nellie pipeline
+including filtering, segmentation, tracking, and feature extraction.
+"""
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter

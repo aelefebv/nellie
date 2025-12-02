@@ -1,3 +1,9 @@
+"""
+Hu moment-based tracking for labeled objects across timepoints.
+
+This module provides the HuMomentTracking class for tracking objects using
+Hu moment invariants and optical flow interpolation.
+"""
 import numpy as np
 from dataclasses import dataclass
 from scipy.spatial.distance import cdist
