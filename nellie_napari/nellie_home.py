@@ -193,7 +193,7 @@ class Home(QWidget):
         del checked  # unused, but kept for signal compatibility
 
         if self.nellie.im_info is None:
-            show_info("No file selected, cannot take screenshot bopop")
+            show_info("No file selected, cannot take screenshot")
             return
 
         # easy no prompt screenshot
