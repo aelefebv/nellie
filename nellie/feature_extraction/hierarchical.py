@@ -304,7 +304,7 @@ class Hierarchy:
                 mode = "a"
                 header_flag = False
             df = pd.DataFrame(frame_array, columns=voxel_headers_full)
-            df.to_csv(voxel_path, index=True, mode=mode, header=header_flag)
+            df.to_csv(voxel_path, index=False, mode=mode, header=header_flag)
 
         # Nodes
         if not self.skip_nodes:
@@ -323,7 +323,7 @@ class Hierarchy:
                     mode = "a"
                     header_flag = False
                 df = pd.DataFrame(frame_array, columns=node_headers_full)
-                df.to_csv(node_path, index=True, mode=mode, header=header_flag)
+                df.to_csv(node_path, index=False, mode=mode, header=header_flag)
 
         # Branches
         branch_path = self.im_info.pipeline_paths["features_branches"]
@@ -341,7 +341,7 @@ class Hierarchy:
                 mode = "a"
                 header_flag = False
             df = pd.DataFrame(frame_array, columns=branch_headers_full)
-            df.to_csv(branch_path, index=True, mode=mode, header=header_flag)
+            df.to_csv(branch_path, index=False, mode=mode, header=header_flag)
 
         # Components (organelles)
         component_path = self.im_info.pipeline_paths["features_organelles"]
@@ -359,7 +359,7 @@ class Hierarchy:
                 mode = "a"
                 header_flag = False
             df = pd.DataFrame(frame_array, columns=component_headers_full)
-            df.to_csv(component_path, index=True, mode=mode, header=header_flag)
+            df.to_csv(component_path, index=False, mode=mode, header=header_flag)
 
         # Image-level features
         image_path = self.im_info.pipeline_paths["features_image"]
@@ -375,7 +375,7 @@ class Hierarchy:
                 mode = "a"
                 header_flag = False
             df = pd.DataFrame(frame_array, columns=image_headers_full)
-            df.to_csv(image_path, index=True, mode=mode, header=header_flag)
+            df.to_csv(image_path, index=False, mode=mode, header=header_flag)
 
     def _save_adjacency_maps(self):
         """
