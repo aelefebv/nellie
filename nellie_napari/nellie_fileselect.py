@@ -67,13 +67,13 @@ class NellieFileSelect(QWidget):
         Button to process the selected image file(s) through the Nellie pipeline.
     """
 
-    def __init__(self, napari_viewer: napari.viewer.Viewer, nellie, parent=None):
+    def __init__(self, napari_viewer: napari.Viewer, nellie, parent=None):
         """
         Initialize the NellieFileSelect class.
 
         Parameters
         ----------
-        napari_viewer : napari.viewer.Viewer
+        napari_viewer : napari.Viewer
             Reference to the napari viewer instance.
         nellie : object
             Reference to the main Nellie object containing image processing pipelines and functions.

@@ -1490,7 +1490,15 @@ class Branches:
                 weights = xp.full(labels.size, edge_len, dtype=xp.float32)
                 lengths += xp.bincount(labels.ravel(), weights=weights, minlength=max_label + 1)
 
-        return np.asarray(lengths), np.asarray(neighbor_counts)
+        if hasattr(lengths, 'get'):
+            lengths_np = lengths.get()
+        else:
+            lengths_np = np.asarray(lengths)
+        if hasattr(neighbor_counts, 'get'):
+            neighbor_counts_np = neighbor_counts.get()
+        else:
+            neighbor_counts_np = np.asarray(neighbor_counts)
+        return lengths_np, neighbor_counts_np
 
     def _compute_branch_lengths_and_degrees(self, t):
         """

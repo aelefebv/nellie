@@ -83,14 +83,14 @@ class NellieLoader(QTabWidget):
         Initializes and enables the processing and visualization tabs for image processing.
     """
 
-    def __init__(self, napari_viewer: "napari.viewer.Viewer", parent=None):
+    def __init__(self, napari_viewer: "napari.Viewer", parent=None):
         """
         Initialize the NellieLoader class, creating instances of the individual tabs for home, file selection,
         processing, visualization, analysis, and settings.
 
         Parameters
         ----------
-        napari_viewer : napari.viewer.Viewer
+        napari_viewer : napari.Viewer
             Reference to the napari viewer instance.
         parent : QWidget, optional
             Optional parent widget (default is None).

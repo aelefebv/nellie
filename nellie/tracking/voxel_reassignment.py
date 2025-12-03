@@ -543,6 +543,7 @@ class VoxelReassigner:
             to both branch and object label volumes.
         """
         if self.im_info.no_t:
+            logger.info("Skipping voxel reassignment for non-temporal dataset.")
             return
 
         self._get_t()

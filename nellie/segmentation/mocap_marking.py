@@ -531,6 +531,10 @@ class Markers:
 
         This method allocates memory, sets sigma values, and runs the marking process for all timepoints.
         """
+        if self.im_info.no_t:
+            logger.info("Skipping mocap marking for non-temporal dataset.")
+            return
+
         self._get_t()
         self._allocate_memory()
         self._set_default_sigmas()

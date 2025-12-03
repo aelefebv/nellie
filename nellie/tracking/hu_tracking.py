@@ -475,7 +475,10 @@ class HuMomentTracking:
             return _FrameFeatures(empty_coords_voxel, empty_coords_phys, empty_stats, empty_hu)
 
         # Convert indices to numpy for physical coordinates and later matching
-        marker_indices_np = np.asarray(marker_indices_xp)
+        if hasattr(marker_indices_xp, "get"):
+            marker_indices_np = marker_indices_xp.get()
+        else:
+            marker_indices_np = np.asarray(marker_indices_xp)
         scaling = np.asarray(self.scaling, dtype=float)
         coords_phys = marker_indices_np * scaling  # (N, dim)
 
@@ -1037,7 +1040,9 @@ class HuMomentTracking:
         Main method to execute the Hu moment-based tracking process over the image data.
         """
         if self.im_info.no_t:
+            logger.info("Skipping Hu moment tracking for non-temporal dataset.")
             return
+            
         self._get_t()
         self._allocate_memory()
         self._run_hu_tracking()

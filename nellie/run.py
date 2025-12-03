@@ -90,7 +90,8 @@ if __name__ == "__main__":
     # test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome.tif'
     # test_file = '/Users/austin/Downloads/26598942-Pos213-t_008-y_1744-x_0329.ome.tif'
     # test_file = "sample_data/yeast_3d_mitochondria.ome.tif"
-    test_file = "/Users/austin/test_files/nellie_all_tests/test_2.nd2"
+    test_file = r"D:\test_files\nellie_all_tests\multi_c_3D.nd2"
+    # test_file = "/Users/austin/test_files/nellie_all_tests/test_2.nd2"
     # test_file = all_paths[1]
     file_info = FileInfo(test_file)
     file_info.find_metadata()
@@ -124,7 +125,7 @@ if __name__ == "__main__":
     # print('\n')
     #
     # # print(f'{file_info.ch=}')
-    # # file_info.change_selected_channel(3)
+    file_info.change_selected_channel(2)
     # # print('Channel changed')
     # # print(f'{file_info.ch=}')
     #
