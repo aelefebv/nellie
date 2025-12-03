@@ -657,10 +657,10 @@ class HuMomentTracking:
             Difference matrix, shape (N_post, N_pre, F).
         """
         if m1.size == 0 or m2.size == 0:
-            return xp.zeros((0, 0, 0), dtype=xp.float16)
+            return xp.zeros((0, 0, 0), dtype=xp.float64)
 
-        m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float16)
-        m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float16)
+        m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float64)
+        m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float64)
         difference_matrix = xp.abs(m1_reshaped - m2_reshaped)
         return difference_matrix
 
