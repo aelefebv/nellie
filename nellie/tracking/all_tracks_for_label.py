@@ -113,6 +113,9 @@ class LabelTracks:
         if start_frame < end_frame:
             tracks, track_properties = interpolate_all_forward(coords, start_frame, end_frame, self.im_info,
                                                                min_track_num, max_distance_um=max_distance_um)
+            # Let's get rid of any tracks that are > 1 pixel away from the nearest mask pixel
+            tracks = [track for track in tracks if np.min(self.label_memmap[track[:, 0], track[:, 1], track[:, 2]]) > 0]
+            print(tracks)
         new_end_frame = 0  # max(0, end_frame - start_frame)
         if start_frame > 0:
             tracks_bw, track_properties_bw = interpolate_all_backward(coords_copy, start_frame, new_end_frame,
