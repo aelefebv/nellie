@@ -195,7 +195,8 @@ def _compute_vectors_generic(
 
     # Normalize weights for each query.
     sum_w = weights.sum(axis=1, keepdims=True)
-    weights = xp.where(sum_w > 0, weights / sum_w, 0.0)
+    # Handle negative weights (from positive costs) by checking absolute sum
+    weights = xp.where(xp.abs(sum_w) > 1e-12, weights / sum_w, 0.0)
 
     # Weighted average of neighbor vectors.
     weighted_vectors = vectors * weights[..., None]
@@ -507,6 +508,18 @@ class FlowInterpolator:
                 # Fill primary neighbors.
                 indices[start:end, :k_use] = idx_sorted
                 distances[start:end, :k_use] = dist_sorted
+
+                # Filter out neighbors that are too far
+                too_far = distances[start:end, :k_use] > self.max_distance_um
+                if too_far.any():
+                    # We need to be careful with array assignment in CuPy/NumPy
+                    # Create a view for the current batch's valid part
+                    dist_view = distances[start:end, :k_use]
+                    idx_view = indices[start:end, :k_use]
+                    
+                    # Set too far distances to inf and indices to 0
+                    dist_view[too_far] = xp.inf
+                    idx_view[too_far] = 0
 
                 # Mark remaining neighbors as invalid.
                 if k_use < self.max_neighbors:
