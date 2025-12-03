@@ -1011,12 +1011,11 @@ class NellieAnalysis(QWidget):
                         self.adjacency_maps["v_n"].append(np.zeros((0, 0), dtype=bool))
                         continue
                     max_node = int(np.max(adjacency_slice[:, 1])) + 1
-                    min_node = int(np.min(adjacency_slice[:, 1]))
                     adjacency_matrix = np.zeros(
-                        (len(self.label_coords[t]), max_node - min_node), dtype=bool
+                        (len(self.label_coords[t]), max_node), dtype=bool
                     )
                     adjacency_matrix[
-                        adjacency_slice[:, 0], adjacency_slice[:, 1] - min_node
+                        adjacency_slice[:, 0], adjacency_slice[:, 1]
                     ] = True
                     self.adjacency_maps["v_n"].append(adjacency_matrix)
                     self.adjacency_maps["n_v"].append(adjacency_matrix.T)
@@ -1037,12 +1036,11 @@ class NellieAnalysis(QWidget):
                         self.adjacency_maps["v_b"].append(np.zeros((0, 0), dtype=bool))
                         continue
                     max_branch = int(np.max(adjacency_slice[:, 1])) + 1
-                    min_branch = int(np.min(adjacency_slice[:, 1]))
                     adjacency_matrix = np.zeros(
-                        (len(self.label_coords[t]), max_branch - min_branch), dtype=bool
+                        (len(self.label_coords[t]), max_branch), dtype=bool
                     )
                     adjacency_matrix[
-                        adjacency_slice[:, 0], adjacency_slice[:, 1] - min_branch
+                        adjacency_slice[:, 0], adjacency_slice[:, 1]
                     ] = True
                     self.adjacency_maps["v_b"].append(adjacency_matrix)
                     self.adjacency_maps["b_v"].append(adjacency_matrix.T)
@@ -1064,12 +1062,11 @@ class NellieAnalysis(QWidget):
                         continue
                     # organelles indexed consecutively over the full timelapse
                     max_organelle = int(np.max(adjacency_slice[:, 1])) + 1
-                    min_organelle = int(np.min(adjacency_slice[:, 1]))
                     adjacency_matrix = np.zeros(
-                        (len(self.label_coords[t]), max_organelle - min_organelle), dtype=bool
+                        (len(self.label_coords[t]), max_organelle), dtype=bool
                     )
                     adjacency_matrix[
-                        adjacency_slice[:, 0], adjacency_slice[:, 1] - min_organelle
+                        adjacency_slice[:, 0], adjacency_slice[:, 1]
                     ] = True
                     self.adjacency_maps["v_o"].append(adjacency_matrix)
                     self.adjacency_maps["o_v"].append(adjacency_matrix.T)
@@ -1090,12 +1087,11 @@ class NellieAnalysis(QWidget):
                         self.adjacency_maps["v_i"].append(np.zeros((0, 0), dtype=bool))
                         continue
                     max_image = int(np.max(adjacency_slice[:, 1])) + 1
-                    min_image = int(np.min(adjacency_slice[:, 1]))
                     adjacency_matrix = np.zeros(
-                        (len(self.label_coords[t]), max_image - min_image), dtype=bool
+                        (len(self.label_coords[t]), max_image), dtype=bool
                     )
                     adjacency_matrix[
-                        adjacency_slice[:, 0], adjacency_slice[:, 1] - min_image
+                        adjacency_slice[:, 0], adjacency_slice[:, 1]
                     ] = True
                     self.adjacency_maps["v_i"].append(adjacency_matrix)
                     self.adjacency_maps["i_v"].append(adjacency_matrix.T)
@@ -1139,10 +1135,29 @@ class NellieAnalysis(QWidget):
             if adjacency_mask is None or adjacency_mask.size == 0:
                 continue
 
-            if adjacency_mask.shape[0] != len(t_attr_data):
-                continue
+            # Align attribute data to global label indices
+            if "label" in self.df.columns:
+                t_labels = self.df.loc[t_mask, "label"].values.astype(int)
+                max_idx = max(adjacency_mask.shape[0], int(np.max(t_labels)) + 1)
+            else:
+                # Fallback if no label column (should not happen for standard files)
+                t_labels = np.arange(len(t_attr_data))
+                max_idx = max(adjacency_mask.shape[0], len(t_attr_data))
 
-            reshaped_t_attr = t_attr_data.to_numpy().reshape(-1, 1)
+            if adjacency_mask.shape[0] < max_idx:
+                padding = np.zeros(
+                    (max_idx - adjacency_mask.shape[0], adjacency_mask.shape[1]),
+                    dtype=bool,
+                )
+                adjacency_mask = np.vstack([adjacency_mask, padding])
+            
+            # Create sparse vector aligned to global indices
+            attr_vec = np.full(max_idx, np.nan)
+            # Filter labels that fit in the vector (safety check)
+            valid_mask = t_labels < max_idx
+            attr_vec[t_labels[valid_mask]] = t_attr_data.values[valid_mask]
+
+            reshaped_t_attr = attr_vec.reshape(-1, 1)
             attributed_voxels = adjacency_mask * reshaped_t_attr
             attributed_voxels[~adjacency_mask] = np.nan
             voxel_attributes = np.nanmean(attributed_voxels, axis=0)
