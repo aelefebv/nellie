@@ -113,9 +113,7 @@ class LabelTracks:
         if start_frame < end_frame:
             tracks, track_properties = interpolate_all_forward(coords, start_frame, end_frame, self.im_info,
                                                                min_track_num, max_distance_um=max_distance_um)
-            # Let's get rid of any tracks that are > 1 pixel away from the nearest mask pixel
-            tracks = [track for track in tracks if np.min(self.label_memmap[track[:, 0], track[:, 1], track[:, 2]]) > 0]
-            print(tracks)
+
         new_end_frame = 0  # max(0, end_frame - start_frame)
         if start_frame > 0:
             tracks_bw, track_properties_bw = interpolate_all_backward(coords_copy, start_frame, new_end_frame,
@@ -134,6 +132,27 @@ class LabelTracks:
             else:
                 for property in track_properties_bw.keys():
                     track_properties[property] = track_properties_bw[property] + track_properties[property]
+
+        # Let's get rid of any tracks that are > 1 pixel away from the nearest mask pixel
+        filtered_tracks = []
+        filtered_track_properties = {key: [] for key in track_properties} if track_properties else {}
+
+        for track_num, track in enumerate(tracks):
+            dims = tuple(int(np.round(d)) for d in track[1:])
+            is_in_range = True
+            for i, dim_val in enumerate(dims):
+                if not (0 <= dim_val < self.label_memmap.shape[i]):
+                    is_in_range = False
+                    break
+            # Check if the track is valid (not too far from a mask pixel and within bounds)
+            if is_in_range and np.min(self.label_memmap[dims]) > 0:
+                filtered_tracks.append(track)
+                for prop_key, prop_list in track_properties.items():
+                    filtered_track_properties[prop_key].append(prop_list[track_num])
+
+        tracks = filtered_tracks
+        track_properties = filtered_track_properties
+                
         return tracks, track_properties
 
 
