@@ -94,7 +94,7 @@ class Label:
         if not self.im_info.no_z and self.im_info.dim_res['Z'] >= self.min_z_radius_um:
             self.footprint = xp.ones((2, 2, 2), dtype=bool)
         elif self.im_info.no_z:
-            self.footprint = xp.ones((1, 2, 2), dtype=bool)
+            self.footprint = xp.ones((2, 2), dtype=bool)
         else:
             self.footprint = None
 
@@ -135,48 +135,24 @@ class Label:
     def _get_frame_views(self, t):
         """
         Return CPU views (memmap slices) for original and Frangi frames at time t.
-        Handles both 3D (Z,Y,X) and 4D (T,Z,Y,X) shapes.
         """
-        if self.im_memmap.ndim == 4:
-            original_view = self.im_memmap[t, ...]
-            frangi_view = self.frangi_memmap[t, ...]
-        elif self.im_memmap.ndim == 3:
-            original_view = self.im_memmap[...]
-            frangi_view = self.frangi_memmap[...]
-        else:
-            raise RuntimeError(f"Unsupported im_memmap ndim={self.im_memmap.ndim}")
+        original_view = self.im_memmap[t, ...]
+        frangi_view = self.frangi_memmap[t, ...]
         return original_view, frangi_view
 
     def _write_labels_for_frame(self, t, labels):
         """
         Write a full label volume for timepoint t into the instance_label_memmap.
-        Handles both 3D (Z,Y,X) and 4D (T,Z,Y,X) shapes.
         """
         dst = self.instance_label_memmap
-        if dst.ndim == 4:
-            if self.num_t is not None and self.num_t > 1:
-                dst[t, ...] = labels
-            else:
-                dst[...] = labels  # broadcast over T axis if length-1
-        elif dst.ndim == 3:
-            dst[...] = labels
-        else:
-            raise RuntimeError(f"Unsupported instance_label_memmap ndim={dst.ndim}")
+        dst[t, ...] = labels
 
     def _write_labels_chunk(self, t, z_start, z_end, labels_chunk):
         """
         Write a Z-chunk of labels for timepoint t into the instance_label_memmap.
         """
         dst = self.instance_label_memmap
-        if dst.ndim == 4:
-            if self.num_t is not None and self.num_t > 1:
-                dst[t, z_start:z_end, ...] = labels_chunk
-            else:
-                dst[:, z_start:z_end, ...] = labels_chunk  # broadcast over T axis of length-1
-        elif dst.ndim == 3:
-            dst[z_start:z_end, ...] = labels_chunk
-        else:
-            raise RuntimeError(f"Unsupported instance_label_memmap ndim={dst.ndim}")
+        dst[t, z_start:z_end, ...] = labels_chunk
 
     # ------------------------------------------------------------------
     # Thresholding and labeling

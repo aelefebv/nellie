@@ -4,7 +4,6 @@ Frangi-like vesselness filter for 3D/4D microscopy image data.
 This module provides the Filter class, which implements a multi-scale Frangi filtering approach
 optimized for large datasets with optional GPU acceleration.
 """
-from itertools import combinations_with_replacement  # kept for compatibility, may be unused
 
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
@@ -55,6 +54,7 @@ class Filter:
         alpha_sq: float = 0.5,
         beta_sq: float = 0.5,
         frob_thresh=None,
+        frob_thresh_division=2,
         viewer=None,
         # New optimization-related parameters
         low_memory: bool = False,
@@ -111,6 +111,7 @@ class Filter:
         self.beta_sq = float(beta_sq)
 
         self.frob_thresh = frob_thresh
+        self.frob_thresh_division = frob_thresh_division
 
         self.viewer = viewer
 
@@ -249,6 +250,10 @@ class Filter:
             frobenius_norm = frobenius_norm.copy()
             frobenius_norm[inf_mask] = max_finite
 
+        if not self.frob_thresh_division:
+            mask = frobenius_norm > 0
+            return mask
+
         if self.frob_thresh is None:
             positive = self._subsample_for_thresholds(frobenius_norm)
             if positive.size == 0:
@@ -260,7 +265,7 @@ class Filter:
         else:
             frobenius_threshold = float(self.frob_thresh)
 
-        mask = frobenius_norm > frobenius_threshold
+        mask = frobenius_norm > (frobenius_threshold / self.frob_thresh_division)
         return mask
 
     def _compute_hessian(self, image, mask=True):

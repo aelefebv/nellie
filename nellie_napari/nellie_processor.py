@@ -522,7 +522,7 @@ class NellieProcessor(QWidget):
         self._last_step_had_error = True
         self.running = False
         self._last_error_message = f"Error during {self.status}: {exc}"
-        self.status_label.setText(self._last_error_message)
+        self.status_label.setText("Error, see console for details")
         self.status_timer.stop()
         show_info(self._last_error_message)
         # ensure buttons reflect current filesystem state
@@ -623,7 +623,7 @@ class NellieProcessor(QWidget):
         self.running = False
         if self._last_error_message:
             # Preserve the last error message so the user can see what failed.
-            self.status_label.setText(self._last_error_message)
+            self.status_label.setText("Error, see console for details")
         else:
             self.status_label.setText("Awaiting your input")
         self.num_ellipses = 1

@@ -77,8 +77,7 @@ class Markers:
 
     def __init__(self, im_info: ImInfo, num_t=None,
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5,
-                 viewer=None, save_distance=True, save_border=True,
-                 prefer_gpu=True, peak_min_distance=2):
+                 viewer=None, prefer_gpu=True, peak_min_distance=2):
         """
         Initializes the Markers object with image metadata and marking parameters.
 
@@ -98,10 +97,6 @@ class Markers:
             Number of sigma steps for multi-scale filtering (default is 5).
         viewer : object or None, optional
             Viewer object for displaying status during processing (default is None).
-        save_distance : bool, optional
-            Whether to save the distance transform image (default is True).
-        save_border : bool, optional
-            Whether to save the border image (default is True).
         prefer_gpu : bool, optional
             Whether to prefer GPU backend when available (default is True).
         peak_min_distance : int, optional
@@ -141,9 +136,6 @@ class Markers:
         self.debug = None
 
         self.viewer = viewer
-
-        self.save_distance = save_distance
-        self.save_border = save_border
 
         # Backend selection; will be overridden to CPU on GPU OOM.
         self.use_gpu = prefer_gpu and (device_type == 'cuda')
@@ -273,27 +265,21 @@ class Markers:
             return_memmap=True
         )
 
-        if self.save_distance:
-            im_distance_path = self.im_info.pipeline_paths['im_distance']
-            self.im_distance_memmap = self.im_info.allocate_memory(
-                im_distance_path,
-                dtype='float32',  # use float32 to reduce memory
-                description='distance transform image',
-                return_memmap=True
+        im_distance_path = self.im_info.pipeline_paths['im_distance']
+        self.im_distance_memmap = self.im_info.allocate_memory(
+            im_distance_path,
+            dtype='float32',  # use float32 to reduce memory
+            description='distance transform image',
+            return_memmap=True
             )
-        else:
-            self.im_distance_memmap = None
 
-        if self.save_border:
-            im_border_path = self.im_info.pipeline_paths['im_border']
-            self.im_border_memmap = self.im_info.allocate_memory(
-                im_border_path,
-                dtype='uint8',
-                description='border image',
-                return_memmap=True
-            )
-        else:
-            self.im_border_memmap = None
+        im_border_path = self.im_info.pipeline_paths['im_border']
+        self.im_border_memmap = self.im_info.allocate_memory(
+            im_border_path,
+            dtype='uint8',
+            description='border image',
+            return_memmap=True
+        )
 
     def _distance_im(self, mask):
         """
@@ -508,21 +494,21 @@ class Markers:
 
             if self.im_marker_memmap.shape != self.shape and self.im_info.no_t:
                 self.im_marker_memmap[:] = marker_frame
-                if self.save_distance and self.im_distance_memmap is not None:
+                if self.im_distance_memmap is not None:
                     self.im_distance_memmap[:] = distance_frame
-                if self.save_border and self.im_border_memmap is not None:
+                if self.im_border_memmap is not None:
                     self.im_border_memmap[:] = border_frame
             else:
                 self.im_marker_memmap[t] = marker_frame
-                if self.save_distance and self.im_distance_memmap is not None:
+                if self.im_distance_memmap is not None:
                     self.im_distance_memmap[t] = distance_frame
-                if self.save_border and self.im_border_memmap is not None:
+                if self.im_border_memmap is not None:
                     self.im_border_memmap[t] = border_frame
 
             self.im_marker_memmap.flush()
-            if self.save_distance and self.im_distance_memmap is not None:
+            if self.im_distance_memmap is not None:
                 self.im_distance_memmap.flush()
-            if self.save_border and self.im_border_memmap is not None:
+            if self.im_border_memmap is not None:
                 self.im_border_memmap.flush()
 
     def run(self):
@@ -531,10 +517,7 @@ class Markers:
 
         This method allocates memory, sets sigma values, and runs the marking process for all timepoints.
         """
-        if self.im_info.no_t:
-            logger.info("Skipping mocap marking for non-temporal dataset.")
-            return
-
+        # Note: We must run mocap marking even if there is no time dimension, since we need the distance and border images for feature extraction
         self._get_t()
         self._allocate_memory()
         self._set_default_sigmas()
