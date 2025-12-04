@@ -15,7 +15,7 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 import time
 
-def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None):
+def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None, timeit=False):
     """
     Main entry point for the Nellie pipeline.
 
@@ -29,6 +29,8 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
         Whether to use Otsu thresholding for intensity (default is False).
     threshold : float, optional
         Manual threshold value (default is None).
+    timeit : bool, optional
+        Whether to time each step of the pipeline (default is False).
 
     Returns
     -------
@@ -37,56 +39,71 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
     """
     im_info = ImInfo(file_info)
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     preprocessing = Filter(im_info, remove_edges=remove_edges)
     preprocessing.run()
-    end_time = time.perf_counter()
-    preprocessing_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        preprocessing_time = end_time - start_time
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
     segmenting.run()
-    end_time = time.perf_counter()
-    segmenting_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        segmenting_time = end_time - start_time
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     networking = Network(im_info)
     networking.run()
-    end_time = time.perf_counter()
-    networking_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        networking_time = end_time - start_time
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     mocap_marking = Markers(im_info)
     mocap_marking.run()
-    end_time = time.perf_counter()
-    mocap_marking_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        mocap_marking_time = end_time - start_time
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     hu_tracking = HuMomentTracking(im_info)
     hu_tracking.run()
-    end_time = time.perf_counter()
-    hu_tracking_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        hu_tracking_time = end_time - start_time
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     vox_reassign = VoxelReassigner(im_info)
     vox_reassign.run()
-    end_time = time.perf_counter()
-    vox_reassign_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        vox_reassign_time = end_time - start_time
 
-    start_time = time.perf_counter()
+    if timeit:
+        start_time = time.perf_counter()
     hierarchy = Hierarchy(im_info, skip_nodes=False)
     hierarchy.run()
-    end_time = time.perf_counter()
-    hierarchy_time = end_time - start_time
+    if timeit:
+        end_time = time.perf_counter()
+        hierarchy_time = end_time - start_time
 
-    print(f"Nellie Pipeline: Filter step took {preprocessing_time:.4f} seconds")
-    print(f"Nellie Pipeline: Label step took {segmenting_time:.4f} seconds")
-    print(f"Nellie Pipeline: Network step took {networking_time:.4f} seconds")
-    print(f"Nellie Pipeline: Markers step took {mocap_marking_time:.4f} seconds")
-    print(f"Nellie Pipeline: HuMomentTracking step took {hu_tracking_time:.4f} seconds")
-    print(f"Nellie Pipeline: VoxelReassigner step took {vox_reassign_time:.4f} seconds")
-    print(f"Nellie Pipeline: Hierarchy step took {hierarchy_time:.4f} seconds")
-    print(f"Nellie Pipeline: Total time took {preprocessing_time + segmenting_time + networking_time + mocap_marking_time + hu_tracking_time + vox_reassign_time + hierarchy_time:.4f} seconds")
+    if timeit:
+        print(f"Nellie Pipeline: Filter step took {preprocessing_time:.4f} seconds")
+        print(f"Nellie Pipeline: Label step took {segmenting_time:.4f} seconds")
+        print(f"Nellie Pipeline: Network step took {networking_time:.4f} seconds")
+        print(f"Nellie Pipeline: Markers step took {mocap_marking_time:.4f} seconds")
+        print(f"Nellie Pipeline: HuMomentTracking step took {hu_tracking_time:.4f} seconds")
+        print(f"Nellie Pipeline: VoxelReassigner step took {vox_reassign_time:.4f} seconds")
+        print(f"Nellie Pipeline: Hierarchy step took {hierarchy_time:.4f} seconds")
+        print(f"Nellie Pipeline: Total time took {preprocessing_time + segmenting_time + networking_time + mocap_marking_time + hu_tracking_time + vox_reassign_time + hierarchy_time:.4f} seconds")
 
     return im_info
 
