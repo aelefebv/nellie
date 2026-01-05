@@ -173,7 +173,7 @@ class Label:
         labels, _ = ndi.label(mask, structure=footprint)
         # remove anything 4 pixels or under using bincounts
         areas = xp.bincount(labels.ravel())[1:]
-        mask = xp.where(xp.isin(labels, xp.where(areas >= 4)[0]+1), labels, 0) > 0
+        mask = xp.where(xp.isin(labels, xp.where(areas > 4)[0]+1), labels, 0) > 0
         labels, _ = ndi.label(mask, structure=footprint)
         return mask, labels
 
