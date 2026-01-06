@@ -172,6 +172,7 @@ class FileInfo:
             self.metadata_type = metadata_type
             self.axes = tif.series[0].axes
             self.shape = tif.series[0].shape
+            self._normalize_time_axis()
 
         return metadata, metadata_type
 
@@ -188,6 +189,7 @@ class FileInfo:
             self.metadata_type = 'nd2'
             self.axes = ''.join(nd2_file.sizes.keys())
             self.shape = tuple(nd2_file.sizes.values())
+            self._normalize_time_axis()
 
     def find_metadata(self):
         """
@@ -204,6 +206,14 @@ class FileInfo:
             self._find_nd2_metadata()
         else:
             raise ValueError('File type not supported')
+
+    def _normalize_time_axis(self):
+        if self.axes is None or self.shape is None:
+            return
+        if 'T' in self.axes:
+            return
+        if len(self.shape) == len(self.axes) + 1 and self.shape[0] == 1:
+            self.axes = 'T' + self.axes
 
     def _get_imagej_metadata(self, metadata):
         """
@@ -621,6 +631,13 @@ class FileInfo:
 
         axes = self.axes
         data = self.read_file()
+        if data.ndim != len(axes):
+            if 'T' in axes and data.ndim == len(axes) - 1:
+                data = np.expand_dims(data, axis=axes.index('T'))
+            else:
+                message = 'Data dimensions do not match axes'
+                logger.error(message)
+                raise ValueError(message)
         if 'T' not in self.axes:
             data = data[np.newaxis, ...]
             axes = 'T' + self.axes
@@ -745,7 +762,13 @@ class ImInfo:
         """
         self.file_info = file_info
         self.im_path = file_info.ome_output_path
-        if not os.path.exists(self.im_path):
+        needs_regen = not os.path.exists(self.im_path)
+        if not needs_regen:
+            with tifffile.TiffFile(self.im_path) as tif:
+                existing_axes = tif.series[0].axes
+            if 'T' not in existing_axes and file_info.axes is not None and 'T' in file_info.axes:
+                needs_regen = True
+        if needs_regen:
             file_info.save_ome_tiff()
         self.im = tifffile.memmap(self.im_path)
 
@@ -853,7 +876,8 @@ class ImInfo:
             self.new_axes = self.axes
         if 'T' not in self.axes:
             self.im = self.im[np.newaxis, ...]
-            self.new_axes = 'T' + self.axes
+            self.axes = 'T' + self.axes
+            self.new_axes = self.axes
         self.shape = self.im.shape
         self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
         self.dim_res['X'] = self.ome_metadata.images[0].pixels.physical_size_x
@@ -879,8 +903,19 @@ class ImInfo:
         """
         memmap = tifffile.memmap(file_path, mode=read_mode)
         axes = self.new_axes or self.axes
-        if axes is not None and 'T' not in axes:
-            memmap = memmap[np.newaxis, ...]
+        file_axes = None
+        try:
+            with tifffile.TiffFile(file_path) as tif:
+                file_axes = tif.series[0].axes
+        except Exception:
+            file_axes = None
+        if axes is not None:
+            expected_has_t = 'T' in axes
+            file_has_t = 'T' in file_axes if file_axes is not None else expected_has_t
+            if expected_has_t and not file_has_t:
+                memmap = memmap[np.newaxis, ...]
+            elif not expected_has_t and not file_has_t:
+                memmap = memmap[np.newaxis, ...]
         return memmap
 
     def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
