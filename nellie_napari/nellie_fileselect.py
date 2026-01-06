@@ -479,7 +479,7 @@ class NellieFileSelect(QWidget):
 
         self.selection_text.setText("Selected file:")
 
-        self.file_info = FileInfo(self.filepath, output_naming="stable")
+        self.file_info = FileInfo(self.filepath, output_naming="detailed")
         self.initialize_single_file()
         filename = os.path.basename(self.filepath)
         self.filepath_text.setText(filename)
@@ -575,7 +575,7 @@ class NellieFileSelect(QWidget):
 
         files.sort()
         self.batch_fileinfo_list = [
-            FileInfo(os.path.join(self.filepath, f), output_naming="stable") for f in files
+            FileInfo(os.path.join(self.filepath, f), output_naming="detailed") for f in files
         ]
         for file_info in self.batch_fileinfo_list:
             file_info.find_metadata()
@@ -776,6 +776,18 @@ class NellieFileSelect(QWidget):
             max_c = self.file_info.shape[ax_idx]
             self.channel_button.setEnabled(True)
             self.channel_button.setRange(0, max_c - 1)
+            desired_channel = getattr(self.file_info, "ch", 0)
+            if desired_channel < 0 or desired_channel >= max_c:
+                desired_channel = 0
+            if self.channel_button.value() != desired_channel:
+                self.channel_button.blockSignals(True)
+                self.channel_button.setValue(desired_channel)
+                self.channel_button.blockSignals(False)
+        else:
+            if self.channel_button.value() != 0:
+                self.channel_button.blockSignals(True)
+                self.channel_button.setValue(0)
+                self.channel_button.blockSignals(False)
 
         # Temporal range controls
         self.start_frame_button.setEnabled(False)
@@ -796,11 +808,35 @@ class NellieFileSelect(QWidget):
                 current_start if current_start <= max_t else 0, max_t
             )
 
-            # On first initialization, set to full range and mark initialized
-            if not self.end_frame_init:
+            desired_start = getattr(self.file_info, "t_start", 0) or 0
+            desired_end = getattr(self.file_info, "t_end", None)
+            if desired_end is None:
+                desired_end = max_t
+            if desired_start < 0 or desired_start > max_t:
+                desired_start = 0
+            if desired_end < desired_start or desired_end > max_t:
+                desired_end = max_t
+
+            if (
+                self.start_frame_button.value() != desired_start
+                or self.end_frame_button.value() != desired_end
+            ):
+                self.start_frame_button.blockSignals(True)
+                self.end_frame_button.blockSignals(True)
+                self.start_frame_button.setValue(desired_start)
+                self.end_frame_button.setValue(desired_end)
+                self.start_frame_button.blockSignals(False)
+                self.end_frame_button.blockSignals(False)
+            self.end_frame_init = True
+        else:
+            if self.start_frame_button.value() != 0 or self.end_frame_button.value() != 0:
+                self.start_frame_button.blockSignals(True)
+                self.end_frame_button.blockSignals(True)
                 self.start_frame_button.setValue(0)
-                self.end_frame_button.setValue(max_t)
-                self.end_frame_init = True
+                self.end_frame_button.setValue(0)
+                self.start_frame_button.blockSignals(False)
+                self.end_frame_button.blockSignals(False)
+            self.end_frame_init = False
 
     # -------------------------------------------------------------------------
     # Handlers for UI changes
