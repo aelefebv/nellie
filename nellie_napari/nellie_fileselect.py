@@ -14,6 +14,7 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QGroupBox,
     QSpinBox,
+    QComboBox,
 )
 from qtpy.QtGui import QDoubleValidator
 from napari.utils.notifications import show_info
@@ -120,7 +121,16 @@ class NellieFileSelect(QWidget):
         self.dim_order_button.setText("None")
         self.dim_order_button.setToolTip("No file selected.")
         self.dim_order_button.setEnabled(False)
-        self.dim_order_button.textChanged.connect(self.handle_dim_order_changed)
+        self.dim_order_button.setReadOnly(True)
+        self.dim_order_button.setVisible(False)
+
+        self.axes_combo_boxes: List[QComboBox] = []
+        self.axes_combo_container = QWidget(self)
+        self.axes_combo_layout = QHBoxLayout()
+        self.axes_combo_layout.setContentsMargins(0, 0, 0, 0)
+        self.axes_combo_container.setLayout(self.axes_combo_layout)
+        self.axes_combo_container.setEnabled(False)
+        self._updating_axes_combos = False
 
         # Resolution text caches (as entered by user)
         self.dim_t_text: Optional[str] = "None"
@@ -132,19 +142,19 @@ class NellieFileSelect(QWidget):
         self.dim_t_button = QLineEdit(self)
         self.dim_t_button.setText("None")
         self.dim_t_button.setEnabled(False)
-        self.dim_t_button.textChanged.connect(self.handle_t_changed)
+        self.dim_t_button.editingFinished.connect(self.handle_t_changed)
 
         self.label_z = QLabel("Z resolution (µm):")
         self.dim_z_button = QLineEdit(self)
         self.dim_z_button.setText("None")
         self.dim_z_button.setEnabled(False)
-        self.dim_z_button.textChanged.connect(self.handle_z_changed)
+        self.dim_z_button.editingFinished.connect(self.handle_z_changed)
 
         self.label_xy = QLabel("X & Y resolution (µm):")
         self.dim_xy_button = QLineEdit(self)
         self.dim_xy_button.setText("None")
         self.dim_xy_button.setEnabled(False)
-        self.dim_xy_button.textChanged.connect(self.handle_xy_changed)
+        self.dim_xy_button.editingFinished.connect(self.handle_xy_changed)
 
         # Numeric validators for resolution fields (user input only)
         self._setup_numeric_validators()
@@ -187,6 +197,10 @@ class NellieFileSelect(QWidget):
         self.process_button.clicked.connect(self.on_process)
         self.process_button.setEnabled(False)
 
+        self.validation_label = QLabel("")
+        self.validation_label.setWordWrap(True)
+        self.validation_label.setStyleSheet("color: red")
+
         self.init_ui()
 
     # -------------------------------------------------------------------------
@@ -204,6 +218,101 @@ class NellieFileSelect(QWidget):
         for line_edit in (self.dim_t_button, self.dim_z_button, self.dim_xy_button):
             line_edit.setValidator(validator)
 
+    def _set_line_edit_text(self, line_edit: QLineEdit, text: str) -> None:
+        """
+        Update a QLineEdit value without triggering signal handlers.
+        """
+        line_edit.blockSignals(True)
+        line_edit.setText(text)
+        line_edit.blockSignals(False)
+
+    def _set_validation_messages(self, messages: List[str]) -> None:
+        """
+        Update the validation label with current errors or a success message.
+        """
+        if messages:
+            self.validation_label.setText("\n".join(messages))
+            self.validation_label.setStyleSheet("color: red")
+        else:
+            self.validation_label.setText("All checks passed.")
+            self.validation_label.setStyleSheet("color: green")
+
+    def _clear_axes_combo_boxes(self) -> None:
+        """
+        Remove all axis combo boxes from the layout.
+        """
+        for combo in self.axes_combo_boxes:
+            self.axes_combo_layout.removeWidget(combo)
+            combo.deleteLater()
+        self.axes_combo_boxes = []
+
+    def _enforce_axes_combo_uniqueness(self) -> None:
+        """
+        Ensure axes selections are unique across combo boxes.
+        """
+        selected = [combo.currentText() for combo in self.axes_combo_boxes]
+        for combo in self.axes_combo_boxes:
+            model = combo.model()
+            for idx in range(combo.count()):
+                item = model.item(idx)
+                if item is None:
+                    continue
+                text = combo.itemText(idx)
+                is_selected_elsewhere = text in selected and text != combo.currentText()
+                item.setEnabled(not is_selected_elsewhere)
+
+    def _sync_axes_combo_boxes(self) -> None:
+        """
+        Sync axis combo boxes with current axes state.
+        """
+        if self.file_info is None or self.file_info.axes is None:
+            self._clear_axes_combo_boxes()
+            self.axes_combo_container.setEnabled(False)
+            return
+
+        axes = self.file_info.axes
+        if len(self.axes_combo_boxes) != len(axes):
+            self._clear_axes_combo_boxes()
+            self._updating_axes_combos = True
+            for axis in axes:
+                combo = QComboBox(self)
+                combo.addItems(["T", "Z", "C", "Y", "X"])
+                combo.setCurrentText(axis)
+                combo.currentTextChanged.connect(self.handle_axes_combo_changed)
+                self.axes_combo_layout.addWidget(combo)
+                self.axes_combo_boxes.append(combo)
+            self._updating_axes_combos = False
+        else:
+            self._updating_axes_combos = True
+            for combo, axis in zip(self.axes_combo_boxes, axes):
+                if combo.currentText() != axis:
+                    combo.setCurrentText(axis)
+            self._updating_axes_combos = False
+
+        self.axes_combo_container.setEnabled(True)
+        self._enforce_axes_combo_uniqueness()
+        self._set_line_edit_text(self.dim_order_button, "".join(axes))
+
+    def _validate_axes_text(self, text: str, expected_len: int) -> Optional[str]:
+        """
+        Validate axes text against expected length and allowed axis labels.
+
+        Returns
+        -------
+        Optional[str]
+            Error message if invalid, otherwise None.
+        """
+        if len(text) != expected_len:
+            return f"Axes must be {expected_len} characters for this file."
+        allowed_axes = {"T", "Z", "C", "Y", "X"}
+        if any(axis not in allowed_axes for axis in text):
+            return "Axes must only use T, Z, C, Y, X."
+        if len(set(text)) != len(text):
+            return "Axes must not contain duplicates."
+        if "X" not in text or "Y" not in text:
+            return "Axes must include both X and Y."
+        return None
+
     def _each_file_info(self) -> List[FileInfo]:
         """
         Return a list of all FileInfo objects (single or batch).
@@ -216,6 +325,24 @@ class NellieFileSelect(QWidget):
         if self.batch_fileinfo_list:
             return self.batch_fileinfo_list
         return [self.file_info] if self.file_info is not None else []
+
+    def _apply_to_each_file_info(self, action: str, func) -> bool:
+        """
+        Apply a function to each FileInfo and surface the first error to the user.
+
+        Returns
+        -------
+        bool
+            True if all updates succeeded, False if any failed.
+        """
+        for file_info in self._each_file_info():
+            try:
+                func(file_info)
+            except Exception as exc:
+                show_info(f"{action}: {exc}")
+                self._set_validation_messages([str(exc)])
+                return False
+        return True
 
     @property
     def _has_batch(self) -> bool:
@@ -276,8 +403,7 @@ class NellieFileSelect(QWidget):
 
         sub_layout = QHBoxLayout()
         sub_layout.addWidget(QLabel("Dimension order:"))
-        sub_layout.addWidget(self.dim_order_button)
-        sub_layout.addWidget(QLabel("Only T, C, Z, Y, and X allowed."))
+        sub_layout.addWidget(self.axes_combo_container)
         axes_layout.addLayout(sub_layout)
 
         for label, widget in [
@@ -332,6 +458,7 @@ class NellieFileSelect(QWidget):
         main_layout.addWidget(axes_group)
         main_layout.addWidget(dim_group)
         main_layout.addWidget(slice_group)
+        main_layout.addWidget(self.validation_label)
         main_layout.addWidget(action_group)
 
         self.setLayout(main_layout)
@@ -352,7 +479,7 @@ class NellieFileSelect(QWidget):
 
         self.selection_text.setText("Selected file:")
 
-        self.file_info = FileInfo(self.filepath)
+        self.file_info = FileInfo(self.filepath, output_naming="stable")
         self.initialize_single_file()
         filename = os.path.basename(self.filepath)
         self.filepath_text.setText(filename)
@@ -389,7 +516,6 @@ class NellieFileSelect(QWidget):
         """
         if not filepath:
             # User cancelled; do not modify existing selection or show an error.
-            self.filepath = None
             return False
 
         self.filepath = filepath
@@ -418,7 +544,7 @@ class NellieFileSelect(QWidget):
             self.file_info.load_metadata()
 
         self.file_shape_text.setText(f"{self.file_info.shape}")
-        self.dim_order_button.setText("".join(self.file_info.axes))
+        self._set_line_edit_text(self.dim_order_button, "".join(self.file_info.axes))
         self.dim_order_button.setEnabled(True)
         self.on_change()
 
@@ -449,11 +575,27 @@ class NellieFileSelect(QWidget):
 
         files.sort()
         self.batch_fileinfo_list = [
-            FileInfo(os.path.join(self.filepath, f)) for f in files
+            FileInfo(os.path.join(self.filepath, f), output_naming="stable") for f in files
         ]
         for file_info in self.batch_fileinfo_list:
             file_info.find_metadata()
             file_info.load_metadata()
+
+        # Ensure batch metadata is compatible across files
+        primary_axes = self.batch_fileinfo_list[0].axes
+        primary_shape = self.batch_fileinfo_list[0].shape
+        mismatched = [
+            file_info
+            for file_info in self.batch_fileinfo_list[1:]
+            if file_info.axes != primary_axes or file_info.shape != primary_shape
+        ]
+        if mismatched:
+            show_info(
+                "Batch files have mismatched axes or shapes. "
+                "Please select a folder with compatible files."
+            )
+            self.batch_fileinfo_list = None
+            return False
 
         # Use the first file as the "primary" file for UI state
         self.file_info = self.batch_fileinfo_list[0]
@@ -479,14 +621,19 @@ class NellieFileSelect(QWidget):
             # No file selected; reset relevant UI state
             self.file_shape_text.setText("None")
             self.current_order_text.setText("None")
-            self.dim_order_button.setText("None")
+            self._set_line_edit_text(self.dim_order_button, "None")
             self.dim_order_button.setEnabled(False)
             self.dim_order_button.setToolTip("No file selected.")
+            self.axes_combo_container.setToolTip("No file selected.")
+            self._clear_axes_combo_boxes()
+            self.axes_combo_container.setEnabled(False)
+            self.axes_combo_container.setStyleSheet("")
+            self.validation_label.setText("")
 
             # Reset resolution fields
             for btn in (self.dim_t_button, self.dim_z_button, self.dim_xy_button):
                 btn.setEnabled(False)
-                btn.setText("None")
+                self._set_line_edit_text(btn, "None")
                 btn.setStyleSheet("")
 
             # Reset slice controls
@@ -499,23 +646,26 @@ class NellieFileSelect(QWidget):
 
         # Update available dimensions and resolution fields
         self.check_available_dims()
+        self._sync_axes_combo_boxes()
 
         # Update tooltip for dimension order based on number of dimensions
         ndim = len(self.file_info.shape)
         if ndim == 2:
-            self.dim_order_button.setToolTip("Accepted axes: 'Y', 'X' (e.g. 'YX')")
+            tooltip = "Accepted axes: 'Y', 'X' (e.g. 'YX')"
+            self.dim_order_button.setToolTip(tooltip)
+            self.axes_combo_container.setToolTip(tooltip)
         elif ndim == 3:
-            self.dim_order_button.setToolTip(
-                "Accepted axes: ['T' or 'C' or 'Z'], 'Y', 'X' (e.g. 'ZYX')"
-            )
+            tooltip = "Accepted axes: ['T' or 'C' or 'Z'], 'Y', 'X' (e.g. 'ZYX')"
+            self.dim_order_button.setToolTip(tooltip)
+            self.axes_combo_container.setToolTip(tooltip)
         elif ndim == 4:
-            self.dim_order_button.setToolTip(
-                "Accepted axes: ['T' or 'C' or 'Z']x2, 'Y', 'X' (e.g. 'TZYX')"
-            )
+            tooltip = "Accepted axes: ['T' or 'C' or 'Z']x2, 'Y', 'X' (e.g. 'TZYX')"
+            self.dim_order_button.setToolTip(tooltip)
+            self.axes_combo_container.setToolTip(tooltip)
         elif ndim == 5:
-            self.dim_order_button.setToolTip(
-                "Accepted axes: ['T' or 'C' or 'Z']x3, 'Y', 'X' (e.g. 'TZCYX')"
-            )
+            tooltip = "Accepted axes: ['T' or 'C' or 'Z']x3, 'Y', 'X' (e.g. 'TZCYX')"
+            self.dim_order_button.setToolTip(tooltip)
+            self.axes_combo_container.setToolTip(tooltip)
         elif ndim > 5:
             self.dim_order_button.setStyleSheet("background-color: red")
             show_info(f"Error: Too many dimensions found ({self.file_info.shape}).")
@@ -525,9 +675,11 @@ class NellieFileSelect(QWidget):
             current_order_text = f"({', '.join(self.file_info.axes)})"
             self.current_order_text.setText(current_order_text)
             self.dim_order_button.setStyleSheet("background-color: green")
+            self.axes_combo_container.setStyleSheet("background-color: green")
         else:
             self.current_order_text.setText("Invalid")
             self.dim_order_button.setStyleSheet("background-color: red")
+            self.axes_combo_container.setStyleSheet("background-color: red")
 
         # Enable confirm if both dims and axes are valid
         if getattr(self.file_info, "good_dims", False) and getattr(
@@ -544,6 +696,9 @@ class NellieFileSelect(QWidget):
         ):
             self.preview_button.setEnabled(True)
             self.process_button.setEnabled(True)
+
+        errors = self.file_info.get_validation_errors()
+        self._set_validation_messages(errors)
 
     def check_available_dims(self) -> None:
         """
@@ -564,13 +719,13 @@ class NellieFileSelect(QWidget):
                 if dim_text is None or dim_text == "None":
                     value = dim_res.get(dim)
                     if value is None:
-                        dim_button.setText("None")
+                        self._set_line_edit_text(dim_button, "None")
                         dim_button.setStyleSheet("background-color: red")
                     else:
-                        dim_button.setText(str(value))
+                        self._set_line_edit_text(dim_button, str(value))
                         dim_button.setStyleSheet("background-color: green")
                 else:
-                    dim_button.setText(dim_text)
+                    self._set_line_edit_text(dim_button, dim_text)
                     if dim_res.get(dim) is None:
                         dim_button.setStyleSheet("background-color: red")
                     else:
@@ -578,7 +733,7 @@ class NellieFileSelect(QWidget):
             else:
                 dim_button.setEnabled(False)
                 value = dim_res.get(dim)
-                dim_button.setText(str(value) if value is not None else "None")
+                self._set_line_edit_text(dim_button, str(value) if value is not None else "None")
                 dim_button.setStyleSheet("")
 
         # T and Z use separate fields
@@ -595,14 +750,14 @@ class NellieFileSelect(QWidget):
                 y_val = dim_res.get("Y")
                 value = x_val if x_val is not None else y_val
                 if value is None:
-                    self.dim_xy_button.setText("None")
+                    self._set_line_edit_text(self.dim_xy_button, "None")
                     self.dim_xy_button.setStyleSheet("background-color: red")
                 else:
-                    self.dim_xy_button.setText(str(value))
+                    self._set_line_edit_text(self.dim_xy_button, str(value))
                     if x_val is not None and y_val is not None:
                         self.dim_xy_button.setStyleSheet("background-color: green")
             else:
-                self.dim_xy_button.setText(self.dim_xy_text)
+                self._set_line_edit_text(self.dim_xy_button, self.dim_xy_text)
                 x_val = dim_res.get("X")
                 y_val = dim_res.get("Y")
                 if x_val is None or y_val is None:
@@ -611,7 +766,7 @@ class NellieFileSelect(QWidget):
                     self.dim_xy_button.setStyleSheet("background-color: green")
         else:
             self.dim_xy_button.setEnabled(False)
-            self.dim_xy_button.setText("None")
+            self._set_line_edit_text(self.dim_xy_button, "None")
             self.dim_xy_button.setStyleSheet("")
 
         # Channel controls
@@ -651,84 +806,117 @@ class NellieFileSelect(QWidget):
     # Handlers for UI changes
     # -------------------------------------------------------------------------
 
-    def handle_dim_order_changed(self, text: str) -> None:
+    def handle_dim_order_changed(self) -> None:
         """
         Handle changes in the dimension order input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
         ----------
-        text : str
-            The new dimension order string entered by the user.
         """
-        for file_info in self._each_file_info():
-            file_info.change_axes(text)
+        if self.file_info is None or self.file_info.shape is None:
+            return
+
+        text = self.dim_order_button.text().strip().upper()
+        self._set_line_edit_text(self.dim_order_button, text)
+
+        error = self._validate_axes_text(text, len(self.file_info.shape))
+        if error:
+            self.dim_order_button.setStyleSheet("background-color: red")
+            self.dim_order_button.setToolTip(error)
+            self.axes_combo_container.setStyleSheet("background-color: red")
+            self._set_validation_messages([error])
+            return
+
+        if not self._apply_to_each_file_info(
+            "Error updating axes",
+            lambda file_info: file_info.change_axes(text),
+        ):
+            return
 
         # Axes changes may affect temporal dimension position
         self.end_frame_init = False
         self.on_change()
 
-    def handle_t_changed(self, text: str) -> None:
+    def handle_axes_combo_changed(self, _text: str) -> None:
+        """
+        Handle axes updates from the combo boxes.
+        """
+        if self._updating_axes_combos:
+            return
+        if not self.axes_combo_boxes:
+            return
+        self._enforce_axes_combo_uniqueness()
+        axes_text = "".join(combo.currentText() for combo in self.axes_combo_boxes)
+        self._set_line_edit_text(self.dim_order_button, axes_text)
+        self.handle_dim_order_changed()
+
+    def handle_t_changed(self) -> None:
         """
         Handle changes in the time (T) resolution input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
         ----------
-        text : str
-            The new T resolution entered by the user.
         """
+        text = self.dim_t_button.text()
         self.dim_t_text = text
         try:
             value = float(text)
         except ValueError:
             value = None
 
-        for file_info in self._each_file_info():
-            file_info.change_dim_res("T", value)
+        if not self._apply_to_each_file_info(
+            "Error updating T resolution",
+            lambda file_info: file_info.change_dim_res("T", value),
+        ):
+            return
 
         self.on_change()
 
-    def handle_z_changed(self, text: str) -> None:
+    def handle_z_changed(self) -> None:
         """
         Handle changes in the Z resolution input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
         ----------
-        text : str
-            The new Z resolution entered by the user.
         """
+        text = self.dim_z_button.text()
         self.dim_z_text = text
         try:
             value = float(text)
         except ValueError:
             value = None
 
-        for file_info in self._each_file_info():
-            file_info.change_dim_res("Z", value)
+        if not self._apply_to_each_file_info(
+            "Error updating Z resolution",
+            lambda file_info: file_info.change_dim_res("Z", value),
+        ):
+            return
 
         self.on_change()
 
-    def handle_xy_changed(self, text: str) -> None:
+    def handle_xy_changed(self) -> None:
         """
         Handle changes in the XY resolution input field and updates the
         FileInfo object(s) accordingly.
 
         Parameters
         ----------
-        text : str
-            The new XY resolution entered by the user.
         """
+        text = self.dim_xy_button.text()
         self.dim_xy_text = text
         try:
             value = float(text)
         except ValueError:
             value = None
-
-        for file_info in self._each_file_info():
+        def update_xy(file_info: FileInfo) -> None:
             file_info.change_dim_res("X", value)
             file_info.change_dim_res("Y", value)
+
+        if not self._apply_to_each_file_info("Error updating XY resolution", update_xy):
+            return
 
         self.on_change()
 
@@ -738,8 +926,11 @@ class NellieFileSelect(QWidget):
         spin box value is changed.
         """
         channel = self.channel_button.value()
-        for file_info in self._each_file_info():
-            file_info.change_selected_channel(channel)
+        if not self._apply_to_each_file_info(
+            "Error updating channel selection",
+            lambda file_info: file_info.change_selected_channel(channel),
+        ):
+            return
         self.on_change()
 
     def change_time(self) -> None:
@@ -749,8 +940,11 @@ class NellieFileSelect(QWidget):
         """
         start = self.start_frame_button.value()
         end = self.end_frame_button.value()
-        for file_info in self._each_file_info():
-            file_info.select_temporal_range(start, end)
+        if not self._apply_to_each_file_info(
+            "Error updating temporal range",
+            lambda file_info: file_info.select_temporal_range(start, end),
+        ):
+            return
         self.on_change()
 
     # -------------------------------------------------------------------------
@@ -809,7 +1003,7 @@ class NellieFileSelect(QWidget):
         axes = self.file_info.axes
 
         try:
-            if "Z" in axes:
+            if "Z" in axes and self.file_info.shape[self.file_info.axes.index("Z")] > 1:
                 scale = (
                     float(dim_res["Z"]),
                     float(dim_res["Y"]),
