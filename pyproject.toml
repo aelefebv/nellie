@@ -20,6 +20,7 @@ dependencies = [
     "matplotlib",
     "napari[all]",
     "imagecodecs",
+    "pytest>=9.0.2",
 ]
 urls = {Homepage = "https://github.com/aelefebv/nellie"}
 
