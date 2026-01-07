@@ -111,12 +111,13 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
     return im_info
 
 #%%
-device = 'cpu'
-low_memory = False
-top_dir = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/'
+device = 'gpu'
+low_memory = True
+top_dir = r'D:\test_files\nellie_all_tests\yeast_3d_mitochondria.ome_variants'
+# top_dir = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/'
 # find all the files ending in .tif
 tif_files = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if f.endswith('.tif')]
-for test_file in tif_files[-2:-1]:
+for test_file in tif_files:
     # test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/variant_YX_firstT_maxZ.ome.tif'
     file_info = FileInfo(test_file)
     file_info.find_metadata()

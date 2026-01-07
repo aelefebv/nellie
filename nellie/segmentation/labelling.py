@@ -109,7 +109,6 @@ class Label:
         # Dimensionality and structuring elements (pre-computed)
         self.ndim = 2 if self.im_info.no_z else 3
         self.min_area_pixels = self._compute_min_area_pixels()
-        print(f"Minimum area/volume for segmentation: {self.min_area_pixels} pixels")
         self.footprint = None
         self._set_footprint()
 
