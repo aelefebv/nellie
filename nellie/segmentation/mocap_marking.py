@@ -13,6 +13,7 @@ import itertools
 import numpy as np
 from scipy import ndimage as sp_ndi  # CPU ndimage backend
 
+from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 
@@ -226,6 +227,15 @@ class Markers:
             return np.asarray(arr)
         else:
             return asnumpy(arr)
+
+    def _set_backend(self, device):
+        device = adaptive_run.normalize_device(device)
+        self.device = device
+        self._xp, self._ndi, self.device_type = self._resolve_backend(device)
+        self.use_gpu = self.device_type == "cuda"
+
+    def _set_low_memory(self, low_memory):
+        self.low_memory = bool(low_memory)
 
     def _is_oom_error(self, exc):
         if isinstance(exc, MemoryError):
@@ -777,10 +787,45 @@ class Markers:
         This method allocates memory, sets sigma values, and runs the marking process for all timepoints.
         """
         # Note: We must run mocap marking even if there is no time dimension, since we need the distance and border images for feature extraction
-        self._get_t()
-        self._allocate_memory()
-        self._set_default_sigmas()
-        self._run_mocap_marking()
+        device = adaptive_run.normalize_device(self.device)
+        gpu_ok = adaptive_run.gpu_available()
+        if device == "gpu" and not gpu_ok:
+            logger.warning("Markers: GPU requested but not available; falling back to CPU.")
+        if device == "cpu" or not gpu_ok:
+            device_order = ["cpu"]
+        else:
+            device_order = ["gpu", "cpu"]
+
+        start_low_memory = bool(self.low_memory) or adaptive_run.should_use_low_memory(
+            self.im_info, include_gpu="gpu" in device_order
+        )
+        if start_low_memory and not self.low_memory:
+            logger.info("Markers: enabling low-memory mode based on estimated usage.")
+
+        last_exc = None
+        for dev, low in adaptive_run.mode_candidates(device_order, start_low_memory):
+            try:
+                self._set_backend(dev)
+                self._set_low_memory(low)
+                self._get_t()
+                self._allocate_memory()
+                self._set_default_sigmas()
+                self._run_mocap_marking()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if adaptive_run.is_gpu_unavailable_error(exc) and dev == "gpu":
+                    logger.warning("Markers: GPU backend unavailable; retrying on CPU.")
+                    continue
+                if adaptive_run.is_oom_error(exc):
+                    logger.warning(
+                        "Markers: OOM on %s/%s; retrying with lower settings.",
+                        dev,
+                        "low-memory" if low else "high-memory",
+                    )
+                    continue
+                raise
+        raise last_exc
 
 
 if __name__ == "__main__":

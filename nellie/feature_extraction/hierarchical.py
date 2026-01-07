@@ -35,6 +35,7 @@ warnings.filterwarnings(
     message="invalid value encountered in divide"
 )
 
+from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
@@ -112,7 +113,8 @@ class Hierarchy:
         self.enable_motility = enable_motility
         self.enable_adjacency = enable_adjacency
         self.device = (device or "auto").lower()
-        self.use_gpu = self._resolve_device(self.device, use_gpu)
+        self._prefer_gpu = bool(use_gpu)
+        self.use_gpu = self._resolve_device(self.device, self._prefer_gpu)
         self.node_chunk_size = node_chunk_size
         self.max_node_mask_elems = int(max_node_mask_elems)
 
@@ -157,6 +159,14 @@ class Hierarchy:
         if device == "cpu":
             return False
         return bool(use_gpu and self._cupy_available())
+
+    def _set_backend(self, device: str):
+        device = adaptive_run.normalize_device(device)
+        self.device = device
+        self.use_gpu = self._resolve_device(device, self._prefer_gpu)
+
+    def _set_low_memory(self, low_memory):
+        self.low_memory = bool(low_memory)
 
     def _resolve_node_chunk_size(self, num_nodes: int, num_voxels: int) -> int:
         if num_voxels <= 0:
@@ -525,10 +535,7 @@ class Hierarchy:
         with open(self.im_info.pipeline_paths["adjacency_maps"], "wb") as f:
             pickle.dump(edges, f)
 
-    def run(self):
-        """
-        Main execution method.
-        """
+    def _run_hierarchy(self):
         self._get_t()
 
         # Lazily initialize flow interpolators only if needed
@@ -556,6 +563,49 @@ class Hierarchy:
 
         if self.viewer is not None:
             self.viewer.status = "Done!"
+
+    def run(self):
+        """
+        Main execution method.
+        """
+        device = adaptive_run.normalize_device(self.device)
+        gpu_ok = adaptive_run.gpu_available()
+        if device == "gpu" and not gpu_ok:
+            logger.warning("Hierarchy: GPU requested but not available; falling back to CPU.")
+        if device == "auto" and not self._prefer_gpu:
+            device_order = ["cpu"]
+        elif device == "cpu" or not gpu_ok:
+            device_order = ["cpu"]
+        else:
+            device_order = ["gpu", "cpu"]
+
+        start_low_memory = bool(self.low_memory) or adaptive_run.should_use_low_memory(
+            self.im_info, include_gpu="gpu" in device_order
+        )
+        if start_low_memory and not self.low_memory:
+            logger.info("Hierarchy: enabling low-memory mode based on estimated usage.")
+
+        last_exc = None
+        for dev, low in adaptive_run.mode_candidates(device_order, start_low_memory):
+            try:
+                self._set_backend(dev)
+                self._set_low_memory(low)
+                self._run_hierarchy()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if adaptive_run.is_gpu_unavailable_error(exc) and dev == "gpu":
+                    logger.warning("Hierarchy: GPU backend unavailable; retrying on CPU.")
+                    continue
+                if adaptive_run.is_oom_error(exc):
+                    logger.warning(
+                        "Hierarchy: OOM on %s/%s; retrying with lower settings.",
+                        dev,
+                        "low-memory" if low else "high-memory",
+                    )
+                    continue
+                raise
+        raise last_exc
 
 
 def append_to_array(to_append):

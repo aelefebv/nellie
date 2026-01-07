@@ -112,7 +112,7 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
 #%%
 device = 'cpu'
-low_memory = True
+low_memory = False
 top_dir = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/'
 # find all the files ending in .tif
 tif_files = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if f.endswith('.tif')]

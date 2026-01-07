@@ -6,6 +6,7 @@ optimizations for large volumes and optional GPU acceleration.
 """
 import numpy as np
 
+from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
@@ -89,6 +90,7 @@ class Label:
 
         # Optimization / configuration parameters
         self.chunk_z = chunk_z if (not self.im_info.no_z and chunk_z is not None) else None
+        self._user_chunk_z = self.chunk_z
         self.flush_interval = max(1, int(flush_interval))
         min_radius_um = float(min_radius_um)
         x_res = self.im_info.dim_res.get("X") or 1.0
@@ -178,6 +180,26 @@ class Label:
         self.ndi = ndi
         self.device_type = "cpu"
         self._set_footprint()
+
+    def _set_backend(self, device):
+        device = adaptive_run.normalize_device(device)
+        self.device = device
+        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self._set_footprint()
+
+    def _set_low_memory(self, low_memory):
+        self.low_memory = bool(low_memory)
+        if self.im_info.no_z:
+            self.chunk_z = None
+            return
+        if self._user_chunk_z is not None:
+            self.chunk_z = self._user_chunk_z
+            return
+        if self.low_memory:
+            inferred_chunk = self._infer_chunk_z()
+            self.chunk_z = inferred_chunk if inferred_chunk is not None else None
+        else:
+            self.chunk_z = None
 
     def _set_footprint(self):
         if self.im_info.no_z:
@@ -712,9 +734,44 @@ class Label:
         Main method to execute the full segmentation process over the image data.
         """
         logger.info('Running semantic segmentation.')
-        self._get_t()
-        self._allocate_memory()
-        self._run_segmentation()
+        device = adaptive_run.normalize_device(self.device)
+        gpu_ok = adaptive_run.gpu_available()
+        if device == "gpu" and not gpu_ok:
+            logger.warning("Label: GPU requested but not available; falling back to CPU.")
+        if device == "cpu" or not gpu_ok:
+            device_order = ["cpu"]
+        else:
+            device_order = ["gpu", "cpu"]
+
+        start_low_memory = bool(self.low_memory) or adaptive_run.should_use_low_memory(
+            self.im_info, include_gpu="gpu" in device_order
+        )
+        if start_low_memory and not self.low_memory:
+            logger.info("Label: enabling low-memory mode based on estimated usage.")
+
+        last_exc = None
+        for dev, low in adaptive_run.mode_candidates(device_order, start_low_memory):
+            try:
+                self._set_backend(dev)
+                self._set_low_memory(low)
+                self._get_t()
+                self._allocate_memory()
+                self._run_segmentation()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if adaptive_run.is_gpu_unavailable_error(exc) and dev == "gpu":
+                    logger.warning("Label: GPU backend unavailable; retrying on CPU.")
+                    continue
+                if adaptive_run.is_oom_error(exc):
+                    logger.warning(
+                        "Label: OOM on %s/%s; retrying with lower settings.",
+                        dev,
+                        "low-memory" if low else "high-memory",
+                    )
+                    continue
+                raise
+        raise last_exc
 
 
 if __name__ == "__main__":
