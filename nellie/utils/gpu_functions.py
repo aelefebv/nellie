@@ -4,14 +4,28 @@ GPU/CPU-agnostic utility functions for image thresholding.
 This module provides implementations of Otsu and triangle thresholding methods
 that work with both NumPy (CPU) and CuPy (GPU) backends.
 """
-from nellie import xp, device_type
+import numpy as np
 
 
-def otsu_threshold(matrix, nbins=256):
+def _get_xp(matrix, xp=None):
+    if xp is not None:
+        return xp
+    try:
+        import cupy
+
+        if isinstance(matrix, cupy.ndarray):
+            return cupy
+    except Exception:
+        pass
+    return np
+
+
+def otsu_threshold(matrix, nbins=256, xp=None):
     """
     GPU/CPU-agnostic implementation of Otsu's threshold.
     Operates on an n-d array using the current xp backend.
     """
+    xp = _get_xp(matrix, xp=xp)
     # Flatten and build histogram
     flat = matrix.reshape(-1)
     counts, bin_edges = xp.histogram(
@@ -36,11 +50,12 @@ def otsu_threshold(matrix, nbins=256):
     return threshold, variance12[idx]
 
 
-def triangle_threshold(matrix, nbins=256):
+def triangle_threshold(matrix, nbins=256, xp=None):
     """
     GPU/CPU-agnostic implementation of triangle threshold.
     Operates on an n-d array using the current xp backend.
     """
+    xp = _get_xp(matrix, xp=xp)
     flat = matrix.reshape(-1)
     hist, bin_edges = xp.histogram(
         flat,

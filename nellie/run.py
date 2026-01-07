@@ -15,7 +15,15 @@ from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 import time
 
-def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=None, timeit=False):
+def run(
+    file_info,
+    remove_edges=False,
+    otsu_thresh_intensity=False,
+    threshold=None,
+    timeit=False,
+    device="auto",
+    low_memory=False,
+):
     """
     Main entry point for the Nellie pipeline.
 
@@ -31,6 +39,10 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
         Manual threshold value (default is None).
     timeit : bool, optional
         Whether to time each step of the pipeline (default is False).
+    device : {"auto", "cpu", "gpu"}, optional
+        Backend selection for preprocessing, labeling, and feature extraction.
+    low_memory : bool, optional
+        Whether to prefer lower-memory (slower) implementations where available.
 
     Returns
     -------
@@ -41,7 +53,9 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    preprocessing = Filter(im_info, remove_edges=remove_edges)
+    preprocessing = Filter(
+        im_info, remove_edges=remove_edges, device=device, low_memory=low_memory
+    )
     preprocessing.run()
     if timeit:
         end_time = time.perf_counter()
@@ -49,7 +63,13 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    segmenting = Label(im_info, otsu_thresh_intensity=otsu_thresh_intensity, threshold=threshold)
+    segmenting = Label(
+        im_info,
+        otsu_thresh_intensity=otsu_thresh_intensity,
+        threshold=threshold,
+        device=device,
+        low_memory=low_memory,
+    )
     segmenting.run()
     if timeit:
         end_time = time.perf_counter()
@@ -57,7 +77,7 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    networking = Network(im_info)
+    networking = Network(im_info, device=device)
     networking.run()
     if timeit:
         end_time = time.perf_counter()
@@ -65,7 +85,7 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    mocap_marking = Markers(im_info)
+    mocap_marking = Markers(im_info, device=device)
     mocap_marking.run()
     if timeit:
         end_time = time.perf_counter()
@@ -73,7 +93,7 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    hu_tracking = HuMomentTracking(im_info)
+    hu_tracking = HuMomentTracking(im_info, device=device, low_memory=low_memory)
     hu_tracking.run()
     if timeit:
         end_time = time.perf_counter()
@@ -81,7 +101,7 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    vox_reassign = VoxelReassigner(im_info)
+    vox_reassign = VoxelReassigner(im_info, device=device)
     vox_reassign.run()
     if timeit:
         end_time = time.perf_counter()
@@ -89,7 +109,9 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
 
     if timeit:
         start_time = time.perf_counter()
-    hierarchy = Hierarchy(im_info, skip_nodes=False)
+    hierarchy = Hierarchy(
+        im_info, skip_nodes=False, device=device, low_memory=low_memory
+    )
     hierarchy.run()
     if timeit:
         end_time = time.perf_counter()

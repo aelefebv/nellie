@@ -780,6 +780,8 @@ class ImInfo:
         self.new_axes = None
         self.shape = None
         self.ome_metadata = None
+        self.file_axes = None
+        self.file_shape = None
         self._get_ome_metadata()
 
         self.no_z = True
@@ -795,9 +797,9 @@ class ImInfo:
 
         Updates the `no_z` and `no_t` flags based on whether the Z and T axes are present and have more than one slice or timepoint.
         """
-        if 'Z' in self.axes and self.shape[self.new_axes.index('Z')] > 1:
+        if 'Z' in self.axes and self.shape[self.axes.index('Z')] > 1:
             self.no_z = False
-        if 'T' in self.axes and self.shape[self.new_axes.index('T')] > 1:
+        if 'T' in self.axes and self.shape[self.axes.index('T')] > 1:
             self.no_t = False
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif', for_nellie=True):
@@ -870,20 +872,97 @@ class ImInfo:
         Extracts OME metadata from the image and updates the `axes`, `new_axes`, `shape`, and `dim_res` attributes.
 
         If the OME-TIFF lacks a 'T' axis, one is added to the in-memory representation.
+        Axes are normalized to canonical order (T, Z, Y, X) and singleton Z is squeezed.
         """
         with tifffile.TiffFile(self.im_path) as tif:
-            self.axes = tif.series[0].axes
-            self.new_axes = self.axes
-        if 'T' not in self.axes:
-            self.im = self.im[np.newaxis, ...]
-            self.axes = 'T' + self.axes
-            self.new_axes = self.axes
+            self.file_axes = tif.series[0].axes
+            self.file_shape = tif.series[0].shape
+        self.im, self.axes = self._normalize_axes(self.im, self.file_axes)
+        self.new_axes = self.axes
         self.shape = self.im.shape
         self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
         self.dim_res['X'] = self.ome_metadata.images[0].pixels.physical_size_x
         self.dim_res['Y'] = self.ome_metadata.images[0].pixels.physical_size_y
         self.dim_res['Z'] = self.ome_metadata.images[0].pixels.physical_size_z
         self.dim_res['T'] = self.ome_metadata.images[0].pixels.time_increment
+
+    def _normalize_axes(self, data, axes):
+        """
+        Normalize axes to a canonical order (T, Z, Y, X) and squeeze singleton Z.
+        """
+        if axes is None:
+            raise ValueError("Axes metadata is not initialized")
+        axes_list = list(axes)
+        # Ensure T exists and is first.
+        if 'T' not in axes_list:
+            data = data[np.newaxis, ...]
+            axes_list = ['T'] + axes_list
+        else:
+            t_index = axes_list.index('T')
+            if t_index != 0:
+                data = np.moveaxis(data, t_index, 0)
+                axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
+        # Squeeze singleton Z if present.
+        if 'Z' in axes_list:
+            z_index = axes_list.index('Z')
+            if data.shape[z_index] == 1:
+                data = np.squeeze(data, axis=z_index)
+                axes_list.pop(z_index)
+        # Validate axes
+        allowed_axes = {'T', 'Z', 'Y', 'X'}
+        extra_axes = [ax for ax in axes_list if ax not in allowed_axes]
+        if extra_axes:
+            raise ValueError(f"Unsupported axes found: {extra_axes}")
+        if 'Y' not in axes_list or 'X' not in axes_list:
+            raise ValueError("Axes must include both Y and X")
+        # Canonical order: T, Z (if present), Y, X
+        target_axes = ['T']
+        if 'Z' in axes_list:
+            target_axes.append('Z')
+        target_axes.extend(['Y', 'X'])
+        if axes_list != target_axes:
+            order = [axes_list.index(ax) for ax in target_axes]
+            data = np.transpose(data, order)
+            axes_list = target_axes
+        if data.ndim != len(axes_list):
+            raise ValueError("Data dimensions do not match normalized axes")
+        return data, ''.join(axes_list)
+
+    def _normalize_memmap(self, memmap, file_axes):
+        """
+        Normalize a memmap to the canonical axes used by this ImInfo instance.
+        """
+        if file_axes is None:
+            return memmap
+        data = memmap
+        axes_list = list(file_axes)
+        # Ensure T exists and is first.
+        if 'T' not in axes_list:
+            data = data[np.newaxis, ...]
+            axes_list = ['T'] + axes_list
+        else:
+            t_index = axes_list.index('T')
+            if t_index != 0:
+                data = np.moveaxis(data, t_index, 0)
+                axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
+        # Squeeze singleton Z if this ImInfo treats Z as absent.
+        if 'Z' in axes_list and 'Z' not in self.axes:
+            z_index = axes_list.index('Z')
+            if data.shape[z_index] == 1:
+                data = np.squeeze(data, axis=z_index)
+                axes_list.pop(z_index)
+            else:
+                raise ValueError("Z axis present with size > 1, but ImInfo expects no Z axis")
+        # Validate axes match target
+        target_axes = list(self.axes)
+        if set(axes_list) != set(target_axes):
+            extra = sorted(set(axes_list) - set(target_axes))
+            missing = sorted(set(target_axes) - set(axes_list))
+            raise ValueError(f"Axes mismatch. Extra: {extra}, missing: {missing}")
+        if axes_list != target_axes:
+            order = [axes_list.index(ax) for ax in target_axes]
+            data = np.transpose(data, order)
+        return data
 
     def get_memmap(self, file_path, read_mode='r+'):
         """
@@ -902,21 +981,13 @@ class ImInfo:
             A memory-mapped numpy array representing the image data.
         """
         memmap = tifffile.memmap(file_path, mode=read_mode)
-        axes = self.new_axes or self.axes
         file_axes = None
         try:
             with tifffile.TiffFile(file_path) as tif:
                 file_axes = tif.series[0].axes
         except Exception:
             file_axes = None
-        if axes is not None:
-            expected_has_t = 'T' in axes
-            file_has_t = 'T' in file_axes if file_axes is not None else expected_has_t
-            if expected_has_t and not file_has_t:
-                memmap = memmap[np.newaxis, ...]
-            elif not expected_has_t and not file_has_t:
-                memmap = memmap[np.newaxis, ...]
-        return memmap
+        return self._normalize_memmap(memmap, file_axes)
 
     def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
                         return_memmap=False, read_mode='r+'):

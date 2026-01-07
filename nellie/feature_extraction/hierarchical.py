@@ -63,6 +63,9 @@ class Hierarchy:
         low_memory: bool = False,
         enable_motility: bool = True,
         enable_adjacency: bool = True,
+        device: str | None = None,
+        node_chunk_size: int | None = None,
+        max_node_mask_elems: int = int(5e7),
     ):
         """
         Parameters
@@ -75,12 +78,19 @@ class Hierarchy:
             Viewer object with `.status` attribute for status updates.
         use_gpu : bool
             If True and CuPy is available, some computations will attempt to use GPU.
+            Ignored when device is set to "cpu" or "gpu".
         low_memory : bool
             If True, use low-memory (slower) aggregation strategies where possible.
         enable_motility : bool
             If False, skip all motion-related features (flow interpolation, velocities, etc.).
         enable_adjacency : bool
             If False, skip adjacency map construction.
+        device : {"auto", "cpu", "gpu"}, optional
+            Backend selection for GPU-eligible operations. "auto" uses GPU if available.
+        node_chunk_size : int, optional
+            Target number of voxels per chunk when assigning voxels to nodes.
+        max_node_mask_elems : int, optional
+            Upper bound on the size of the node/voxel mask (num_nodes * chunk_size).
         """
         self.im_info = im_info
         # This may be overwritten in _get_t, but is a good default
@@ -101,7 +111,10 @@ class Hierarchy:
         self.low_memory = low_memory
         self.enable_motility = enable_motility
         self.enable_adjacency = enable_adjacency
-        self.use_gpu = bool(use_gpu and _HAS_CUPY)
+        self.device = (device or "auto").lower()
+        self.use_gpu = self._resolve_device(self.device, use_gpu)
+        self.node_chunk_size = node_chunk_size
+        self.max_node_mask_elems = int(max_node_mask_elems)
 
         # Memory-mapped images
         self.im_raw = None
@@ -125,6 +138,36 @@ class Hierarchy:
         self.branches = None
         self.components = None
         self.image = None
+
+    def _cupy_available(self) -> bool:
+        if not _HAS_CUPY or cp is None:
+            return False
+        try:
+            return cp.cuda.runtime.getDeviceCount() > 0
+        except Exception:
+            return False
+
+    def _resolve_device(self, device: str, use_gpu: bool) -> bool:
+        if device not in ("auto", "cpu", "gpu", "cuda"):
+            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+        if device in ("gpu", "cuda"):
+            if not self._cupy_available():
+                raise RuntimeError("GPU backend requested but CuPy/CUDA is not available.")
+            return True
+        if device == "cpu":
+            return False
+        return bool(use_gpu and self._cupy_available())
+
+    def _resolve_node_chunk_size(self, num_nodes: int, num_voxels: int) -> int:
+        if num_voxels <= 0:
+            return 1
+        base_chunk = self.node_chunk_size or 10000
+        max_mask_elems = self.max_node_mask_elems
+        if self.low_memory:
+            max_mask_elems = max(1, max_mask_elems // 4)
+        if num_nodes > 0 and num_nodes * base_chunk > max_mask_elems:
+            base_chunk = max(1, max_mask_elems // num_nodes)
+        return int(max(1, min(base_chunk, num_voxels)))
 
     def _get_t(self) -> int:
         """
@@ -396,9 +439,8 @@ class Hierarchy:
                 for voxel_idx, nodes in enumerate(voxel_node_lists):
                     if nodes is None or len(nodes) == 0:
                         continue
-                    # original code used nodes-1
                     for n in nodes:
-                        edges_vn.append((voxel_idx, int(n) - 1))
+                        edges_vn.append((voxel_idx, int(n)))
                 v_n.append(np.array(edges_vn, dtype=np.int64) if edges_vn else np.zeros((0, 2), dtype=np.int64))
 
             # voxel -> branch adjacency (voxel index, branch index 0-based)
@@ -691,55 +733,79 @@ class Voxels:
         self.node_dim2_lims.append(lims_dim2)
 
         frame_coords = np.array(frame_coords)
-        chunk_size = 10000
-        num_chunks = int(np.ceil(len(frame_coords) / chunk_size))
-        chunk_node_voxel_idxs = {idx: [] for idx in range(len(skeleton_pixels))}
-        chunk_nodes_idxs = []
-        for chunk_num in range(num_chunks):
-            logger.debug(f"Processing chunk {chunk_num + 1} of {num_chunks}")
-            start = chunk_num * chunk_size
-            end = min((chunk_num + 1) * chunk_size, len(frame_coords))
-            chunk_frame_coords = frame_coords[start:end]
+        num_nodes = len(skeleton_pixels)
+        num_voxels = len(frame_coords)
+        chunk_size = self.hierarchy._resolve_node_chunk_size(num_nodes, num_voxels)
 
-            if not self.hierarchy.im_info.no_z:
-                dim0_coords, dim1_coords, dim2_coords = (
-                    chunk_frame_coords[:, 0],
-                    chunk_frame_coords[:, 1],
-                    chunk_frame_coords[:, 2],
-                )
-                dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (
-                    lims_dim0[:, 1][:, None] >= dim0_coords
-                )
-                dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (
-                    lims_dim1[:, 1][:, None] >= dim1_coords
-                )
-                dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (
-                    lims_dim2[:, 1][:, None] >= dim2_coords
-                )
-                mask = dim0_mask & dim1_mask & dim2_mask
-            else:
-                dim0_coords, dim1_coords = chunk_frame_coords[:, 0], chunk_frame_coords[:, 1]
-                dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (
-                    lims_dim0[:, 1][:, None] >= dim0_coords
-                )
-                dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (
-                    lims_dim1[:, 1][:, None] >= dim1_coords
-                )
-                mask = dim0_mask & dim1_mask
+        def _process_chunks(local_chunk_size):
+            chunk_node_voxel_idxs = {idx: [] for idx in range(num_nodes)}
+            chunk_nodes_idxs = []
+            if num_voxels == 0:
+                return chunk_nodes_idxs, chunk_node_voxel_idxs
+            num_chunks = int(np.ceil(num_voxels / local_chunk_size))
+            for chunk_num in range(num_chunks):
+                logger.debug(f"Processing chunk {chunk_num + 1} of {num_chunks}")
+                start = chunk_num * local_chunk_size
+                end = min((chunk_num + 1) * local_chunk_size, num_voxels)
+                chunk_frame_coords = frame_coords[start:end]
 
-            frame_coord_nodes_idxs = [[] for _ in range(mask.shape[1])]
-            rows, cols = np.nonzero(mask)
-            for row, col in zip(rows, cols):
-                frame_coord_nodes_idxs[col].append(row)
-            frame_coord_nodes_idxs = [np.array(indices) for indices in frame_coord_nodes_idxs]
+                if not self.hierarchy.im_info.no_z:
+                    dim0_coords, dim1_coords, dim2_coords = (
+                        chunk_frame_coords[:, 0],
+                        chunk_frame_coords[:, 1],
+                        chunk_frame_coords[:, 2],
+                    )
+                    dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (
+                        lims_dim0[:, 1][:, None] >= dim0_coords
+                    )
+                    dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (
+                        lims_dim1[:, 1][:, None] >= dim1_coords
+                    )
+                    dim2_mask = (lims_dim2[:, 0][:, None] <= dim2_coords) & (
+                        lims_dim2[:, 1][:, None] >= dim2_coords
+                    )
+                    mask = dim0_mask & dim1_mask & dim2_mask
+                else:
+                    dim0_coords, dim1_coords = chunk_frame_coords[:, 0], chunk_frame_coords[:, 1]
+                    dim0_mask = (lims_dim0[:, 0][:, None] <= dim0_coords) & (
+                        lims_dim0[:, 1][:, None] >= dim0_coords
+                    )
+                    dim1_mask = (lims_dim1[:, 0][:, None] <= dim1_coords) & (
+                        lims_dim1[:, 1][:, None] >= dim1_coords
+                    )
+                    mask = dim0_mask & dim1_mask
 
-            chunk_nodes_idxs.extend(frame_coord_nodes_idxs)
+                frame_coord_nodes_idxs = [[] for _ in range(mask.shape[1])]
+                rows, cols = np.nonzero(mask)
+                for row, col in zip(rows, cols):
+                    frame_coord_nodes_idxs[col].append(row)
+                frame_coord_nodes_idxs = [
+                    np.array(indices) for indices in frame_coord_nodes_idxs
+                ]
 
-            for i in range(skeleton_pixels.shape[0]):
-                chunk_node_voxel_idxs[i].extend(np.nonzero(mask[i])[0] + start)
+                chunk_nodes_idxs.extend(frame_coord_nodes_idxs)
+
+                for i in range(num_nodes):
+                    chunk_node_voxel_idxs[i].extend(np.nonzero(mask[i])[0] + start)
+            return chunk_nodes_idxs, chunk_node_voxel_idxs
+
+        while True:
+            try:
+                chunk_nodes_idxs, chunk_node_voxel_idxs = _process_chunks(chunk_size)
+                break
+            except MemoryError:
+                if chunk_size <= 1:
+                    raise
+                logger.warning(
+                    "Node assignment OOM with chunk_size=%d; retrying smaller chunks.",
+                    chunk_size,
+                )
+                chunk_size = max(1, chunk_size // 2)
 
         self.node_labels.append(chunk_nodes_idxs)
-        chunk_node_voxel_idxs = [np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))]
+        chunk_node_voxel_idxs = [
+            np.array(chunk_node_voxel_idxs[i]) for i in range(len(skeleton_pixels))
+        ]
         self.node_voxel_idxs.append(chunk_node_voxel_idxs)
 
     def _get_min_euc_dist(self, t, vec):
@@ -936,8 +1002,12 @@ class Voxels:
 
             r2_rel_mag_12 = np.linalg.norm(r2_rel_12, axis=1)
             r1_rel_mag_12 = np.linalg.norm(r1_rel_12, axis=1)
-            directionality_rel = np.abs(r2_rel_mag_12 - r1_rel_mag_12) / (
-                r2_rel_mag_12 + r1_rel_mag_12
+            denom = r2_rel_mag_12 + r1_rel_mag_12
+            directionality_rel = np.divide(
+                np.abs(r2_rel_mag_12 - r1_rel_mag_12),
+                denom,
+                out=np.full_like(denom, np.nan, dtype=np.float32),
+                where=denom != 0,
             )
         else:
             lin_vel = np.full((n, dims), np.nan, dtype=np.float32)
@@ -1090,9 +1160,12 @@ def aggregate_stats_for_class(child_class, t, list_of_idxs, low_memory: bool = F
         # Convert lists to arrays
         for stat_name in aggregate_stats:
             for key in aggregate_stats[stat_name]:
-                aggregate_stats[stat_name][key] = np.asarray(
-                    aggregate_stats[stat_name][key]
-                )
+                arr = np.asarray(aggregate_stats[stat_name][key])
+                if arr.ndim == 0:
+                    arr = arr.reshape(1, 1)
+                elif arr.ndim == 1:
+                    arr = arr[None, :]
+                aggregate_stats[stat_name][key] = arr
         return aggregate_stats
 
     # Original vectorized implementation (faster but more memory-intensive)
@@ -1242,9 +1315,14 @@ class Nodes:
                     np.nanmean(coords_vox[:, 1]) * self.hierarchy.spacing[1]
                 )
 
-            dist_vox_node = coords_vox - self.nodes[t][i]
+            dist_vox_node = (coords_vox - self.nodes[t][i]).astype(float, copy=False)
             dist_vox_node_mag = np.linalg.norm(dist_vox_node, axis=1, keepdims=True)
-            dir_vox_node = dist_vox_node / dist_vox_node_mag
+            dir_vox_node = np.divide(
+                dist_vox_node,
+                dist_vox_node_mag,
+                out=np.full_like(dist_vox_node, np.nan),
+                where=dist_vox_node_mag != 0,
+            )
 
             vec01 = self.hierarchy.voxels.vec01[t][vox_idxs]
             vec12 = self.hierarchy.voxels.vec12[t][vox_idxs]

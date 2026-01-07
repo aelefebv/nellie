@@ -4,16 +4,15 @@ Network skeletonization and analysis for microscopy images.
 This module provides the Network class for skeletonizing network-like structures
 and analyzing their topology with optimized CPU/GPU processing.
 """
+import itertools
 import numpy as np
 import skimage.measure
 import skimage.morphology as morph
 from scipy.spatial import cKDTree
 from scipy import ndimage as ndi_cpu
 
-from nellie import xp, ndi, device_type
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
-from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
 
 
 class Network:
@@ -25,7 +24,7 @@ class Network:
       - Vectorized neighborhood operations (no Python per-voxel loops on large arrays).
       - More memory-friendly local-max detection.
       - More efficient branch relabeling using distance transforms on per-object crops.
-      - Graceful degradation when GPU memory is insufficient (skip expensive cleaning instead of failing).
+      - Graceful degradation when GPU memory is insufficient (CPU/chunked fallback).
 
     Parameters
     ----------
@@ -39,13 +38,32 @@ class Network:
         Maximum radius of detected objects in micrometers.
     viewer : object or None, optional
         Viewer object for status reporting.
+    device : {"auto", "cpu", "gpu"}, optional
+        Backend selection for connectivity computations.
+    low_memory : bool, optional
+        If True, use chunked CPU fallbacks for local neighborhood operations.
+    max_chunk_voxels : int, optional
+        Maximum voxels per chunk for low-memory paths.
     """
 
-    def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1,
-                 viewer=None):
+    def __init__(
+        self,
+        im_info: ImInfo,
+        num_t=None,
+        min_radius_um=0.20,
+        max_radius_um=1,
+        viewer=None,
+        device="auto",
+        low_memory: bool = False,
+        max_chunk_voxels: int = int(1e6),
+    ):
 
         self.im_info = im_info
+        self.device = device
+        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.force_device = device is not None and device.lower() in ("cpu", "gpu", "cuda")
+        self.low_memory = low_memory
+        self.max_chunk_voxels = int(max_chunk_voxels)
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
@@ -84,14 +102,111 @@ class Network:
     # -------------------------------------------------------------------------
     # Helper methods for device handling
     # -------------------------------------------------------------------------
+    def _resolve_backend(self, device):
+        device = (device or "auto").lower()
+        if device not in ("auto", "cpu", "gpu", "cuda"):
+            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+
+        if device in ("gpu", "cuda"):
+            xp, ndi = self._try_import_cupy(require=True)
+            return xp, ndi, "cuda"
+        if device == "cpu":
+            import numpy as np
+            import scipy.ndimage as ndi
+            return np, ndi, "cpu"
+
+        xp, ndi = self._try_import_cupy(require=False)
+        if xp is not None:
+            return xp, ndi, "cuda"
+        import numpy as np
+        import scipy.ndimage as ndi
+        return np, ndi, "cpu"
+
+    def _try_import_cupy(self, require):
+        try:
+            import cupy
+            import cupyx.scipy.ndimage as ndi
+        except ModuleNotFoundError as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
+            return None, None
+
+        try:
+            device_count = cupy.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
+            return None, None
+
+        if device_count <= 0:
+            if require:
+                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
+            return None, None
+
+        return cupy, ndi
+
+    def _is_oom_error(self, exc):
+        if isinstance(exc, MemoryError):
+            return True
+        if self.device_type != "cuda":
+            return False
+        try:
+            import cupy
+
+            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
+        except Exception:
+            return "OutOfMemory" in repr(exc)
+
+    def _free_gpu_memory(self):
+        if self.device_type != "cuda":
+            return
+        try:
+            self.xp.get_default_memory_pool().free_all_blocks()
+        except Exception:
+            return
+
+    def _switch_to_cpu(self):
+        import numpy as np
+        import scipy.ndimage as ndi
+
+        self.xp = np
+        self.ndi = ndi
+        self.device_type = "cpu"
+
+    def _compute_chunk_shape(self, shape, max_chunk_voxels):
+        if max_chunk_voxels is None or max_chunk_voxels <= 0:
+            return tuple(shape)
+        chunk = list(shape)
+        while int(np.prod(chunk)) > max_chunk_voxels:
+            idx = int(np.argmax(chunk))
+            chunk[idx] = max(1, int(np.ceil(chunk[idx] / 2)))
+        return tuple(chunk)
+
+    def _iter_chunks(self, shape, chunk_shape, halo):
+        if halo is None or len(halo) != len(shape):
+            halo = (0,) * len(shape)
+        ranges = [range(0, dim, step) for dim, step in zip(shape, chunk_shape)]
+        for starts in itertools.product(*ranges):
+            ends = [min(start + step, dim) for start, step, dim in zip(starts, chunk_shape, shape)]
+            core = tuple(slice(s, e) for s, e in zip(starts, ends))
+            ext_starts = [max(0, s - h) for s, h in zip(starts, halo)]
+            ext_ends = [min(dim, e + h) for e, h, dim in zip(ends, halo, shape)]
+            ext = tuple(slice(s, e) for s, e in zip(ext_starts, ext_ends))
+            core_in_ext = tuple(
+                slice(s - es, e - es) for s, e, es in zip(starts, ends, ext_starts)
+            )
+            yield core, ext, core_in_ext
+
     def _to_xp(self, arr):
         """
         Convert an array to the backend array type (xp).
         """
         # xp is numpy when running on CPU and cupy when on GPU.
         try:
-            return xp.asarray(arr)
+            return self.xp.asarray(arr)
         except Exception as e:
+            if self.device_type == "cuda":
+                raise
             logger.warning(f"xp.asarray failed; falling back to numpy. Error: {e}")
             return np.asarray(arr)
 
@@ -99,31 +214,41 @@ class Network:
         """
         Convert xp array to a numpy array. If already numpy, return as-is.
         """
-        if device_type == 'cuda' and hasattr(arr, 'get'):
+        if self.device_type == "cuda" and hasattr(arr, "get"):
             return arr.get()
         return np.asarray(arr)
 
     # -------------------------------------------------------------------------
     # Neighborhood-based skeleton cleanup
     # -------------------------------------------------------------------------
-    def _remove_connected_label_pixels(self, skel_labels):
+    def _remove_connected_label_pixels(self, skel_labels, force_cpu: bool = False):
         """
         Removes skeleton pixels that are connected to multiple labeled regions.
 
         This vectorized implementation replaces the original per-pixel Python loop
         with min/max filters over 3x3 (2D) or 3x3x3 (3D) neighborhoods.
-
-        Parameters
-        ----------
-        skel_labels : array-like
-            Skeletonized label data (xp or numpy array).
-
-        Returns
-        -------
-        xp.ndarray
-            Cleaned skeleton data with conflicting pixels removed.
         """
-        labels = self._to_xp(skel_labels)
+        if force_cpu:
+            labels_np = np.asarray(skel_labels)
+            if self.low_memory:
+                return self._remove_connected_label_pixels_chunked(labels_np)
+            return self._remove_connected_label_pixels_impl(labels_np, np, ndi_cpu)
+
+        labels_xp = self._to_xp(skel_labels)
+        if self.low_memory:
+            labels_np = self._to_cpu(labels_xp)
+            return self._remove_connected_label_pixels_chunked(labels_np)
+
+        try:
+            return self._remove_connected_label_pixels_impl(labels_xp, self.xp, self.ndi)
+        except Exception as exc:
+            if not self._is_oom_error(exc):
+                raise
+            self._free_gpu_memory()
+            labels_np = self._to_cpu(labels_xp)
+            return self._remove_connected_label_pixels_chunked(labels_np)
+
+    def _remove_connected_label_pixels_impl(self, labels, xp, ndi):
         mask = labels > 0
 
         if self.im_info.no_z:
@@ -131,16 +256,13 @@ class Network:
         else:
             size = (3, 3, 3)
 
-        # Maximum label in neighborhood
-        max_labels = ndi.maximum_filter(labels, size=size)
+        max_labels = ndi.maximum_filter(labels, size=size, mode="constant", cval=0)
 
-        # For minimum, ignore background by assigning a very large "background label"
         bg_val = int(labels.max()) + 1
         labels_no_bg = xp.where(labels == 0, bg_val, labels)
-        min_labels = ndi.minimum_filter(labels_no_bg, size=size)
+        min_labels = ndi.minimum_filter(labels_no_bg, size=size, mode="constant", cval=bg_val)
         min_labels = xp.where(min_labels == bg_val, 0, min_labels)
 
-        # Voxel is ambiguous if its neighborhood contains multiple positive labels
         ambiguous = mask & (min_labels > 0) & (max_labels > 0) & (min_labels != max_labels)
 
         # Preserve original behavior: do not modify boundary voxels.
@@ -163,79 +285,157 @@ class Network:
         cleaned = xp.where(ambiguous, 0, labels)
         return cleaned
 
+    def _remove_connected_label_pixels_chunked(self, labels):
+        labels_np = np.asarray(labels)
+        shape = labels_np.shape
+        halo = (1,) * labels_np.ndim
+        chunk_shape = self._compute_chunk_shape(shape, self.max_chunk_voxels)
+        cleaned = np.zeros_like(labels_np)
+
+        for core, ext, core_in_ext in self._iter_chunks(shape, chunk_shape, halo):
+            chunk = labels_np[ext]
+            cleaned_chunk = self._remove_connected_label_pixels_impl(chunk, np, ndi_cpu)
+            cleaned[core] = cleaned_chunk[core_in_ext]
+
+        return cleaned
+
     # -------------------------------------------------------------------------
     # Ensure every object has at least one skeleton voxel
     # -------------------------------------------------------------------------
     def _add_missing_skeleton_labels(self, skel_frame, label_frame, frangi_frame):
         """
         Adds missing labels to the skeleton where the intensity is highest within a labeled region.
-
-        Parameters
-        ----------
-        skel_frame : xp.ndarray
-            Skeleton data (labels at skeleton voxels).
-        label_frame : numpy.ndarray or xp.ndarray
-            Instance labels in the image.
-        frangi_frame : xp.ndarray
-            Frangi-filtered image.
-
-        Returns
-        -------
-        xp.ndarray
-            Updated skeleton with missing labels added.
         """
-        logger.debug('Adding missing skeleton labels.')
+        logger.debug("Adding missing skeleton labels.")
 
-        labels_xp = self._to_xp(label_frame)
-        skel_xp = self._to_xp(skel_frame)
-        frangi_xp = self._to_xp(frangi_frame)
+        labels_np = np.asarray(label_frame)
+        skel_np = np.asarray(skel_frame)
+        frangi_np = np.asarray(frangi_frame)
 
-        unique_labels = xp.unique(labels_xp)
-        unique_skel_labels = xp.unique(skel_xp)
+        def _normalize_pos(pos, ndim):
+            if pos is None:
+                return None
+            pos_arr = np.asarray(pos)
+            if pos_arr.ndim == 1 and pos_arr.size == ndim:
+                return tuple(int(p) for p in pos_arr.tolist())
+            if pos_arr.ndim == 2:
+                if pos_arr.shape == (1, ndim):
+                    return tuple(int(p) for p in pos_arr[0].tolist())
+                if pos_arr.shape == (ndim, 1):
+                    return tuple(int(p) for p in pos_arr[:, 0].tolist())
+            if isinstance(pos, (list, tuple)) and len(pos) == 1:
+                inner_arr = np.asarray(pos[0])
+                if inner_arr.ndim == 1 and inner_arr.size == ndim:
+                    return tuple(int(p) for p in inner_arr.tolist())
+            return None
 
-        missing_labels = set(unique_labels.tolist()) - set(unique_skel_labels.tolist())
+        unique_labels = np.unique(labels_np)
+        if unique_labels.size == 0:
+            return skel_np
+        unique_skel_labels = np.unique(skel_np)
 
-        for lab in missing_labels:
-            if lab == 0:
+        missing_labels = np.setdiff1d(unique_labels, unique_skel_labels)
+        missing_labels = missing_labels[missing_labels != 0]
+        if missing_labels.size == 0:
+            return skel_np
+
+        try:
+            positions = ndi_cpu.maximum_position(
+                frangi_np, labels=labels_np, index=missing_labels
+            )
+        except Exception as exc:
+            logger.warning(
+                f"Maximum-position lookup failed; leaving {len(missing_labels)} labels without skeletons. "
+                f"Error: {exc}"
+            )
+            return skel_np
+
+        if len(missing_labels) == 1:
+            positions = [positions]
+
+        for lab, pos in zip(missing_labels, positions):
+            pos = _normalize_pos(pos, skel_np.ndim)
+            if pos is None:
+                logger.warning(
+                    "Skipping missing skeleton label %s due to unrecognized position: "
+                    "pos=%s ndim=%s shape=%s",
+                    lab,
+                    pos,
+                    skel_np.ndim,
+                    skel_np.shape,
+                )
                 continue
-            coords = xp.argwhere(labels_xp == lab)
-            if coords.size == 0:
+            if any(p < 0 or p >= dim for p, dim in zip(pos, skel_np.shape)):
+                logger.warning(
+                    "Skipping missing skeleton label %s due to out-of-bounds position: "
+                    "pos=%s shape=%s",
+                    lab,
+                    pos,
+                    skel_np.shape,
+                )
                 continue
-            intensities = frangi_xp[tuple(coords.T)]
-            if intensities.size == 0:
-                continue
-            centroid_idx = xp.argmax(intensities)
-            centroid = coords[centroid_idx]
-            skel_xp[tuple(centroid)] = lab
+            skel_np[pos] = lab
 
-        return skel_xp
+        return skel_np
 
     # -------------------------------------------------------------------------
     # Skeletonization
     # -------------------------------------------------------------------------
     def _skeletonize(self, label_frame):
         """
-        Skeletonizes the labeled regions.
-
-        Parameters
-        ----------
-        label_frame : numpy.ndarray
-            Labeled regions in the image.
-
-        Returns
-        -------
-        skel_labels : xp.ndarray
-            Skeleton labels.
+        Skeletonizes the labeled regions on CPU.
         """
-        # Skeletonization is done on CPU using scikit-image (2D per-slice or 3D stack).
         cpu_labels = np.asarray(label_frame)
+        if self.low_memory:
+            return self._skeletonize_per_object(cpu_labels)
 
-        # Use the same skeletonization call for 2D and 3D as in the original
-        # implementation (scikit-image handles nD input).
-        skel_mask_cpu = morph.skeletonize(cpu_labels > 0)
+        try:
+            skel_mask_cpu = morph.skeletonize(cpu_labels > 0)
+        except MemoryError:
+            logger.warning("Skeletonization OOM; falling back to per-object skeletonization.")
+            return self._skeletonize_per_object(cpu_labels)
 
         skel_labels_cpu = cpu_labels * skel_mask_cpu
-        return self._to_xp(skel_labels_cpu)
+        return skel_labels_cpu
+
+    def _skeletonize_per_object(self, label_frame):
+        labels_np = np.asarray(label_frame)
+        skel_out = np.zeros_like(labels_np)
+
+        max_label = int(labels_np.max())
+        if max_label == 0:
+            return skel_out
+
+        slices = ndi_cpu.find_objects(labels_np)
+        if slices is None:
+            return skel_out
+
+        for lab in range(1, max_label + 1):
+            idx = lab - 1
+            if idx >= len(slices):
+                break
+            sl = slices[idx]
+            if sl is None:
+                continue
+
+            sub_labels = labels_np[sl]
+            obj_mask = sub_labels == lab
+            if not obj_mask.any():
+                continue
+
+            try:
+                skel_sub = morph.skeletonize(obj_mask)
+            except Exception as exc:
+                logger.warning(
+                    f"Skeletonization failed for label {lab}; leaving object without skeleton. Error: {exc}"
+                )
+                continue
+
+            skel_out_sub = skel_out[sl]
+            skel_out_sub[skel_sub] = lab
+            skel_out[sl] = skel_out_sub
+
+        return skel_out
 
     # -------------------------------------------------------------------------
     # Sigma management for multi-scale filters
@@ -294,7 +494,7 @@ class Network:
 
         Returns
         -------
-        xp.ndarray
+        numpy.ndarray
             Relabeled skeleton for the entire frame.
         """
         # Work on CPU for distance transforms; SciPy's EDT is very efficient.
@@ -305,12 +505,12 @@ class Network:
 
         max_label = int(labels_np.max())
         if max_label == 0:
-            return self._to_xp(relabelled_np)
+            return relabelled_np
 
         # Find object bounding boxes once
         slices = ndi_cpu.find_objects(labels_np)
         if slices is None:
-            return self._to_xp(relabelled_np)
+            return relabelled_np
 
         for lab in range(1, max_label + 1):
             idx = lab - 1
@@ -328,7 +528,7 @@ class Network:
                 continue
 
             # Seeds are branch labels (>0) inside this object crop
-            seed_mask = sub_branch > 0
+            seed_mask = (sub_branch > 0) & obj_mask
             if not (seed_mask & obj_mask).any():
                 # No skeleton seeds for this object; leave unlabeled
                 continue
@@ -364,7 +564,7 @@ class Network:
             relabelled_sub[obj_mask] = nearest_labels[obj_mask].astype(np.uint32, copy=False)
             relabelled_np[sl] = relabelled_sub
 
-        return self._to_xp(relabelled_np)
+        return relabelled_np
 
     # -------------------------------------------------------------------------
     # Multi-scale peak detection with reduced memory footprint
@@ -396,62 +596,101 @@ class Network:
         mask_xp = self._to_xp(mask).astype(bool)
 
         ndim = frame_xp.ndim
-        footprint = xp.ones((3,) * ndim)
+        footprint = self.xp.ones((3,) * ndim)
 
-        best_response = xp.zeros_like(frame_xp, dtype=float)
-        peak_mask = xp.zeros_like(frame_xp, dtype=bool)
+        best_response = self.xp.zeros_like(frame_xp, dtype=float)
+        peak_mask = self.xp.zeros_like(frame_xp, dtype=bool)
 
         for s in self.sigmas:
             sigma_vec = self._get_sigma_vec(float(s))
 
-            current = -ndi.gaussian_laplace(frame_xp, sigma_vec)
+            current = -self.ndi.gaussian_laplace(frame_xp, sigma_vec)
             current *= (float(s) ** 2)
             current *= mask_xp
-            current = xp.where(current < 0, 0, current)
+            current = self.xp.where(current < 0, 0, current)
 
-            max_local = ndi.maximum_filter(current, footprint=footprint, mode='nearest')
+            max_local = self.ndi.maximum_filter(current, footprint=footprint, mode="nearest")
             is_peak = (current == max_local) & (current > best_response) & (current > 0)
 
-            best_response = xp.where(is_peak, current, best_response)
+            best_response = self.xp.where(is_peak, current, best_response)
             peak_mask = peak_mask | is_peak
 
-        coords_3d = xp.argwhere(peak_mask)
+        coords_3d = self.xp.argwhere(peak_mask)
         return coords_3d
 
     # -------------------------------------------------------------------------
     # Skeleton pixel classification
     # -------------------------------------------------------------------------
-    def _get_pixel_class(self, skel):
+    def _get_pixel_class(self, skel, force_cpu: bool = False):
         """
         Classifies skeleton pixels into junctions, branches, and endpoints
         based on connectivity.
 
-        Parameters
-        ----------
-        skel : xp.ndarray or numpy.ndarray
-            Skeleton data (labels at skeleton voxels).
-
         Returns
         -------
-        xp.ndarray
+        xp.ndarray or numpy.ndarray
             Pixel classification:
             0 = background
-            1 = endpoint
-            2-3 = branch pixels
-            4 = junction
+            1 = isolated pixels
+            2 = tips
+            3 = edges
+            4 = junctions (clipped)
         """
+        if force_cpu:
+            skel_np = np.asarray(skel)
+            if self.low_memory:
+                return self._get_pixel_class_chunked(skel_np)
+            return self._get_pixel_class_impl(skel_np, np, ndi_cpu)
+
         skel_xp = self._to_xp(skel)
-        skel_mask = (skel_xp > 0).astype('uint8')
+        if self.low_memory:
+            skel_np = self._to_cpu(skel_xp)
+            return self._get_pixel_class_chunked(skel_np)
+
+        try:
+            return self._get_pixel_class_impl(skel_xp, self.xp, self.ndi)
+        except Exception as exc:
+            if not self._is_oom_error(exc):
+                raise
+            self._free_gpu_memory()
+            skel_np = self._to_cpu(skel_xp)
+            return self._get_pixel_class_chunked(skel_np)
+
+    def _get_pixel_class_impl(self, skel, xp, ndi):
+        skel_mask = (skel > 0).astype("uint8")
 
         if self.im_info.no_z:
             weights = xp.ones((3, 3))
         else:
             weights = xp.ones((3, 3, 3))
 
-        skel_mask_sum = ndi.convolve(skel_mask, weights=weights, mode='constant', cval=0) * skel_mask
+        skel_mask_sum = ndi.convolve(skel_mask, weights=weights, mode="constant", cval=0) * skel_mask
         skel_mask_sum[skel_mask_sum > 4] = 4
 
         return skel_mask_sum
+
+    def _get_pixel_class_chunked(self, skel):
+        skel_np = np.asarray(skel)
+        shape = skel_np.shape
+        halo = (1,) * skel_np.ndim
+        chunk_shape = self._compute_chunk_shape(shape, self.max_chunk_voxels)
+
+        if self.im_info.no_z:
+            weights = np.ones((3, 3))
+        else:
+            weights = np.ones((3, 3, 3))
+
+        out = np.zeros_like(skel_np, dtype=np.uint8)
+        skel_mask = (skel_np > 0).astype("uint8")
+
+        for core, ext, core_in_ext in self._iter_chunks(shape, chunk_shape, halo):
+            chunk = skel_mask[ext]
+            chunk_sum = ndi_cpu.convolve(chunk, weights=weights, mode="constant", cval=0)
+            core_sum = chunk_sum[core_in_ext] * chunk[core_in_ext]
+            core_sum[core_sum > 4] = 4
+            out[core] = core_sum.astype(np.uint8, copy=False)
+
+        return out
 
     # -------------------------------------------------------------------------
     # Time dimension handling
@@ -482,7 +721,7 @@ class Network:
         im_skel_path = self.im_info.pipeline_paths['im_skel']
         self.skel_memmap = self.im_info.allocate_memory(
             im_skel_path,
-            dtype='uint16',
+            dtype='int32',
             description='skeleton image',
             return_memmap=True
         )
@@ -506,7 +745,7 @@ class Network:
     # -------------------------------------------------------------------------
     # Branch skeleton labels (excluding junctions)
     # -------------------------------------------------------------------------
-    def _get_branch_skel_labels(self, pixel_class):
+    def _get_branch_skel_labels(self, pixel_class, force_cpu: bool = False):
         """
         Gets the branch skeleton labels, excluding junctions and background pixels.
 
@@ -520,16 +759,31 @@ class Network:
         xp.ndarray
             Branch skeleton labels (connected components of non-junction pixels).
         """
+        if force_cpu:
+            pc_np = np.asarray(pixel_class)
+            non_junctions = (pc_np > 0) & (pc_np != 4)
+            if self.im_info.no_z:
+                structure = np.ones((3, 3))
+            else:
+                structure = np.ones((3, 3, 3))
+            non_junction_labels, _ = ndi_cpu.label(non_junctions, structure=structure)
+            return non_junction_labels
+
         pc_xp = self._to_xp(pixel_class)
-        non_junctions = pc_xp > 0
-        non_junctions = non_junctions & (pc_xp != 4)
+        non_junctions = (pc_xp > 0) & (pc_xp != 4)
 
         if self.im_info.no_z:
-            structure = xp.ones((3, 3))
+            structure = self.xp.ones((3, 3))
         else:
-            structure = xp.ones((3, 3, 3))
+            structure = self.xp.ones((3, 3, 3))
 
-        non_junction_labels, _ = ndi.label(non_junctions, structure=structure)
+        try:
+            non_junction_labels, _ = self.ndi.label(non_junctions, structure=structure)
+        except Exception as exc:
+            if not self._is_oom_error(exc):
+                raise
+            self._free_gpu_memory()
+            return self._get_branch_skel_labels(self._to_cpu(pc_xp), force_cpu=True)
         return non_junction_labels
 
     # -------------------------------------------------------------------------
@@ -549,29 +803,39 @@ class Network:
         tuple
             (branch_skel_labels, pixel_class, branch_labels)
         """
-        logger.info(f'Running network analysis, volume {t}/{self.num_t - 1}')
+        logger.info(f"Running network analysis, volume {t}/{self.num_t - 1}")
 
+        try:
+            return self._run_frame_backend(t)
+        except Exception as exc:
+            if self.device_type != "cuda" or not self._is_oom_error(exc):
+                raise
+            logger.warning("GPU OOM in networking; falling back to CPU for this frame.")
+            self._free_gpu_memory()
+            self._switch_to_cpu()
+            return self._run_frame_backend(t)
+
+    def _run_frame_backend(self, t):
         label_frame = self.label_memmap[t]
-        # Frangi frame: convert to xp lazily
-        frangi_frame = self._to_xp(self.im_frangi_memmap[t])
+        label_frame_cpu = np.asarray(label_frame)
+        frangi_frame_cpu = np.asarray(self.im_frangi_memmap[t])
 
-        skel_frame = self._skeletonize(label_frame)
+        skel_frame = self._skeletonize(label_frame_cpu)
+        skel_clean = self._remove_connected_label_pixels(skel_frame, force_cpu=True)
+        skel_clean = self._add_missing_skeleton_labels(
+            skel_clean, label_frame_cpu, frangi_frame_cpu
+        )
 
-        skel_clean = self._remove_connected_label_pixels(skel_frame)
-        skel_clean = self._add_missing_skeleton_labels(skel_clean, label_frame, frangi_frame)
+        skel_pre_cpu = (skel_clean > 0) * label_frame_cpu
 
-        # For pixel classification, work with label IDs at skeleton voxels only
-        if device_type == 'cuda':
-            skel_pre = skel_clean.get()
-            label_frame_cpu = np.asarray(label_frame)
+        if self.device_type == "cuda" and not self.low_memory:
+            skel_pre = self._to_xp(skel_pre_cpu)
+            pixel_class = self._get_pixel_class(skel_pre)
+            branch_skel_labels = self._get_branch_skel_labels(pixel_class)
         else:
-            skel_pre = np.asarray(skel_clean)
-            label_frame_cpu = np.asarray(label_frame)
+            pixel_class = self._get_pixel_class(skel_pre_cpu, force_cpu=True)
+            branch_skel_labels = self._get_branch_skel_labels(pixel_class, force_cpu=True)
 
-        skel_pre = (skel_pre > 0) * label_frame_cpu
-        pixel_class = self._get_pixel_class(skel_pre)
-
-        branch_skel_labels = self._get_branch_skel_labels(pixel_class)
         branch_labels = self._relabel_objects(branch_skel_labels, label_frame_cpu)
 
         return branch_skel_labels, pixel_class, branch_labels
@@ -637,7 +901,7 @@ class Network:
 
             if self.im_info.no_t or self.num_t == 1:
                 # Single frame or static image
-                if device_type == 'cuda':
+                if self.device_type == "cuda":
                     self.skel_memmap[:] = self._to_cpu(skel)
                     self.pixel_class_memmap[:] = self._to_cpu(pixel_class)
                     self.skel_relabelled_memmap[:] = self._to_cpu(skel_relabelled)
@@ -647,7 +911,7 @@ class Network:
                     self.skel_relabelled_memmap[:] = skel_relabelled
             else:
                 # Time series
-                if device_type == 'cuda':
+                if self.device_type == "cuda":
                     self.skel_memmap[t] = self._to_cpu(skel)
                     self.pixel_class_memmap[t] = self._to_cpu(pixel_class)
                     self.skel_relabelled_memmap[t] = self._to_cpu(skel_relabelled)

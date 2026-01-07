@@ -3,20 +3,18 @@ Motion capture marker generation for microscopy images.
 
 This module provides the Markers class for detecting and marking key points in segmented
 structures using distance transforms and multi-scale peak detection.
+
+Notes
+-----
+- Distance and border outputs are always saved because downstream steps depend on them.
+- The border mask is the outside shell, computed as dilation(mask) XOR mask.
 """
+import itertools
 import numpy as np
 from scipy import ndimage as sp_ndi  # CPU ndimage backend
 
-from nellie import xp, ndi, device_type
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
-
-# Try to capture GPU OOM errors if cupy is used under the hood
-try:
-    import cupy
-    GPU_OOM_ERRORS = (cupy.cuda.memory.OutOfMemoryError, MemoryError)
-except Exception:
-    GPU_OOM_ERRORS = (MemoryError,)
 
 
 class Markers:
@@ -27,7 +25,8 @@ class Markers:
     - Uses distance_transform_edt instead of KD-tree for distance transform.
     - Streams over scales for LoG (no large 4D arrays).
     - Uses morphological non-max suppression instead of KD-tree for peak pruning.
-    - Supports GPU via nellie.xp/ndi with automatic fallback to CPU on OOM.
+    - Supports GPU via CuPy/CuPyX with automatic fallback to CPU on OOM.
+    - Optional low-memory chunking for LoG and NMS while preserving results.
 
     Attributes
     ----------
@@ -65,10 +64,12 @@ class Markers:
         Debugging information for tracking the marking process.
     viewer : object or None
         Viewer object for displaying status during processing.
-    save_distance : bool
-        Whether to save the distance transform image.
-    save_border : bool
-        Whether to save the border image.
+    device : {"auto", "cpu", "gpu"}
+        Backend selection. "auto" uses GPU if available, otherwise CPU.
+    low_memory : bool
+        If True, prefer chunked LoG and NMS to reduce peak memory at the cost of speed.
+    max_chunk_voxels : int
+        Maximum voxels per chunk when low-memory mode is used.
     use_gpu : bool
         Whether to use the GPU backend (if available). Automatically set to False on GPU OOM.
     peak_min_distance : int
@@ -77,7 +78,8 @@ class Markers:
 
     def __init__(self, im_info: ImInfo, num_t=None,
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5,
-                 viewer=None, prefer_gpu=True, peak_min_distance=2):
+                 viewer=None, prefer_gpu=True, peak_min_distance=2,
+                 device="auto", low_memory=False, max_chunk_voxels=int(1e6)):
         """
         Initializes the Markers object with image metadata and marking parameters.
 
@@ -101,6 +103,12 @@ class Markers:
             Whether to prefer GPU backend when available (default is True).
         peak_min_distance : int, optional
             Minimum distance (in pixels) between peaks for NMS (default is 2).
+        device : {"auto", "cpu", "gpu"}, optional
+            Backend selection. "auto" uses GPU if available, otherwise CPU.
+        low_memory : bool, optional
+            If True, prefer chunked LoG and NMS to reduce memory at the cost of speed.
+        max_chunk_voxels : int, optional
+            Maximum number of voxels per chunk for low-memory processing.
         """
         self.im_info = im_info
 
@@ -110,19 +118,22 @@ class Markers:
         elif num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
+        x_res = self.im_info.dim_res.get('X') or 1.0
+        z_res = self.im_info.dim_res.get('Z') or x_res
         if not self.im_info.no_z:
-            self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
+            self.z_ratio = float(z_res) / float(x_res)
         else:
             self.z_ratio = 1.0
 
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
+        self.min_radius_um = max(min_radius_um, float(x_res))
         self.max_radius_um = max_radius_um
 
-        self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
-        self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']
+        self.min_radius_px = self.min_radius_um / float(x_res)
+        self.max_radius_px = self.max_radius_um / float(x_res)
 
         self.use_im = use_im
         self.num_sigma = num_sigma
+        self.sigmas = []
 
         self.shape = ()
 
@@ -137,24 +148,72 @@ class Markers:
 
         self.viewer = viewer
 
-        # Backend selection; will be overridden to CPU on GPU OOM.
-        self.use_gpu = prefer_gpu and (device_type == 'cuda')
+        # Backend selection; prefer_gpu only affects "auto".
+        if (device or "auto").lower() == "auto" and not prefer_gpu:
+            device = "cpu"
+        self.device = device or "auto"
+        self._xp, self._ndi, self.device_type = self._resolve_backend(self.device)
+        self.use_gpu = self.device_type == "cuda"
 
         # Morphological NMS radius
         self.peak_min_distance = peak_min_distance
+
+        # Optional low-memory chunking
+        self.low_memory = bool(low_memory)
+        self.max_chunk_voxels = int(max_chunk_voxels)
+        self.truncate = 4.0
 
     # -------------------------------------------------------------------------
     # Backend helpers
     # -------------------------------------------------------------------------
     @property
     def xp(self):
-        """Array module: xp (nellie backend) if using GPU, else numpy."""
-        return xp if self.use_gpu else np
+        """Array module for the current backend."""
+        return self._xp
 
     @property
     def ndi_backend(self):
-        """Ndimage backend: ndi (nellie backend) if using GPU, else scipy.ndimage."""
-        return ndi if self.use_gpu else sp_ndi
+        """Ndimage backend for the current backend."""
+        return self._ndi
+
+    def _resolve_backend(self, device):
+        device = (device or "auto").lower()
+        if device not in ("auto", "cpu", "gpu", "cuda"):
+            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+
+        if device in ("gpu", "cuda"):
+            xp_mod, ndi_mod = self._try_import_cupy(require=True)
+            return xp_mod, ndi_mod, "cuda"
+        if device == "cpu":
+            return np, sp_ndi, "cpu"
+
+        xp_mod, ndi_mod = self._try_import_cupy(require=False)
+        if xp_mod is not None:
+            return xp_mod, ndi_mod, "cuda"
+        return np, sp_ndi, "cpu"
+
+    def _try_import_cupy(self, require):
+        try:
+            import cupy
+            import cupyx.scipy.ndimage as ndi_mod
+        except ModuleNotFoundError as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
+            return None, None
+
+        try:
+            device_count = cupy.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
+            return None, None
+
+        if device_count <= 0:
+            if require:
+                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
+            return None, None
+
+        return cupy, ndi_mod
 
     def _to_cpu(self, arr):
         """Convert an array (xp or numpy) to a numpy.ndarray."""
@@ -162,11 +221,77 @@ class Markers:
             return arr
         # Try xp.asnumpy if available (e.g. cupy), otherwise fall back to np.asarray
         try:
-            asnumpy = xp.asnumpy
+            asnumpy = self._xp.asnumpy
         except AttributeError:
             return np.asarray(arr)
         else:
             return asnumpy(arr)
+
+    def _is_oom_error(self, exc):
+        if isinstance(exc, MemoryError):
+            return True
+        if self.device_type != "cuda":
+            return False
+        try:
+            import cupy
+
+            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
+        except Exception:
+            return "OutOfMemory" in repr(exc)
+
+    def _free_gpu_memory(self):
+        if self.device_type != "cuda":
+            return
+        try:
+            self._xp.get_default_memory_pool().free_all_blocks()
+        except Exception:
+            return
+
+    def _switch_to_cpu(self):
+        self._xp = np
+        self._ndi = sp_ndi
+        self.device_type = "cpu"
+        self.use_gpu = False
+        self.device = "cpu"
+
+    def _compute_chunk_shape(self, shape, max_chunk_voxels):
+        if max_chunk_voxels is None or max_chunk_voxels <= 0:
+            return tuple(shape)
+        chunk = list(shape)
+        while int(np.prod(chunk)) > max_chunk_voxels:
+            idx = int(np.argmax(chunk))
+            chunk[idx] = max(1, int(np.ceil(chunk[idx] / 2)))
+        return tuple(chunk)
+
+    def _iter_chunks(self, shape, chunk_shape, halo):
+        if halo is None or len(halo) != len(shape):
+            halo = (0,) * len(shape)
+        ranges = [range(0, dim, step) for dim, step in zip(shape, chunk_shape)]
+        for starts in itertools.product(*ranges):
+            ends = [min(start + step, dim) for start, step, dim in zip(starts, chunk_shape, shape)]
+            ext_starts = [max(0, s - h) for s, h in zip(starts, halo)]
+            ext_ends = [min(dim, e + h) for e, h, dim in zip(ends, halo, shape)]
+            core = tuple(slice(s, e) for s, e in zip(starts, ends))
+            ext = tuple(slice(s, e) for s, e in zip(ext_starts, ext_ends))
+            core_in_ext = tuple(
+                slice(s - es, e - es) for s, e, es in zip(starts, ends, ext_starts)
+            )
+            yield core, ext, core_in_ext, starts, ext_starts
+
+    def _log_halo(self):
+        fallback_sigma = self.max_radius_px / 3.0
+        sigma_max = float(max(self.sigmas)) if self.sigmas else float(fallback_sigma)
+        if self.im_info.no_z:
+            halo = int(np.ceil(self.truncate * sigma_max))
+            return (max(halo, 1), max(halo, 1))
+        z_sigma = sigma_max / max(self.z_ratio, 1e-6)
+        hz = int(np.ceil(self.truncate * z_sigma))
+        hxy = int(np.ceil(self.truncate * sigma_max))
+        return (max(hz, 1), max(hxy, 1), max(hxy, 1))
+
+    def _nms_halo(self):
+        halo = max(int(self.peak_min_distance), 0)
+        return (halo,) * (2 if self.im_info.no_z else 3)
 
     # -------------------------------------------------------------------------
     # Core logic
@@ -213,8 +338,7 @@ class Markers:
         sigma_step_size_calculated = sigma_range / max(self.num_sigma, 1)
         sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)
 
-        xp_mod = self.xp
-        self.sigmas = list(xp_mod.arange(self.sigma_min, self.sigma_max, sigma_step_size))
+        self.sigmas = list(np.arange(self.sigma_min, self.sigma_max, sigma_step_size))
 
         logger.debug(
             'Calculated sigma step size = %f. Sigmas (%d) = %s',
@@ -244,7 +368,8 @@ class Markers:
         Allocates memory for motion capture markers, distance transform, and border images.
 
         This method creates memory-mapped arrays for the instance label data, original image data,
-        Frangi-filtered data (if needed), markers, distance transforms, and borders.
+        Frangi-filtered data (if needed), markers, distance transforms, and borders. Distance
+        and border images are always allocated because downstream steps depend on them.
         """
         logger.debug('Allocating memory for mocap marking.')
 
@@ -295,12 +420,13 @@ class Markers:
         tuple
             (distance_im, border_mask)
             distance_im : same shape as mask, float32 distances (in pixels) to nearest background.
-            border_mask : bool mask identifying border pixels of the segmented objects.
+            border_mask : bool mask identifying the outside shell of segmented objects
+            (dilation(mask) XOR mask), with no overlap with the original mask.
         """
         xp_mod = self.xp
         ndi_mod = self.ndi_backend
 
-        # Border mask: one-pixel dilation minus original mask
+        # Border mask: outside shell from one-pixel dilation minus original mask
         border_mask = ndi_mod.binary_dilation(mask, iterations=1) ^ mask
 
         # Distance transform: distance from foreground to nearest background.
@@ -313,7 +439,7 @@ class Markers:
 
         return distance_im, border_mask
 
-    def _local_max_peak(self, use_im, mask, distance_im):
+    def _local_max_peak(self, use_im, mask, distance_im, low_memory=False, chunk_voxels=None):
         """
         Detects local maxima in the image based on multi-scale filtering.
 
@@ -336,6 +462,9 @@ class Markers:
         np.ndarray or xp.ndarray
             Coordinates of the detected peaks, shape (N, ndim).
         """
+        if low_memory:
+            return self._local_max_peak_chunked(use_im, mask, distance_im, chunk_voxels)
+
         xp_mod = self.xp
         ndi_mod = self.ndi_backend
 
@@ -371,7 +500,63 @@ class Markers:
         coords_idx = xp_mod.argwhere(peak_mask)
         return coords_idx
 
-    def _remove_close_peaks(self, coords, intensity_im):
+    def _local_max_peak_chunked(self, use_im, mask, distance_im, chunk_voxels):
+        xp_mod = self.xp
+        ndi_mod = self.ndi_backend
+
+        shape = use_im.shape
+        chunk_shape = self._compute_chunk_shape(shape, chunk_voxels or self.max_chunk_voxels)
+        halo = self._log_halo()
+
+        coords_list = []
+        for core, ext, core_in_ext, core_start, _ext_start in self._iter_chunks(
+            shape, chunk_shape, halo
+        ):
+            use_chunk = use_im[ext]
+            mask_chunk = mask[ext]
+            distance_chunk = distance_im[ext]
+            valid_mask = mask_chunk & (distance_chunk > 0)
+
+            best_resp = xp_mod.zeros_like(use_chunk, dtype=xp_mod.float32)
+            peak_mask = xp_mod.zeros_like(use_chunk, dtype=bool)
+
+            for s in self.sigmas:
+                sigma_val = float(s)
+                sigma_vec = self._get_sigma_vec(sigma_val)
+
+                log_resp = -ndi_mod.gaussian_laplace(use_chunk, sigma_vec)
+                log_resp = (log_resp * (sigma_val ** 2)).astype(xp_mod.float32, copy=False)
+                log_resp[log_resp < 0] = 0
+
+                local_max = log_resp == ndi_mod.maximum_filter(log_resp, size=3, mode='nearest')
+                local_max &= valid_mask
+
+                better = local_max & (log_resp > best_resp)
+                peak_mask[better] = True
+                best_resp[better] = log_resp[better]
+
+            core_peaks = peak_mask[core_in_ext]
+            if xp_mod.any(core_peaks):
+                core_coords = xp_mod.argwhere(core_peaks)
+                offset = xp_mod.asarray(core_start, dtype=core_coords.dtype)
+                coords_list.append(core_coords + offset)
+
+        if not coords_list:
+            ndim = use_im.ndim
+            return xp_mod.zeros((0, ndim), dtype=int)
+
+        return xp_mod.concatenate(coords_list, axis=0)
+
+    def _coords_in_bounds(self, coords, starts, ends):
+        xp_mod = self.xp
+        if coords.size == 0:
+            return coords
+        mask = xp_mod.ones((coords.shape[0],), dtype=bool)
+        for dim, (start, end) in enumerate(zip(starts, ends)):
+            mask &= (coords[:, dim] >= start) & (coords[:, dim] < end)
+        return coords[mask]
+
+    def _remove_close_peaks(self, coords, intensity_im, low_memory=False, chunk_voxels=None):
         """
         Removes peaks that are too close together using morphological non-max suppression.
 
@@ -387,6 +572,9 @@ class Markers:
         array-like
             Coordinates of the remaining peaks after filtering.
         """
+        if low_memory:
+            return self._remove_close_peaks_chunked(coords, intensity_im, chunk_voxels)
+
         xp_mod = self.xp
         ndi_mod = self.ndi_backend
 
@@ -407,7 +595,47 @@ class Markers:
         kept_coords = xp_mod.argwhere(keep_mask)
         return kept_coords
 
-    def _run_frame_impl(self, t):
+    def _remove_close_peaks_chunked(self, coords, intensity_im, chunk_voxels):
+        xp_mod = self.xp
+        ndi_mod = self.ndi_backend
+
+        if coords.size == 0:
+            return coords
+
+        shape = intensity_im.shape
+        chunk_shape = self._compute_chunk_shape(shape, chunk_voxels or self.max_chunk_voxels)
+        halo = self._nms_halo()
+        size = 2 * int(self.peak_min_distance) + 1
+
+        coords_list = []
+        for core, ext, core_in_ext, core_start, ext_start in self._iter_chunks(
+            shape, chunk_shape, halo
+        ):
+            ext_end = [s.stop for s in ext]
+            coords_ext = self._coords_in_bounds(coords, ext_start, ext_end)
+            if coords_ext.size == 0:
+                continue
+
+            ext_shape = tuple(s.stop - s.start for s in ext)
+            score_chunk = xp_mod.zeros(ext_shape, dtype=xp_mod.float32)
+            local_coords = coords_ext - xp_mod.asarray(ext_start, dtype=coords_ext.dtype)
+            score_chunk[tuple(local_coords.T)] = intensity_im[tuple(coords_ext.T)]
+
+            max_filtered = ndi_mod.maximum_filter(score_chunk, size=size, mode='nearest')
+            keep_mask = (score_chunk == max_filtered) & (score_chunk > 0)
+            keep_core = keep_mask[core_in_ext]
+            if xp_mod.any(keep_core):
+                core_coords = xp_mod.argwhere(keep_core)
+                offset = xp_mod.asarray(core_start, dtype=core_coords.dtype)
+                coords_list.append(core_coords + offset)
+
+        if not coords_list:
+            ndim = intensity_im.ndim
+            return xp_mod.zeros((0, ndim), dtype=int)
+
+        return xp_mod.concatenate(coords_list, axis=0)
+
+    def _run_frame_impl(self, t, low_memory=False, chunk_voxels=None):
         """
         Internal implementation of marker detection for a single timepoint.
 
@@ -422,7 +650,7 @@ class Markers:
         mask_frame = mask_frame.astype(bool, copy=False)
 
         # Fast path: empty mask -> no markers, zero distance and borders
-        if not np.any(self._to_cpu(mask_frame)):
+        if not xp_mod.any(mask_frame).item():
             # Create empty outputs with correct dtypes
             marker = np.zeros_like(self.im_memmap[t], dtype=np.uint8)
             distance_im = np.zeros_like(self.im_memmap[t], dtype=np.float32)
@@ -443,10 +671,14 @@ class Markers:
             raise ValueError(f"Unknown use_im value: {self.use_im}")
 
         # Multi-scale LoG peak detection
-        peak_coords = self._local_max_peak(base_im, mask_frame, distance_im_backend)
+        peak_coords = self._local_max_peak(
+            base_im, mask_frame, distance_im_backend, low_memory=low_memory, chunk_voxels=chunk_voxels
+        )
 
         # Remove peaks that are too close together using intensity-based NMS
-        peak_coords = self._remove_close_peaks(peak_coords, intensity_frame)
+        peak_coords = self._remove_close_peaks(
+            peak_coords, intensity_frame, low_memory=low_memory, chunk_voxels=chunk_voxels
+        )
 
         # Build marker image (binary)
         marker_backend = xp_mod.zeros_like(mask_frame, dtype=xp_mod.uint8)
@@ -464,21 +696,48 @@ class Markers:
         """
         Runs marker detection for a single timepoint in the image with GPU OOM fallback.
         """
-        try:
-            return self._run_frame_impl(t)
-        except GPU_OOM_ERRORS as e:
-            if self.use_gpu:
+        low_memory = bool(self.low_memory)
+        chunk_voxels = self.max_chunk_voxels if low_memory else None
+        while True:
+            try:
+                return self._run_frame_impl(t, low_memory=low_memory, chunk_voxels=chunk_voxels)
+            except Exception as exc:
+                if not self._is_oom_error(exc):
+                    raise
+
+                self._free_gpu_memory()
+
+                if not low_memory:
+                    logger.warning(
+                        "Memory error encountered on frame %d (%s). "
+                        "Retrying with low-memory chunking.",
+                        t, str(exc)
+                    )
+                    low_memory = True
+                    self.low_memory = True
+                    chunk_voxels = self.max_chunk_voxels
+                    continue
+
+                if chunk_voxels is None or chunk_voxels <= 1:
+                    if self.device_type == "cuda":
+                        logger.warning(
+                            "Memory error on GPU frame %d (%s). "
+                            "Switching to CPU backend for remaining frames.",
+                            t, str(exc)
+                        )
+                        self._switch_to_cpu()
+                        low_memory = True
+                        chunk_voxels = self.max_chunk_voxels
+                        continue
+                    raise
+
+                chunk_voxels = max(1, int(chunk_voxels // 2))
+                self.max_chunk_voxels = chunk_voxels
                 logger.warning(
-                    "GPU OOM or memory error encountered on frame %d (%s). "
-                    "Switching to CPU backend for remaining frames.",
-                    t, str(e)
+                    "Memory error on frame %d (%s). "
+                    "Reducing chunk size to %d voxels and retrying.",
+                    t, str(exc), chunk_voxels
                 )
-                # Switch permanently to CPU and retry this frame
-                self.use_gpu = False
-                return self._run_frame_impl(t)
-            else:
-                # Already on CPU; re-raise
-                raise
 
     def _run_mocap_marking(self):
         """

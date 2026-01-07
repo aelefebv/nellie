@@ -1058,7 +1058,7 @@ class NellieFileSelect(QWidget):
 
         add_kwargs = dict(
             name=self.file_info.filename_no_ext,
-            blending="additive",
+            blending="translucent_no_depth",
             interpolation3d="nearest",
             interpolation2d="nearest",
         )

@@ -444,7 +444,7 @@ class NellieVisualizer(QWidget):
             self.im_memmap,
             name="raw",
             colormap="gray",
-            blending="additive",
+            blending="translucent_no_depth",
             scale=self.scale,
         )
         self.raw_layer.interpolation = "nearest"

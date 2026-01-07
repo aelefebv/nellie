@@ -111,17 +111,30 @@ def run(file_info, remove_edges=False, otsu_thresh_intensity=False, threshold=No
     return im_info
 
 #%%
+device = 'cpu'
+low_memory = True
 top_dir = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/'
 # find all the files ending in .tif
 tif_files = [os.path.join(top_dir, f) for f in os.listdir(top_dir) if f.endswith('.tif')]
-
-for test_file in tif_files:
+for test_file in tif_files[-2:-1]:
     # test_file = '/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/variant_YX_firstT_maxZ.ome.tif'
     file_info = FileInfo(test_file)
     file_info.find_metadata()
     file_info.load_metadata()
     im_info = ImInfo(file_info)
-    preprocessing = Filter(im_info)
+    preprocessing = Filter(im_info, device=device, low_memory=low_memory)
     preprocessing.run()
+    labelling = Label(im_info, device=device, low_memory=low_memory)
+    labelling.run()
+    networking = Network(im_info, device=device, low_memory=low_memory)
+    networking.run()
+    mocap_marking = Markers(im_info, device=device, low_memory=low_memory)
+    mocap_marking.run()
+    hu_tracking = HuMomentTracking(im_info, device=device, low_memory=low_memory)
+    hu_tracking.run()
+    vox_reassign = VoxelReassigner(im_info, device=device, low_memory=low_memory)
+    vox_reassign.run()
+    hierarchy = Hierarchy(im_info, device=device, low_memory=low_memory)
+    hierarchy.run()
 
 # %%

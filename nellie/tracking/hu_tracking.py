@@ -5,13 +5,13 @@ This module provides the HuMomentTracking class for tracking objects using
 Hu moment invariants and optical flow interpolation.
 """
 import numpy as np
+import scipy.ndimage as sp_ndi
 from dataclasses import dataclass
 from scipy.spatial.distance import cdist
 from scipy.spatial import cKDTree
 
 from nellie.utils.base_logger import logger
 
-from nellie import xp, ndi
 from nellie.im_info.verifier import ImInfo
 
 # Optional: GPU OOM handling (safe if CuPy is not installed)
@@ -37,17 +37,23 @@ class HuMomentTracking:
 
     This version is optimized for:
       - Large images (memory-aware ROI extraction, streaming modes).
-      - Optional GPU acceleration (via `nellie.xp` / CuPy).
+      - Optional GPU acceleration (via CuPy).
       - Fallback to sparse KDTree-based matching when dense matching is too large.
 
     Attributes
     ----------
     im_info : ImInfo
         An object containing image metadata and memory-mapped image data.
+    device : {"auto", "cpu", "gpu"}
+        Backend selection. "auto" uses GPU if available, otherwise CPU.
+    device_type : str
+        Resolved backend type ("cuda" or "cpu").
     num_t : int
         Number of timepoints in the image.
     max_distance_um : float
-        Maximum allowed movement (in micrometers) for an object between frames.
+        Maximum allowed velocity (micrometers/second), scaled by time resolution for per-frame distance.
+    low_memory : bool
+        If True, prefer streaming ROI extraction and sparse matching to reduce peak memory.
     scaling : tuple
         Scaling factors for Z, Y, and X dimensions.
     shape : tuple
@@ -78,10 +84,12 @@ class HuMomentTracking:
     def __init__(self, im_info: ImInfo, num_t=None,
                  max_distance_um=1.0,
                  viewer=None,
+                 device: str = "auto",
                  mode: str = "auto",
                  max_dense_pairs: int = int(1e7),
                  max_dense_roi_voxels_cpu: int = int(5e7),
-                 max_dense_roi_voxels_gpu: int = int(2e7)):
+                 max_dense_roi_voxels_gpu: int = int(2e7),
+                 low_memory: bool = False):
         self.im_info = im_info
 
         # If no time dimension, nothing to do.
@@ -98,8 +106,11 @@ class HuMomentTracking:
         else:
             self.scaling = (im_info.dim_res['Z'], im_info.dim_res['Y'], im_info.dim_res['X'])
 
-        # Max distance in micrometers between frames; enforce a sensible minimum
-        self.max_distance_um = max(max_distance_um * self.im_info.dim_res['T'], 0.5)
+        # Max velocity (um/s) scaled by dt to per-frame distance; enforce a sensible minimum
+        dt = self.im_info.dim_res.get('T') or 1.0
+        if self.im_info.dim_res.get('T') is None:
+            logger.warning("Time resolution missing; assuming 1.0s for max_distance_um scaling.")
+        self.max_distance_um = max(max_distance_um * dt, 0.5)
 
         self.shape = ()
 
@@ -113,18 +124,92 @@ class HuMomentTracking:
         self.viewer = viewer
 
         # Backend / device info
-        self._on_gpu = False
-        try:
-            name = getattr(xp, "__name__", "").lower()
-            self._on_gpu = "cupy" in name
-        except Exception:
-            self._on_gpu = False
+        self.device = device
+        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self._on_gpu = self.device_type == "cuda"
 
         # Matching / ROI mode tuning
         self.mode = mode  # "auto", "dense", "sparse"
+        self.low_memory = bool(low_memory)
         self.max_dense_pairs = int(max_dense_pairs)
         self.max_dense_roi_voxels_cpu = int(max_dense_roi_voxels_cpu)
         self.max_dense_roi_voxels_gpu = int(max_dense_roi_voxels_gpu)
+
+    # -------------------------------------------------------------------------
+    # Backend helpers
+    # -------------------------------------------------------------------------
+
+    def _resolve_backend(self, device):
+        device = (device or "auto").lower()
+        if device not in ("auto", "cpu", "gpu", "cuda"):
+            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+
+        if device in ("gpu", "cuda"):
+            xp_mod, ndi_mod = self._try_import_cupy(require=True)
+            return xp_mod, ndi_mod, "cuda"
+        if device == "cpu":
+            return np, sp_ndi, "cpu"
+
+        # auto
+        xp_mod, ndi_mod = self._try_import_cupy(require=False)
+        if xp_mod is not None:
+            return xp_mod, ndi_mod, "cuda"
+        return np, sp_ndi, "cpu"
+
+    def _try_import_cupy(self, require):
+        try:
+            import cupy
+            import cupyx.scipy.ndimage as ndi_mod
+        except ModuleNotFoundError as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
+            return None, None
+
+        try:
+            device_count = cupy.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
+            return None, None
+
+        if device_count <= 0:
+            if require:
+                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
+            return None, None
+
+        return cupy, ndi_mod
+
+    def _is_oom_error(self, exc):
+        if isinstance(exc, MemoryError):
+            return True
+        if not self._on_gpu:
+            return False
+        try:
+            import cupy
+        except Exception:
+            return "OutOfMemory" in repr(exc)
+        return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
+
+    def _free_gpu_memory(self):
+        if not self._on_gpu:
+            return
+        try:
+            self.xp.get_default_memory_pool().free_all_blocks()
+        except Exception:
+            return
+
+    def _switch_to_cpu(self):
+        self.xp = np
+        self.ndi = sp_ndi
+        self.device_type = "cpu"
+        self._on_gpu = False
+
+    def _to_cpu_array(self, arr):
+        if isinstance(arr, np.ndarray):
+            return arr
+        if hasattr(arr, "get"):
+            return arr.get()
+        return np.asarray(arr)
 
     # -------------------------------------------------------------------------
     # Moment and feature computations
@@ -143,6 +228,7 @@ class HuMomentTracking:
         xp.ndarray
             Normalized moments eta for each image, shape (N, 4, 4).
         """
+        xp = self.xp
         # Broadcasting-heavy implementation for speed.
         num_images, height, width = images.shape
         extended_images = images[:, :, :, None, None]  # (N, H, W, 1, 1)
@@ -193,6 +279,7 @@ class HuMomentTracking:
         xp.ndarray
             The first six Hu moments for each image, shape (N, 6).
         """
+        xp = self.xp
         num_images = eta.shape[0]
         hu = xp.zeros((num_images, 6), dtype=eta.dtype)
 
@@ -219,6 +306,31 @@ class HuMomentTracking:
         # we intentionally do not compute Hu moment 7 (mirror invariance)
         return hu
 
+    def _log_hu(self, hu):
+        """Stable log-Hu transform that avoids NaNs/inf for zero moments."""
+        xp = self.xp
+        if hu.size == 0:
+            return hu
+        abs_hu = xp.abs(hu)
+        eps = xp.finfo(hu.dtype).tiny
+        abs_hu = xp.maximum(abs_hu, eps)
+        log_hu = -xp.sign(hu) * xp.log10(abs_hu)
+        log_hu = xp.where(xp.isfinite(log_hu), log_hu, 0.0)
+        return log_hu
+
+    def _normalize_features(self, pre, post, xp_mod):
+        """Normalize features jointly for pre/post frames using mean/std."""
+        if pre.size == 0 or post.size == 0:
+            return pre, post
+        combined = xp_mod.concatenate((pre, post), axis=0)
+        mean = xp_mod.nanmean(combined, axis=0)
+        std = xp_mod.nanstd(combined, axis=0) + 1e-8
+        mean = xp_mod.where(xp_mod.isfinite(mean), mean, 0.0)
+        std = xp_mod.where(xp_mod.isfinite(std), std, 1.0)
+        pre_norm = (pre - mean) / std
+        post_norm = (post - mean) / std
+        return pre_norm, post_norm
+
     def _calculate_mean_and_variance(self, images):
         """
         Calculates the mean and variance of intensity for a set of images.
@@ -233,6 +345,7 @@ class HuMomentTracking:
         xp.ndarray
             Array containing [mean, variance] for each image, shape (N, 2).
         """
+        xp = self.xp
         if images.size == 0:
             return xp.zeros((0, 2), dtype=xp.float32)
 
@@ -280,6 +393,7 @@ class HuMomentTracking:
         tuple of xp.ndarray
             Boundaries for sub-volumes around each marker.
         """
+        xp = self.xp
         if not self.im_info.no_z:
             radii = distance_frame[markers[:, 0], markers[:, 1], markers[:, 2]]
         else:
@@ -316,6 +430,7 @@ class HuMomentTracking:
             Extracted sub-volumes from the image, shape:
             (N, max_radius, max_radius) or (N, max_radius, max_radius, max_radius).
         """
+        xp = self.xp
         if self.im_info.no_z:
             y_low, y_high, x_low, x_high = im_bounds
         else:
@@ -357,6 +472,7 @@ class HuMomentTracking:
         tuple of xp.ndarray
             Z, Y, and X projections of the sub-volumes, each shape (N, H, W).
         """
+        xp = self.xp
         z_projections = xp.max(sub_volumes, axis=1)
         y_projections = xp.max(sub_volumes, axis=2)
         x_projections = xp.max(sub_volumes, axis=3)
@@ -401,6 +517,7 @@ class HuMomentTracking:
         xp.ndarray
             The Hu moments for the sub-volumes.
         """
+        xp = self.xp
         if self.im_info.no_z:
             etas = self._calculate_normalized_moments(sub_volumes)
             hu_moments = self._calculate_hu_moments(etas)
@@ -420,7 +537,7 @@ class HuMomentTracking:
 
     def _concatenate_hu_matrices(self, hu_matrices):
         """Concatenates multiple feature matrices along the feature axis."""
-        return xp.concatenate(hu_matrices, axis=1)
+        return self.xp.concatenate(hu_matrices, axis=1)
 
     # -------------------------------------------------------------------------
     # Per-frame feature extraction (stats + Hu + coordinates)
@@ -443,6 +560,22 @@ class HuMomentTracking:
         -------
         _FrameFeatures
         """
+        try:
+            return self._get_frame_features_impl(t)
+        except GPU_OOM_ERRORS + (MemoryError,) as exc:
+            if self._on_gpu and self._is_oom_error(exc):
+                logger.warning(
+                    f"Frame {t}: GPU OOM during feature extraction; switching to CPU."
+                )
+                self._free_gpu_memory()
+                self._switch_to_cpu()
+                return self._get_frame_features_impl(t)
+            raise
+
+    def _get_frame_features_impl(self, t) -> _FrameFeatures:
+        xp = self.xp
+        ndi = self.ndi
+
         # Load frames into xp arrays
         intensity_frame = xp.asarray(self.im_memmap[t])
         frangi_frame = xp.asarray(self.im_frangi_memmap[t]).copy()
@@ -495,14 +628,18 @@ class HuMomentTracking:
         total_voxels = int(num_markers * voxels_per_roi)
         dense_limit = self.max_dense_roi_voxels_gpu if self._on_gpu else self.max_dense_roi_voxels_cpu
         use_dense = total_voxels <= dense_limit
+        if self.low_memory:
+            use_dense = False
 
         logger.debug(
             f"Frame {t}: {num_markers} markers, max_radius={max_radius}, "
             f"total_roi_voxels~{total_voxels}, use_dense={use_dense}"
         )
 
-        stats_feature_matrix = None
-        log_hu_feature_matrix = None
+        stats_dim = 4
+        hu_dim = 6 if self.im_info.no_z else 18
+        stats_feature_matrix = xp.zeros((num_markers, stats_dim), dtype=xp.float32)
+        log_hu_feature_matrix = xp.zeros((num_markers, hu_dim), dtype=xp.float32)
 
         # Dense / batched ROI extraction (fast, more memory)
         if use_dense:
@@ -515,11 +652,12 @@ class HuMomentTracking:
                 stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats])
 
                 intensity_hus = self._get_hu_moments(intensity_sub_volumes)
-                log_hu_feature_matrix = -1 * xp.copysign(1.0, intensity_hus) * xp.log10(xp.abs(intensity_hus))
-                log_hu_feature_matrix[xp.isinf(log_hu_feature_matrix)] = xp.nan
+                log_hu_feature_matrix = self._log_hu(intensity_hus)
 
                 del intensity_sub_volumes, frangi_sub_volumes, intensity_stats, frangi_stats, intensity_hus
-            except GPU_OOM_ERRORS + (MemoryError,):
+            except GPU_OOM_ERRORS + (MemoryError,) as exc:
+                if self._on_gpu and self._is_oom_error(exc):
+                    self._free_gpu_memory()
                 logger.warning(
                     f"Frame {t}: dense ROI extraction OOM; falling back to streaming ROI extraction."
                 )
@@ -550,8 +688,11 @@ class HuMomentTracking:
         -------
         (stats_feature_matrix, log_hu_feature_matrix) : xp.ndarray, xp.ndarray
         """
-        stats_feature_matrix = None
-        log_hu_feature_matrix = None
+        xp = self.xp
+        stats_dim = 4
+        hu_dim = 6 if self.im_info.no_z else 18
+        stats_feature_matrix = xp.zeros((num_markers, stats_dim), dtype=xp.float32)
+        log_hu_feature_matrix = xp.zeros((num_markers, hu_dim), dtype=xp.float32)
 
         if self.im_info.no_z:
             y_low, y_high, x_low, x_high = region_bounds
@@ -586,21 +727,10 @@ class HuMomentTracking:
             stats_row = xp.concatenate((intensity_stats, frangi_stats), axis=0)
 
             intensity_hu = self._get_hu_moments(intensity_roi_b)[0]
-            log_hu_row = -1 * xp.copysign(1.0, intensity_hu) * xp.log10(xp.abs(intensity_hu))
-            log_hu_row[xp.isinf(log_hu_row)] = xp.nan
-
-            if stats_feature_matrix is None:
-                stats_dim = int(stats_row.shape[0])
-                hu_dim = int(log_hu_row.shape[0])
-                stats_feature_matrix = xp.zeros((num_markers, stats_dim), dtype=stats_row.dtype)
-                log_hu_feature_matrix = xp.zeros((num_markers, hu_dim), dtype=log_hu_row.dtype)
+            log_hu_row = self._log_hu(intensity_hu)
 
             stats_feature_matrix[i] = stats_row
             log_hu_feature_matrix[i] = log_hu_row
-
-        if stats_feature_matrix is None:
-            stats_feature_matrix = xp.zeros((0, 0), dtype=xp.float32)
-            log_hu_feature_matrix = xp.zeros((0, 0), dtype=xp.float32)
 
         return stats_feature_matrix, log_hu_feature_matrix
 
@@ -623,6 +753,7 @@ class HuMomentTracking:
             distance_matrix is normalized by max_distance_um (range ~[0, 1]).
             distance_mask is boolean, True where distances < max_distance_um.
         """
+        xp = self.xp
         coords_post_phys = np.asarray(coords_post_phys, dtype=float)
         coords_pre_phys = np.asarray(coords_pre_phys, dtype=float)
 
@@ -656,6 +787,7 @@ class HuMomentTracking:
         xp.ndarray
             Difference matrix, shape (N_post, N_pre, F).
         """
+        xp = self.xp
         if m1.size == 0 or m2.size == 0:
             return xp.zeros((0, 0, 0), dtype=xp.float64)
 
@@ -678,6 +810,7 @@ class HuMomentTracking:
         xp.ndarray
             Z-score normalized matrix with masked entries set to +inf.
         """
+        xp = self.xp
         if m.size == 0:
             return m
 
@@ -717,6 +850,7 @@ class HuMomentTracking:
         xp.ndarray
             Cost matrix, shape (N_post, N_pre).
         """
+        xp = self.xp
         if stats_vecs.size == 0 or pre_stats_vecs.size == 0 or hu_vecs.size == 0 or pre_hu_vecs.size == 0:
             return xp.zeros((0, 0), dtype=xp.float16)
 
@@ -744,7 +878,7 @@ class HuMomentTracking:
         cost_matrix = xp.nansum(z_score_matrix, axis=2).astype(xp.float16)
         del z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix, z_score_matrix
 
-        return cost_matrix
+        return cost_matrix.astype(xp.float32)
 
     def _find_best_matches(self, cost_matrix):
         """
@@ -758,6 +892,7 @@ class HuMomentTracking:
         -------
         (row_matches, col_matches, costs) : list[int], list[int], list[float]
         """
+        xp = self.xp
         if cost_matrix.size == 0:
             return [], [], []
 
@@ -805,6 +940,7 @@ class HuMomentTracking:
         Sparse KDTree-based matching for large problems.
 
         Operates entirely on CPU/NumPy to reduce GPU memory pressure.
+        Uses dense-like z-score normalization over candidate pairs to keep scoring consistent.
         """
         coords_post = np.asarray(coords_post_phys, dtype=float)
         coords_pre = np.asarray(coords_pre_phys, dtype=float)
@@ -814,10 +950,10 @@ class HuMomentTracking:
         if n_post == 0 or n_pre == 0:
             return [], [], []
 
-        stats_post = np.asarray(stats_vecs)
-        stats_pre = np.asarray(pre_stats_vecs)
-        hu_post = np.asarray(hu_vecs)
-        hu_pre = np.asarray(pre_hu_vecs)
+        stats_post = np.asarray(stats_vecs, dtype=np.float32)
+        stats_pre = np.asarray(pre_stats_vecs, dtype=np.float32)
+        hu_post = np.asarray(hu_vecs, dtype=np.float32)
+        hu_pre = np.asarray(pre_hu_vecs, dtype=np.float32)
 
         if stats_post.size == 0 or stats_pre.size == 0 or hu_post.size == 0 or hu_pre.size == 0:
             return [], [], []
@@ -831,19 +967,52 @@ class HuMomentTracking:
         tree = cKDTree(coords_pre)
         candidates_per_row = tree.query_ball_point(coords_post, self.max_distance_um)
 
-        # Normalize stats features jointly for pre and post
-        stats_combined = np.vstack([stats_pre, stats_post])
-        stats_mean = np.nanmean(stats_combined, axis=0)
-        stats_std = np.nanstd(stats_combined, axis=0) + 1e-8
-        stats_pre_norm = (stats_pre - stats_mean) / stats_std
-        stats_post_norm = (stats_post - stats_mean) / stats_std
+        # First pass: estimate mean/std over candidate pairs (dense-like normalization)
+        n_pairs = 0
+        sum_dist = 0.0
+        sumsq_dist = 0.0
+        sum_stats = np.zeros(stats_post.shape[1], dtype=np.float64)
+        sumsq_stats = np.zeros(stats_post.shape[1], dtype=np.float64)
+        sum_hu = np.zeros(hu_post.shape[1], dtype=np.float64)
+        sumsq_hu = np.zeros(hu_post.shape[1], dtype=np.float64)
 
-        # Normalize Hu features jointly for pre and post
-        hu_combined = np.vstack([hu_pre, hu_post])
-        hu_mean = np.nanmean(hu_combined, axis=0)
-        hu_std = np.nanstd(hu_combined, axis=0) + 1e-8
-        hu_pre_norm = (hu_pre - hu_mean) / hu_std
-        hu_post_norm = (hu_post - hu_mean) / hu_std
+        for i_post, pre_list in enumerate(candidates_per_row):
+            if not pre_list:
+                continue
+            pre_idx = np.asarray(pre_list, dtype=np.int64)
+            if pre_idx.size == 0:
+                continue
+
+            delta = coords_post[i_post] - coords_pre[pre_idx]
+            d_geom = np.linalg.norm(delta, axis=1) / self.max_distance_um
+
+            stats_diff = np.abs(stats_post[i_post][None, :] - stats_pre[pre_idx])
+            hu_diff = np.abs(hu_post[i_post][None, :] - hu_pre[pre_idx])
+
+            sum_dist += float(np.sum(d_geom))
+            sumsq_dist += float(np.sum(d_geom * d_geom))
+            sum_stats += np.sum(stats_diff, axis=0, dtype=np.float64)
+            sumsq_stats += np.sum(stats_diff * stats_diff, axis=0, dtype=np.float64)
+            sum_hu += np.sum(hu_diff, axis=0, dtype=np.float64)
+            sumsq_hu += np.sum(hu_diff * hu_diff, axis=0, dtype=np.float64)
+            n_pairs += int(d_geom.size)
+
+        if n_pairs == 0:
+            return [], [], []
+
+        mean_dist = sum_dist / n_pairs
+        var_dist = max(0.0, (sumsq_dist / n_pairs) - (mean_dist ** 2))
+        std_dist = np.sqrt(var_dist) + 1e-8
+
+        mean_stats = sum_stats / n_pairs
+        var_stats = (sumsq_stats / n_pairs) - (mean_stats ** 2)
+        var_stats = np.maximum(var_stats, 0.0)
+        std_stats = np.sqrt(var_stats) + 1e-8
+
+        mean_hu = sum_hu / n_pairs
+        var_hu = (sumsq_hu / n_pairs) - (mean_hu ** 2)
+        var_hu = np.maximum(var_hu, 0.0)
+        std_hu = np.sqrt(var_hu) + 1e-8
 
         # Row and column minima
         row_min_val = np.full(n_post, np.inf, dtype=np.float32)
@@ -864,12 +1033,14 @@ class HuMomentTracking:
             delta = coords_post[i_post] - coords_pre[pre_idx]
             d_geom = np.linalg.norm(delta, axis=1) / self.max_distance_um
 
-            ds = stats_post_norm[i_post][None, :] - stats_pre_norm[pre_idx]
-            dh = hu_post_norm[i_post][None, :] - hu_pre_norm[pre_idx]
-            d_stats = np.mean(np.abs(ds), axis=1)
-            d_hu = np.mean(np.abs(dh), axis=1)
+            stats_diff = np.abs(stats_post[i_post][None, :] - stats_pre[pre_idx])
+            hu_diff = np.abs(hu_post[i_post][None, :] - hu_pre[pre_idx])
 
-            cost = d_geom + d_stats + d_hu
+            z_dist = (d_geom - mean_dist) / std_dist
+            z_stats = (stats_diff - mean_stats) / std_stats
+            z_hu = (hu_diff - mean_hu) / std_hu
+
+            cost = z_dist + np.mean(z_stats, axis=1) + np.mean(z_hu, axis=1)
             valid_mask = cost <= cost_cutoff
             if not np.any(valid_mask):
                 continue
@@ -922,6 +1093,17 @@ class HuMomentTracking:
         hu_vecs = frame_t.hu
         pre_hu_vecs = frame_prev.hu
 
+        if self._on_gpu:
+            stats_vecs = self.xp.asarray(stats_vecs)
+            pre_stats_vecs = self.xp.asarray(pre_stats_vecs)
+            hu_vecs = self.xp.asarray(hu_vecs)
+            pre_hu_vecs = self.xp.asarray(pre_hu_vecs)
+        else:
+            stats_vecs = self._to_cpu_array(stats_vecs)
+            pre_stats_vecs = self._to_cpu_array(pre_stats_vecs)
+            hu_vecs = self._to_cpu_array(hu_vecs)
+            pre_hu_vecs = self._to_cpu_array(pre_hu_vecs)
+
         n_post = stats_vecs.shape[0]
         n_pre = pre_stats_vecs.shape[0]
         if n_post == 0 or n_pre == 0:
@@ -945,10 +1127,17 @@ class HuMomentTracking:
                     stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs
                 )
                 return self._find_best_matches(cost_matrix)
-            except GPU_OOM_ERRORS + (MemoryError,):
-                logger.warning(
-                    "Dense matching OOM; falling back to sparse KDTree matching."
-                )
+            except GPU_OOM_ERRORS + (MemoryError,) as exc:
+                if self._on_gpu and self._is_oom_error(exc):
+                    logger.warning(
+                        "Dense matching OOM; switching to CPU and falling back to sparse KDTree matching."
+                    )
+                    self._free_gpu_memory()
+                    self._switch_to_cpu()
+                else:
+                    logger.warning(
+                        "Dense matching OOM; falling back to sparse KDTree matching."
+                    )
 
         # Sparse fallback or forced sparse mode
         return self._match_frames_sparse(

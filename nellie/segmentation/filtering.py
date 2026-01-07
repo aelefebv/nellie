@@ -5,37 +5,12 @@ This module provides the Filter class, which implements a multi-scale Frangi fil
 optimized for large datasets with optional GPU acceleration.
 """
 
-from nellie.utils.base_logger import logger
-from nellie.im_info.verifier import ImInfo
+import itertools
 import numpy as np
-from nellie import ndi, xp, device_type
 
+from nellie.im_info.verifier import ImInfo
+from nellie.utils.base_logger import logger
 from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
-
-def bbox(im):
-    if len(im.shape) == 2:
-        rows = xp.any(im, axis=1)
-        cols = xp.any(im, axis=0)
-        if (not rows.any()) or (not cols.any()):
-            return 0, 0, 0, 0
-        rmin, rmax = xp.where(rows)[0][[0, -1]]
-        cmin, cmax = xp.where(cols)[0][[0, -1]]
-        return int(rmin), int(rmax), int(cmin), int(cmax)
-
-    elif len(im.shape) == 3:
-        r = xp.any(im, axis=(1, 2))
-        c = xp.any(im, axis=(0, 2))
-        z = xp.any(im, axis=(0, 1))
-        if (not r.any()) or (not c.any()) or (not z.any()):
-            return 0, 0, 0, 0, 0, 0
-        rmin, rmax = xp.where(r)[0][[0, -1]]
-        cmin, cmax = xp.where(c)[0][[0, -1]]
-        zmin, zmax = xp.where(z)[0][[0, -1]]
-        return int(rmin), int(rmax), int(cmin), int(cmax), int(zmin), int(zmax)
-
-    else:
-        print("Image not 2D or 3D... Cannot get bounding box.")
-        return None
 
 
 class Filter:
@@ -49,13 +24,14 @@ class Filter:
         im_info: ImInfo,
         num_t=None,
         remove_edges: bool = False,
-        min_radius_um: float = 0.20,
+        min_radius_um: float = 0.25,
         max_radius_um: float = 1.0,
         alpha_sq: float = 0.5,
         beta_sq: float = 0.5,
         frob_thresh=None,
         frob_thresh_division=2,
         viewer=None,
+        device: str = "auto",
         # New optimization-related parameters
         low_memory: bool = False,
         max_chunk_voxels: int = int(1e6),
@@ -78,24 +54,34 @@ class Filter:
             If given, fixed Frobenius norm threshold. Otherwise auto-estimated.
         viewer : object or None
             Optional GUI viewer with a `.status` attribute.
+        device : {"auto", "cpu", "gpu"}
+            Backend selection. "auto" uses GPU if available, otherwise CPU.
+            "cpu" forces NumPy/Scipy, and "gpu" forces CuPy/CuPyX (error if unavailable).
         low_memory : bool
             If True, prefer strategies that reduce peak memory at the cost of speed
             (e.g. smaller eigen-decomposition chunks).
         max_chunk_voxels : int
-            Maximum number of voxels per eigen-decomposition chunk.
+            Maximum number of voxels per processing chunk and eigen-decomposition chunk.
         max_threshold_samples : int
             Maximum number of samples to use when estimating thresholds
             (triangle / Otsu) from very large arrays.
         """
         self.im_info = im_info
+        self.device = device
+        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.force_device = device is not None and device.lower() in ("cpu", "gpu", "cuda")
+        self.truncate = 3.0
         if not self.im_info.no_z:
-            self.z_ratio = self.im_info.dim_res["Z"] / self.im_info.dim_res["X"]
+            z_res = self.im_info.dim_res.get("Z") or self.im_info.dim_res.get("X") or 1.0
+            x_res = self.im_info.dim_res.get("X") or 1.0
+            self.z_ratio = float(z_res) / float(x_res)
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index("T")]
         self.remove_edges = remove_edges
         # either (roughly) diffraction limit, or pixel size, whichever is larger
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_res["X"])
+        # self.min_radius_um = max(min_radius_um, self.im_info.dim_res["X"])
+        self.min_radius_um = min_radius_um
         self.max_radius_um = max_radius_um
 
         self.min_radius_px = self.min_radius_um / self.im_info.dim_res["X"]
@@ -123,6 +109,81 @@ class Filter:
         # Dtypes
         self.work_dtype = "float32"
         self.out_dtype = "float32"
+
+        # Cached per-run values
+        self.halo = None
+
+    def _resolve_backend(self, device):
+        device = (device or "auto").lower()
+        if device not in ("auto", "cpu", "gpu", "cuda"):
+            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+
+        if device in ("gpu", "cuda"):
+            xp, ndi = self._try_import_cupy(require=True)
+            return xp, ndi, "cuda"
+        if device == "cpu":
+            import numpy as np
+            import scipy.ndimage as ndi
+            return np, ndi, "cpu"
+
+        # auto
+        xp, ndi = self._try_import_cupy(require=False)
+        if xp is not None:
+            return xp, ndi, "cuda"
+        import numpy as np
+        import scipy.ndimage as ndi
+        return np, ndi, "cpu"
+
+    def _try_import_cupy(self, require):
+        try:
+            import cupy
+            import cupyx.scipy.ndimage as ndi
+        except ModuleNotFoundError as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
+            return None, None
+
+        try:
+            device_count = cupy.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
+            return None, None
+
+        if device_count <= 0:
+            if require:
+                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
+            return None, None
+
+        return cupy, ndi
+
+    def _is_oom_error(self, exc):
+        if isinstance(exc, MemoryError):
+            return True
+        if self.device_type != "cuda":
+            return False
+        try:
+            import cupy
+
+            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
+        except Exception:
+            return "OutOfMemory" in repr(exc)
+
+    def _free_gpu_memory(self):
+        if self.device_type != "cuda":
+            return
+        try:
+            self.xp.get_default_memory_pool().free_all_blocks()
+        except Exception:
+            return
+
+    def _switch_to_cpu(self):
+        import numpy as np
+        import scipy.ndimage as ndi
+
+        self.xp = np
+        self.ndi = ndi
+        self.device_type = "cpu"
 
     # -------------------------------------------------------------------------
     # Setup helpers
@@ -152,6 +213,56 @@ class Filter:
             description="frangi filtered im",
             return_memmap=True,
         )
+
+    def _bbox(self, im):
+        xp, _ = self._backend_for_array(im)
+        if len(im.shape) == 2:
+            rows = xp.any(im, axis=1)
+            cols = xp.any(im, axis=0)
+            if (not rows.any()) or (not cols.any()):
+                return 0, 0, 0, 0
+            rmin, rmax = xp.where(rows)[0][[0, -1]]
+            cmin, cmax = xp.where(cols)[0][[0, -1]]
+            return int(rmin), int(rmax), int(cmin), int(cmax)
+
+        if len(im.shape) == 3:
+            r = xp.any(im, axis=(1, 2))
+            c = xp.any(im, axis=(0, 2))
+            z = xp.any(im, axis=(0, 1))
+            if (not r.any()) or (not c.any()) or (not z.any()):
+                return 0, 0, 0, 0, 0, 0
+            rmin, rmax = xp.where(r)[0][[0, -1]]
+            cmin, cmax = xp.where(c)[0][[0, -1]]
+            zmin, zmax = xp.where(z)[0][[0, -1]]
+            return int(rmin), int(rmax), int(cmin), int(cmax), int(zmin), int(zmax)
+
+        logger.warning("Image not 2D or 3D... Cannot get bounding box.")
+        return None
+
+    def _backend_for_array(self, arr):
+        try:
+            import cupy
+            import cupyx.scipy.ndimage as cupy_ndi
+
+            if isinstance(arr, cupy.ndarray):
+                return cupy, cupy_ndi
+        except Exception:
+            pass
+        import numpy as np
+        import scipy.ndimage as ndi
+        return np, ndi
+
+    def _get_spacing(self, ndim):
+        if ndim == 2:
+            y = self.im_info.dim_res.get("Y") or 1.0
+            x = self.im_info.dim_res.get("X") or 1.0
+            return (float(y), float(x))
+        if ndim == 3:
+            z = self.im_info.dim_res.get("Z") or self.im_info.dim_res.get("X") or 1.0
+            y = self.im_info.dim_res.get("Y") or 1.0
+            x = self.im_info.dim_res.get("X") or 1.0
+            return (float(z), float(y), float(x))
+        raise ValueError(f"Unsupported number of dimensions: {ndim}")
 
     def _get_sigma_vec(self, sigma: float):
         """
@@ -188,19 +299,51 @@ class Filter:
 
         self.sigmas = list(np.arange(self.sigma_min, self.sigma_max, sigma_step_size, dtype=float))
         self.sigmas.sort()
+        self.halo = self._compute_halo()
 
         logger.debug(
             f"Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}"
         )
 
+    def _compute_halo(self):
+        if not self.sigmas:
+            return None
+        max_sigma = max(self.sigmas)
+        sigma_vec = self._get_sigma_vec(max_sigma)
+        return tuple(int(np.ceil(self.truncate * float(s))) for s in sigma_vec)
+
     # -------------------------------------------------------------------------
     # Threshold helpers
     # -------------------------------------------------------------------------
+    def _sample_strides(self, shape, max_samples):
+        if max_samples is None or max_samples <= 0:
+            return (1,) * len(shape)
+        total = int(np.prod(shape))
+        if total <= max_samples:
+            return (1,) * len(shape)
+        ndim = len(shape)
+        stride = int(np.ceil((total / max_samples) ** (1.0 / ndim)))
+        strides = [max(1, stride) for _ in range(ndim)]
+        while int(np.prod([int(np.ceil(s / st)) for s, st in zip(shape, strides)])) > max_samples:
+            idx = int(np.argmax([s / st for s, st in zip(shape, strides)]))
+            strides[idx] += 1
+        return tuple(strides)
+
+    def _downsample(self, arr, strides):
+        if all(s == 1 for s in strides):
+            return arr
+        slices = tuple(slice(None, None, s) for s in strides)
+        return arr[slices]
+
     def _subsample_for_thresholds(self, arr):
         """
         Subsample large arrays before passing to triangle / Otsu threshold
         to reduce memory and runtime.
         """
+        if arr.size == 0:
+            return arr
+        strides = self._sample_strides(arr.shape, self.max_threshold_samples)
+        arr = self._downsample(arr, strides)
         arr = arr[arr > 0]
         if arr.size == 0:
             return arr
@@ -218,13 +361,35 @@ class Filter:
             # Fallback to a very small positive value to avoid division by zero.
             return np.finfo(np.float32).eps
 
-        gamma_tri = triangle_threshold(positive)
-        gamma_otsu, _ = otsu_threshold(positive)
+        gamma_tri = triangle_threshold(positive, xp=self.xp)
+        gamma_otsu, _ = otsu_threshold(positive, xp=self.xp)
         gamma = float(min(gamma_tri, gamma_otsu))
         # Avoid division by zero downstream
         if gamma <= 0:
             gamma = np.finfo(np.float32).eps
         return gamma
+
+    def _estimate_gamma(self, frame, sigma):
+        """
+        Estimate gamma from a deterministic downsample of the Gaussian volume.
+        """
+        if frame.size == 0:
+            return np.finfo(np.float32).eps
+        strides = self._sample_strides(frame.shape, self.max_threshold_samples)
+        sample = self._downsample(frame, strides)
+        sample = self.xp.asarray(sample, dtype=self.work_dtype)
+        sigma_vec = self._get_sigma_vec(sigma)
+        if len(sigma_vec) != sample.ndim:
+            raise ValueError("Sigma vector does not match sample dimensionality")
+        sigma_vec_sample = tuple(float(s) / st for s, st in zip(sigma_vec, strides))
+        gauss_sample = self.ndi.gaussian_filter(
+            sample,
+            sigma=sigma_vec_sample,
+            mode="reflect",
+            cval=0.0,
+            truncate=self.truncate,
+        )
+        return self._calculate_gamma(gauss_sample)
 
     # -------------------------------------------------------------------------
     # Hessian and Frobenius norm
@@ -243,10 +408,10 @@ class Filter:
         mask : xp.ndarray of bool
         """
         # Replace infs with max finite value to keep thresholds valid
-        inf_mask = xp.isinf(frobenius_norm)
-        if xp.any(inf_mask):
+        inf_mask = self.xp.isinf(frobenius_norm)
+        if self.xp.any(inf_mask):
             finite_vals = frobenius_norm[~inf_mask]
-            max_finite = float(xp.max(finite_vals)) if finite_vals.size > 0 else 0.0
+            max_finite = float(self.xp.max(finite_vals)) if finite_vals.size > 0 else 0.0
             frobenius_norm = frobenius_norm.copy()
             frobenius_norm[inf_mask] = max_finite
 
@@ -259,8 +424,8 @@ class Filter:
             if positive.size == 0:
                 frobenius_threshold = 0.0
             else:
-                frob_triangle_thresh = triangle_threshold(positive)
-                frob_otsu_thresh, _ = otsu_threshold(positive)
+                frob_triangle_thresh = triangle_threshold(positive, xp=self.xp)
+                frob_otsu_thresh, _ = otsu_threshold(positive, xp=self.xp)
                 frobenius_threshold = float(min(frob_triangle_thresh, frob_otsu_thresh))
         else:
             frobenius_threshold = float(self.frob_thresh)
@@ -281,25 +446,84 @@ class Filter:
         """
         # Ensure working dtype
         image = image.astype(self.work_dtype, copy=False)
-        gradients = xp.gradient(image)
+        spacing = self._get_spacing(image.ndim)
 
-        if image.ndim == 2:
-            g0, g1 = gradients  # axes 0,1
-            hxx = xp.gradient(g0, axis=0).astype(self.work_dtype, copy=False)
-            hxy = xp.gradient(g0, axis=1).astype(self.work_dtype, copy=False)
-            hyy = xp.gradient(g1, axis=1).astype(self.work_dtype, copy=False)
+        if image.ndim == 2:  # 2D dataset
+            if self.low_memory:
+                g0 = self.xp.gradient(image, spacing[0], axis=0)
+                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
+                    self.work_dtype, copy=False
+                )
+                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                del g0
+                g1 = self.xp.gradient(image, spacing[1], axis=1)
+                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                del g1
+            else:
+                g0, g1 = self.xp.gradient(image, *spacing)  # axes 0,1
+                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
+                    self.work_dtype, copy=False
+                )
+                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
 
             # Frobenius norm: hxx^2 + hyy^2 + 2*hxy^2
             frob_sq = hxx ** 2 + hyy ** 2 + 2.0 * (hxy ** 2)
             h_components = {"hxx": hxx, "hxy": hxy, "hyy": hyy}
-        elif image.ndim == 3:
-            g0, g1, g2 = gradients  # axes 0,1,2
-            hxx = xp.gradient(g0, axis=0).astype(self.work_dtype, copy=False)
-            hxy = xp.gradient(g0, axis=1).astype(self.work_dtype, copy=False)
-            hxz = xp.gradient(g0, axis=2).astype(self.work_dtype, copy=False)
-            hyy = xp.gradient(g1, axis=1).astype(self.work_dtype, copy=False)
-            hyz = xp.gradient(g1, axis=2).astype(self.work_dtype, copy=False)
-            hzz = xp.gradient(g2, axis=2).astype(self.work_dtype, copy=False)
+        elif image.ndim == 3:  # 3D dataset
+            if self.low_memory: 
+                g0 = self.xp.gradient(image, spacing[0], axis=0)
+                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
+                    self.work_dtype, copy=False
+                )
+                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                hxz = self.xp.gradient(g0, spacing[2], axis=2).astype(
+                    self.work_dtype, copy=False
+                )
+                del g0
+                g1 = self.xp.gradient(image, spacing[1], axis=1)
+                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                hyz = self.xp.gradient(g1, spacing[2], axis=2).astype(
+                    self.work_dtype, copy=False
+                )
+                del g1
+                g2 = self.xp.gradient(image, spacing[2], axis=2)
+                hzz = self.xp.gradient(g2, spacing[2], axis=2).astype(
+                    self.work_dtype, copy=False
+                )
+                del g2
+            else:
+                g0, g1, g2 = self.xp.gradient(image, *spacing)  # axes 0,1,2
+                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
+                    self.work_dtype, copy=False
+                )
+                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                hxz = self.xp.gradient(g0, spacing[2], axis=2).astype(
+                    self.work_dtype, copy=False
+                )
+                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
+                    self.work_dtype, copy=False
+                )
+                hyz = self.xp.gradient(g1, spacing[2], axis=2).astype(
+                    self.work_dtype, copy=False
+                )
+                hzz = self.xp.gradient(g2, spacing[2], axis=2).astype(
+                    self.work_dtype, copy=False
+                )
 
             frob_sq = (
                 hxx ** 2
@@ -322,18 +546,15 @@ class Filter:
         max_abs = 0.0
         for comp in h_components.values():
             if comp.size > 0:
-                max_abs = max(max_abs, float(xp.max(xp.abs(comp))))
+                max_abs = max(max_abs, float(self.xp.max(self.xp.abs(comp))))
         if max_abs <= 0:
             max_abs = 1.0
-        frobenius_norm = xp.sqrt(frob_sq) / max_abs
+        frobenius_norm = self.xp.sqrt(frob_sq) / max_abs
 
         if mask:
             h_mask = self._get_frob_mask(frobenius_norm)
         else:
-            h_mask = xp.ones_like(image, dtype=bool)
-
-        if self.remove_edges:
-            h_mask = self._remove_edges(h_mask)
+            h_mask = self.xp.ones_like(image, dtype=bool)
 
         return h_mask, h_components
 
@@ -347,47 +568,42 @@ class Filter:
         """
 
         def _eig_backend(arr):
-            ev = xp.linalg.eigvalsh(arr)
+            ev = self.xp.linalg.eigvalsh(arr)
             # sort by absolute value as in original implementation
-            order = xp.argsort(xp.abs(ev), axis=1)
-            ev = xp.take_along_axis(ev, order, axis=1)
+            order = self.xp.argsort(self.xp.abs(ev), axis=1)
+            ev = self.xp.take_along_axis(ev, order, axis=1)
             return ev
 
-        if device_type != "cuda":
+        if self.device_type != "cuda":
             return _eig_backend(H_chunk)
 
         # GPU case
         try:
             return _eig_backend(H_chunk)
         except Exception as e:
-            # Try to detect out-of-memory and fall back
-            is_oom = False
-            try:
-                # CuPy-style OOM class if xp is cupy
-                import cupy  # type: ignore  # noqa
-
-                is_oom = isinstance(e, cupy.cuda.memory.OutOfMemoryError)
-            except Exception:
-                # Fallback heuristic if CuPy is not importable here
-                is_oom = "OutOfMemory" in repr(e)
-
-            if not is_oom:
+            if not self._is_oom_error(e):
                 raise
 
             n = H_chunk.shape[0]
-            if n > 1 and not self.low_memory:
-                # Split chunk and recurse to stay on GPU
+            if n > 1:
+                # Split chunk and recurse to stay on GPU if possible
                 mid = n // 2
                 ev1 = self._safe_eigvalsh(H_chunk[:mid])
                 ev2 = self._safe_eigvalsh(H_chunk[mid:])
-                return xp.concatenate([ev1, ev2], axis=0)
+                return self.xp.concatenate([ev1, ev2], axis=0)
+
+            if self.force_device:
+                raise
 
             # Fall back to CPU for this chunk
-            H_cpu = xp.asnumpy(H_chunk)
+            try:
+                H_cpu = self.xp.asnumpy(H_chunk)
+            except Exception:
+                H_cpu = np.asarray(H_chunk)
             ev_cpu = np.linalg.eigvalsh(H_cpu)
             order = np.argsort(np.abs(ev_cpu), axis=1)
             ev_cpu = np.take_along_axis(ev_cpu, order, axis=1)
-            return xp.asarray(ev_cpu)
+            return self.xp.asarray(ev_cpu)
 
     def _compute_chunkwise_eigenvalues(self, hessian_matrices, chunk_size=1e6):
         """
@@ -419,7 +635,7 @@ class Filter:
         if len(eigenvalues_list) == 1:
             return eigenvalues_list[0]
 
-        eigenvalues_flat = xp.concatenate(eigenvalues_list, axis=0)
+        eigenvalues_flat = self.xp.concatenate(eigenvalues_list, axis=0)
         return eigenvalues_flat
 
     def _compute_vesselness_chunkwise(self, h_components, h_mask, gamma_sq):
@@ -427,19 +643,19 @@ class Filter:
         Compute vesselness in chunks over the masked voxels to control memory.
         """
         # Coordinates of voxels where we evaluate the Hessian
-        coords = xp.where(h_mask)
+        coords = self.xp.where(h_mask)
         total_voxels = int(coords[0].size)
         if total_voxels == 0:
             # Return an all-zero volume
             template = next(iter(h_components.values()))
-            return xp.zeros_like(template, dtype=self.work_dtype)
+            return self.xp.zeros_like(template, dtype=self.work_dtype)
 
         chunk_size = self.max_chunk_voxels
         if chunk_size is None or chunk_size <= 0:
             chunk_size = total_voxels
 
         # Preallocate 1D buffer for vesselness values on masked voxels
-        vessel_masked = xp.zeros(total_voxels, dtype=self.work_dtype)
+        vessel_masked = self.xp.zeros(total_voxels, dtype=self.work_dtype)
 
         # Iterate over chunks
         for start in range(0, total_voxels, chunk_size):
@@ -451,14 +667,17 @@ class Filter:
                 hxx_c = h_components["hxx"][idx_chunk]
                 hxy_c = h_components["hxy"][idx_chunk]
                 hyy_c = h_components["hyy"][idx_chunk]
-
-                H_chunk = xp.stack(
-                    [
-                        xp.stack([hxx_c, hxy_c], axis=-1),
-                        xp.stack([hxy_c, hyy_c], axis=-1),
-                    ],
-                    axis=-2,
-                )
+                trace = hxx_c + hyy_c
+                diff = hxx_c - hyy_c
+                delta = self.xp.sqrt(diff * diff + 4.0 * (hxy_c * hxy_c))
+                l1 = 0.5 * (trace - delta)
+                l2 = 0.5 * (trace + delta)
+                abs1 = self.xp.abs(l1)
+                abs2 = self.xp.abs(l2)
+                swap = abs1 > abs2
+                eig1 = self.xp.where(swap, l2, l1)
+                eig2 = self.xp.where(swap, l1, l2)
+                eigenvalues = self.xp.stack([eig1, eig2], axis=1)
             else:
                 # 3D Hessian
                 hxx_c = h_components["hxx"][idx_chunk]
@@ -467,23 +686,21 @@ class Filter:
                 hyy_c = h_components["hyy"][idx_chunk]
                 hyz_c = h_components["hyz"][idx_chunk]
                 hzz_c = h_components["hzz"][idx_chunk]
-
-                H_chunk = xp.stack(
+                H_chunk = self.xp.stack(
                     [
-                        xp.stack([hxx_c, hxy_c, hxz_c], axis=-1),
-                        xp.stack([hxy_c, hyy_c, hyz_c], axis=-1),
-                        xp.stack([hxz_c, hyz_c, hzz_c], axis=-1),
+                        self.xp.stack([hxx_c, hxy_c, hxz_c], axis=-1),
+                        self.xp.stack([hxy_c, hyy_c, hyz_c], axis=-1),
+                        self.xp.stack([hxz_c, hyz_c, hzz_c], axis=-1),
                     ],
                     axis=-2,
                 )
-
-            eigenvalues = self._safe_eigvalsh(H_chunk)
+                eigenvalues = self._safe_eigvalsh(H_chunk)
             v_chunk = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
             vessel_masked[start:end] = v_chunk.astype(self.work_dtype, copy=False)
 
         # Scatter back into full volume
         template = next(iter(h_components.values()))
-        vesselness = xp.zeros_like(template, dtype=self.work_dtype)
+        vesselness = self.xp.zeros_like(template, dtype=self.work_dtype)
         vesselness[coords] = vessel_masked
         return vesselness
 
@@ -507,23 +724,25 @@ class Filter:
             l1 = eigenvalues[:, 0]
             l2 = eigenvalues[:, 1]
 
-            rb_sq = (xp.abs(l1) / (xp.abs(l2) + 1e-12)) ** 2
+            rb_sq = (self.xp.abs(l1) / (self.xp.abs(l2) + 1e-12)) ** 2
             s_sq = l1 ** 2 + l2 ** 2
-            filtered_im = xp.exp(-(rb_sq / self.beta_sq)) * (1.0 - xp.exp(-(s_sq / gamma_sq)))
+            filtered_im = self.xp.exp(-(rb_sq / self.beta_sq)) * (
+                1.0 - self.xp.exp(-(s_sq / gamma_sq))
+            )
         else:
             # 3D: eigenvalues[:, 0] <= eigenvalues[:, 1] <= eigenvalues[:, 2] in |·|
             l1 = eigenvalues[:, 0]
             l2 = eigenvalues[:, 1]
             l3 = eigenvalues[:, 2]
 
-            ra_sq = (xp.abs(l2) / (xp.abs(l3) + 1e-12)) ** 2
-            rb_sq = (xp.abs(l2) / (xp.sqrt(xp.abs(l2 * l3)) + 1e-12)) ** 2
+            ra_sq = (self.xp.abs(l2) / (self.xp.abs(l3) + 1e-12)) ** 2
+            rb_sq = (self.xp.abs(l2) / (self.xp.sqrt(self.xp.abs(l2 * l3)) + 1e-12)) ** 2
             s_sq = l1 ** 2 + l2 ** 2 + l3 ** 2
 
             filtered_im = (
-                (1.0 - xp.exp(-(ra_sq / self.alpha_sq)))
-                * xp.exp(-(rb_sq / self.beta_sq))
-                * (1.0 - xp.exp(-(s_sq / gamma_sq)))
+                (1.0 - self.xp.exp(-(ra_sq / self.alpha_sq)))
+                * self.xp.exp(-(rb_sq / self.beta_sq))
+                * (1.0 - self.xp.exp(-(s_sq / gamma_sq)))
             )
 
         # Exclude bright structures (vessels expected to be darker than background)
@@ -532,7 +751,7 @@ class Filter:
         filtered_im[eigenvalues[:, 1] > 0] = 0.0
 
         # Clean up NaNs/Infs
-        filtered_im = xp.nan_to_num(
+        filtered_im = self.xp.nan_to_num(
             filtered_im, nan=0.0, posinf=0.0, neginf=0.0
         )
         return filtered_im
@@ -549,7 +768,7 @@ class Filter:
         lapofg = None
         for i, s in enumerate(self.sigmas):
             sigma_vec = self._get_sigma_vec(s)
-            current_lapofg = -ndi.gaussian_laplace(frame, sigma_vec) * (float(s) ** 2)
+            current_lapofg = -self.ndi.gaussian_laplace(frame, sigma_vec) * (float(s) ** 2)
             current_lapofg = current_lapofg * mask
             if i == 0:
                 lapofg = current_lapofg
@@ -561,24 +780,21 @@ class Filter:
     # -------------------------------------------------------------------------
     # Per-frame processing
     # -------------------------------------------------------------------------
-    def _run_frame(self, t, mask=True):
-        """
-        Run the Frangi filter for a single timepoint using Gaussian scale-space
-        with a cascaded Gaussian to avoid recomputing from raw at each sigma.
-        """
-        logger.info(f"Running Frangi filter on t={t}.")
+    def _precompute_gammas(self, frame):
+        gammas = []
+        for sigma in self.sigmas:
+            gammas.append(self._estimate_gamma(frame, sigma))
+        return gammas
 
-        # Load this frame once into working dtype
-        frame = xp.asarray(self.im_memmap[t, ...], dtype=self.work_dtype)
-
-        vesselness = xp.zeros_like(frame, dtype=self.work_dtype)
-        masks = xp.ones_like(frame, dtype=bool)
+    def _compute_vesselness(self, frame, gammas, mask=True):
+        vesselness = self.xp.zeros_like(frame, dtype=self.work_dtype)
+        masks = self.xp.ones_like(frame, dtype=bool)
 
         # Start from raw frame and build Gaussian scales incrementally
-        gauss = frame.copy()
+        gauss = frame.astype(self.work_dtype, copy=False)
         prev_sigma = 0.0
 
-        for sigma in self.sigmas:
+        for sigma, gamma in zip(self.sigmas, gammas):
             # Compute incremental sigma to go from prev_sigma -> sigma
             sigma_vec_prev = self._get_sigma_vec(prev_sigma)
             sigma_vec_curr = self._get_sigma_vec(sigma)
@@ -592,39 +808,121 @@ class Filter:
             sigma_vec_delta = tuple(sigma_vec_delta)
 
             if any(s > 0 for s in sigma_vec_delta):
-                ndi.gaussian_filter(
+                self.ndi.gaussian_filter(
                     gauss,
                     sigma=sigma_vec_delta,
                     output=gauss,
                     mode="reflect",
                     cval=0.0,
-                    truncate=3.0,
+                    truncate=self.truncate,
                 )
 
             prev_sigma = sigma
 
-            # Compute gamma and Hessian-based vesselness for this scale
-            gamma = self._calculate_gamma(gauss)
             gamma_sq = 2.0 * (float(gamma) ** 2)
 
             h_mask, h_components = self._compute_hessian(gauss, mask=mask)
-            if not xp.any(h_mask):
-                # Nothing to do at this scale
+            if not self.xp.any(h_mask):
                 continue
 
             vessel_scale = self._compute_vesselness_chunkwise(
                 h_components, h_mask, gamma_sq=gamma_sq
             )
 
-            # Take maximum vesselness across scales
-            max_indices = vessel_scale > vesselness
-            vesselness[max_indices] = vessel_scale[max_indices]
-
-            # Update accumulated mask (voxels must be valid at all scales)
+            vesselness = self.xp.maximum(vesselness, vessel_scale)
             masks &= h_mask
 
-        vesselness = vesselness * masks
-        return vesselness
+        return vesselness, masks
+
+    def _compute_chunk_shape(self, shape, max_chunk_voxels):
+        if max_chunk_voxels is None or max_chunk_voxels <= 0:
+            return tuple(shape)
+        chunk = list(shape)
+        while int(np.prod(chunk)) > max_chunk_voxels:
+            idx = int(np.argmax(chunk))
+            chunk[idx] = max(1, int(np.ceil(chunk[idx] / 2)))
+        return tuple(chunk)
+
+    def _iter_chunks(self, shape, chunk_shape, halo):
+        if halo is None or len(halo) != len(shape):
+            halo = (0,) * len(shape)
+        ranges = [range(0, dim, step) for dim, step in zip(shape, chunk_shape)]
+        for starts in itertools.product(*ranges):
+            ends = [min(start + step, dim) for start, step, dim in zip(starts, chunk_shape, shape)]
+            core = tuple(slice(s, e) for s, e in zip(starts, ends))
+            ext_starts = [max(0, s - h) for s, h in zip(starts, halo)]
+            ext_ends = [min(dim, e + h) for e, h, dim in zip(ends, halo, shape)]
+            ext = tuple(slice(s, e) for s, e in zip(ext_starts, ext_ends))
+            core_in_ext = tuple(
+                slice(s - es, e - es) for s, e, es in zip(starts, ends, ext_starts)
+            )
+            yield core, ext, core_in_ext
+
+    def _run_frame_chunked(self, t, gammas, mask=True, max_chunk_voxels=None):
+        frame_cpu = self.im_memmap[t, ...]
+        shape = frame_cpu.shape
+        chunk_voxels = int(max_chunk_voxels or self.max_chunk_voxels or int(np.prod(shape)))
+        halo = self.halo or (0,) * len(shape)
+
+        while True:
+            try:
+                chunk_shape = self._compute_chunk_shape(shape, chunk_voxels)
+                vessel_out = np.zeros(shape, dtype=self.work_dtype)
+                for core, ext, core_in_ext in self._iter_chunks(shape, chunk_shape, halo):
+                    chunk = frame_cpu[ext]
+                    chunk_xp = self.xp.asarray(chunk, dtype=self.work_dtype)
+                    vessel_chunk, mask_chunk = self._compute_vesselness(
+                        chunk_xp, gammas, mask=mask
+                    )
+                    vessel_chunk = vessel_chunk * mask_chunk
+                    if self.device_type == "cuda":
+                        vessel_chunk = vessel_chunk.get()
+                    vessel_out[core] = vessel_chunk[core_in_ext]
+                if self.remove_edges:
+                    vessel_out = self._remove_edges(vessel_out)
+                return vessel_out
+            except Exception as exc:
+                if not self._is_oom_error(exc):
+                    raise
+                self._free_gpu_memory()
+                if chunk_voxels <= 1:
+                    raise
+                chunk_voxels = max(1, chunk_voxels // 2)
+
+    def _run_frame(self, t, mask=True):
+        """
+        Run the Frangi filter for a single timepoint using Gaussian scale-space
+        with a cascaded Gaussian to avoid recomputing from raw at each sigma.
+        """
+        logger.info(f"Running Frangi filter on t={t}.")
+
+        frame_cpu = self.im_memmap[t, ...]
+        gammas = self._precompute_gammas(frame_cpu)
+
+        if self.low_memory:
+            return self._run_frame_chunked(t, gammas, mask=mask)
+
+        try:
+            frame = self.xp.asarray(frame_cpu, dtype=self.work_dtype)
+            vesselness, masks = self._compute_vesselness(frame, gammas, mask=mask)
+            vesselness = vesselness * masks
+            if self.remove_edges:
+                vesselness = self._remove_edges(vesselness)
+            return vesselness
+        except Exception as exc:
+            if not self._is_oom_error(exc):
+                raise
+            self._free_gpu_memory()
+            # Try chunked on current backend
+            try:
+                return self._run_frame_chunked(t, gammas, mask=mask)
+            except Exception as exc2:
+                if not self._is_oom_error(exc2):
+                    raise
+                if self.device_type == "cuda" and not self.force_device:
+                    self._switch_to_cpu()
+                    return self._run_frame_chunked(t, gammas, mask=mask)
+                raise
 
     # -------------------------------------------------------------------------
     # Post-processing helpers
@@ -634,7 +932,8 @@ class Filter:
         Apply a simple percentile-based threshold and binary opening to refine
         the vesselness mask.
         """
-        positive = frangi_frame[frangi_frame > 0]
+        xp, ndi = self._backend_for_array(frangi_frame)
+        positive = self._subsample_for_thresholds(frangi_frame)
         if positive.size == 0:
             return frangi_frame
 
@@ -654,7 +953,7 @@ class Filter:
             # 2D case
             if frangi_frame.size == 0:
                 return frangi_frame
-            rmin, rmax, cmin, cmax = bbox(frangi_frame)
+            rmin, rmax, cmin, cmax = self._bbox(frangi_frame)
             height = max(0, rmax - rmin + 1)
             if height <= 0:
                 return frangi_frame
@@ -663,13 +962,13 @@ class Filter:
             frangi_frame[rmax - margin + 1 : rmax + 1, :] = 0
         else:
             # 3D case: assume Z is axis 0
-            num_z = self.im_info.shape[self.im_info.axes.index("Z")]
+            num_z = frangi_frame.shape[0]
             margin = 15
             for z_idx in range(num_z):
                 slice_im = frangi_frame[z_idx, ...]
                 if slice_im.size == 0:
                     continue
-                rmin, rmax, cmin, cmax = bbox(slice_im)
+                rmin, rmax, cmin, cmax = self._bbox(slice_im)
                 height = max(0, rmax - rmin + 1)
                 if height <= 0:
                     continue
@@ -691,6 +990,7 @@ class Filter:
             frangi_frame = self._run_frame(t, mask=mask)
 
             # Only apply percentile-based masking if there is any signal
+            xp, _ = self._backend_for_array(frangi_frame)
             total = float(xp.sum(frangi_frame))
             if total > 0.0:
                 frangi_frame = self._mask_volume(frangi_frame)
@@ -698,7 +998,7 @@ class Filter:
             filtered_im = frangi_frame
 
             # Move result back to CPU for memmap storage when using GPU
-            if device_type == "cuda":
+            if hasattr(filtered_im, "get"):
                 filtered_im = filtered_im.get()
 
             if self.im_info.no_t or self.num_t == 1:
@@ -717,12 +1017,3 @@ class Filter:
         self._allocate_memory()
         self._set_default_sigmas()
         self._run_filter(mask=mask)
-
-
-if __name__ == "__main__":
-    im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
-    im_info = ImInfo(
-        im_path, dim_res={"T": 1, "Z": 0.2, "Y": 0.1, "X": 0.1}, dimension_order="ZYX"
-    )
-    filter_im = Filter(im_info)
-    filter_im.run()

@@ -4,12 +4,22 @@ Voxel reassignment across timepoints using flow interpolation.
 This module provides the VoxelReassigner class for tracking and reassigning voxel labels
 across time using forward and backward flow interpolation.
 """
+from dataclasses import dataclass
+from typing import Any, Optional
+
 import numpy as np
 from scipy.spatial import cKDTree
 
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
+
+
+@dataclass
+class _TreeHandle:
+    backend: str
+    tree: Optional[Any] = None
+    coords_real_scaled: Optional[np.ndarray] = None
 
 
 class VoxelReassigner:
@@ -21,11 +31,17 @@ class VoxelReassigner:
       - Reuses a single set of voxel matches between timepoints for all label types.
       - Avoids large intermediate dense arrays where possible.
       - Optionally stores running matches for downstream analysis.
+      - Supports CPU/GPU matching with memory-aware chunking and fallbacks.
+      - Assigns labels using weighted votes from forward/backward interpolations.
     """
 
     def __init__(self, im_info: ImInfo, num_t=None, viewer=None,
                  store_running_matches: bool = True,
-                 max_refine_iterations: int = 3):
+                 max_refine_iterations: int = 3,
+                 device: str = "auto",
+                 low_memory: bool = False,
+                 max_query_points: int = int(1e6),
+                 max_bruteforce_pairs: int = int(1e7)):
         """
         Parameters
         ----------
@@ -37,11 +53,29 @@ class VoxelReassigner:
             Optional viewer for visualization / status updates.
         store_running_matches : bool, optional
             If True, store per-frame voxel matches (may be large for big datasets).
+            Matches are stored as one best source per target voxel.
         max_refine_iterations : int, optional
-            Maximum number of refinement iterations to try to reassign unmatched voxels
-            by nearest-neighbor propagation. Set to 0 to disable refinement for speed.
+            Maximum number of vote iterations to assign labels at t+1 from t.
+            Set to 1 for a single pass.
+        device : {"auto", "cpu", "gpu"}, optional
+            Backend selection for nearest-neighbor matching.
+        low_memory : bool, optional
+            If True, prefer lower-memory matching strategies at the cost of speed.
+        max_query_points : int, optional
+            Maximum number of points per KDTree query chunk.
+        max_bruteforce_pairs : int, optional
+            Maximum number of pairwise distances to compute in GPU brute-force mode.
         """
         self.im_info = im_info
+        self.device = device
+        self.low_memory = bool(low_memory)
+        self.max_query_points = max(1, int(max_query_points))
+        self.max_bruteforce_pairs = max(1, int(max_bruteforce_pairs))
+        if self.low_memory:
+            self.max_query_points = min(self.max_query_points, int(2e5))
+            self.max_bruteforce_pairs = min(self.max_bruteforce_pairs, int(2e6))
+        self.xp, self.device_type, self._cp, self._gpu_kdtree_cls = self._resolve_backend(device)
+        self._warned_gpu_fallback = False
 
         # handle single-timepoint data early
         if self.im_info.no_t:
@@ -58,6 +92,7 @@ class VoxelReassigner:
             self.viewer = viewer
             self.shape = None
             self.spatial_shape = None
+            self.match_coord_dtype = None
             self.store_running_matches = store_running_matches
             self.max_refine_iterations = max_refine_iterations
             return
@@ -90,12 +125,335 @@ class VoxelReassigner:
         # will be set in _allocate_memory
         self.shape = None
         self.spatial_shape = None
+        self.match_coord_dtype = None
+
+    # -------------------------------------------------------------------------
+    # Backend helpers
+    # -------------------------------------------------------------------------
+
+    def _resolve_backend(self, device):
+        device = (device or "auto").lower()
+        if device not in ("auto", "cpu", "gpu", "cuda"):
+            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+
+        if device in ("gpu", "cuda"):
+            xp, kdtree_cls = self._try_import_cupy(require=True)
+            return xp, "cuda", xp, kdtree_cls
+        if device == "cpu":
+            return np, "cpu", None, None
+
+        xp, kdtree_cls = self._try_import_cupy(require=False)
+        if xp is not None:
+            return xp, "cuda", xp, kdtree_cls
+        return np, "cpu", None, None
+
+    def _try_import_cupy(self, require):
+        try:
+            import cupy
+            import cupyx.scipy.spatial as cupy_spatial
+        except ModuleNotFoundError as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
+            return None, None
+
+        try:
+            device_count = cupy.cuda.runtime.getDeviceCount()
+        except Exception as exc:
+            if require:
+                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
+            return None, None
+
+        if device_count <= 0:
+            if require:
+                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
+            return None, None
+
+        try:
+            kdtree_cls = cupy_spatial.cKDTree
+        except Exception:
+            kdtree_cls = None
+
+        return cupy, kdtree_cls
+
+    def _is_oom_error(self, exc):
+        if isinstance(exc, MemoryError):
+            return True
+        if self.device_type != "cuda":
+            return False
+        try:
+            import cupy
+
+            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
+        except Exception:
+            return "OutOfMemory" in repr(exc)
+
+    def _free_gpu_memory(self):
+        if self.device_type != "cuda" or self._cp is None:
+            return
+        try:
+            self._cp.get_default_memory_pool().free_all_blocks()
+        except Exception:
+            return
+
+    def _switch_to_cpu(self, reason):
+        if self.device_type == "cpu":
+            return
+        if not self._warned_gpu_fallback:
+            logger.warning(reason)
+            self._warned_gpu_fallback = True
+        self.xp = np
+        self.device_type = "cpu"
+        self._cp = None
+        self._gpu_kdtree_cls = None
+
+    def _scale_coords(self, coords):
+        scaling = self.flow_interpolator_fw.scaling
+        return np.asarray(coords, dtype=np.float32) * scaling
+
+    def _iter_slices(self, n_items, chunk_size):
+        if n_items <= 0:
+            return
+        chunk_size = max(1, int(chunk_size))
+        for start in range(0, n_items, chunk_size):
+            yield slice(start, min(n_items, start + chunk_size))
+
+    def _build_tree(self, coords_real_scaled):
+        if coords_real_scaled.size == 0:
+            return _TreeHandle(backend="cpu", tree=None, coords_real_scaled=None)
+
+        if self.device_type == "cuda" and self._cp is not None:
+            if self._gpu_kdtree_cls is not None:
+                try:
+                    coords_gpu = self._cp.asarray(coords_real_scaled, dtype=self._cp.float32)
+                    tree = self._gpu_kdtree_cls(coords_gpu)
+                    return _TreeHandle(backend="gpu", tree=tree, coords_real_scaled=coords_real_scaled)
+                except Exception as exc:
+                    if self._is_oom_error(exc):
+                        self._free_gpu_memory()
+                        self._switch_to_cpu("GPU KDTree OOM; falling back to CPU matching.")
+                    else:
+                        self._switch_to_cpu("GPU KDTree unavailable; falling back to CPU matching.")
+            if self.device_type == "cuda":
+                return _TreeHandle(
+                    backend="gpu_bruteforce",
+                    tree=None,
+                    coords_real_scaled=coords_real_scaled,
+                )
+
+        try:
+            return _TreeHandle(backend="cpu", tree=cKDTree(coords_real_scaled), coords_real_scaled=None)
+        except MemoryError:
+            logger.warning("KDTree allocation failed; falling back to brute-force matching.")
+            return _TreeHandle(
+                backend="cpu_bruteforce",
+                tree=None,
+                coords_real_scaled=coords_real_scaled,
+            )
+
+    def _query_tree(self, tree_handle, coords_query_scaled):
+        if coords_query_scaled.size == 0:
+            return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.int64)
+
+        if tree_handle.backend == "cpu":
+            if tree_handle.tree is None:
+                return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.int64)
+            dist, idx = tree_handle.tree.query(coords_query_scaled, k=1, workers=-1)
+            return dist, idx
+
+        if tree_handle.backend == "gpu":
+            try:
+                coords_query_gpu = self._cp.asarray(coords_query_scaled, dtype=self._cp.float32)
+                dist_gpu, idx_gpu = tree_handle.tree.query(coords_query_gpu, k=1)
+                dist = self._cp.asnumpy(dist_gpu).astype(np.float32, copy=False)
+                idx = self._cp.asnumpy(idx_gpu).astype(np.int64, copy=False)
+                return dist, idx
+            except Exception as exc:
+                if self._is_oom_error(exc):
+                    self._free_gpu_memory()
+                self._switch_to_cpu("GPU query failed; falling back to CPU matching.")
+                cpu_tree = cKDTree(tree_handle.coords_real_scaled)
+                dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
+                return dist, idx
+
+        if tree_handle.backend == "gpu_bruteforce":
+            if self._cp is None:
+                cpu_tree = cKDTree(tree_handle.coords_real_scaled)
+                dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
+                return dist, idx
+            if not self._can_use_bruteforce(tree_handle.coords_real_scaled, coords_query_scaled):
+                cpu_tree = cKDTree(tree_handle.coords_real_scaled)
+                dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
+                return dist, idx
+            try:
+                return self._query_bruteforce_gpu(tree_handle.coords_real_scaled, coords_query_scaled)
+            except Exception as exc:
+                if self._is_oom_error(exc):
+                    self._free_gpu_memory()
+                self._switch_to_cpu("GPU brute-force OOM; falling back to CPU matching.")
+                cpu_tree = cKDTree(tree_handle.coords_real_scaled)
+                dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
+                return dist, idx
+
+        if tree_handle.backend == "cpu_bruteforce":
+            return self._query_bruteforce_cpu(tree_handle.coords_real_scaled, coords_query_scaled)
+
+        raise RuntimeError(f"Unknown tree backend '{tree_handle.backend}'.")
+
+    def _can_use_bruteforce(self, coords_real_scaled, coords_query_scaled):
+        n_real = coords_real_scaled.shape[0]
+        n_query = coords_query_scaled.shape[0]
+        if n_real == 0 or n_query == 0:
+            return False
+        return (n_real * n_query) <= self.max_bruteforce_pairs
+
+    def _query_bruteforce_gpu(self, coords_real_scaled, coords_query_scaled):
+        n_real = coords_real_scaled.shape[0]
+        n_query = coords_query_scaled.shape[0]
+        if n_real == 0 or n_query == 0:
+            return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.int64)
+
+        cp = self._cp
+        coords_real_gpu = cp.asarray(coords_real_scaled, dtype=cp.float32)
+        chunk_size = max(1, min(n_query, self.max_bruteforce_pairs // max(n_real, 1)))
+
+        dist_out = np.empty((n_query,), dtype=np.float32)
+        idx_out = np.empty((n_query,), dtype=np.int64)
+
+        start = 0
+        while start < n_query:
+            end = min(n_query, start + chunk_size)
+            try:
+                coords_chunk_gpu = cp.asarray(coords_query_scaled[start:end], dtype=cp.float32)
+                diff = coords_chunk_gpu[:, None, :] - coords_real_gpu[None, :, :]
+                dist_sq = cp.sum(diff * diff, axis=2)
+                idx_gpu = cp.argmin(dist_sq, axis=1)
+                dist_gpu = cp.sqrt(dist_sq[cp.arange(dist_sq.shape[0]), idx_gpu])
+                idx_out[start:end] = cp.asnumpy(idx_gpu).astype(np.int64, copy=False)
+                dist_out[start:end] = cp.asnumpy(dist_gpu).astype(np.float32, copy=False)
+                del coords_chunk_gpu, diff, dist_sq, idx_gpu, dist_gpu
+                if self.low_memory:
+                    self._free_gpu_memory()
+                start = end
+            except Exception as exc:
+                if not self._is_oom_error(exc):
+                    raise
+                self._free_gpu_memory()
+                if chunk_size <= 1:
+                    raise
+                chunk_size = max(1, chunk_size // 2)
+
+        return dist_out, idx_out
+
+    def _query_bruteforce_cpu(self, coords_real_scaled, coords_query_scaled):
+        n_real = coords_real_scaled.shape[0]
+        n_query = coords_query_scaled.shape[0]
+        if n_real == 0 or n_query == 0:
+            return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.int64)
+
+        coords_real_scaled = coords_real_scaled.astype(np.float32, copy=False)
+        chunk_size = max(1, min(n_query, self.max_bruteforce_pairs // max(n_real, 1)))
+
+        dist_out = np.empty((n_query,), dtype=np.float32)
+        idx_out = np.empty((n_query,), dtype=np.int64)
+
+        start = 0
+        while start < n_query:
+            end = min(n_query, start + chunk_size)
+            try:
+                coords_chunk = coords_query_scaled[start:end].astype(np.float32, copy=False)
+                diff = coords_chunk[:, None, :] - coords_real_scaled[None, :, :]
+                dist_sq = np.sum(diff * diff, axis=2)
+                idx = np.argmin(dist_sq, axis=1)
+                dist = np.sqrt(dist_sq[np.arange(dist_sq.shape[0]), idx])
+                idx_out[start:end] = idx.astype(np.int64, copy=False)
+                dist_out[start:end] = dist.astype(np.float32, copy=False)
+                start = end
+            except MemoryError:
+                if chunk_size <= 1:
+                    raise
+                chunk_size = max(1, chunk_size // 2)
+
+        return dist_out, idx_out
+
+    def _select_match_coord_dtype(self):
+        if self.spatial_shape is None or len(self.spatial_shape) == 0:
+            return np.uint16
+        max_dim = int(max(self.spatial_shape))
+        if max_dim <= (np.iinfo(np.uint16).max + 1):
+            return np.uint16
+        if max_dim <= (np.iinfo(np.uint32).max + 1):
+            return np.uint32
+        return np.uint64
+
+    def _compute_error_distance(self, predicted_coords, matched_coords):
+        if predicted_coords.size == 0 or matched_coords.size == 0:
+            return np.empty((0,), dtype=np.float32)
+        scaling = self.flow_interpolator_fw.scaling
+        diffs = (predicted_coords - matched_coords).astype(np.float32) * scaling
+        return np.linalg.norm(diffs, axis=1).astype(np.float32, copy=False)
+
+    def _select_best_pairs(self, vox_prev, vox_next, distances):
+        if vox_prev.size == 0 or vox_next.size == 0:
+            dim = vox_prev.shape[1] if vox_prev.ndim == 2 else 3
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64),
+                    np.empty((0,), dtype=np.float64))
+        if self.spatial_shape is None:
+            raise RuntimeError("spatial_shape is not set; call _allocate_memory() before matching.")
+
+        target_flat = np.ravel_multi_index(vox_next.T, self.spatial_shape)
+        order = np.lexsort((distances, target_flat))
+        target_sorted = target_flat[order]
+        target_change = np.ones(len(order), dtype=bool)
+        target_change[1:] = target_sorted[1:] != target_sorted[:-1]
+        best_idx = order[target_change]
+        return vox_prev[best_idx], vox_next[best_idx]
+
+    def _vote_targets(self, target_coords, source_labels, distances):
+        if target_coords.size == 0:
+            return (np.empty((0,), dtype=np.int64),
+                    np.empty((0,), dtype=source_labels.dtype),
+                    np.empty((0,), dtype=np.int64))
+        if self.spatial_shape is None:
+            raise RuntimeError("spatial_shape is not set; call _allocate_memory() before matching.")
+
+        target_flat = np.ravel_multi_index(target_coords.T, self.spatial_shape)
+        weights = 1.0 / (distances + 1e-6)
+        candidate_idx = np.arange(len(weights), dtype=np.int64)
+
+        order = np.lexsort((-weights, source_labels, target_flat))
+        target_sorted = target_flat[order]
+        labels_sorted = source_labels[order]
+        weights_sorted = weights[order]
+        cand_idx_sorted = candidate_idx[order]
+
+        pair_change = np.ones(len(order), dtype=bool)
+        pair_change[1:] = (target_sorted[1:] != target_sorted[:-1]) | (labels_sorted[1:] != labels_sorted[:-1])
+        pair_starts = np.nonzero(pair_change)[0]
+
+        pair_targets = target_sorted[pair_change]
+        pair_labels = labels_sorted[pair_change]
+        pair_best_idx = cand_idx_sorted[pair_change]
+        weight_sums = np.add.reduceat(weights_sorted, pair_starts)
+
+        order2 = np.lexsort((-weight_sums, pair_targets))
+        pair_targets_sorted = pair_targets[order2]
+        pair_labels_sorted = pair_labels[order2]
+        pair_best_idx_sorted = pair_best_idx[order2]
+
+        target_change = np.ones(len(order2), dtype=bool)
+        target_change[1:] = pair_targets_sorted[1:] != pair_targets_sorted[:-1]
+
+        best_targets = pair_targets_sorted[target_change]
+        best_labels = pair_labels_sorted[target_change]
+        best_candidate_idx = pair_best_idx_sorted[target_change]
+        return best_targets, best_labels, best_candidate_idx
 
     # -------------------------------------------------------------------------
     # Matching primitives
     # -------------------------------------------------------------------------
 
-    def _match_forward(self, flow_interpolator, vox_prev, vox_next, t):
+    def _match_forward(self, flow_interpolator, vox_prev, vox_next, t, tree_next=None):
         """
         Matches voxels forward in time using flow interpolation.
 
@@ -109,11 +467,14 @@ class VoxelReassigner:
             Voxels from the next timepoint (N1, D).
         t : int
             Current timepoint index.
+        tree_next : _TreeHandle, optional
+            Prebuilt KDTree for vox_next to reuse between calls.
 
         Returns
         -------
         tuple of np.ndarray
             (vox_prev_matched_valid, vox_next_matched_valid, distances_valid)
+            where distances are interpolation errors in physical units.
         """
         if vox_prev.size == 0 or vox_next.size == 0:
             dim = vox_prev.shape[1] if vox_prev.ndim == 2 else 3
@@ -148,16 +509,26 @@ class VoxelReassigner:
                     np.empty((0,), dtype=np.float64))
 
         # match t+1 voxels to estimated centroids
-        match_dist, matched_idx = self._match_voxels_to_centroids(vox_next, centroids_next_interpx)
+        matched_idx = self._match_voxels_to_centroids(
+            vox_next,
+            centroids_next_interpx,
+            tree_handle=tree_next,
+        )
         vox_matched_to_centroids = vox_next[matched_idx]
 
-        # keep matches within distance threshold
-        vox_prev_matched_valid, vox_next_matched_valid, distances_valid = self._distance_threshold(
-            vox_prev_kept.astype(np.int64), vox_matched_to_centroids.astype(np.int64)
-        )
-        return vox_prev_matched_valid, vox_next_matched_valid, distances_valid
+        distances = self._compute_error_distance(centroids_next_interpx, vox_matched_to_centroids)
+        distance_mask = distances < self.flow_interpolator_fw.max_distance_um
+        if not np.any(distance_mask):
+            dim = vox_prev.shape[1]
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64),
+                    np.empty((0,), dtype=np.float64))
 
-    def _match_backward(self, flow_interpolator, vox_next, vox_prev, t):
+        return (vox_prev_kept[distance_mask].astype(np.int64),
+                vox_matched_to_centroids[distance_mask].astype(np.int64),
+                distances[distance_mask].astype(np.float64, copy=False))
+
+    def _match_backward(self, flow_interpolator, vox_next, vox_prev, t, tree_prev=None):
         """
         Matches voxels backward in time using flow interpolation.
 
@@ -171,11 +542,14 @@ class VoxelReassigner:
             Voxels from the previous timepoint (N0, D).
         t : int
             Time index for the flow interpolation (t+1 for matching from t to t+1).
+        tree_prev : _TreeHandle, optional
+            Prebuilt KDTree for vox_prev to reuse between calls.
 
         Returns
         -------
         tuple of np.ndarray
             (vox_prev_matched_valid, vox_next_matched_valid, distances_valid)
+            where distances are interpolation errors in physical units.
         """
         if vox_prev.size == 0 or vox_next.size == 0:
             dim = vox_prev.shape[1] if vox_prev.ndim == 2 else 3
@@ -209,16 +583,26 @@ class VoxelReassigner:
                     np.empty((0,), dtype=np.float64))
 
         # match t voxels to estimated centroids
-        match_dist, matched_idx = self._match_voxels_to_centroids(vox_prev, centroids_prev_interpx)
+        matched_idx = self._match_voxels_to_centroids(
+            vox_prev,
+            centroids_prev_interpx,
+            tree_handle=tree_prev,
+        )
         vox_matched_to_centroids = vox_prev[matched_idx]
 
-        # keep matches within distance threshold
-        vox_prev_matched_valid, vox_next_matched_valid, distances_valid = self._distance_threshold(
-            vox_matched_to_centroids.astype(np.int64), vox_next_kept.astype(np.int64)
-        )
-        return vox_prev_matched_valid, vox_next_matched_valid, distances_valid
+        distances = self._compute_error_distance(centroids_prev_interpx, vox_matched_to_centroids)
+        distance_mask = distances < self.flow_interpolator_fw.max_distance_um
+        if not np.any(distance_mask):
+            dim = vox_prev.shape[1]
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64),
+                    np.empty((0,), dtype=np.float64))
 
-    def _match_voxels_to_centroids(self, coords_real, coords_interpx):
+        return (vox_matched_to_centroids[distance_mask].astype(np.int64),
+                vox_next_kept[distance_mask].astype(np.int64),
+                distances[distance_mask].astype(np.float64, copy=False))
+
+    def _match_voxels_to_centroids(self, coords_real, coords_interpx, tree_handle=None):
         """
         Matches real voxel coordinates to interpolated centroids using nearest neighbor search.
 
@@ -228,18 +612,35 @@ class VoxelReassigner:
             Real voxel coordinates (N_real, D).
         coords_interpx : np.ndarray
             Interpolated centroid coordinates (N_interp, D).
+        tree_handle : _TreeHandle, optional
+            Prebuilt tree handle for coords_real to reuse between calls.
 
         Returns
         -------
-        tuple
-            (distances, indices) from cKDTree.query
+        np.ndarray
+            Indices of nearest neighbors in coords_real for each interpolated point.
         """
-        scaling = self.flow_interpolator_fw.scaling
-        coords_real = np.asarray(coords_real, dtype=np.float32) * scaling
-        coords_interpx = np.asarray(coords_interpx, dtype=np.float32) * scaling
-        tree = cKDTree(coords_real)
-        dist, idx = tree.query(coords_interpx, k=1, workers=-1)
-        return dist, idx
+        if coords_interpx.size == 0:
+            return np.empty((0,), dtype=np.int64)
+
+        if tree_handle is None:
+            coords_real_scaled = self._scale_coords(coords_real)
+            tree_handle = self._build_tree(coords_real_scaled)
+        elif tree_handle.coords_real_scaled is None and tree_handle.backend != "cpu":
+            tree_handle.coords_real_scaled = self._scale_coords(coords_real)
+
+        idx_out = np.empty((coords_interpx.shape[0],), dtype=np.int64)
+        if self.low_memory:
+            for sl in self._iter_slices(coords_interpx.shape[0], self.max_query_points):
+                coords_chunk_scaled = self._scale_coords(coords_interpx[sl])
+                _, idx_chunk = self._query_tree(tree_handle, coords_chunk_scaled)
+                idx_out[sl] = idx_chunk
+        else:
+            coords_interpx_scaled = self._scale_coords(coords_interpx)
+            for sl in self._iter_slices(coords_interpx_scaled.shape[0], self.max_query_points):
+                _, idx_chunk = self._query_tree(tree_handle, coords_interpx_scaled[sl])
+                idx_out[sl] = idx_chunk
+        return idx_out
 
     def _assign_unique_matches(self, vox_prev_matches, vox_next_matches, distances):
         """
@@ -275,15 +676,20 @@ class VoxelReassigner:
         prev_flat_sorted = prev_flat[order]
         next_flat_sorted = next_flat[order]
 
-        used_prev = set()
-        used_next = set()
+        _, prev_inv = np.unique(prev_flat_sorted, return_inverse=True)
+        _, next_inv = np.unique(next_flat_sorted, return_inverse=True)
+
+        used_prev = np.zeros(prev_inv.max() + 1, dtype=bool)
+        used_next = np.zeros(next_inv.max() + 1, dtype=bool)
         keep_indices = []
 
-        for idx_sorted, (p, n) in enumerate(zip(prev_flat_sorted, next_flat_sorted)):
-            if p in used_prev or n in used_next:
+        for idx_sorted in range(len(order)):
+            p_idx = prev_inv[idx_sorted]
+            n_idx = next_inv[idx_sorted]
+            if used_prev[p_idx] or used_next[n_idx]:
                 continue
-            used_prev.add(p)
-            used_next.add(n)
+            used_prev[p_idx] = True
+            used_next[n_idx] = True
             keep_indices.append(order[idx_sorted])
 
         if not keep_indices:
@@ -334,7 +740,8 @@ class VoxelReassigner:
 
     def match_voxels(self, vox_prev, vox_next, t):
         """
-        Matches voxels between two consecutive timepoints using both forward and backward interpolation.
+        Builds candidate voxel matches between two consecutive timepoints using
+        both forward and backward interpolation.
 
         Parameters
         ----------
@@ -348,22 +755,49 @@ class VoxelReassigner:
         Returns
         -------
         tuple
-            (matched_prev, matched_next) voxel coordinates with shape (N_matched, D).
+            (candidate_prev, candidate_next, distances) where candidates include
+            all valid forward/backward interpolated matches.
         """
         if vox_prev.size == 0 or vox_next.size == 0:
             dim = vox_prev.shape[1] if vox_prev.ndim == 2 else 3
             return (np.empty((0, dim), dtype=np.int64),
                     np.empty((0, dim), dtype=np.int64))
 
-        logger.debug(f'Forward voxel matching for t: {t}')
-        vox_prev_fw, vox_next_fw, dist_fw = self._match_forward(
-            self.flow_interpolator_fw, vox_prev, vox_next, t
-        )
+        if self.low_memory:
+            tree_next = self._build_tree(self._scale_coords(vox_next))
 
-        logger.debug(f'Backward voxel matching for t: {t}')
-        vox_prev_bw, vox_next_bw, dist_bw = self._match_backward(
-            self.flow_interpolator_bw, vox_next, vox_prev, t + 1
-        )
+            logger.debug(f'Forward voxel matching for t: {t}')
+            vox_prev_fw, vox_next_fw, dist_fw = self._match_forward(
+                self.flow_interpolator_fw, vox_prev, vox_next, t, tree_next=tree_next
+            )
+
+            tree_next = None
+            if self.device_type == "cuda":
+                self._free_gpu_memory()
+
+            tree_prev = self._build_tree(self._scale_coords(vox_prev))
+
+            logger.debug(f'Backward voxel matching for t: {t}')
+            vox_prev_bw, vox_next_bw, dist_bw = self._match_backward(
+                self.flow_interpolator_bw, vox_next, vox_prev, t + 1, tree_prev=tree_prev
+            )
+
+            tree_prev = None
+            if self.device_type == "cuda":
+                self._free_gpu_memory()
+        else:
+            tree_prev = self._build_tree(self._scale_coords(vox_prev))
+            tree_next = self._build_tree(self._scale_coords(vox_next))
+
+            logger.debug(f'Forward voxel matching for t: {t}')
+            vox_prev_fw, vox_next_fw, dist_fw = self._match_forward(
+                self.flow_interpolator_fw, vox_prev, vox_next, t, tree_next=tree_next
+            )
+
+            logger.debug(f'Backward voxel matching for t: {t}')
+            vox_prev_bw, vox_next_bw, dist_bw = self._match_backward(
+                self.flow_interpolator_bw, vox_next, vox_prev, t + 1, tree_prev=tree_prev
+            )
 
         # combine forward and backward matches
         parts_prev = []
@@ -381,65 +815,15 @@ class VoxelReassigner:
         if not parts_prev:
             dim = vox_prev.shape[1]
             return (np.empty((0, dim), dtype=np.int64),
-                    np.empty((0, dim), dtype=np.int64))
+                    np.empty((0, dim), dtype=np.int64),
+                    np.empty((0,), dtype=np.float64))
 
         vox_prev_matches = np.concatenate(parts_prev, axis=0)
         vox_next_matches = np.concatenate(parts_next, axis=0)
         distances = np.concatenate(parts_dist, axis=0)
-
-        logger.debug(f'Assigning unique matches for t: {t}')
-        vox_prev_unique, vox_next_unique = self._assign_unique_matches(
-            vox_prev_matches, vox_next_matches, distances
-        )
-
-        if len(vox_next_unique) == 0:
-            dim = vox_prev.shape[1]
-            return (np.empty((0, dim), dtype=np.int64),
-                    np.empty((0, dim), dtype=np.int64))
-
-        # optional refinement: try to reassign unmatched voxels
-        if self.max_refine_iterations <= 0:
-            return vox_prev_unique.astype(np.int64), vox_next_unique.astype(np.int64)
-
-        # flatten all vox_next for unmatched detection
-        if self.spatial_shape is None:
-            raise RuntimeError("spatial_shape is not set; call _allocate_memory() before matching.")
-        vox_next_flat = np.ravel_multi_index(vox_next.T, self.spatial_shape)
-        matched_next_flat = np.ravel_multi_index(vox_next_unique.T, self.spatial_shape)
-
-        scaling = self.flow_interpolator_fw.scaling
-
-        for iteration in range(self.max_refine_iterations):
-            # find unmatched voxels in t+1
-            matched_mask = np.isin(vox_next_flat, matched_next_flat, assume_unique=False)
-            vox_next_unmatched = vox_next[~matched_mask]
-            if len(vox_next_unmatched) == 0:
-                break
-
-            tree = cKDTree(vox_next_unique.astype(np.float32) * scaling)
-            dists, idxs = tree.query(vox_next_unmatched.astype(np.float32) * scaling,
-                                     k=1, workers=-1)
-            valid_mask = dists < self.flow_interpolator_fw.max_distance_um
-            if not np.any(valid_mask):
-                break
-
-            num_unmatched = len(vox_next_unmatched)
-            new_prev = vox_prev_unique[idxs[valid_mask]]
-            new_next = vox_next_unmatched[valid_mask]
-
-            vox_prev_unique = np.concatenate([vox_prev_unique, new_prev], axis=0)
-            vox_next_unique = np.concatenate([vox_next_unique, new_next], axis=0)
-
-            new_next_flat = np.ravel_multi_index(new_next.T, self.spatial_shape)
-            matched_next_flat = np.concatenate([matched_next_flat, new_next_flat])
-
-            new_num_unmatched = num_unmatched - int(valid_mask.sum())
-            logger.debug(
-                f'Reassigned {int(valid_mask.sum())}/{num_unmatched} unassigned voxels in iteration {iteration + 1}. '
-                f'{new_num_unmatched} remain (before next iteration recomputation).'
-            )
-
-        return vox_prev_unique.astype(np.int64), vox_next_unique.astype(np.int64)
+        return (vox_prev_matches.astype(np.int64),
+                vox_next_matches.astype(np.int64),
+                distances.astype(np.float64, copy=False))
 
     # -------------------------------------------------------------------------
     # Dataset / memory helpers
@@ -467,6 +851,7 @@ class VoxelReassigner:
         self.shape = self.branch_label_memmap.shape
         # spatial dimensions (everything except T)
         self.spatial_shape = self.shape[1:]
+        self.match_coord_dtype = self._select_match_coord_dtype()
 
         reassigned_branch_label_path = self.im_info.pipeline_paths['im_branch_label_reassigned']
         self.reassigned_branch_memmap = self.im_info.allocate_memory(
@@ -502,31 +887,88 @@ class VoxelReassigner:
             mask = np.zeros(self.spatial_shape, dtype=bool)
         return mask
 
-    def _propagate_labels_for_frame(self, matched_prev, matched_next, label_memmap, reassigned_memmap, t):
+    def _vote_assign_labels_for_frame(
+        self,
+        candidate_prev,
+        candidate_next,
+        candidate_dist,
+        label_memmap,
+        reassigned_memmap,
+        t,
+    ):
         """
-        Propagate labels for a single label type from time t to t+1, using precomputed voxel matches.
+        Assign labels for a single label type from time t to t+1 using weighted votes.
 
-        Only voxels that are labeled (non-zero) in both t and t+1 are considered valid for propagation.
+        Votes are accumulated per target voxel based on all interpolations
+        (forward and backward), weighted by inverse distance.
         """
-        if matched_prev.size == 0 or matched_next.size == 0:
-            return
+        if candidate_prev.size == 0 or candidate_next.size == 0:
+            dim = candidate_prev.shape[1] if candidate_prev.ndim == 2 else 3
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64))
 
-        # labels at source and target
-        prev_labels = label_memmap[t][tuple(matched_prev.T)]
-        next_labels_nonzero = label_memmap[t + 1][tuple(matched_next.T)] > 0
-
-        # only propagate where both source and target are labeled
-        valid_prev = prev_labels > 0
-        valid = valid_prev & next_labels_nonzero
+        prev_labels = reassigned_memmap[t][tuple(candidate_prev.T)]
+        valid = prev_labels > 0
         if not np.any(valid):
-            return
+            dim = candidate_prev.shape[1]
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64))
 
-        prev_valid = matched_prev[valid]
-        next_valid = matched_next[valid]
+        candidate_prev = candidate_prev[valid]
+        candidate_next = candidate_next[valid]
+        candidate_dist = candidate_dist[valid]
+        prev_labels = prev_labels[valid]
 
-        # ensure previous reassigned labels are initialized
-        reassigned_values = reassigned_memmap[t][tuple(prev_valid.T)]
-        reassigned_memmap[t + 1][tuple(next_valid.T)] = reassigned_values
+        # only assign labels to voxels that are labeled at t+1
+        target_has_label = label_memmap[t + 1][tuple(candidate_next.T)] > 0
+        if not np.any(target_has_label):
+            dim = candidate_prev.shape[1]
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64))
+
+        candidate_prev = candidate_prev[target_has_label]
+        candidate_next = candidate_next[target_has_label]
+        candidate_dist = candidate_dist[target_has_label]
+        prev_labels = prev_labels[target_has_label]
+
+        assigned_prev_all = []
+        assigned_next_all = []
+        num_iters = max(1, int(self.max_refine_iterations))
+
+        for _ in range(num_iters):
+            unassigned = reassigned_memmap[t + 1][tuple(candidate_next.T)] == 0
+            if not np.any(unassigned):
+                break
+
+            cand_prev_iter = candidate_prev[unassigned]
+            cand_next_iter = candidate_next[unassigned]
+            cand_dist_iter = candidate_dist[unassigned]
+            labels_iter = prev_labels[unassigned]
+
+            if cand_prev_iter.size == 0:
+                break
+
+            _, best_labels, best_candidate_idx = self._vote_targets(
+                cand_next_iter, labels_iter, cand_dist_iter
+            )
+            if len(best_candidate_idx) == 0:
+                break
+
+            best_prev = cand_prev_iter[best_candidate_idx]
+            best_next = cand_next_iter[best_candidate_idx]
+
+            reassigned_memmap[t + 1][tuple(best_next.T)] = best_labels
+
+            assigned_prev_all.append(best_prev)
+            assigned_next_all.append(best_next)
+
+        if not assigned_prev_all:
+            dim = candidate_prev.shape[1]
+            return (np.empty((0, dim), dtype=np.int64),
+                    np.empty((0, dim), dtype=np.int64))
+
+        return (np.concatenate(assigned_prev_all, axis=0),
+                np.concatenate(assigned_next_all, axis=0))
 
     # -------------------------------------------------------------------------
     # Main driver
@@ -538,9 +980,9 @@ class VoxelReassigner:
 
         This implementation:
           - initializes reassigned labels at t=0 for both branch and object labels.
-          - for each pair of consecutive timepoints, computes voxel matches once
-            (based on the union of labeled voxels), then applies those matches
-            to both branch and object label volumes.
+          - for each pair of consecutive timepoints, computes forward/backward
+            interpolation candidates once (based on the union of labeled voxels).
+          - assigns labels at t+1 using weighted votes from all candidates.
         """
         if self.im_info.no_t:
             logger.info("Skipping voxel reassignment for non-temporal dataset.")
@@ -582,28 +1024,32 @@ class VoxelReassigner:
                 logger.info(f'No voxels to match between frames {t} and {t + 1}; stopping.')
                 break
 
-            matched_prev, matched_next = self.match_voxels(vox_prev, vox_next, t)
-            if len(matched_prev) == 0:
+            candidate_prev, candidate_next, candidate_dist = self.match_voxels(vox_prev, vox_next, t)
+            if len(candidate_prev) == 0:
                 logger.info(f'No valid matches between frames {t} and {t + 1}; stopping.')
                 break
 
             if self.store_running_matches:
-                # store as uint16 to reduce disk footprint (safe if spatial dims < 65535)
+                # store a single best source per target for downstream adjacency use
+                best_prev, best_next = self._select_best_pairs(
+                    candidate_prev, candidate_next, candidate_dist
+                )
+                match_dtype = self.match_coord_dtype or np.uint16
                 self.running_matches.append([
-                    matched_prev.astype(np.uint16),
-                    matched_next.astype(np.uint16),
+                    best_prev.astype(match_dtype, copy=False),
+                    best_next.astype(match_dtype, copy=False),
                 ])
 
-            # propagate for each label type separately (filtering to labeled voxels)
+            # vote-assign for each label type separately (filtering to labeled voxels)
             if self.branch_label_memmap is not None:
-                self._propagate_labels_for_frame(
-                    matched_prev, matched_next,
+                self._vote_assign_labels_for_frame(
+                    candidate_prev, candidate_next, candidate_dist,
                     self.branch_label_memmap, self.reassigned_branch_memmap, t
                 )
 
             if self.obj_label_memmap is not None:
-                self._propagate_labels_for_frame(
-                    matched_prev, matched_next,
+                self._vote_assign_labels_for_frame(
+                    candidate_prev, candidate_next, candidate_dist,
                     self.obj_label_memmap, self.reassigned_obj_memmap, t
                 )
 
@@ -613,160 +1059,4 @@ class VoxelReassigner:
 
 
 if __name__ == "__main__":
-    # Example usage and adjacency remapping using voxel matches.
-    # This section avoids allocating large dense voxel x voxel matrices and
-    # optionally uses GPU (cupy) for accumulation when available.
-    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
-    im_info = ImInfo(im_path)
-    num_t = 3
-    run_obj = VoxelReassigner(im_info, num_t=num_t)
-    run_obj.run()
-
-    import pickle
-
-    # This section allows for finding links between any level of the hierarchy to any
-    # other level in the hierarchy at any time point via sparse accumulation.
-    edges_loaded = pickle.load(open(im_info.pipeline_paths['adjacency_maps'], "rb"))
-
-    # ------------------------------------------------------------------
-    # Helper: optional GPU-accelerated pair-count accumulation
-    # ------------------------------------------------------------------
-    def accumulate_pair_counts(src_ids, dst_ids, n_src, n_dst, use_gpu=True):
-        """
-        Accumulate counts into an (n_src, n_dst) matrix given parallel vectors
-        src_ids and dst_ids, optionally using cupy if available.
-
-        Parameters
-        ----------
-        src_ids : np.ndarray
-            Source indices (e.g., branch ids at t0).
-        dst_ids : np.ndarray
-            Destination indices (e.g., branch ids at t1).
-        n_src : int
-            Number of distinct source entities.
-        n_dst : int
-            Number of distinct destination entities.
-        use_gpu : bool
-            If True, attempt to use cupy for accumulation, with CPU fallback.
-
-        Returns
-        -------
-        np.ndarray
-            Count matrix of shape (n_src, n_dst).
-        """
-        src_ids = np.asarray(src_ids, dtype=np.int64)
-        dst_ids = np.asarray(dst_ids, dtype=np.int64)
-
-        if src_ids.size == 0 or dst_ids.size == 0:
-            return np.zeros((n_src, n_dst), dtype=np.uint32)
-
-        # try GPU if requested
-        if use_gpu:
-            try:
-                import cupy as cp
-
-                src_gpu = cp.asarray(src_ids)
-                dst_gpu = cp.asarray(dst_ids)
-                counts_gpu = cp.zeros((n_src, n_dst), dtype=cp.uint32)
-                cp.add.at(counts_gpu, (src_gpu, dst_gpu), 1)
-                counts = cp.asnumpy(counts_gpu)
-
-                # free GPU memory
-                del src_gpu, dst_gpu, counts_gpu
-                try:
-                    cp.get_default_memory_pool().free_all_blocks()
-                except Exception:
-                    pass
-
-                return counts
-            except Exception:
-                # cupy not available or GPU OOM; fall back to CPU
-                pass
-
-        counts = np.zeros((n_src, n_dst), dtype=np.uint32)
-        np.add.at(counts, (src_ids, dst_ids), 1)
-        return counts
-
-    # ------------------------------------------------------------------
-    # Example: branch adjacency between t0 and t1 without dense v_t
-    # ------------------------------------------------------------------
-    mask_01 = run_obj.obj_label_memmap[:2] > 0
-    mask_voxels_0 = np.argwhere(mask_01[0])
-    mask_voxels_1 = np.argwhere(mask_01[1])
-
-    # coordinate -> index mappings for the object voxels at t0 and t1
-    t0_coords_in_mask_0 = {tuple(coord): idx for idx, coord in enumerate(mask_voxels_0)}
-    t1_coords_in_mask_1 = {tuple(coord): idx for idx, coord in enumerate(mask_voxels_1)}
-
-    # use matches between t0 and t1 (frame index 0)
-    matches_t0_t1_prev, matches_t0_t1_next = run_obj.running_matches[0]
-
-    idx_matches_0 = []
-    idx_matches_1 = []
-    for coord_prev, coord_next in zip(matches_t0_t1_prev, matches_t0_t1_next):
-        key_prev = tuple(int(c) for c in coord_prev)
-        key_next = tuple(int(c) for c in coord_next)
-        if key_prev in t0_coords_in_mask_0 and key_next in t1_coords_in_mask_1:
-            idx_matches_0.append(t0_coords_in_mask_0[key_prev])
-            idx_matches_1.append(t1_coords_in_mask_1[key_next])
-
-    idx_matches_0 = np.asarray(idx_matches_0, dtype=np.int64)
-    idx_matches_1 = np.asarray(idx_matches_1, dtype=np.int64)
-
-    # branch-voxel adjacency matrices at t0 and t1
-    b_v0 = edges_loaded['b_v'][0].astype(np.uint8)
-    b_v1 = edges_loaded['b_v'][1].astype(np.uint8)
-
-    # per-voxel branch labels (argmax over adjacency)
-    branch_labels_0 = np.argmax(b_v0, axis=0)
-    branch_labels_1 = np.argmax(b_v1, axis=0)
-
-    # branch ids for each matched voxel pair
-    branch_ids_0 = branch_labels_0[idx_matches_0]
-    branch_ids_1 = branch_labels_1[idx_matches_1]
-
-    # accumulate counts: number of matched voxels shared between each pair of branches
-    b0_b1 = accumulate_pair_counts(
-        branch_ids_0,
-        branch_ids_1,
-        n_src=b_v0.shape[0],
-        n_dst=b_v1.shape[0],
-        use_gpu=True,
-    )
-
-    # for each branch at t1, choose the best-matching branch at t0
-    max_idx = np.argmax(b0_b1, axis=0) + 1  # +1 to keep 0 as background
-
-    # build branch label volumes relabelled by t0 branch ids
-    mask_branches = np.zeros(mask_01.shape, dtype=np.uint16)
-    mask_branches[0][tuple(mask_voxels_0.T)] = branch_labels_0 + 1
-
-    new_branch_labels_1 = max_idx[branch_labels_1]
-    mask_branches[1][tuple(mask_voxels_1.T)] = new_branch_labels_1
-
-    # ------------------------------------------------------------------
-    # Example: node adjacency between t0 and t1 (analogous to branches)
-    # ------------------------------------------------------------------
-    n_v0 = edges_loaded['n_v'][0].astype(np.uint8)
-    n_v1 = edges_loaded['n_v'][1].astype(np.uint8)
-
-    node_labels_0 = np.argmax(n_v0, axis=0)
-    node_labels_1 = np.argmax(n_v1, axis=0)
-
-    node_ids_0 = node_labels_0[idx_matches_0]
-    node_ids_1 = node_labels_1[idx_matches_1]
-
-    n0_n1 = accumulate_pair_counts(
-        node_ids_0,
-        node_ids_1,
-        n_src=n_v0.shape[0],
-        n_dst=n_v1.shape[0],
-        use_gpu=True,
-    )
-
-    max_idx_n = np.argmax(n0_n1, axis=0) + 1
-
-    mask_nodes = np.zeros(mask_01.shape, dtype=np.uint16)
-    mask_nodes[0][tuple(mask_voxels_0.T)] = node_labels_0 + 1
-    new_node_labels_1 = max_idx_n[node_labels_1]
-    mask_nodes[1][tuple(mask_voxels_1.T)] = new_node_labels_1
+    logger.info("See scripts/voxel_reassignment_demo.py for example usage.")
