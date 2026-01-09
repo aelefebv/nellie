@@ -1,6 +1,6 @@
 import os
 
-from qtpy.QtWidgets import QWidget, QPushButton, QGroupBox, QVBoxLayout
+from qtpy.QtWidgets import QWidget, QPushButton, QGroupBox, QVBoxLayout, QLabel
 import tifffile
 
 from nellie.utils.base_logger import logger
@@ -62,10 +62,12 @@ class NellieVisualizer(QWidget):
         self.open_preprocess_button.setToolTip("Load and show the preprocessed (Frangi-filtered) image.")
 
         # Segment open button
-        self.open_segment_button = QPushButton(text="Open segmentation images")
+        self.open_segment_button = QPushButton(text="Open segmentation labels")
         self.open_segment_button.clicked.connect(self.open_segment_image)
         self.open_segment_button.setEnabled(False)
-        self.open_segment_button.setToolTip("Load and show the segmentation label images.")
+        self.open_segment_button.setToolTip(
+            "Load and show organelle and branch label images."
+        )
 
         # Mocap image button
         self.open_mocap_button = QPushButton(text="Open mocap marker image")
@@ -74,21 +76,33 @@ class NellieVisualizer(QWidget):
         self.open_mocap_button.setToolTip("Load and show mocap marker image.")
 
         # Reassign label button
-        self.open_reassign_button = QPushButton(text="Open reassigned labels image")
+        self.open_reassign_button = QPushButton(text="Open reassigned labels")
         self.open_reassign_button.clicked.connect(self.open_reassign_image)
         self.open_reassign_button.setEnabled(False)
-        self.open_reassign_button.setToolTip("Load and show reassigned branch and object labels.")
+        self.open_reassign_button.setToolTip(
+            "Load and show reassigned branch and object labels."
+        )
 
         # Tracking buttons
-        self.track_button = QPushButton(text="Visualize selected label's tracks")
+        self.track_button = QPushButton(text="Visualize selected label tracks")
         self.track_button.clicked.connect(self.on_track_selected)
         self.track_button.setEnabled(False)
         self.track_button.setToolTip("Track the currently selected label in the active labels layer.")
 
-        self.track_all_button = QPushButton(text="Visualize all frame labels' tracks")
+        self.track_all_button = QPushButton(text="Visualize tracks for all labels")
         self.track_all_button.clicked.connect(self.track_all)
         self.track_all_button.setEnabled(False)
-        self.track_all_button.setToolTip("Track all labels in the active labels layer.")
+        self.track_all_button.setToolTip("Track all labels across all frames in the active labels layer.")
+
+        self.track_hint_label = QLabel(
+            "Tip: select a labels layer and a non-zero label before tracking."
+        )
+        self.track_hint_label.setWordWrap(True)
+
+        self.clear_layers_button = QPushButton(text="Clear visualization layers")
+        self.clear_layers_button.clicked.connect(self.clear_layers)
+        self.clear_layers_button.setEnabled(True)
+        self.clear_layers_button.setToolTip("Remove layers added by this tab from the viewer.")
 
         self.set_ui()
 
@@ -109,11 +123,13 @@ class NellieVisualizer(QWidget):
         visualization_layout.addWidget(self.open_segment_button)
         visualization_layout.addWidget(self.open_mocap_button)
         visualization_layout.addWidget(self.open_reassign_button)
+        visualization_layout.addWidget(self.clear_layers_button)
         visualization_group.setLayout(visualization_layout)
 
         # Tracking group
         tracking_group = QGroupBox("Track visualization")
         tracking_layout = QVBoxLayout()
+        tracking_layout.addWidget(self.track_hint_label)
         tracking_layout.addWidget(self.track_button)
         tracking_layout.addWidget(self.track_all_button)
         tracking_group.setLayout(tracking_layout)
@@ -450,6 +466,38 @@ class NellieVisualizer(QWidget):
         self.raw_layer.interpolation = "nearest"
         self.viewer.layers.selection.active = self.raw_layer
         self._set_status("Loaded raw image.")
+
+    def clear_layers(self):
+        """
+        Remove layers added by the visualization tab from the napari viewer.
+        """
+        layers = [
+            self.raw_layer,
+            self.frangi_layer,
+            self.im_skel_relabelled_layer,
+            self.im_instance_label_layer,
+            self.im_marker_layer,
+            self.im_branch_label_reassigned_layer,
+            self.im_obj_label_reassigned_layer,
+        ]
+        removed = False
+        for layer in layers:
+            if layer is not None and layer in self.viewer.layers:
+                self.viewer.layers.remove(layer)
+                removed = True
+
+        self.raw_layer = None
+        self.frangi_layer = None
+        self.im_skel_relabelled_layer = None
+        self.im_instance_label_layer = None
+        self.im_marker_layer = None
+        self.im_branch_label_reassigned_layer = None
+        self.im_obj_label_reassigned_layer = None
+
+        if removed:
+            self._set_status("Cleared visualization layers.")
+        else:
+            self._set_status("No visualization layers to clear.", level="warning")
 
     def check_file_existence(self):
         """

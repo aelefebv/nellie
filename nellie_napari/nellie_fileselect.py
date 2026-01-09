@@ -97,19 +97,26 @@ class NellieFileSelect(QWidget):
         self.filepath_text.setWordWrap(True)
 
         self.filepath_button = QPushButton(text="Select File")
+        self.filepath_button.setToolTip("Select a single image file for processing.")
         self.filepath_button.clicked.connect(self.select_filepath)
         self.filepath_button.setEnabled(True)
 
-        self.folder_button = QPushButton(text="Select Folder")
+        self.folder_button = QPushButton(text="Select Folder (batch)")
+        self.folder_button.setToolTip("Select a folder of images to process in batch.")
         self.folder_button.clicked.connect(self.select_folder)
         self.folder_button.setEnabled(True)
 
         self.selection_text = QLabel("Selected file:")
         self.selection_text.setWordWrap(True)
 
-        self.reset_button = QPushButton(text="Reset")
+        self.reset_button = QPushButton(text="Reset session")
+        self.reset_button.setToolTip("Clear the current selection and reset the pipeline.")
         self.reset_button.clicked.connect(self.nellie.reset)
         self.reset_button.setEnabled(True)
+
+        self.output_dir_label = QLabel(text="Output directory: none")
+        self.output_dir_label.setWordWrap(True)
+        self.output_dir_label.setToolTip("OME-TIFF output will appear here after confirmation.")
 
         self.file_shape_text = QLabel(text="None")
         self.file_shape_text.setWordWrap(True)
@@ -184,18 +191,27 @@ class NellieFileSelect(QWidget):
         self.end_frame_init = False
 
         # Action buttons
-        self.confirm_button = QPushButton(text="Confirm metadata")
-        self.confirm_button.setToolTip("This will save the image as an OME-TIFF for use in processing")
+        self.confirm_button = QPushButton(text="Confirm & save OME-TIFF")
+        self.confirm_button.setToolTip(
+            "Save an OME-TIFF with the current metadata for processing."
+        )
         self.confirm_button.clicked.connect(self.on_confirm)
         self.confirm_button.setEnabled(False)
 
-        self.preview_button = QPushButton(text="Preview image")
+        self.preview_button = QPushButton(text="Preview OME-TIFF")
+        self.preview_button.setToolTip("Open the generated OME-TIFF in napari.")
         self.preview_button.clicked.connect(self.on_preview)
         self.preview_button.setEnabled(False)
 
         self.process_button = QPushButton(text="Process image(s)")
+        self.process_button.setToolTip("Run the pipeline on the confirmed image(s).")
         self.process_button.clicked.connect(self.on_process)
         self.process_button.setEnabled(False)
+
+        self.validation_hint = QLabel(
+            "Tip: fields shown in red need attention; green indicates valid metadata."
+        )
+        self.validation_hint.setWordWrap(True)
 
         self.validation_label = QLabel("")
         self.validation_label.setWordWrap(True)
@@ -236,6 +252,31 @@ class NellieFileSelect(QWidget):
         else:
             self.validation_label.setText("All checks passed.")
             self.validation_label.setStyleSheet("color: green")
+
+    def _update_output_labels(self) -> None:
+        """
+        Update output path labels and tooltips based on current file selection.
+        """
+        if self.file_info is None:
+            self.output_dir_label.setText("Output directory: none")
+            self.output_dir_label.setToolTip(
+                "OME-TIFF output will appear here after confirmation."
+            )
+            return
+
+        output_dir = getattr(self.file_info, "output_dir", None)
+        if output_dir:
+            self.output_dir_label.setText(f"Output directory: {output_dir}")
+        else:
+            self.output_dir_label.setText("Output directory: unavailable")
+
+        ome_output_path = getattr(self.file_info, "ome_output_path", None)
+        if ome_output_path:
+            self.output_dir_label.setToolTip(f"OME-TIFF output: {ome_output_path}")
+        else:
+            self.output_dir_label.setToolTip(
+                "OME-TIFF output will be created after confirmation."
+            )
 
     def _clear_axes_combo_boxes(self) -> None:
         """
@@ -394,6 +435,7 @@ class NellieFileSelect(QWidget):
         file_sub_layout.addWidget(self.selection_text)
         file_sub_layout.addWidget(self.filepath_text)
         file_layout.addLayout(file_sub_layout)
+        file_layout.addWidget(self.output_dir_label)
         file_layout.addWidget(self.reset_button)
         file_group.setLayout(file_layout)
 
@@ -458,6 +500,7 @@ class NellieFileSelect(QWidget):
         main_layout.addWidget(axes_group)
         main_layout.addWidget(dim_group)
         main_layout.addWidget(slice_group)
+        main_layout.addWidget(self.validation_hint)
         main_layout.addWidget(self.validation_label)
         main_layout.addWidget(action_group)
 
@@ -481,8 +524,8 @@ class NellieFileSelect(QWidget):
 
         self.file_info = FileInfo(self.filepath, output_naming="detailed")
         self.initialize_single_file()
-        filename = os.path.basename(self.filepath)
-        self.filepath_text.setText(filename)
+        self.filepath_text.setText(self.filepath)
+        self.filepath_text.setToolTip(self.filepath)
 
     def select_folder(self) -> None:
         """
@@ -497,7 +540,10 @@ class NellieFileSelect(QWidget):
             return
 
         self.selection_text.setText("Selected folder:")
-        self.filepath_text.setText(folderpath)
+        file_count = len(self.batch_fileinfo_list) if self.batch_fileinfo_list else 0
+        suffix = f" ({file_count} files)" if file_count else ""
+        self.filepath_text.setText(f"{folderpath}{suffix}")
+        self.filepath_text.setToolTip(f"{folderpath}{suffix}")
 
     def validate_path(self, filepath: str) -> bool:
         """
@@ -616,6 +662,7 @@ class NellieFileSelect(QWidget):
         self.confirm_button.setEnabled(False)
         self.preview_button.setEnabled(False)
         self.process_button.setEnabled(False)
+        self._update_output_labels()
 
         if self.file_info is None:
             # No file selected; reset relevant UI state

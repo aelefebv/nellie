@@ -117,6 +117,9 @@ class NellieProcessor(QWidget):
         self.current_im_info = None
 
         self.status_label = QLabel("Awaiting your input")
+        self.status_label.setToolTip("Processing status for the current dataset.")
+        self.output_dir_label = QLabel("Output directory: none")
+        self.output_dir_label.setWordWrap(True)
         self.status = None
         self.num_ellipses = 1
 
@@ -124,47 +127,64 @@ class NellieProcessor(QWidget):
         self.status_timer.timeout.connect(self.update_status)
 
         self.open_dir_button = QPushButton(text="Open output directory")
+        self.open_dir_button.setToolTip("Open the output directory for the current dataset.")
         self.open_dir_button.clicked.connect(self.open_directory)
         self.open_dir_button.setEnabled(False)
 
         # Run im button
         self.run_button = QPushButton(text="Run Nellie")
+        self.run_button.setToolTip("Run the full pipeline in order.")
         self.run_button.clicked.connect(self.run_nellie)
         self.run_button.setEnabled(True)
         self.run_button.setFixedWidth(200)
         self.run_button.setFixedHeight(100)
         self.run_button.setStyleSheet("border-radius: 10px;")
-        self.run_button.setFont(QFont("Arial", 20))
+        run_font = QFont()
+        run_font.setPointSize(18)
+        run_font.setBold(True)
+        self.run_button.setFont(run_font)
 
         # Preprocess im button
         self.preprocess_button = QPushButton(text="Run preprocessing")
+        self.preprocess_button.setToolTip("Enhance and denoise the input image.")
         self.preprocess_button.clicked.connect(self.run_preprocessing)
         self.preprocess_button.setEnabled(False)
 
         # Segment im button
         self.segment_button = QPushButton(text="Run segmentation")
+        self.segment_button.setToolTip("Create organelle and branch labels.")
         self.segment_button.clicked.connect(self.run_segmentation)
         self.segment_button.setEnabled(False)
 
         # Run mocap button
         self.mocap_button = QPushButton(text="Run mocap marking")
+        self.mocap_button.setToolTip("Detect mocap markers used for tracking.")
         self.mocap_button.clicked.connect(self.run_mocap)
         self.mocap_button.setEnabled(False)
 
         # Run tracking button
         self.track_button = QPushButton(text="Run tracking")
+        self.track_button.setToolTip("Track labels over time using flow vectors.")
         self.track_button.clicked.connect(self.run_tracking)
         self.track_button.setEnabled(False)
 
         # Run reassign button
         self.reassign_button = QPushButton(text="Run voxel reassignment")
+        self.reassign_button.setToolTip("Reassign voxels to improve track consistency.")
         self.reassign_button.clicked.connect(self.run_reassign)
         self.reassign_button.setEnabled(False)
 
         # Run feature extraction button
         self.feature_export_button = QPushButton(text="Run feature export")
+        self.feature_export_button.setToolTip("Compute features and export CSV files.")
         self.feature_export_button.clicked.connect(self.run_feature_export)
         self.feature_export_button.setEnabled(False)
+
+        self.pipeline_hint_label = QLabel(
+            "Step order: Preprocess -> Segment -> Mocap markers -> Track -> "
+            "Reassign voxels -> Feature export."
+        )
+        self.pipeline_hint_label.setWordWrap(True)
 
         self.set_ui()
 
@@ -186,8 +206,11 @@ class NellieProcessor(QWidget):
         # Status group
         status_group = QGroupBox("Status")
         status_layout = QHBoxLayout()
-        status_layout.addWidget(self.status_label, alignment=Qt.AlignLeft)
-        status_layout.addWidget(self.open_dir_button, alignment=Qt.AlignCenter)
+        status_text_layout = QVBoxLayout()
+        status_text_layout.addWidget(self.status_label)
+        status_text_layout.addWidget(self.output_dir_label)
+        status_layout.addLayout(status_text_layout)
+        status_layout.addWidget(self.open_dir_button, alignment=Qt.AlignRight)
         status_group.setLayout(status_layout)
 
         # Run full pipeline
@@ -199,6 +222,7 @@ class NellieProcessor(QWidget):
         # Run partial pipeline
         partial_pipeline_group = QGroupBox("Run individual steps")
         partial_pipeline_layout = QVBoxLayout()
+        partial_pipeline_layout.addWidget(self.pipeline_hint_label)
         partial_pipeline_layout.addWidget(self.preprocess_button)
         partial_pipeline_layout.addWidget(self.segment_button)
         partial_pipeline_layout.addWidget(self.mocap_button)
@@ -227,6 +251,7 @@ class NellieProcessor(QWidget):
         self.check_file_existence()
         self.initialized = True
         self.open_dir_button.setEnabled(os.path.exists(self.current_im_info.file_info.output_dir))
+        self._update_output_dir_label()
 
     def check_file_existence(self):
         """
@@ -251,12 +276,28 @@ class NellieProcessor(QWidget):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, False)
 
         self.open_dir_button.setEnabled(os.path.exists(self.current_im_info.file_info.output_dir))
+        self._update_output_dir_label()
 
         if os.path.exists(self.current_im_info.im_path):
             self.run_button.setEnabled(True)
             self.preprocess_button.setEnabled(True)
         else:
             return
+
+    def _update_output_dir_label(self):
+        """
+        Update the output directory label and tooltip for the open button.
+        """
+        output_dir = None
+        if self.current_im_info is not None and self.current_im_info.file_info is not None:
+            output_dir = self.current_im_info.file_info.output_dir
+
+        if output_dir:
+            self.output_dir_label.setText(f"Output directory: {output_dir}")
+            self.open_dir_button.setToolTip(output_dir)
+        else:
+            self.output_dir_label.setText("Output directory: none")
+            self.open_dir_button.setToolTip("Output directory is not available yet.")
 
         frangi_path = self.current_im_info.pipeline_paths["im_preprocessed"]
         if os.path.exists(frangi_path):

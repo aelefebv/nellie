@@ -107,6 +107,8 @@ class NellieAnalysis(QWidget):
         self.dropdown = None          # level (voxel/node/...)
         self.dropdown_attr = None     # feature (e.g. divergence)
         self.dropdown_stat = None     # statistic/form (e.g. mean)
+        self.reset_range_button = None
+        self.export_path_label = None
         self.click_match_table = None
         self.click_match_group = None
 
@@ -206,6 +208,8 @@ class NellieAnalysis(QWidget):
             idx = self.dropdown.findText("none")
             if idx >= 0:
                 self.dropdown.setCurrentIndex(idx)
+        if self.export_path_label is not None:
+            self._update_export_path_label()
 
     def post_init(self):
         """
@@ -216,18 +220,22 @@ class NellieAnalysis(QWidget):
         self.log_scale_checkbox = QCheckBox("Log scale")
         self.log_scale_checkbox.stateChanged.connect(self.on_log_scale)
         self.log_scale_checkbox.setEnabled(False)
+        self.log_scale_checkbox.setToolTip("Plot values on a log10 scale.")
 
         self.mean_median_toggle = QCheckBox("Median view")
         self.mean_median_toggle.stateChanged.connect(self.toggle_mean_med)
         self.mean_median_toggle.setEnabled(False)
+        self.mean_median_toggle.setToolTip("Use median and quartiles instead of mean and std.")
 
         self.overlay_button = QPushButton("Overlay mask")
         self.overlay_button.clicked.connect(self.overlay)
         self.overlay_button.setEnabled(False)
+        self.overlay_button.setToolTip("Overlay the selected feature on the label mask.")
 
         self.match_t_toggle = QCheckBox("Timepoint data")
         self.match_t_toggle.stateChanged.connect(self.toggle_match_t)
         self.match_t_toggle.setEnabled(False)
+        self.match_t_toggle.setToolTip("Use data from the current timepoint only.")
         self.viewer.dims.events.current_step.connect(self.on_t_change)
 
         # histogram spinboxes
@@ -247,12 +255,19 @@ class NellieAnalysis(QWidget):
         self.num_bins.setEnabled(False)
         self.num_bins.valueChanged.connect(self.on_hist_change)
 
+        self.reset_range_button = QPushButton("Reset range")
+        self.reset_range_button.clicked.connect(self.reset_hist_range)
+        self.reset_range_button.setEnabled(False)
+        self.reset_range_button.setToolTip("Reset min/max and bins based on current data.")
+
         # export buttons
         self.export_data_button = QPushButton("Export graph data")
         self.export_data_button.clicked.connect(self.export_data)
+        self.export_data_button.setToolTip("Export the current data to a CSV file.")
 
         self.save_graph_button = QPushButton("Save graph")
         self.save_graph_button.clicked.connect(self.save_graph)
+        self.save_graph_button.setToolTip("Save the current plot as a PNG file.")
 
         # scale bar configuration
         if self.nellie.im_info.no_z:
@@ -268,6 +283,10 @@ class NellieAnalysis(QWidget):
             )
         self.viewer.scale_bar.visible = True
         self.viewer.scale_bar.unit = "um"
+
+        self.export_path_label = QLabel("")
+        self.export_path_label.setWordWrap(True)
+        self._update_export_path_label()
 
         # selection dropdowns
         self._create_dropdown_selection()
@@ -310,6 +329,8 @@ class NellieAnalysis(QWidget):
         sub_layout.addWidget(QLabel("Max"), alignment=Qt.AlignLeft)
         hist_layout.addLayout(sub_layout)
 
+        hist_layout.addWidget(self.reset_range_button, alignment=Qt.AlignLeft)
+
         # canvas
         hist_layout.addWidget(self.canvas)
 
@@ -331,9 +352,12 @@ class NellieAnalysis(QWidget):
 
         # Save / export group
         save_group = QGroupBox("Export options")
-        save_layout = QHBoxLayout()
-        save_layout.addWidget(self.export_data_button)
-        save_layout.addWidget(self.save_graph_button)
+        save_layout = QVBoxLayout()
+        save_button_layout = QHBoxLayout()
+        save_button_layout.addWidget(self.export_data_button)
+        save_button_layout.addWidget(self.save_graph_button)
+        save_layout.addLayout(save_button_layout)
+        save_layout.addWidget(self.export_path_label)
         save_group.setLayout(save_layout)
 
         # Click mapping group (hidden until first click)
@@ -402,6 +426,7 @@ class NellieAnalysis(QWidget):
             self.hist_min,
             self.hist_max,
             self.num_bins,
+            self.reset_range_button,
             self.log_scale_checkbox,
             self.mean_median_toggle,
             self.match_t_toggle,
@@ -413,7 +438,7 @@ class NellieAnalysis(QWidget):
         """
         Enable histogram control widgets.
         """
-        for w in (self.hist_min, self.hist_max, self.num_bins):
+        for w in (self.hist_min, self.hist_max, self.num_bins, self.reset_range_button):
             if w is not None:
                 w.setEnabled(True)
 
@@ -737,6 +762,22 @@ class NellieAnalysis(QWidget):
         self.canvas.figure.savefig(export_path, dpi=300)
         show_info(f"Graph saved to {export_path}")
 
+    def _update_export_path_label(self):
+        """
+        Update the export directory label with the current dataset path.
+        """
+        export_dir = getattr(self.nellie.im_info, "graph_dir", None)
+        if export_dir:
+            self.export_path_label.setText(f"Export directory: {export_dir}")
+            self.export_data_button.setToolTip(
+                f"Export the current data to a CSV file in {export_dir}."
+            )
+            self.save_graph_button.setToolTip(
+                f"Save the current plot as a PNG file in {export_dir}."
+            )
+        else:
+            self.export_path_label.setText("Export directory: unavailable")
+
     # -------------------------------------------------------------------------
     # histogram / plotting
     # -------------------------------------------------------------------------
@@ -752,6 +793,12 @@ class NellieAnalysis(QWidget):
         if self.attr_data is None or self.data_to_plot is None:
             return
         self.plot_data(self._current_attr_name() or "")
+
+    def reset_hist_range(self):
+        """
+        Reset histogram range and bins based on the current data selection.
+        """
+        self._refresh_plot(reset_hist=True)
 
     # -------------------------------------------------------------------------
     # click mapping

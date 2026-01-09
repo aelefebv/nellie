@@ -5,10 +5,12 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QSpinBox,
     QLabel,
+    QPushButton,
     QVBoxLayout,
     QGroupBox,
     QHBoxLayout,
     QFormLayout,
+    QMessageBox,
 )
 
 
@@ -146,7 +148,20 @@ class Settings(QWidget):
             "can improve performance."
         )
 
+        self.reset_defaults_button = QPushButton("Reset to defaults")
+        self.reset_defaults_button.setToolTip("Restore recommended default settings.")
+        self.reset_defaults_button.clicked.connect(self.reset_defaults)
+
         self.initialized = False
+        self.default_config = SettingsConfig(
+            remove_edges=False,
+            remove_intermediates=False,
+            voxel_reassign=True,
+            analyze_node_level=True,
+            track_all_frames=True,
+            subsample_voxels=True,
+            skip_vox=5,
+        )
 
         self.set_ui()
         self._connect_signals()
@@ -195,6 +210,7 @@ class Settings(QWidget):
 
         main_layout.addWidget(processor_group)
         main_layout.addWidget(tracking_group)
+        main_layout.addWidget(self.reset_defaults_button)
         main_layout.addStretch(1)
 
         self.setLayout(main_layout)
@@ -205,6 +221,9 @@ class Settings(QWidget):
         """
         self.subsample_voxels_checkbox.toggled.connect(
             self._update_skip_vox_enabled
+        )
+        self.remove_intermediates_checkbox.toggled.connect(
+            self._confirm_remove_intermediates
         )
 
         # Ensure initial enabled/disabled state is consistent with the checkbox
@@ -220,6 +239,25 @@ class Settings(QWidget):
             Whether subsampling is enabled.
         """
         self.skip_vox.setEnabled(checked)
+
+    def _confirm_remove_intermediates(self, checked: bool):
+        """
+        Confirm before enabling removal of intermediate files.
+        """
+        if not checked:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Remove intermediate files?",
+            "This will delete intermediate files after processing and cannot be undone.\n"
+            "Do you want to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            self.remove_intermediates_checkbox.blockSignals(True)
+            self.remove_intermediates_checkbox.setChecked(False)
+            self.remove_intermediates_checkbox.blockSignals(False)
 
     # -------------------------------------------------------------------------
     # Public helpers for integration with the rest of the plugin
@@ -262,6 +300,12 @@ class Settings(QWidget):
         self.skip_vox.setValue(config.skip_vox)
         # Ensure the skip_vox enabled state matches the incoming config
         self._update_skip_vox_enabled(config.subsample_voxels)
+
+    def reset_defaults(self):
+        """
+        Restore default settings for the UI.
+        """
+        self.apply_config(self.default_config)
 
 
 if __name__ == "__main__":
