@@ -1,6 +1,6 @@
 [project]
 name = "nellie"
-version = "1.0.1"
+version = "1.0.2"
 description = "Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,6 @@ dependencies = [
     "matplotlib",
     "napari[all]",
     "imagecodecs",
-    "pytest>=9.0.2",
 ]
 urls = {Homepage = "https://github.com/aelefebv/nellie"}
 
