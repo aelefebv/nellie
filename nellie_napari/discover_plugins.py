@@ -4,9 +4,21 @@ from qtpy.QtWidgets import QAction, QMenu
 
 def discover_nellie_plugins():
     nellie_plugins = {}
-    for entry_point in entry_points(group='nellie.plugins'):
-        plugin_func = entry_point.load()
-        nellie_plugins[entry_point.name] = plugin_func
+    
+    try:
+        available_entry_points = entry_points()
+        if isinstance(available_entry_points, dict):
+            nellie_plugins_group = available_entry_points.get('nellie.plugins', [])
+        else:
+            nellie_plugins_group = available_entry_points.select(group='nellie.plugins')
+
+        for entry_point in nellie_plugins_group:
+            plugin_func = entry_point.load()
+            nellie_plugins[entry_point.name] = plugin_func
+
+    except Exception as e:
+        print(f"Error discovering Nellie plugins: {e}")
+
     return nellie_plugins
 
 
