@@ -1,7 +1,13 @@
+"""
+Flow vector interpolation for temporal tracking in microscopy images.
+
+This module provides interpolation of optical flow vectors between timepoints with
+optimizations for large datasets and optional GPU acceleration.
+"""
 import numpy as np
 from scipy.spatial import cKDTree
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 
 

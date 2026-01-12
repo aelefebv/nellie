@@ -1,4 +1,4 @@
-from nellie.utils.base_logger import logger
+# from nellie.utils.base_logger import logger
 import platform
 
 device_type = 'cpu'
@@ -19,7 +19,7 @@ if platform.system() == 'Darwin':
     # except ModuleNotFoundError:
     import numpy as xp
     device_type = 'cpu'
-    logger.warning('GPU packages not detected, running via CPU.')
+    # logger.warning('GPU packages not detected, running via CPU.')
 
     xp_bk = None
     import scipy.ndimage as ndi
@@ -35,7 +35,7 @@ else:
         import cupy_backends as xp_bk
         import cupyx.scipy.ndimage as ndi
         is_gpu = True
-        logger.info('GPU packages detected, running via GPU.')
+        # logger.info('GPU packages detected, running via GPU.')
         device_type = 'cuda'
     except ModuleNotFoundError:
         import numpy as xp
@@ -45,6 +45,11 @@ else:
         from skimage import filters, morphology, measure
 
         is_gpu = False
-        logger.warning('GPU packages not detected, running via CPU.')
+        # logger.warning('GPU packages not detected, running via CPU.')
         device_type = 'cpu'
 
+# from .segmentation import Filter, Label, Markers, Network
+# from .tracking import HuMomentTracking, VoxelReassigner, LabelTracks, FlowInterpolator
+# from .feature_extraction import Hierarchy
+# from .im_info import FileInfo, ImInfo
+# from .run import run

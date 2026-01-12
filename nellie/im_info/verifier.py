@@ -1,3 +1,10 @@
+"""
+File verification and image metadata handling for microscopy images.
+
+This module provides FileInfo and ImInfo classes for loading, validating, and managing
+metadata from various microscopy file formats (TIFF, OME-TIFF, ND2).
+"""
+import json
 import os
 
 import nd2
@@ -5,7 +12,7 @@ import numpy as np
 import ome_types
 from tifffile import tifffile
 
-from nellie import logger
+from nellie.utils.base_logger import logger
 
 
 class FileInfo:
@@ -36,6 +43,8 @@ class FileInfo:
         File extension (e.g., '.tiff', '.nd2').
     output_dir : str
         Output directory for processed files.
+    output_naming : str
+        Output naming strategy ("detailed" or "stable").
     nellie_necessities_dir : str
         Directory for internal processing data.
     ome_output_path : str or None
@@ -92,7 +101,7 @@ class FileInfo:
     save_ome_tiff()
         Save the processed image file as an OME-TIFF file with updated metadata.
     """
-    def __init__(self, filepath, output_dir=None):
+    def __init__(self, filepath, output_dir=None, output_naming="detailed"):
         """
         Initializes the FileInfo object and creates directories for outputs if they do not exist.
 
@@ -102,6 +111,8 @@ class FileInfo:
             Path to the input file.
         output_dir : str, optional
             Directory for saving output files. Defaults to a subdirectory within the input file's directory.
+        output_naming : str, optional
+            Output naming strategy ("detailed" or "stable"). Defaults to "detailed".
         """
         self.filepath = filepath
         self.metadata = None
@@ -113,7 +124,8 @@ class FileInfo:
         self.input_dir = os.path.dirname(filepath)
         self.basename = os.path.basename(filepath)
         self.filename_no_ext = os.path.splitext(self.basename)[0]
-        self.extension = os.path.splitext(filepath)[1]
+        self.extension = os.path.splitext(filepath)[1].lower()
+        self.output_naming = output_naming
         self.output_dir = output_dir or os.path.join(self.input_dir, 'nellie_output')
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
@@ -125,6 +137,7 @@ class FileInfo:
         self.ome_output_path = None
         self.good_dims = False
         self.good_axes = False
+        self.validation_errors = []
 
         self.ch = 0
         self.t_start = 0
@@ -159,6 +172,7 @@ class FileInfo:
             self.metadata_type = metadata_type
             self.axes = tif.series[0].axes
             self.shape = tif.series[0].shape
+            self._normalize_time_axis()
 
         return metadata, metadata_type
 
@@ -167,12 +181,15 @@ class FileInfo:
         Extracts metadata from ND2 files and updates relevant class attributes.
         """
         with nd2.ND2File(self.filepath) as nd2_file:
-            metadata = nd2_file.metadata.channels[0]
-            metadata.recorded_data = nd2_file.events(orient='list')
+            metadata = {
+                "root": nd2_file.metadata,
+                "recorded_data": nd2_file.events(orient='list'),
+            }
             self.metadata = metadata
             self.metadata_type = 'nd2'
             self.axes = ''.join(nd2_file.sizes.keys())
             self.shape = tuple(nd2_file.sizes.values())
+            self._normalize_time_axis()
 
     def find_metadata(self):
         """
@@ -183,12 +200,20 @@ class FileInfo:
         ValueError
             If the file type is not supported.
         """
-        if self.filepath.endswith('.tiff') or self.filepath.endswith('.tif'):
+        if self.extension in ('.tiff', '.tif'):
             self._find_tif_metadata()
-        elif self.filepath.endswith('.nd2'):
+        elif self.extension == '.nd2':
             self._find_nd2_metadata()
         else:
             raise ValueError('File type not supported')
+
+    def _normalize_time_axis(self):
+        if self.axes is None or self.shape is None:
+            return
+        if 'T' in self.axes:
+            return
+        if len(self.shape) == len(self.axes) + 1 and self.shape[0] == 1:
+            self.axes = 'T' + self.axes
 
     def _get_imagej_metadata(self, metadata):
         """
@@ -237,8 +262,11 @@ class FileInfo:
                                   / metadata[tag_names['YResolution']].value[0]
         if 'ResolutionUnit' in tag_names:
             if metadata[tag_names['ResolutionUnit']].value == tifffile.RESUNIT.CENTIMETER:
-                self.dim_res['X'] *= 1E-4 * 1E6
-                self.dim_res['Y'] *= 1E-4 * 1E6
+                self.dim_res['X'] *= 1E4
+                self.dim_res['Y'] *= 1E4
+            elif metadata[tag_names['ResolutionUnit']].value == tifffile.RESUNIT.INCH:
+                self.dim_res['X'] *= 25400
+                self.dim_res['Y'] *= 25400
         if 'Z' in self.axes:
             if 'ZResolution' in tag_names:
                 self.dim_res['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
@@ -255,12 +283,51 @@ class FileInfo:
         metadata : dict
             ND2 metadata object.
         """
-        if 'Time [s]' in metadata.recorded_data:
-            timestamps = metadata.recorded_data['Time [s]']
-            self.dim_res['T'] = timestamps[-1] / len(timestamps)
-        self.dim_res['X'] = metadata.volume.axesCalibration[0]
-        self.dim_res['Y'] = metadata.volume.axesCalibration[1]
-        self.dim_res['Z'] = metadata.volume.axesCalibration[2]
+        recorded_data = {}
+        root_metadata = None
+        if isinstance(metadata, dict):
+            recorded_data = metadata.get("recorded_data") or {}
+            root_metadata = metadata.get("root")
+        else:
+            recorded_data = getattr(metadata, "recorded_data", {}) or {}
+            root_metadata = metadata
+
+        timestamps = recorded_data.get("Time [s]")
+        if timestamps is not None:
+            if len(timestamps) >= 2:
+                diffs = np.diff(timestamps)
+                self.dim_res['T'] = float(np.median(diffs))
+            else:
+                self.dim_res['T'] = None
+
+        axes_calibration = None
+        if root_metadata is not None:
+            if isinstance(root_metadata, dict):
+                volume = root_metadata.get("volume")
+            else:
+                volume = getattr(root_metadata, "volume", None)
+            axes_calibration = getattr(volume, "axesCalibration", None)
+
+        if axes_calibration is None and root_metadata is not None:
+            if isinstance(root_metadata, dict):
+                channels = root_metadata.get("channels")
+            else:
+                channels = getattr(root_metadata, "channels", None)
+            if channels:
+                channel = channels[0]
+                if isinstance(channel, dict):
+                    channel_volume = channel.get("volume")
+                else:
+                    channel_volume = getattr(channel, "volume", None)
+                axes_calibration = getattr(channel_volume, "axesCalibration", None)
+
+        if axes_calibration is not None:
+            if len(axes_calibration) > 0:
+                self.dim_res['X'] = axes_calibration[0]
+            if len(axes_calibration) > 1:
+                self.dim_res['Y'] = axes_calibration[1]
+            if len(axes_calibration) > 2:
+                self.dim_res['Z'] = axes_calibration[2]
 
     def load_metadata(self):
         """
@@ -284,32 +351,65 @@ class FileInfo:
         """
         Validates the axes metadata and ensures the required axes (X, Y) are present.
         """
-        if len(self.shape) != len(self.axes):
-            self.change_axes('Q' * len(self.shape))
-        for axis in self.axes:
-            if axis not in ['T', 'Z', 'Y', 'X', 'C']:
-                self.good_axes = False
-                return
-        # if any duplicates, not good
-        if len(set(self.axes)) != len(self.axes):
-            self.good_axes = False
-            return
-        # if X or Y are not there, not good
-        if 'X' not in self.axes or 'Y' not in self.axes:
-            self.good_axes = False
-            return
-        self.good_axes = True
+        errors = self._axis_errors()
+        self.good_axes = not errors
+        return errors
 
     def _check_dim_res(self):
         """
         Validates the dimensional resolution metadata, ensuring that X, Y, Z, and T dimensions have valid resolutions.
         """
+        errors = self._dim_errors()
+        self.good_dims = not errors
+        return errors
+
+    def _axis_errors(self):
+        errors = []
+        if self.axes is None or self.shape is None:
+            errors.append('Axes or shape metadata not loaded')
+            return errors
+        if len(self.shape) != len(self.axes):
+            errors.append('Axes length does not match data shape')
+        allowed_axes = {'T', 'Z', 'Y', 'X', 'C'}
+        invalid_axes = [axis for axis in self.axes if axis not in allowed_axes]
+        if invalid_axes:
+            errors.append('Axes must only use T, Z, C, Y, X')
+        if len(set(self.axes)) != len(self.axes):
+            errors.append('Axes must not contain duplicates')
+        if 'X' not in self.axes or 'Y' not in self.axes:
+            errors.append('Axes must include both X and Y')
+        return errors
+
+    def _dim_errors(self):
+        errors = []
+        if self.axes is None or self.dim_res is None:
+            return errors
         check_dims = ['X', 'Y', 'Z', 'T']
         for dim in check_dims:
-            if dim in self.axes and self.dim_res[dim] is None:
-                self.good_dims = False
-                return
-        self.good_dims = True
+            if dim in self.axes and self.dim_res.get(dim) is None:
+                errors.append(f"Missing {dim} resolution")
+        return errors
+
+    def _time_range_errors(self):
+        errors = []
+        if self.axes is None or self.shape is None:
+            return errors
+        if 'T' not in self.axes:
+            return errors
+        if self.t_start is None or self.t_end is None:
+            return errors
+        if self.t_start < 0 or self.t_end < 0:
+            errors.append('Temporal range must be >= 0')
+        t_index = self.axes.index('T')
+        max_t = self.shape[t_index] - 1
+        if self.t_start > self.t_end:
+            errors.append('Start frame must be <= end frame')
+        if self.t_start > max_t or self.t_end > max_t:
+            errors.append('Temporal range out of bounds')
+        return errors
+
+    def get_validation_errors(self):
+        return self._axis_errors() + self._dim_errors() + self._time_range_errors()
 
     def change_axes(self, new_axes):
         """
@@ -338,9 +438,10 @@ class FileInfo:
         new_size : float
             New resolution for the specified dimension.
         """
+        if self.dim_res is None:
+            raise ValueError('Dimension resolutions are not initialized')
         if dim not in self.dim_res:
-            return
-            # raise ValueError('Invalid dimension')
+            raise ValueError(f"Invalid dimension '{dim}'")
         self.dim_res[dim] = new_size
         self._validate()
 
@@ -382,16 +483,26 @@ class FileInfo:
         end : int, optional
             End index of the temporal range. Defaults to None, which includes all timepoints.
         """
-        if not self.good_dims or not self.good_axes:
-            return
-            # raise ValueError('Must have both valid axes and dimensions to select temporal range')
+        if self.axes is None or self.shape is None:
+            raise ValueError('Axes or shape metadata not loaded')
+        if len(self.axes) != len(self.shape):
+            raise ValueError('Axes and shape length mismatch')
         if 'T' not in self.axes:
-            return
-            # raise KeyError('No time dimension to select')
+            raise KeyError('No time dimension to select')
+        if start < 0:
+            raise IndexError('Start frame must be >= 0')
+        t_index = self.axes.index('T')
+        max_t = self.shape[t_index] - 1
+        if end is None:
+            end = max_t
+        if end < 0:
+            raise IndexError('End frame must be >= 0')
+        if start > end:
+            raise ValueError('Start frame must be <= end frame')
+        if start > max_t or end > max_t:
+            raise IndexError('Temporal range out of bounds')
         self.t_start = start
         self.t_end = end
-        if self.t_end is None:
-            self.t_end = self.shape[self.axes.index('T')] - 1
         self._get_output_path()
 
     def _validate(self):
@@ -412,9 +523,19 @@ class FileInfo:
         ValueError
             If any aspect of the metadata is invalid or inconsistent.
         """
-        self._check_axes()
-        self._check_dim_res()
-        self.select_temporal_range()
+        axis_errors = self._check_axes()
+        dim_errors = self._check_dim_res()
+        if self.good_axes and 'T' in self.axes and self.shape is not None:
+            if self.t_start is None:
+                self.t_start = 0
+            t_index = self.axes.index('T')
+            max_t = self.shape[t_index] - 1
+            if self.t_end is None:
+                self.t_end = max_t
+        time_errors = self._time_range_errors()
+        self.validation_errors = axis_errors + dim_errors + time_errors
+        if time_errors:
+            raise ValueError(time_errors[0])
         self._get_output_path()
 
     def read_file(self):
@@ -433,20 +554,26 @@ class FileInfo:
         """
         if self.extension == '.nd2':
             data = nd2.imread(self.filepath)
-        elif self.extension == '.tif' or self.extension == '.tiff':
+        elif self.extension in ('.tif', '.tiff'):
             try:
                 data = tifffile.memmap(self.filepath)
-            except:
-                data = tifffile.imread(self.filepath)
+            except Exception:
+                try:
+                    data = tifffile.imread(self.filepath)
+                except Exception as read_exc:
+                    message = f'Failed to read TIFF file {self.filepath}: {read_exc}'
+                    logger.error(message)
+                    raise ValueError(message) from read_exc
         else:
-            logger.error(f'Filetype {self.extension} not supported. Please convert to .nd2 or .tif.')
-            raise ValueError
+            message = f'Filetype {self.extension} not supported. Please convert to .nd2 or .tif.'
+            logger.error(message)
+            raise ValueError(message)
         self.dtype = data.dtype
         return data
 
     def _get_output_path(self):
         """
-        Generates output paths for the processed image file, based on the current axes, resolutions, and selected channel.
+        Generates output paths for the processed image file using the configured output naming strategy.
 
         This method constructs a filename that incorporates the axes, the rounded dimensional resolutions (up to four
         decimal places), the selected channel, and the temporal range. It also generates both user-facing and internal
@@ -461,25 +588,31 @@ class FileInfo:
 
         Notes
         -----
-        - Temporal range information is added if the 'T' (time) axis is present.
-        - If any dimensional resolution is `None`, the string 'None' is used in the filename.
+        - Temporal range information is added for the "detailed" naming strategy if the 'T' (time) axis is present.
+        - If any dimensional resolution is `None`, the string 'None' is used in the filename for the "detailed" strategy.
         """
-        t_text = f'-t{self.t_start}_to_{self.t_end}' if 'T' in self.axes else ''
-        dim_texts = []
-        for axis in self.axes:
-            if axis not in self.dim_res:
-                continue
-            dim_res = self.dim_res[axis]
-            # round to 4 decimal places
-            if dim_res is None:
-                dim_res = 'None'
-            else:
-                dim_res = str(round(dim_res, 4))
-            # convert '.' to 'p'
-            dim_res = dim_res.replace('.', 'p')
-            dim_texts.append(f'{axis}{dim_res}')
-        dim_text = f"-{'_'.join(dim_texts)}"
-        output_name = f'{self.filename_no_ext}-{self.axes}{dim_text}-ch{self.ch}{t_text}'
+        if self.output_naming not in ('detailed', 'stable'):
+            raise ValueError(f"Unsupported output naming strategy '{self.output_naming}'")
+
+        if self.output_naming == 'stable':
+            output_name = f'{self.filename_no_ext}'
+        else:
+            t_text = f'-t{self.t_start}_to_{self.t_end}' if 'T' in self.axes else ''
+            dim_texts = []
+            for axis in self.axes:
+                if axis not in self.dim_res:
+                    continue
+                dim_res = self.dim_res[axis]
+                # round to 4 decimal places
+                if dim_res is None:
+                    dim_res = 'None'
+                else:
+                    dim_res = str(round(dim_res, 4))
+                # convert '.' to 'p'
+                dim_res = dim_res.replace('.', 'p')
+                dim_texts.append(f'{axis}{dim_res}')
+            dim_text = f"-{'_'.join(dim_texts)}"
+            output_name = f'{self.filename_no_ext}-{self.axes}{dim_text}-ch{self.ch}{t_text}'
         self.user_output_path_no_ext = os.path.join(self.output_dir, output_name)
         self.nellie_necessities_output_path_no_ext = os.path.join(self.nellie_necessities_dir, output_name)
         self.ome_output_path = self.nellie_necessities_output_path_no_ext + '.ome.tif'
@@ -498,6 +631,13 @@ class FileInfo:
 
         axes = self.axes
         data = self.read_file()
+        if data.ndim != len(axes):
+            if 'T' in axes and data.ndim == len(axes) - 1:
+                data = np.expand_dims(data, axis=axes.index('T'))
+            else:
+                message = 'Data dimensions do not match axes'
+                logger.error(message)
+                raise ValueError(message)
         if 'T' not in self.axes:
             data = data[np.newaxis, ...]
             axes = 'T' + self.axes
@@ -518,7 +658,11 @@ class FileInfo:
             axes = 'T' + axes.replace('T', '')
 
         tifffile.imwrite(
-            self.ome_output_path, data, bigtiff=True, metadata={"axes": axes}
+            self.ome_output_path,
+            data,
+            bigtiff=True,
+            metadata={"axes": axes},
+            photometric="minisblack",
         )
 
         ome_xml = tifffile.tiffcomment(self.ome_output_path)
@@ -527,6 +671,20 @@ class FileInfo:
         ome.images[0].pixels.physical_size_y = self.dim_res['Y']
         ome.images[0].pixels.physical_size_z = self.dim_res['Z']
         ome.images[0].pixels.time_increment = self.dim_res['T']
+        def _normalize_value(value):
+            if isinstance(value, np.generic):
+                return value.item()
+            return value
+
+        provenance = {
+            "source_axes": self.axes,
+            "output_axes": axes,
+            "dim_res": {key: _normalize_value(val) for key, val in self.dim_res.items()},
+            "channel": self.ch,
+            "t_start": self.t_start,
+            "t_end": self.t_end,
+        }
+        ome.images[0].description = json.dumps(provenance, sort_keys=True)
         dtype_name = data.dtype.name
         if data.dtype.name == 'float64':
             dtype_name = 'double'
@@ -604,7 +762,13 @@ class ImInfo:
         """
         self.file_info = file_info
         self.im_path = file_info.ome_output_path
-        if not os.path.exists(self.im_path):
+        needs_regen = not os.path.exists(self.im_path)
+        if not needs_regen:
+            with tifffile.TiffFile(self.im_path) as tif:
+                existing_axes = tif.series[0].axes
+            if 'T' not in existing_axes and file_info.axes is not None and 'T' in file_info.axes:
+                needs_regen = True
+        if needs_regen:
             file_info.save_ome_tiff()
         self.im = tifffile.memmap(self.im_path)
 
@@ -616,6 +780,8 @@ class ImInfo:
         self.new_axes = None
         self.shape = None
         self.ome_metadata = None
+        self.file_axes = None
+        self.file_shape = None
         self._get_ome_metadata()
 
         self.no_z = True
@@ -631,9 +797,9 @@ class ImInfo:
 
         Updates the `no_z` and `no_t` flags based on whether the Z and T axes are present and have more than one slice or timepoint.
         """
-        if 'Z' in self.axes and self.shape[self.new_axes.index('Z')] > 1:
+        if 'Z' in self.axes and self.shape[self.axes.index('Z')] > 1:
             self.no_z = False
-        if 'T' in self.axes and self.shape[self.new_axes.index('T')] > 1:
+        if 'T' in self.axes and self.shape[self.axes.index('T')] > 1:
             self.no_t = False
 
     def create_output_path(self, pipeline_path: str, ext: str = '.ome.tif', for_nellie=True):
@@ -705,20 +871,98 @@ class ImInfo:
         """
         Extracts OME metadata from the image and updates the `axes`, `new_axes`, `shape`, and `dim_res` attributes.
 
-        If the 'T' axis is not present, it adds a new temporal axis to the image data and updates the axes accordingly.
+        If the OME-TIFF lacks a 'T' axis, one is added to the in-memory representation.
+        Axes are normalized to canonical order (T, Z, Y, X) and singleton Z is squeezed.
         """
         with tifffile.TiffFile(self.im_path) as tif:
-            self.axes = tif.series[0].axes
-            self.new_axes = self.axes
-        if 'T' not in self.axes:
-            self.im = self.im[np.newaxis, ...]
-            self.new_axes = 'T' + self.axes
+            self.file_axes = tif.series[0].axes
+            self.file_shape = tif.series[0].shape
+        self.im, self.axes = self._normalize_axes(self.im, self.file_axes)
+        self.new_axes = self.axes
         self.shape = self.im.shape
         self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
         self.dim_res['X'] = self.ome_metadata.images[0].pixels.physical_size_x
         self.dim_res['Y'] = self.ome_metadata.images[0].pixels.physical_size_y
         self.dim_res['Z'] = self.ome_metadata.images[0].pixels.physical_size_z
         self.dim_res['T'] = self.ome_metadata.images[0].pixels.time_increment
+
+    def _normalize_axes(self, data, axes):
+        """
+        Normalize axes to a canonical order (T, Z, Y, X) and squeeze singleton Z.
+        """
+        if axes is None:
+            raise ValueError("Axes metadata is not initialized")
+        axes_list = list(axes)
+        # Ensure T exists and is first.
+        if 'T' not in axes_list:
+            data = data[np.newaxis, ...]
+            axes_list = ['T'] + axes_list
+        else:
+            t_index = axes_list.index('T')
+            if t_index != 0:
+                data = np.moveaxis(data, t_index, 0)
+                axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
+        # Squeeze singleton Z if present.
+        if 'Z' in axes_list:
+            z_index = axes_list.index('Z')
+            if data.shape[z_index] == 1:
+                data = np.squeeze(data, axis=z_index)
+                axes_list.pop(z_index)
+        # Validate axes
+        allowed_axes = {'T', 'Z', 'Y', 'X'}
+        extra_axes = [ax for ax in axes_list if ax not in allowed_axes]
+        if extra_axes:
+            raise ValueError(f"Unsupported axes found: {extra_axes}")
+        if 'Y' not in axes_list or 'X' not in axes_list:
+            raise ValueError("Axes must include both Y and X")
+        # Canonical order: T, Z (if present), Y, X
+        target_axes = ['T']
+        if 'Z' in axes_list:
+            target_axes.append('Z')
+        target_axes.extend(['Y', 'X'])
+        if axes_list != target_axes:
+            order = [axes_list.index(ax) for ax in target_axes]
+            data = np.transpose(data, order)
+            axes_list = target_axes
+        if data.ndim != len(axes_list):
+            raise ValueError("Data dimensions do not match normalized axes")
+        return data, ''.join(axes_list)
+
+    def _normalize_memmap(self, memmap, file_axes):
+        """
+        Normalize a memmap to the canonical axes used by this ImInfo instance.
+        """
+        if file_axes is None:
+            return memmap
+        data = memmap
+        axes_list = list(file_axes)
+        # Ensure T exists and is first.
+        if 'T' not in axes_list:
+            data = data[np.newaxis, ...]
+            axes_list = ['T'] + axes_list
+        else:
+            t_index = axes_list.index('T')
+            if t_index != 0:
+                data = np.moveaxis(data, t_index, 0)
+                axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
+        # Squeeze singleton Z if this ImInfo treats Z as absent.
+        if 'Z' in axes_list and 'Z' not in self.axes:
+            z_index = axes_list.index('Z')
+            if data.shape[z_index] == 1:
+                data = np.squeeze(data, axis=z_index)
+                axes_list.pop(z_index)
+            else:
+                raise ValueError("Z axis present with size > 1, but ImInfo expects no Z axis")
+        # Validate axes match target
+        target_axes = list(self.axes)
+        if set(axes_list) != set(target_axes):
+            extra = sorted(set(axes_list) - set(target_axes))
+            missing = sorted(set(target_axes) - set(axes_list))
+            raise ValueError(f"Axes mismatch. Extra: {extra}, missing: {missing}")
+        if axes_list != target_axes:
+            order = [axes_list.index(ax) for ax in target_axes]
+            data = np.transpose(data, order)
+        return data
 
     def get_memmap(self, file_path, read_mode='r+'):
         """
@@ -737,9 +981,13 @@ class ImInfo:
             A memory-mapped numpy array representing the image data.
         """
         memmap = tifffile.memmap(file_path, mode=read_mode)
-        if 'T' not in self.axes:
-            memmap = memmap[np.newaxis, ...]
-        return memmap
+        file_axes = None
+        try:
+            with tifffile.TiffFile(file_path) as tif:
+                file_axes = tif.series[0].axes
+        except Exception:
+            file_axes = None
+        return self._normalize_memmap(memmap, file_axes)
 
     def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
                         return_memmap=False, read_mode='r+'):
@@ -769,23 +1017,53 @@ class ImInfo:
         np.ndarray, optional
             A memory-mapped numpy array if `return_memmap` is set to True.
         """
-        axes = self.axes
-        if 'T' not in self.axes:
-            axes = 'T' + axes
-            if data is not None:
+        axes = self.new_axes or self.axes
+        if axes is None:
+            raise ValueError('Axes metadata is not initialized')
+        if data is not None and len(axes) != data.ndim:
+            if axes.startswith('T') and data.ndim == len(axes) - 1:
                 data = data[np.newaxis, ...]
+            elif 'T' not in axes and data.ndim == len(axes) + 1:
+                axes = 'T' + axes
+            else:
+                raise ValueError('Data dimensions do not match axes')
         if data is None:
+            if len(axes) != len(self.shape):
+                raise ValueError('Shape does not match axes')
             tifffile.imwrite(
-                output_path, shape=self.shape, dtype=dtype, bigtiff=True, metadata={"axes": axes}
+                output_path,
+                shape=self.shape,
+                dtype=dtype,
+                bigtiff=True,
+                metadata={"axes": axes},
+                photometric="minisblack",
             )
+            dtype_name = np.dtype(dtype).name if dtype is not None else 'float'
         else:
-            dtype = dtype or data.dtype.name
             tifffile.imwrite(
-                output_path, data, bigtiff=True, metadata={"axes": axes}
+                output_path,
+                data,
+                bigtiff=True,
+                metadata={"axes": axes},
+                photometric="minisblack",
             )
-        ome = self.ome_metadata
+            dtype_name = data.dtype.name
+        ome = ome_types.from_xml(tifffile.tiffcomment(output_path))
         ome.images[0].description = description
-        ome.images[0].pixels.type = dtype
+        if self.dim_res.get('X') is not None:
+            ome.images[0].pixels.physical_size_x = self.dim_res['X']
+        if self.dim_res.get('Y') is not None:
+            ome.images[0].pixels.physical_size_y = self.dim_res['Y']
+        if self.dim_res.get('Z') is not None:
+            ome.images[0].pixels.physical_size_z = self.dim_res['Z']
+        if self.dim_res.get('T') is not None:
+            ome.images[0].pixels.time_increment = self.dim_res['T']
+
+        if dtype_name == 'float64':
+            dtype_name = 'double'
+        if dtype_name == 'float32':
+            dtype_name = 'float'
+        ome.images[0].pixels.type = dtype_name
         ome_xml = ome.to_xml()
         tifffile.tiffcomment(output_path, ome_xml)
         if return_memmap:

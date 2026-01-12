@@ -1,10 +1,10 @@
 import os
 import subprocess
-import time
+import sys
 
 from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QWidget, QPushButton, QVBoxLayout, QGroupBox, QLabel, QHBoxLayout
-from qtpy.QtGui import QFont, QIcon
+from qtpy.QtGui import QFont
 from qtpy.QtCore import Qt, QTimer
 
 from nellie.feature_extraction.hierarchical import Hierarchy
@@ -77,13 +77,13 @@ class NellieProcessor(QWidget):
     run_segmentation()
         Runs the segmentation step of the Nellie pipeline.
     run_mocap()
-        Runs the mocap marking step of the Nellie pipeline.
+        Runs the mocap marking step of the pipeline.
     run_tracking()
-        Runs the tracking step of the Nellie pipeline.
+        Runs the tracking step of the pipeline.
     run_reassign()
-        Runs the voxel reassignment step of the Nellie pipeline.
+        Runs the voxel reassignment step of the pipeline.
     run_feature_export()
-        Runs the feature extraction step of the Nellie pipeline.
+        Runs the feature extraction step of the pipeline.
     set_status()
         Sets the status to indicate that a process has started, and starts the status update timer.
     update_status()
@@ -95,9 +95,10 @@ class NellieProcessor(QWidget):
     open_directory()
         Opens the output directory where the current image results are saved.
     """
-    def __init__(self, napari_viewer: 'napari.viewer.Viewer', nellie, parent=None):
+
+    def __init__(self, napari_viewer: "napari.viewer.Viewer", nellie, parent=None):
         """
-        Initializes the NellieProcessor class, setting up the user interface and preparing for running various steps of the pipeline.
+        Initialize the NellieProcessor class, setting up the user interface and preparing for running various steps of the pipeline.
 
         Parameters
         ----------
@@ -170,19 +171,23 @@ class NellieProcessor(QWidget):
         self.initialized = False
         self.pipeline = False
 
+        # status / error tracking
+        self.running = False
+        self._last_error_message = ""
+        self._last_step_had_error = False
+
     def set_ui(self):
         """
-        Initializes and sets the layout and user interface components for the NellieProcessor. This includes the status label,
+        Initialize and set the layout and user interface components for the NellieProcessor. This includes the status label,
         buttons for running individual steps, and the button for running the entire pipeline.
         """
         main_layout = QVBoxLayout()
 
         # Status group
         status_group = QGroupBox("Status")
-        status_layout = QHBoxLayout()  # Changed to QHBoxLayout
+        status_layout = QHBoxLayout()
         status_layout.addWidget(self.status_label, alignment=Qt.AlignLeft)
         status_layout.addWidget(self.open_dir_button, alignment=Qt.AlignCenter)
-        status_group.setMaximumHeight(100)
         status_group.setLayout(status_layout)
 
         # Run full pipeline
@@ -225,7 +230,7 @@ class NellieProcessor(QWidget):
 
     def check_file_existence(self):
         """
-        Checks the existence of files required for each step of the pipeline (e.g., preprocessed images, segmented labels).
+        Check the existence of files required for each step of the pipeline (e.g., preprocessed images, segmented labels).
         Enables or disables buttons based on the existence of these files.
         """
         self.nellie.visualizer.check_file_existence()
@@ -239,7 +244,7 @@ class NellieProcessor(QWidget):
         self.reassign_button.setEnabled(False)
         self.feature_export_button.setEnabled(False)
 
-        analysis_path = self.current_im_info.pipeline_paths['features_organelles']
+        analysis_path = self.current_im_info.pipeline_paths["features_organelles"]
         if os.path.exists(analysis_path):
             self.nellie.setTabEnabled(self.nellie.analysis_tab, True)
         else:
@@ -253,7 +258,7 @@ class NellieProcessor(QWidget):
         else:
             return
 
-        frangi_path = self.current_im_info.pipeline_paths['im_preprocessed']
+        frangi_path = self.current_im_info.pipeline_paths["im_preprocessed"]
         if os.path.exists(frangi_path):
             self.segment_button.setEnabled(True)
         else:
@@ -264,8 +269,8 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
-        im_instance_label_path = self.current_im_info.pipeline_paths['im_instance_label']
-        im_skel_relabelled_path = self.current_im_info.pipeline_paths['im_skel_relabelled']
+        im_instance_label_path = self.current_im_info.pipeline_paths["im_instance_label"]
+        im_skel_relabelled_path = self.current_im_info.pipeline_paths["im_skel_relabelled"]
         if os.path.exists(im_instance_label_path) and os.path.exists(im_skel_relabelled_path):
             self.mocap_button.setEnabled(True)
         else:
@@ -275,7 +280,7 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
-        im_marker_path = self.current_im_info.pipeline_paths['im_marker']
+        im_marker_path = self.current_im_info.pipeline_paths["im_marker"]
         if os.path.exists(im_marker_path):
             self.track_button.setEnabled(True)
         else:
@@ -284,7 +289,7 @@ class NellieProcessor(QWidget):
             self.feature_export_button.setEnabled(False)
             return
 
-        track_path = self.current_im_info.pipeline_paths['flow_vector_array']
+        track_path = self.current_im_info.pipeline_paths["flow_vector_array"]
         if os.path.exists(track_path):
             self.reassign_button.setEnabled(True)
             self.feature_export_button.setEnabled(True)
@@ -296,203 +301,369 @@ class NellieProcessor(QWidget):
                 self.feature_export_button.setEnabled(False)
                 return
 
+    # -----------------
+    # Worker functions
+    # -----------------
 
+    def _get_settings(self):
+        return getattr(self.nellie, "settings", None)
 
-    @thread_worker
-    def _run_preprocessing(self):
+    @thread_worker(ignore_errors=True)
+    def _run_preprocessing(self, im_info_list, step_kwargs):
         """
-        Runs the preprocessing step in a separate thread. Filters the image to remove noise or unwanted edges before segmentation.
+        Run the preprocessing step in a separate thread. Filters the image to remove noise or unwanted edges before segmentation.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        step_kwargs : dict
+            Keyword arguments for the Filter class (excluding im_info/viewer).
         """
-        self.status = "preprocessing"
-        for im_num, im_info in enumerate(self.im_info_list):
-            show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(self.im_info_list)}")
+        for im_num, im_info in enumerate(im_info_list):
+            show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            preprocessing = Filter(im_info=self.current_im_info,
-                                   remove_edges=self.nellie.settings.remove_edges_checkbox.isChecked(),
-                                   viewer=self.viewer)
+            base_kwargs = {
+                "im_info": self.current_im_info,
+                "viewer": self.viewer,
+            }
+            preprocessing = Filter(**base_kwargs, **step_kwargs)
             preprocessing.run()
 
     def run_preprocessing(self):
         """
-        Starts the preprocessing step and updates the UI to reflect that preprocessing is running.
+        Start the preprocessing step and updates the UI to reflect that preprocessing is running.
         If the full pipeline is running, it automatically proceeds to segmentation after preprocessing is finished.
         """
-        worker = self._run_preprocessing()
-        worker.started.connect(self.turn_off_buttons)
-        if self.pipeline:
-            worker.finished.connect(self.run_segmentation)
-        worker.started.connect(self.set_status)
-        worker.finished.connect(self.reset_status)
-        worker.finished.connect(self.check_file_existence)
-        worker.start()
+        self.status = "preprocessing"
+        remove_edges = self.nellie.settings.remove_edges_checkbox.isChecked()
+        settings = self._get_settings()
+        step_kwargs = settings.get_preprocessing_params() if settings else {}
+        step_kwargs["remove_edges"] = remove_edges
+        worker = self._run_preprocessing(self.im_info_list, step_kwargs)
+        next_step = self.run_segmentation if self.pipeline else None
+        self._start_worker(worker, next_step=next_step)
 
-    @thread_worker
-    def _run_segmentation(self):
+    @thread_worker(ignore_errors=True)
+    def _run_segmentation(self, im_info_list, label_kwargs, network_kwargs):
         """
-        Runs the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.
+        Run the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        label_kwargs : dict
+            Keyword arguments for the Label class (excluding im_info/viewer).
+        network_kwargs : dict
+            Keyword arguments for the Network class (excluding im_info/viewer).
         """
-        self.status = "segmentation"
-        for im_num, im_info in enumerate(self.im_info_list):
-            show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(self.im_info_list)}")
+        for im_num, im_info in enumerate(im_info_list):
+            show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            segmenting = Label(im_info=self.current_im_info, viewer=self.viewer)
+            label_base_kwargs = {
+                "im_info": self.current_im_info,
+                "viewer": self.viewer,
+            }
+            segmenting = Label(**label_base_kwargs, **label_kwargs)
             segmenting.run()
-            networking = Network(im_info=self.current_im_info, viewer=self.viewer)
+            network_base_kwargs = {
+                "im_info": self.current_im_info,
+                "viewer": self.viewer,
+            }
+            networking = Network(**network_base_kwargs, **network_kwargs)
             networking.run()
 
     def run_segmentation(self):
         """
-        Starts the segmentation step and updates the UI to reflect that segmentation is running.
+        Start the segmentation step and updates the UI to reflect that segmentation is running.
         If the full pipeline is running, it automatically proceeds to mocap marking after segmentation is finished.
         """
-        worker = self._run_segmentation()
-        worker.started.connect(self.turn_off_buttons)
-        if self.pipeline:
-            worker.finished.connect(self.run_mocap)
-        worker.finished.connect(self.check_file_existence)
-        worker.started.connect(self.set_status)
-        worker.finished.connect(self.reset_status)
-        worker.start()
+        self.status = "segmentation"
+        settings = self._get_settings()
+        label_kwargs = settings.get_segmentation_label_params() if settings else {}
+        network_kwargs = settings.get_segmentation_network_params() if settings else {}
+        worker = self._run_segmentation(self.im_info_list, label_kwargs, network_kwargs)
+        next_step = self.run_mocap if self.pipeline else None
+        self._start_worker(worker, next_step=next_step)
 
-    @thread_worker
-    def _run_mocap(self):
+    @thread_worker(ignore_errors=True)
+    def _run_mocap(self, im_info_list, step_kwargs):
         """
-        Runs the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.
+        Run the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        step_kwargs : dict
+            Keyword arguments for the Markers class (excluding im_info/viewer).
         """
-        self.status = "mocap marking"
-        for im_num, im_info in enumerate(self.im_info_list):
-            show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(self.im_info_list)}")
+        for im_num, im_info in enumerate(im_info_list):
+            show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            mocap_marking = Markers(im_info=self.current_im_info, viewer=self.viewer)
+            base_kwargs = {
+                "im_info": self.current_im_info,
+                "viewer": self.viewer,
+            }
+            mocap_marking = Markers(**base_kwargs, **step_kwargs)
             mocap_marking.run()
 
     def run_mocap(self):
         """
-        Starts the mocap marking step and updates the UI to reflect that mocap marking is running.
+        Start the mocap marking step and updates the UI to reflect that mocap marking is running.
         If the full pipeline is running, it automatically proceeds to tracking after mocap marking is finished.
         """
-        worker = self._run_mocap()
-        worker.started.connect(self.turn_off_buttons)
-        if self.pipeline:
-            worker.finished.connect(self.run_tracking)
-        worker.finished.connect(self.check_file_existence)
-        worker.started.connect(self.set_status)
-        worker.finished.connect(self.reset_status)
-        worker.start()
+        self.status = "mocap marking"
+        settings = self._get_settings()
+        step_kwargs = settings.get_mocap_params() if settings else {}
+        worker = self._run_mocap(self.im_info_list, step_kwargs)
+        next_step = self.run_tracking if self.pipeline else None
+        self._start_worker(worker, next_step=next_step)
 
+    @thread_worker(ignore_errors=True)
+    def _run_tracking(self, im_info_list, step_kwargs):
+        """
+        Run the tracking step in a separate thread. Tracks the motion of the marked points over time.
 
-    @thread_worker
-    def _run_tracking(self):
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        step_kwargs : dict
+            Keyword arguments for the HuMomentTracking class (excluding im_info/viewer).
         """
-        Runs the tracking step in a separate thread. Tracks the motion of the marked points over time.
-        """
-        self.status = "tracking"
-        for im_num, im_info in enumerate(self.im_info_list):
-            show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(self.im_info_list)}")
+        for im_num, im_info in enumerate(im_info_list):
+            show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            hu_tracking = HuMomentTracking(im_info=self.current_im_info, viewer=self.viewer)
+            base_kwargs = {
+                "im_info": self.current_im_info,
+                "viewer": self.viewer,
+            }
+            hu_tracking = HuMomentTracking(**base_kwargs, **step_kwargs)
             hu_tracking.run()
 
     def run_tracking(self):
         """
-        Starts the tracking step and updates the UI to reflect that tracking is running.
+        Start the tracking step and updates the UI to reflect that tracking is running.
         If the full pipeline is running, it automatically proceeds to voxel reassignment or feature extraction depending on the settings.
         """
-        worker = self._run_tracking()
-        worker.started.connect(self.turn_off_buttons)
+        self.status = "tracking"
+        settings = self._get_settings()
+        step_kwargs = settings.get_tracking_params() if settings else {}
+        worker = self._run_tracking(self.im_info_list, step_kwargs)
+        next_step = None
         if self.pipeline:
             if self.nellie.settings.voxel_reassign.isChecked():
-                worker.finished.connect(self.run_reassign)
+                next_step = self.run_reassign
             else:
-                worker.finished.connect(self.run_feature_export)
-        worker.finished.connect(self.check_file_existence)
-        worker.started.connect(self.set_status)
-        worker.finished.connect(self.reset_status)
-        worker.start()
+                next_step = self.run_feature_export
+        self._start_worker(worker, next_step=next_step)
 
-    @thread_worker
-    def _run_reassign(self):
+    @thread_worker(ignore_errors=True)
+    def _run_reassign(self, im_info_list, step_kwargs):
         """
-        Runs the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.
+        Run the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.
+
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        step_kwargs : dict
+            Keyword arguments for the VoxelReassigner class (excluding im_info/viewer).
         """
-        self.status = "voxel reassignment"
-        for im_num, im_info in enumerate(self.im_info_list):
-            show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(self.im_info_list)}")
+        for im_num, im_info in enumerate(im_info_list):
+            show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            vox_reassign = VoxelReassigner(im_info=self.current_im_info, viewer=self.viewer)
+            base_kwargs = {
+                "im_info": self.current_im_info,
+                "viewer": self.viewer,
+            }
+            vox_reassign = VoxelReassigner(**base_kwargs, **step_kwargs)
             vox_reassign.run()
 
     def run_reassign(self):
         """
-        Starts the voxel reassignment step and updates the UI to reflect that voxel reassignment is running.
+        Start the voxel reassignment step and updates the UI to reflect that voxel reassignment is running.
         If the full pipeline is running, it automatically proceeds to feature extraction after voxel reassignment is finished.
         """
-        worker = self._run_reassign()
-        worker.started.connect(self.turn_off_buttons)
-        if self.pipeline:
-            worker.finished.connect(self.run_feature_export)
-        worker.finished.connect(self.check_file_existence)
-        worker.started.connect(self.set_status)
-        worker.finished.connect(self.reset_status)
-        worker.start()
+        self.status = "voxel reassignment"
+        settings = self._get_settings()
+        step_kwargs = settings.get_reassign_params() if settings else {}
+        worker = self._run_reassign(self.im_info_list, step_kwargs)
+        next_step = self.run_feature_export if self.pipeline else None
+        self._start_worker(worker, next_step=next_step)
 
+    @thread_worker(ignore_errors=True)
+    def _run_feature_export(self, im_info_list, skip_nodes, remove_intermediates_checked, step_kwargs):
+        """
+        Run the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
 
-    @thread_worker
-    def _run_feature_export(self):
+        Parameters
+        ----------
+        im_info_list : list
+            List of ImInfo objects.
+        skip_nodes : bool
+            Whether to skip node-level feature extraction.
+        remove_intermediates_checked : bool
+            Whether to remove intermediate files.
+        step_kwargs : dict
+            Keyword arguments for the Hierarchy class (excluding im_info/viewer/skip_nodes).
         """
-        Runs the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
-        """
-        self.status = "feature export"
-        for im_num, im_info in enumerate(self.im_info_list):
-            show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(self.im_info_list)}")
+        for im_num, im_info in enumerate(im_info_list):
+            show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            hierarchy = Hierarchy(im_info=self.current_im_info,
-                                  skip_nodes=not bool(self.nellie.settings.analyze_node_level.isChecked()),
-                                  viewer=self.viewer)
+            base_kwargs = {
+                "im_info": self.current_im_info,
+                "skip_nodes": skip_nodes,
+                "viewer": self.viewer,
+            }
+            hierarchy = Hierarchy(**base_kwargs, **step_kwargs)
             hierarchy.run()
-            if self.nellie.settings.remove_intermediates_checkbox.isChecked():
+            if remove_intermediates_checked:
                 try:
                     self.current_im_info.remove_intermediates()
                 except Exception as e:
                     show_info(f"Error removing intermediates: {e}")
-        if self.nellie.analyzer.initialized:
-            self.nellie.analyzer.rewrite_dropdown()
+
+    def _post_feature_export(self):
+        """
+        Run any main-thread post-processing needed after feature export
+        (e.g., updating analysis dropdowns).
+        """
+        analyzer = getattr(self.nellie, "analyzer", None)
+        if analyzer is not None and getattr(analyzer, "initialized", False):
+            try:
+                analyzer.rewrite_dropdown()
+            except Exception as exc:
+                show_info(f"Error updating analysis dropdowns: {exc}")
 
     def run_feature_export(self):
         """
-        Starts the feature extraction step and updates the UI to reflect that feature extraction is running.
+        Start the feature extraction step and updates the UI to reflect that feature extraction is running.
         """
-        worker = self._run_feature_export()
+        self.status = "feature export"
+        analyze_node_level_checked = self.nellie.settings.analyze_node_level.isChecked()
+        remove_intermediates_checked = self.nellie.settings.remove_intermediates_checkbox.isChecked()
+        settings = self._get_settings()
+        step_kwargs = settings.get_feature_params() if settings else {}
+        skip_nodes_override = step_kwargs.pop("skip_nodes", None)
+        skip_nodes = not bool(analyze_node_level_checked)
+        if skip_nodes_override is not None:
+            skip_nodes = bool(skip_nodes_override)
+
+        worker = self._run_feature_export(
+            self.im_info_list,
+            skip_nodes,
+            remove_intermediates_checked,
+            step_kwargs,
+        )
+        # This is the last step in the pipeline; always treat as final.
+        self._start_worker(worker, final=True)
+
+    # --------------
+    # Worker helpers
+    # --------------
+
+    def _handle_worker_error(self, exc: Exception):
+        """
+        Handle errors raised in worker threads, updating status message and UI.
+
+        Parameters
+        ----------
+        exc : Exception
+            The exception raised.
+        """
+        self._last_step_had_error = True
+        self.running = False
+        self._last_error_message = f"Error during {self.status}: {exc}"
+        self.status_label.setText("Error, see console for details")
+        self.status_timer.stop()
+        show_info(self._last_error_message)
+        # ensure buttons reflect current filesystem state
+        if self.current_im_info is not None:
+            self.check_file_existence()
+
+    def _on_worker_finished(self, next_step=None, final=False):
+        """
+        Common handler for worker completion, called in the main thread.
+
+        Parameters
+        ----------
+        next_step : callable, optional
+            The next step to run.
+        final : bool, optional
+            Whether this is the final step.
+        """
+        self.reset_status()
+        if self.current_im_info is not None:
+            self.check_file_existence()
+
+        # If there was an error in this step, stop the pipeline and do not continue.
+        if self._last_step_had_error:
+            self.pipeline = False
+            return
+
+        if final:
+            self.turn_off_pipeline()
+            self._post_feature_export()
+
+        if next_step is not None and self.pipeline:
+            next_step()
+        
+        # Show completion notification for individual steps or when pipeline finishes
+        if not self.pipeline or final:
+            show_info("Done processing!")
+
+    def _start_worker(self, worker, *, next_step=None, final=False):
+        """
+        Attach common signals and start a given worker.
+
+        Parameters
+        ----------
+        worker : GeneratorWorker
+            The worker to start.
+        next_step : callable, optional
+            The next step to run.
+        final : bool, optional
+            Whether this is the final step.
+        """
         worker.started.connect(self.turn_off_buttons)
-        worker.finished.connect(self.check_file_existence)
-        worker.finished.connect(self.turn_off_pipeline)
         worker.started.connect(self.set_status)
-        worker.finished.connect(self.reset_status)
+        worker.errored.connect(self._handle_worker_error)
+
+        def _finished():
+            self._on_worker_finished(next_step=next_step, final=final)
+
+        worker.finished.connect(_finished)
         worker.start()
 
     def turn_off_pipeline(self):
         """
-        Turns off the pipeline flag to indicate that the full pipeline is no longer running.
+        Turn off the pipeline flag to indicate that the full pipeline is no longer running.
         """
         self.pipeline = False
 
     def run_nellie(self):
         """
-        Starts the entire Nellie pipeline from preprocessing to feature extraction.
+        Start the entire Nellie pipeline from preprocessing to feature extraction.
         """
         self.pipeline = True
         self.run_preprocessing()
 
     def set_status(self):
         """
-        Sets the status of the processor to indicate that a process is running, and starts the status update timer.
+        Set the status of the processor to indicate that a process is running, and starts the status update timer.
         """
         self.running = True
-        self.status_timer.start(500)  # Update every 250 ms
+        self._last_step_had_error = False
+        self._last_error_message = ""
+        # Update every 500 ms
+        self.status_timer.start(500)
 
     def update_status(self):
         """
-        Updates the status label with an ellipsis effect to indicate ongoing processing.
+        Update the status label with an ellipsis effect to indicate ongoing processing.
         """
         if self.running:
             self.status_label.setText(f"Running {self.status}{'.' * (self.num_ellipses % 4)}")
@@ -502,16 +673,20 @@ class NellieProcessor(QWidget):
 
     def reset_status(self):
         """
-        Resets the status label to indicate that no process is running.
+        Reset the status label to indicate that no process is running.
         """
         self.running = False
-        self.status_label.setText("Awaiting your input")
+        if self._last_error_message:
+            # Preserve the last error message so the user can see what failed.
+            self.status_label.setText("Error, see console for details")
+        else:
+            self.status_label.setText("Awaiting your input")
         self.num_ellipses = 1
         self.status_timer.stop()
 
     def turn_off_buttons(self):
         """
-        Disables all buttons to prevent multiple processes from running simultaneously.
+        Disable all buttons to prevent multiple processes from running simultaneously.
         """
         self.run_button.setEnabled(False)
         self.preprocess_button.setEnabled(False)
@@ -523,19 +698,25 @@ class NellieProcessor(QWidget):
 
     def open_directory(self):
         """
-        Opens the output directory of the current image in the system file explorer.
+        Open the output directory of the current image in the system file explorer.
         """
         directory = self.current_im_info.file_info.output_dir
         if os.path.exists(directory):
-            if os.name == 'nt':  # For Windows
-                os.startfile(directory)
-            elif os.name == 'posix':  # For macOS and Linux
-                subprocess.call(['open', directory])
+            try:
+                if sys.platform.startswith("win"):  # Windows
+                    os.startfile(directory)  # type: ignore[attr-defined]
+                elif sys.platform == "darwin":  # macOS
+                    subprocess.call(["open", directory])
+                else:  # Linux and other POSIX systems
+                    subprocess.call(["xdg-open", directory])
+            except Exception as exc:
+                show_info(f"Could not open output directory: {exc}")
         else:
             show_info("Output directory does not exist.")
 
 
 if __name__ == "__main__":
     import napari
+
     viewer = napari.Viewer()
     napari.run()

@@ -1,3 +1,45 @@
+[project]
+name = "nellie"
+version = "1.0.0"
+description = "Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Austin E. Y. T. Lefebvre", email = "austin.e.lefebvre+nellie@gmail.com"},
+]
+classifiers = [
+    "Framework :: napari",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "scikit-image",
+    "nd2",
+    "ome-types",
+    "pandas",
+    "matplotlib",
+    "napari[all]",
+    "imagecodecs",
+    "pytest>=9.0.2",
+]
+urls = {Homepage = "https://github.com/aelefebv/nellie"}
+
+[project.optional-dependencies]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+nellie_napari = ["napari.yaml", "logo.png"]
+
+[project.entry-points."napari.manifest"]
+nellie = "nellie_napari:napari.yaml"
