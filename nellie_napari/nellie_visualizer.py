@@ -1,6 +1,7 @@
 import os
 
 from qtpy.QtWidgets import QWidget, QPushButton, QGroupBox, QVBoxLayout
+import numpy as np
 import tifffile
 
 from nellie.utils.base_logger import logger
@@ -209,8 +210,18 @@ class NellieVisualizer(QWidget):
             self._set_status("Activated existing segmentation label layers.")
             return
 
-        self.im_instance_label = self._memmap_pipeline_image("im_instance_label", "instance labels")
-        self.im_skel_relabelled = self._memmap_pipeline_image("im_skel_relabelled", "skeleton relabeled labels")
+        self.im_instance_label = self._memmap_pipeline_image(
+            "im_instance_label",
+            "instance labels",
+            mode="r+",
+            require_writeable=True,
+        )
+        self.im_skel_relabelled = self._memmap_pipeline_image(
+            "im_skel_relabelled",
+            "skeleton relabeled labels",
+            mode="r+",
+            require_writeable=True,
+        )
         if self.im_instance_label is None or self.im_skel_relabelled is None:
             return
 
@@ -401,10 +412,14 @@ class NellieVisualizer(QWidget):
         self.im_branch_label_reassigned = self._memmap_pipeline_image(
             "im_branch_label_reassigned",
             "reassigned branch labels",
+            mode="r+",
+            require_writeable=True,
         )
         self.im_obj_label_reassigned = self._memmap_pipeline_image(
             "im_obj_label_reassigned",
             "reassigned object labels",
+            mode="r+",
+            require_writeable=True,
         )
         if self.im_branch_label_reassigned is None or self.im_obj_label_reassigned is None:
             return
@@ -550,7 +565,13 @@ class NellieVisualizer(QWidget):
         else:
             logger.info(message)
 
-    def _memmap_tiff_path(self, path: str, description: str = ""):
+    def _memmap_tiff_path(
+        self,
+        path: str,
+        description: str = "",
+        mode: str = "r",
+        require_writeable: bool = False,
+    ):
         """
         Safely memory-map a TIFF file from a filesystem path.
 
@@ -560,6 +581,10 @@ class NellieVisualizer(QWidget):
             The path to the TIFF file.
         description : str, optional
             A description of the file for logging, by default "".
+        mode : str, optional
+            The TIFF memmap mode to use, by default "r".
+        require_writeable : bool, optional
+            If True, ensure the returned array is writeable (copy if needed).
 
         Returns
         -------
@@ -575,12 +600,39 @@ class NellieVisualizer(QWidget):
             return None
 
         try:
-            return tifffile.memmap(path, mode="r")
+            image = tifffile.memmap(path, mode=mode)
         except Exception as exc:
-            self._set_status(f"Failed to load {description} from {path}: {exc}", level="error")
-            return None
+            if mode == "r":
+                self._set_status(f"Failed to load {description} from {path}: {exc}", level="error")
+                return None
+            try:
+                image = tifffile.memmap(path, mode="r")
+            except Exception as inner_exc:
+                self._set_status(
+                    f"Failed to load {description} from {path}: {inner_exc}",
+                    level="error",
+                )
+                return None
 
-    def _memmap_pipeline_image(self, key: str, description: str = ""):
+        if require_writeable and not image.flags.writeable:
+            try:
+                image = np.asarray(image).copy()
+            except Exception as exc:
+                self._set_status(
+                    f"Failed to load {description} as writeable array: {exc}",
+                    level="error",
+                )
+                return None
+
+        return image
+
+    def _memmap_pipeline_image(
+        self,
+        key: str,
+        description: str = "",
+        mode: str = "r",
+        require_writeable: bool = False,
+    ):
         """
         Convenience wrapper around _memmap_tiff_path for images in pipeline_paths.
 
@@ -590,6 +642,10 @@ class NellieVisualizer(QWidget):
             The key in `pipeline_paths` corresponding to the image.
         description : str, optional
             A description of the file for logging, by default "".
+        mode : str, optional
+            The TIFF memmap mode to use, by default "r".
+        require_writeable : bool, optional
+            If True, ensure the returned array is writeable (copy if needed).
 
         Returns
         -------
@@ -600,7 +656,12 @@ class NellieVisualizer(QWidget):
         if not path:
             self._set_status(f"Missing pipeline path '{key}' for {description}.", level="warning")
             return None
-        return self._memmap_tiff_path(path, description)
+        return self._memmap_tiff_path(
+            path,
+            description,
+            mode=mode,
+            require_writeable=require_writeable,
+        )
 
     def _get_active_label_layer_and_path(self):
         """
