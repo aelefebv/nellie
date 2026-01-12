@@ -1,2 +1,0 @@
-[napari.manifest]
-nellie = nellie_napari:napari.yaml

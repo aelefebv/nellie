@@ -1,3 +1,0 @@
-nellie
-nellie_napari
-tests
