@@ -846,9 +846,6 @@ class NellieFileSelect(QWidget):
         """
         Handle changes in the dimension order input field and updates the
         FileInfo object(s) accordingly.
-
-        Parameters
-        ----------
         """
         if self.file_info is None or self.file_info.shape is None:
             return
@@ -891,9 +888,6 @@ class NellieFileSelect(QWidget):
         """
         Handle changes in the time (T) resolution input field and updates the
         FileInfo object(s) accordingly.
-
-        Parameters
-        ----------
         """
         text = self.dim_t_button.text()
         self.dim_t_text = text
@@ -914,9 +908,6 @@ class NellieFileSelect(QWidget):
         """
         Handle changes in the Z resolution input field and updates the
         FileInfo object(s) accordingly.
-
-        Parameters
-        ----------
         """
         text = self.dim_z_button.text()
         self.dim_z_text = text
@@ -937,9 +928,6 @@ class NellieFileSelect(QWidget):
         """
         Handle changes in the XY resolution input field and updates the
         FileInfo object(s) accordingly.
-
-        Parameters
-        ----------
         """
         text = self.dim_xy_button.text()
         self.dim_xy_text = text
