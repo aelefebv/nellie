@@ -6051,7 +6051,7 @@ attribute. Canceling the dialog is treated as a no-op.</p>
 
 
 </h4>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">initialize_single_file</span><span class="p">(</span><span class="n">metadata_already_loaded</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">initialize_single_file</span><span class="p">(</span><span class="n">metadata_already_loaded</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">reset_overrides</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6082,6 +6082,23 @@ and updates the dimension resolution fields.</p>
               <div class="doc-md-description">
                 <p>If True, skip calling find_metadata/load_metadata (used for batch
 initialization where metadata was already loaded).</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>reset_overrides</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, clear any user-entered overrides so metadata-derived values
+are used for the new selection.</p>
               </div>
             </td>
             <td>
