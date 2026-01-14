@@ -202,9 +202,9 @@ class Label:
 
     def _set_footprint(self):
         if self.im_info.no_z:
-            self.footprint = self.xp.ones((2, 2), dtype=bool)
+            self.footprint = self.xp.ones((3, 3), dtype=bool)
         else:
-            self.footprint = self.xp.ones((2, 2, 2), dtype=bool)
+            self.footprint = self.xp.ones((3, 3, 3), dtype=bool)
 
     def _compute_min_area_pixels(self):
         x_res = self.im_info.dim_res.get("X") or 1.0
@@ -486,7 +486,7 @@ class Label:
             mask = self.ndi.binary_fill_holes(mask)
 
         # Connected component labeling
-        labels, _ = self.ndi.label(mask)
+        labels, _ = self.ndi.label(mask, structure=self.footprint)
 
         # Remove very small objects using bincount + lookup table
         if labels.size == 0:
@@ -499,7 +499,12 @@ class Label:
         areas[0] = 0  # ignore background
         keep = areas >= self.min_area_pixels  # boolean array indexed by label id
         mask = keep[labels]
-        labels, _ = self.ndi.label(mask)
+        # Smooth mask boundaries using mean filter + threshold
+        mask_float = mask.astype(self.xp.float32)
+        mask_smooth = self.ndi.uniform_filter(mask_float, size=3)
+        mask = mask_smooth > 0.5
+        
+        labels, _ = self.ndi.label(mask, structure=self.footprint)
 
         return mask, labels
 

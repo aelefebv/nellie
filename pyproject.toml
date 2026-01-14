@@ -1,6 +1,6 @@
 [project]
 name = "nellie"
-version = "1.0.2"
+version = "1.0.3"
 description = "Automated organelle segmentation, tracking, and hierarchical feature extraction in 2D/3D live-cell microscopy"
 readme = "README.md"
 requires-python = ">=3.10"

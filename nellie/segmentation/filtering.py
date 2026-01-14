@@ -767,7 +767,7 @@ class Filter:
         return filtered_im
 
     # -------------------------------------------------------------------------
-    # LoG filter (optional, kept mostly intact but with small cleanups)
+    # LoG filter
     # -------------------------------------------------------------------------
     def _filter_log(self, frame, mask):
         """
@@ -783,9 +783,16 @@ class Filter:
             if i == 0:
                 lapofg = current_lapofg
             else:
-                min_indices = current_lapofg < lapofg
+                min_indices = current_lapofg > lapofg
+                # min_indices = current_lapofg < lapofg
                 lapofg[min_indices] = current_lapofg[min_indices]
-        return lapofg
+                
+        # Scale lapofg between 0 and 1
+        # lapofg_min = self.xp.min(lapofg)
+        lapofg[lapofg < 0] = 0.0
+        lapofg_max = self.xp.max(lapofg)
+        lapofg = (lapofg) / (lapofg_max + 1e-12)
+        return lapofg / 10.0
 
     # -------------------------------------------------------------------------
     # Per-frame processing
@@ -796,7 +803,7 @@ class Filter:
             gammas.append(self._estimate_gamma(frame, sigma))
         return gammas
 
-    def _compute_vesselness(self, frame, gammas, mask=True):
+    def _compute_vesselness(self, frame, mask=True):
         vesselness = self.xp.zeros_like(frame, dtype=self.work_dtype)
         masks = self.xp.ones_like(frame, dtype=bool)
 
@@ -804,7 +811,7 @@ class Filter:
         gauss = frame.astype(self.work_dtype, copy=False)
         prev_sigma = 0.0
 
-        for sigma, gamma in zip(self.sigmas, gammas):
+        for sigma in self.sigmas:
             # Compute incremental sigma to go from prev_sigma -> sigma
             sigma_vec_prev = self._get_sigma_vec(prev_sigma)
             sigma_vec_curr = self._get_sigma_vec(sigma)
@@ -829,6 +836,7 @@ class Filter:
 
             prev_sigma = sigma
 
+            gamma = self._calculate_gamma(gauss)
             gamma_sq = 2.0 * (float(gamma) ** 2)
 
             h_mask, h_components = self._compute_hessian(gauss, mask=mask)
@@ -868,7 +876,7 @@ class Filter:
             )
             yield core, ext, core_in_ext
 
-    def _run_frame_chunked(self, t, gammas, mask=True, max_chunk_voxels=None):
+    def _run_frame_chunked(self, t, mask=True, max_chunk_voxels=None):
         frame_cpu = self.im_memmap[t, ...]
         shape = frame_cpu.shape
         chunk_voxels = int(max_chunk_voxels or self.max_chunk_voxels or int(np.prod(shape)))
@@ -882,7 +890,7 @@ class Filter:
                     chunk = frame_cpu[ext]
                     chunk_xp = self.xp.asarray(chunk, dtype=self.work_dtype)
                     vessel_chunk, mask_chunk = self._compute_vesselness(
-                        chunk_xp, gammas, mask=mask
+                        chunk_xp, mask=mask
                     )
                     vessel_chunk = vessel_chunk * mask_chunk
                     if self.device_type == "cuda":
@@ -907,15 +915,19 @@ class Filter:
         logger.info(f"Running Frangi filter on t={t}.")
 
         frame_cpu = self.im_memmap[t, ...]
-        gammas = self._precompute_gammas(frame_cpu)
+        # gammas = self._precompute_gammas(frame_cpu)
 
         if self.low_memory:
-            return self._run_frame_chunked(t, gammas, mask=mask)
+            return self._run_frame_chunked(t, mask=mask)
 
         try:
             frame = self.xp.asarray(frame_cpu, dtype=self.work_dtype)
-            vesselness, masks = self._compute_vesselness(frame, gammas, mask=mask)
+            vesselness, masks = self._compute_vesselness(frame, mask=mask)
             vesselness = vesselness * masks
+            if self.im_info.no_z:
+                blobness = self._filter_log(frame, mask=masks if mask else self.xp.ones_like(frame, bool))
+                blobness = self.xp.maximum(blobness, 0)  # keep bright-blob response only
+                vesselness = self.xp.maximum(vesselness, blobness)
             if self.remove_edges:
                 vesselness = self._remove_edges(vesselness)
             return vesselness

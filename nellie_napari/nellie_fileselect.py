@@ -480,7 +480,7 @@ class NellieFileSelect(QWidget):
         self.selection_text.setText("Selected file:")
 
         self.file_info = FileInfo(self.filepath, output_naming="detailed")
-        self.initialize_single_file()
+        self.initialize_single_file(reset_overrides=True)
         filename = os.path.basename(self.filepath)
         self.filepath_text.setText(filename)
 
@@ -525,7 +525,9 @@ class NellieFileSelect(QWidget):
     # Initialization of FileInfo objects
     # -------------------------------------------------------------------------
 
-    def initialize_single_file(self, metadata_already_loaded: bool = False) -> None:
+    def initialize_single_file(
+        self, metadata_already_loaded: bool = False, reset_overrides: bool = False
+    ) -> None:
         """
         Initialize the FileInfo object for the selected image file, loads metadata,
         and updates the dimension resolution fields.
@@ -535,9 +537,19 @@ class NellieFileSelect(QWidget):
         metadata_already_loaded : bool
             If True, skip calling find_metadata/load_metadata (used for batch
             initialization where metadata was already loaded).
+        reset_overrides : bool
+            If True, clear any user-entered overrides so metadata-derived values
+            are used for the new selection.
         """
         if self.file_info is None:
             return
+
+        if reset_overrides:
+            self.im_info = None
+            self.dim_t_text = "None"
+            self.dim_z_text = "None"
+            self.dim_xy_text = "None"
+            self.end_frame_init = False
 
         if not metadata_already_loaded:
             self.file_info.find_metadata()
@@ -599,7 +611,7 @@ class NellieFileSelect(QWidget):
 
         # Use the first file as the "primary" file for UI state
         self.file_info = self.batch_fileinfo_list[0]
-        self.initialize_single_file(metadata_already_loaded=True)
+        self.initialize_single_file(metadata_already_loaded=True, reset_overrides=True)
         # Assumes all files share the same metadata (axes, resolutions, etc.)
         return True
 
