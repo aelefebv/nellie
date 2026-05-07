@@ -71,10 +71,11 @@ def test_output_finite(frangi_3d_output) -> None:
     assert np.isfinite(frangi_3d_output).all()
 
 
-def test_input_memmap_unchanged(imageinfo_3d) -> None:
-    src = Path(imageinfo_3d.im_path)
+def test_input_memmap_unchanged(make_imageinfo_3d) -> None:
+    info = make_imageinfo_3d()
+    src = Path(info.im_path)
     before = hashlib.sha256(src.read_bytes()).hexdigest()
-    filt = Filter(imageinfo_3d, num_t=2, device="cpu")
+    filt = Filter(info, num_t=2, device="cpu")
     filt.run()
     after = hashlib.sha256(src.read_bytes()).hexdigest()
     _release_filter(filt)
@@ -133,13 +134,13 @@ def test_oom_fallback_does_not_nameerror(imageinfo_3d, monkeypatch) -> None:
     _release_filter(filt)
 
 
-def test_remove_edges_zeroes_border(imageinfo_3d) -> None:
-    filt_keep = Filter(imageinfo_3d, num_t=2, device="cpu", remove_edges=False)
+def test_remove_edges_zeroes_border(make_imageinfo_3d) -> None:
+    filt_keep = Filter(make_imageinfo_3d(), num_t=2, device="cpu", remove_edges=False)
     filt_keep.run()
     nonzero_keep = int(np.count_nonzero(np.asarray(filt_keep.frangi_memmap)))
     _release_filter(filt_keep)
 
-    filt_strip = Filter(imageinfo_3d, num_t=2, device="cpu", remove_edges=True)
+    filt_strip = Filter(make_imageinfo_3d(), num_t=2, device="cpu", remove_edges=True)
     filt_strip.run()
     nonzero_strip = int(np.count_nonzero(np.asarray(filt_strip.frangi_memmap)))
     _release_filter(filt_strip)
@@ -158,9 +159,9 @@ def test_2d_path_runs_end_to_end(frangi_2d_output, imageinfo_2d) -> None:
     assert frangi_2d_output.shape == imageinfo_2d.shape
 
 
-def test_2d_log_blobness_fusion(imageinfo_2d, monkeypatch) -> None:
+def test_2d_log_blobness_fusion(make_imageinfo_2d, monkeypatch) -> None:
     """LoG fusion should add non-zero voxels beyond what Frangi alone produces."""
-    filt_with = Filter(imageinfo_2d, num_t=2, device="cpu")
+    filt_with = Filter(make_imageinfo_2d(), num_t=2, device="cpu")
     filt_with.run()
     nonzero_with = int(np.count_nonzero(np.asarray(filt_with.frangi_memmap)))
     _release_filter(filt_with)
@@ -169,7 +170,7 @@ def test_2d_log_blobness_fusion(imageinfo_2d, monkeypatch) -> None:
         return self.xp.zeros_like(frame)
 
     monkeypatch.setattr(Filter, "_filter_log", zero_log)
-    filt_without = Filter(imageinfo_2d, num_t=2, device="cpu")
+    filt_without = Filter(make_imageinfo_2d(), num_t=2, device="cpu")
     filt_without.run()
     nonzero_without = int(np.count_nonzero(np.asarray(filt_without.frangi_memmap)))
     _release_filter(filt_without)
@@ -180,14 +181,15 @@ def test_2d_log_blobness_fusion(imageinfo_2d, monkeypatch) -> None:
     )
 
 
-def test_2d_output_invariants(frangi_2d_output, imageinfo_2d) -> None:
+def test_2d_output_invariants(frangi_2d_output, make_imageinfo_2d) -> None:
     assert frangi_2d_output.dtype == np.float32
     assert frangi_2d_output.min() >= 0
     assert np.isfinite(frangi_2d_output).all()
 
-    src = Path(imageinfo_2d.im_path)
+    info = make_imageinfo_2d()
+    src = Path(info.im_path)
     digest_now = hashlib.sha256(src.read_bytes()).hexdigest()
-    filt = Filter(imageinfo_2d, num_t=2, device="cpu")
+    filt = Filter(info, num_t=2, device="cpu")
     filt.run()
     digest_after = hashlib.sha256(src.read_bytes()).hexdigest()
     _release_filter(filt)
