@@ -111,10 +111,6 @@ def test_spacing_geomean_gamma_regression(frangi_3d_output) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Slice 3 (#54) fixes the gammas NameError in _run_frame OOM fallback",
-)
 def test_oom_fallback_does_not_nameerror(imageinfo_3d, monkeypatch) -> None:
     """Inject a synthetic OOM into the per-frame path; fallback should run, not raise NameError."""
     filt = Filter(imageinfo_3d, num_t=2, device="cpu")
