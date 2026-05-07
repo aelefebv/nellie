@@ -1,11 +1,11 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Pipeline orchestration
 
-A thin sequential driver in `nellie/run.py` that wires the seven pipeline stages together against one shared `ImInfo` handle. Two callers invoke nellie this way: the CLI (`nellie/cli.py`) — which actually goes through `run.py` — and the [[processor|napari processor]], which **re-implements** the same sequence stage-by-stage rather than calling `run()`.
+A thin sequential driver in `nellie/run.py` that wires the seven pipeline stages together against one shared `ImInfo` handle. The [[processor|napari processor]] is the only in-tree caller; it **re-implements** the same sequence stage-by-stage rather than calling `run()`. (`run()` is also importable for scripted use.)
 
 ## Stage order
 
@@ -29,11 +29,9 @@ All inter-stage state lives **on disk**, addressed via `ImInfo.pipeline_paths` (
 
 ## Gotchas
 
-- **`run copy.py` is a stale developer scratch fork.** Not imported anywhere. Its `run()` has an older signature; the file is mostly Jupyter-style cells against a hard-coded Windows path. Safe to delete — see [[queue]].
-- **CLI is broken / out-of-date with `run.py`.** `cli.py` calls `run(tif_file, ..., ch=, num_t=, output_dirpath=)` but `run.py` no longer accepts those kwargs (signature is `(file_info, …)`).
 - **No `try/except` around stages** — first failure aborts the chain and leaves partial outputs on disk; reruns silently overwrite.
 - **Stage args are not uniform.** `device="auto"` and `low_memory` are passed to `Filter`, `Label`, `HuMomentTracking`, `Hierarchy`. `Network`, `Markers`, `VoxelReassigner` only get `device` — no `low_memory` knob from `run()`.
-- **`Hierarchy` is invoked with `skip_nodes=False` hard-coded.** The napari [[settings|settings widget]] exposes it as a flag; the CLI path doesn't.
+- **`Hierarchy` is invoked with `skip_nodes=False` hard-coded.** The napari [[settings|settings widget]] exposes it as a flag; `run()` doesn't.
 - **macOS hard-pinned to CPU** at `nellie/__init__.py` (the MPS branch is commented out — see [[gpu-runtime]]).
 
 ## Invariants
