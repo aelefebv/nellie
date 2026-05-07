@@ -5,10 +5,88 @@ from __future__ import annotations
 
 import math
 import os
+from typing import Any
 
 
 _ESTIMATED_PEAK_MULTIPLIER = 6.0
 _MEMORY_HEADROOM = 0.7
+
+
+def try_import_cupy(require: bool = False) -> tuple[Any | None, Any | None]:
+    """Return ``(cupy, cupyx.scipy.ndimage)`` or ``(None, None)`` if unavailable.
+
+    With ``require=True``, raises ``RuntimeError`` instead of returning
+    None when CuPy is missing or no CUDA device is present.
+    """
+    try:
+        import cupy
+        import cupyx.scipy.ndimage as cupy_ndi
+    except ModuleNotFoundError as exc:
+        if require:
+            raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
+        return None, None
+
+    try:
+        device_count = cupy.cuda.runtime.getDeviceCount()
+    except Exception as exc:
+        if require:
+            raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
+        return None, None
+
+    if device_count <= 0:
+        if require:
+            raise RuntimeError("GPU backend requested but no CUDA devices were found.")
+        return None, None
+
+    return cupy, cupy_ndi
+
+
+def _cpu_backend() -> tuple[Any, Any, str]:
+    import numpy as np
+    import scipy.ndimage as ndi
+
+    return np, ndi, "cpu"
+
+
+def resolve_backend(device: str) -> tuple[Any, Any, str]:
+    """Resolve a device string to ``(xp, ndi, device_type)``.
+
+    Accepts ``"auto"``, ``"cpu"``, ``"gpu"``, ``"cuda"``. ``"cuda"`` is a
+    synonym for ``"gpu"``. ``"auto"`` uses GPU if available, otherwise CPU.
+
+    The returned ``device_type`` is ``"cuda"`` for GPU and ``"cpu"`` for CPU,
+    matching the per-stage convention.
+    """
+    device = (device or "auto").lower()
+    if device not in ("auto", "cpu", "gpu", "cuda"):
+        raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+
+    if device in ("gpu", "cuda"):
+        xp, ndi = try_import_cupy(require=True)
+        return xp, ndi, "cuda"
+    if device == "cpu":
+        return _cpu_backend()
+
+    # auto
+    xp, ndi = try_import_cupy(require=False)
+    if xp is not None:
+        return xp, ndi, "cuda"
+    return _cpu_backend()
+
+
+def free_gpu_memory(xp: Any) -> None:
+    """Free CuPy's default memory pool. No-op when ``xp`` is NumPy.
+
+    Detects the backend via duck-typing (``get_default_memory_pool``)
+    rather than importing cupy unconditionally.
+    """
+    pool_fn = getattr(xp, "get_default_memory_pool", None)
+    if pool_fn is None:
+        return
+    try:
+        pool_fn().free_all_blocks()
+    except Exception:
+        return
 
 
 def normalize_device(device: str | None) -> str:
