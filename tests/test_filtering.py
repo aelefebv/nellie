@@ -14,7 +14,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from nellie.segmentation.filtering import Filter
+from nellie.segmentation.filtering import Filter, FrangiConfig
+
+
+_CPU = FrangiConfig(device="cpu")
+_CPU_KEEP_EDGES = FrangiConfig(device="cpu", remove_edges=False)
+_CPU_STRIP_EDGES = FrangiConfig(device="cpu", remove_edges=True)
 
 
 def _release_filter(filt: Filter) -> None:
@@ -35,7 +40,7 @@ def _release_filter(filt: Filter) -> None:
 
 @pytest.fixture(scope="module")
 def frangi_3d_output(imageinfo_3d) -> np.ndarray:
-    filt = Filter(imageinfo_3d, num_t=2, device="cpu")
+    filt = Filter(imageinfo_3d, _CPU, num_t=2)
     filt.run()
     out = np.array(filt.frangi_memmap)
     _release_filter(filt)
@@ -44,7 +49,7 @@ def frangi_3d_output(imageinfo_3d) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def frangi_2d_output(imageinfo_2d) -> np.ndarray:
-    filt = Filter(imageinfo_2d, num_t=2, device="cpu")
+    filt = Filter(imageinfo_2d, _CPU, num_t=2)
     filt.run()
     out = np.array(filt.frangi_memmap)
     _release_filter(filt)
@@ -75,7 +80,7 @@ def test_input_memmap_unchanged(make_imageinfo_3d) -> None:
     info = make_imageinfo_3d()
     src = Path(info.im_path)
     before = hashlib.sha256(src.read_bytes()).hexdigest()
-    filt = Filter(info, num_t=2, device="cpu")
+    filt = Filter(info, _CPU, num_t=2)
     filt.run()
     after = hashlib.sha256(src.read_bytes()).hexdigest()
     _release_filter(filt)
@@ -113,7 +118,7 @@ def test_spacing_geomean_gamma_regression(frangi_3d_output) -> None:
 
 def test_oom_fallback_does_not_nameerror(imageinfo_3d, monkeypatch) -> None:
     """Inject a synthetic OOM into the per-frame path; fallback should run, not raise NameError."""
-    filt = Filter(imageinfo_3d, num_t=2, device="cpu")
+    filt = Filter(imageinfo_3d, _CPU, num_t=2)
 
     original = Filter._compute_vesselness
     state = {"raised": False}
@@ -131,12 +136,12 @@ def test_oom_fallback_does_not_nameerror(imageinfo_3d, monkeypatch) -> None:
 
 
 def test_remove_edges_zeroes_border(make_imageinfo_3d) -> None:
-    filt_keep = Filter(make_imageinfo_3d(), num_t=2, device="cpu", remove_edges=False)
+    filt_keep = Filter(make_imageinfo_3d(), _CPU_KEEP_EDGES, num_t=2)
     filt_keep.run()
     nonzero_keep = int(np.count_nonzero(np.asarray(filt_keep.frangi_memmap)))
     _release_filter(filt_keep)
 
-    filt_strip = Filter(make_imageinfo_3d(), num_t=2, device="cpu", remove_edges=True)
+    filt_strip = Filter(make_imageinfo_3d(), _CPU_STRIP_EDGES, num_t=2)
     filt_strip.run()
     nonzero_strip = int(np.count_nonzero(np.asarray(filt_strip.frangi_memmap)))
     _release_filter(filt_strip)
@@ -159,7 +164,7 @@ def test_2d_log_blobness_fusion(make_imageinfo_2d, monkeypatch) -> None:
     """LoG fusion should add non-zero voxels beyond what Frangi alone produces."""
     from nellie.segmentation import frangi_math
 
-    filt_with = Filter(make_imageinfo_2d(), num_t=2, device="cpu")
+    filt_with = Filter(make_imageinfo_2d(), _CPU, num_t=2)
     filt_with.run()
     nonzero_with = int(np.count_nonzero(np.asarray(filt_with.frangi_memmap)))
     _release_filter(filt_with)
@@ -168,7 +173,7 @@ def test_2d_log_blobness_fusion(make_imageinfo_2d, monkeypatch) -> None:
         return xp.zeros_like(image)
 
     monkeypatch.setattr(frangi_math, "log_blobness", zero_log)
-    filt_without = Filter(make_imageinfo_2d(), num_t=2, device="cpu")
+    filt_without = Filter(make_imageinfo_2d(), _CPU, num_t=2)
     filt_without.run()
     nonzero_without = int(np.count_nonzero(np.asarray(filt_without.frangi_memmap)))
     _release_filter(filt_without)
@@ -187,7 +192,7 @@ def test_2d_output_invariants(frangi_2d_output, make_imageinfo_2d) -> None:
     info = make_imageinfo_2d()
     src = Path(info.im_path)
     digest_now = hashlib.sha256(src.read_bytes()).hexdigest()
-    filt = Filter(info, num_t=2, device="cpu")
+    filt = Filter(info, _CPU, num_t=2)
     filt.run()
     digest_after = hashlib.sha256(src.read_bytes()).hexdigest()
     _release_filter(filt)

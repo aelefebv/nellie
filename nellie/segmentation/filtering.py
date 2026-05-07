@@ -5,6 +5,8 @@ This module provides the Filter class, which implements a multi-scale Frangi fil
 optimized for large datasets with optional GPU acceleration.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from nellie.im_info.verifier import ImInfo
@@ -12,6 +14,30 @@ from nellie.segmentation import frangi_math
 from nellie.utils import adaptive_run, chunking
 from nellie.utils.base_logger import logger
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
+
+
+@dataclass(frozen=True)
+class FrangiConfig:
+    """Algorithm configuration for `Filter`.
+
+    Frozen — represents the user's intent at construction time. Filter
+    copies these values into mutable instance attributes that the
+    OOM/availability cascade can update mid-run (`device`, `low_memory`).
+    Inspect `Filter.config` to see the original intent regardless of any
+    cascade-driven runtime fallbacks.
+    """
+
+    remove_edges: bool = False
+    min_radius_um: float = 0.25
+    max_radius_um: float = 1.0
+    alpha_sq: float = 0.5
+    beta_sq: float = 0.5
+    frob_thresh: float | None = None
+    frob_thresh_division: float = 2
+    device: str = "auto"
+    low_memory: bool = False
+    max_chunk_voxels: int = int(1e6)
+    max_threshold_samples: int = int(1e6)
 
 
 class Filter:
@@ -23,54 +49,33 @@ class Filter:
     def __init__(
         self,
         im_info: ImInfo,
-        num_t: int | None = None,
-        remove_edges: bool = False,
-        min_radius_um: float = 0.25,
-        max_radius_um: float = 1.0,
-        alpha_sq: float = 0.5,
-        beta_sq: float = 0.5,
-        frob_thresh: float | None = None,
-        frob_thresh_division: float = 2,
+        config: FrangiConfig = FrangiConfig(),
         viewer=None,
-        device: str = "auto",
-        # New optimization-related parameters
-        low_memory: bool = False,
-        max_chunk_voxels: int = int(1e6),
-        max_threshold_samples: int = int(1e6),
+        num_t: int | None = None,
     ) -> None:
         """
         Parameters
         ----------
         im_info : ImInfo
             Image metadata and file paths.
-        num_t : int, optional
-            Number of timepoints to process. If None, inferred from image.
-        remove_edges : bool
-            If True, aggressively zero out bounding-box edges.
-        min_radius_um, max_radius_um : float
-            Expected structure radius range in micrometers.
-        alpha_sq, beta_sq : float
-            Frangi parameters controlling sensitivity to blobness and plate-likeness.
-        frob_thresh : float or None
-            If given, fixed Frobenius norm threshold. Otherwise auto-estimated.
+        config : FrangiConfig
+            Algorithm configuration. Defaults to ``FrangiConfig()``.
         viewer : object or None
             Optional GUI viewer with a `.status` attribute.
-        device : {"auto", "cpu", "gpu"}
-            Backend selection. "auto" uses GPU if available, otherwise CPU.
-            "cpu" forces NumPy/Scipy, and "gpu" forces CuPy/CuPyX (error if unavailable).
-        low_memory : bool
-            If True, prefer strategies that reduce peak memory at the cost of speed
-            (e.g. smaller eigen-decomposition chunks).
-        max_chunk_voxels : int
-            Maximum number of voxels per processing chunk and eigen-decomposition chunk.
-        max_threshold_samples : int
-            Maximum number of samples to use when estimating thresholds
-            (triangle / Otsu) from very large arrays.
+        num_t : int, optional
+            Number of timepoints to process. If None, inferred from image.
         """
         self.im_info = im_info
-        self.device = device
-        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
-        self.force_device = device is not None and device.lower() in ("cpu", "gpu", "cuda")
+        self.config = config
+        self.viewer = viewer
+
+        # Cascade-mutable runtime state. Initial values come from config;
+        # `_set_backend` and `_set_low_memory` may update them on retry.
+        self.device = config.device
+        self.low_memory = config.low_memory
+
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
+        self.force_device = self.device.lower() in ("cpu", "gpu", "cuda")
         self.truncate = 3.0
         if not self.im_info.no_z:
             z_res = self.im_info.dim_res.get("Z") or self.im_info.dim_res.get("X") or 1.0
@@ -79,32 +84,26 @@ class Filter:
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index("T")]
-        self.remove_edges = remove_edges
-        # either (roughly) diffraction limit, or pixel size, whichever is larger
-        # self.min_radius_um = max(min_radius_um, self.im_info.dim_res["X"])
-        self.min_radius_um = min_radius_um
-        self.max_radius_um = max_radius_um
 
+        # Aliases for hot path readability — config remains the source of truth.
+        self.remove_edges = config.remove_edges
+        # either (roughly) diffraction limit, or pixel size, whichever is larger
+        # self.min_radius_um = max(config.min_radius_um, self.im_info.dim_res["X"])
+        self.min_radius_um = config.min_radius_um
+        self.max_radius_um = config.max_radius_um
         self.min_radius_px = self.min_radius_um / self.im_info.dim_res["X"]
         self.max_radius_px = self.max_radius_um / self.im_info.dim_res["X"]
 
+        self.alpha_sq = float(config.alpha_sq)
+        self.beta_sq = float(config.beta_sq)
+        self.frob_thresh = config.frob_thresh
+        self.frob_thresh_division = config.frob_thresh_division
+        self.max_chunk_voxels = int(config.max_chunk_voxels)
+        self.max_threshold_samples = int(config.max_threshold_samples)
+
         self.im_memmap = None
         self.frangi_memmap = None
-
         self.sigmas = None
-
-        self.alpha_sq = float(alpha_sq)
-        self.beta_sq = float(beta_sq)
-
-        self.frob_thresh = frob_thresh
-        self.frob_thresh_division = frob_thresh_division
-
-        self.viewer = viewer
-
-        # Optimization-related settings
-        self.low_memory = low_memory
-        self.max_chunk_voxels = int(max_chunk_voxels)
-        self.max_threshold_samples = int(max_threshold_samples)
 
         # Dtypes
         self.work_dtype = "float32"
