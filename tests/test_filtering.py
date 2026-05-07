@@ -7,6 +7,7 @@ test for the latent OOM-fallback ``NameError`` (slice 3 turns it green).
 
 from __future__ import annotations
 
+import gc
 import hashlib
 from pathlib import Path
 
@@ -16,6 +17,19 @@ import pytest
 from nellie.segmentation.filtering import Filter
 
 
+def _release_filter(filt: Filter) -> None:
+    """Drop a Filter's memmap references and force gc.
+
+    Required on Windows: the ``im_preprocessed`` memmap is shared across
+    Filter instances on the same ImInfo, and Windows refuses to overwrite
+    a file that's still open via mmap. POSIX is happy to overwrite without
+    this dance.
+    """
+    filt.frangi_memmap = None
+    filt.im_memmap = None
+    gc.collect()
+
+
 # Module-scoped fixtures: run Filter once per fixture, share the output
 # across all read-only invariant tests to keep total runtime bounded.
 
@@ -23,14 +37,18 @@ from nellie.segmentation.filtering import Filter
 def frangi_3d_output(imageinfo_3d) -> np.ndarray:
     filt = Filter(imageinfo_3d, num_t=2, device="cpu")
     filt.run()
-    return np.array(filt.frangi_memmap)
+    out = np.array(filt.frangi_memmap)
+    _release_filter(filt)
+    return out
 
 
 @pytest.fixture(scope="module")
 def frangi_2d_output(imageinfo_2d) -> np.ndarray:
     filt = Filter(imageinfo_2d, num_t=2, device="cpu")
     filt.run()
-    return np.array(filt.frangi_memmap)
+    out = np.array(filt.frangi_memmap)
+    _release_filter(filt)
+    return out
 
 
 # -------------------------------------------------------------------------
@@ -59,6 +77,7 @@ def test_input_memmap_unchanged(imageinfo_3d) -> None:
     filt = Filter(imageinfo_3d, num_t=2, device="cpu")
     filt.run()
     after = hashlib.sha256(src.read_bytes()).hexdigest()
+    _release_filter(filt)
     assert before == after
 
 
@@ -107,16 +126,19 @@ def test_oom_fallback_does_not_nameerror(imageinfo_3d, monkeypatch) -> None:
     monkeypatch.setattr(Filter, "_compute_vesselness", flaky_compute)
     filt.run()
     assert filt.frangi_memmap is not None
+    _release_filter(filt)
 
 
 def test_remove_edges_zeroes_border(imageinfo_3d) -> None:
     filt_keep = Filter(imageinfo_3d, num_t=2, device="cpu", remove_edges=False)
     filt_keep.run()
     nonzero_keep = int(np.count_nonzero(np.asarray(filt_keep.frangi_memmap)))
+    _release_filter(filt_keep)
 
     filt_strip = Filter(imageinfo_3d, num_t=2, device="cpu", remove_edges=True)
     filt_strip.run()
     nonzero_strip = int(np.count_nonzero(np.asarray(filt_strip.frangi_memmap)))
+    _release_filter(filt_strip)
 
     assert nonzero_strip < nonzero_keep, (
         f"remove_edges=True did not strip any voxels "
@@ -137,6 +159,7 @@ def test_2d_log_blobness_fusion(imageinfo_2d, monkeypatch) -> None:
     filt_with = Filter(imageinfo_2d, num_t=2, device="cpu")
     filt_with.run()
     nonzero_with = int(np.count_nonzero(np.asarray(filt_with.frangi_memmap)))
+    _release_filter(filt_with)
 
     def zero_log(self, frame, **_kwargs):
         return self.xp.zeros_like(frame)
@@ -145,6 +168,7 @@ def test_2d_log_blobness_fusion(imageinfo_2d, monkeypatch) -> None:
     filt_without = Filter(imageinfo_2d, num_t=2, device="cpu")
     filt_without.run()
     nonzero_without = int(np.count_nonzero(np.asarray(filt_without.frangi_memmap)))
+    _release_filter(filt_without)
 
     assert nonzero_with > nonzero_without, (
         f"LoG fusion added no extra signal "
@@ -162,4 +186,5 @@ def test_2d_output_invariants(frangi_2d_output, imageinfo_2d) -> None:
     filt = Filter(imageinfo_2d, num_t=2, device="cpu")
     filt.run()
     digest_after = hashlib.sha256(src.read_bytes()).hexdigest()
+    _release_filter(filt)
     assert digest_now == digest_after
