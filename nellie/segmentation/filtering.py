@@ -69,7 +69,7 @@ class Filter:
         """
         self.im_info = im_info
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
         self.force_device = device is not None and device.lower() in ("cpu", "gpu", "cuda")
         self.truncate = 3.0
         if not self.im_info.no_z:
@@ -113,82 +113,13 @@ class Filter:
         # Cached per-run values
         self.halo = None
 
-    def _resolve_backend(self, device):
-        device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
-
-        if device in ("gpu", "cuda"):
-            xp, ndi = self._try_import_cupy(require=True)
-            return xp, ndi, "cuda"
-        if device == "cpu":
-            import numpy as np
-            import scipy.ndimage as ndi
-            return np, ndi, "cpu"
-
-        # auto
-        xp, ndi = self._try_import_cupy(require=False)
-        if xp is not None:
-            return xp, ndi, "cuda"
-        import numpy as np
-        import scipy.ndimage as ndi
-        return np, ndi, "cpu"
-
-    def _try_import_cupy(self, require):
-        try:
-            import cupy
-            import cupyx.scipy.ndimage as ndi
-        except ModuleNotFoundError as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
-            return None, None
-
-        try:
-            device_count = cupy.cuda.runtime.getDeviceCount()
-        except Exception as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
-            return None, None
-
-        if device_count <= 0:
-            if require:
-                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
-            return None, None
-
-        return cupy, ndi
-
-    def _is_oom_error(self, exc):
-        if isinstance(exc, MemoryError):
-            return True
-        if self.device_type != "cuda":
-            return False
-        try:
-            import cupy
-
-            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
-        except Exception:
-            return "OutOfMemory" in repr(exc)
-
-    def _free_gpu_memory(self):
-        if self.device_type != "cuda":
-            return
-        try:
-            self.xp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            return
-
     def _switch_to_cpu(self):
-        import numpy as np
-        import scipy.ndimage as ndi
-
-        self.xp = np
-        self.ndi = ndi
-        self.device_type = "cpu"
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend("cpu")
 
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
         self.force_device = device in ("cpu", "gpu", "cuda")
 
     def _set_low_memory(self, low_memory):
@@ -568,9 +499,9 @@ class Filter:
                     vessel_out = self._remove_edges(vessel_out)
                 return vessel_out
             except Exception as exc:
-                if not self._is_oom_error(exc):
+                if not adaptive_run.is_oom_error(exc):
                     raise
-                self._free_gpu_memory()
+                adaptive_run.free_gpu_memory(self.xp)
                 if chunk_voxels <= 1:
                     raise
                 chunk_voxels = max(1, chunk_voxels // 2)
@@ -603,14 +534,14 @@ class Filter:
                 vesselness = self._remove_edges(vesselness)
             return vesselness
         except Exception as exc:
-            if not self._is_oom_error(exc):
+            if not adaptive_run.is_oom_error(exc):
                 raise
-            self._free_gpu_memory()
+            adaptive_run.free_gpu_memory(self.xp)
             # Try chunked on current backend
             try:
                 return self._run_frame_chunked(t, mask=mask)
             except Exception as exc2:
-                if not self._is_oom_error(exc2):
+                if not adaptive_run.is_oom_error(exc2):
                     raise
                 if self.device_type == "cuda" and not self.force_device:
                     self._switch_to_cpu()
