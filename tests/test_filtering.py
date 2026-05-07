@@ -157,15 +157,17 @@ def test_2d_path_runs_end_to_end(frangi_2d_output, imageinfo_2d) -> None:
 
 def test_2d_log_blobness_fusion(make_imageinfo_2d, monkeypatch) -> None:
     """LoG fusion should add non-zero voxels beyond what Frangi alone produces."""
+    from nellie.segmentation import frangi_math
+
     filt_with = Filter(make_imageinfo_2d(), num_t=2, device="cpu")
     filt_with.run()
     nonzero_with = int(np.count_nonzero(np.asarray(filt_with.frangi_memmap)))
     _release_filter(filt_with)
 
-    def zero_log(self, frame, **_kwargs):
-        return self.xp.zeros_like(frame)
+    def zero_log(image, sigmas, sigma_vec_fn, mask, xp, ndi, work_dtype="float32"):
+        return xp.zeros_like(image)
 
-    monkeypatch.setattr(Filter, "_filter_log", zero_log)
+    monkeypatch.setattr(frangi_math, "log_blobness", zero_log)
     filt_without = Filter(make_imageinfo_2d(), num_t=2, device="cpu")
     filt_without.run()
     nonzero_without = int(np.count_nonzero(np.asarray(filt_without.frangi_memmap)))

@@ -9,9 +9,10 @@ import itertools
 import numpy as np
 
 from nellie.im_info.verifier import ImInfo
+from nellie.segmentation import frangi_math
 from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
-from nellie.utils.gpu_functions import triangle_threshold, otsu_threshold
+from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 
 
 class Filter:
@@ -358,38 +359,8 @@ class Filter:
             arr = arr[::stride]
         return arr
 
-    def _calculate_gamma(self, gauss_volume: np.ndarray) -> float:
-        """
-        Estimate gamma using triangle and Otsu thresholds on the positive voxels.
-
-        ``gauss_volume`` may be a NumPy or CuPy array; the result is rescaled by
-        ``spacing_geomean ** 2`` so it lives in the same intensity-per-spacing²
-        units as the Hessian eigenvalues downstream.
-        """
-        positive = self._subsample_for_thresholds(gauss_volume)
-        if positive.size == 0:
-            # Fallback to a very small positive value to avoid division by zero.
-            return np.finfo(np.float32).eps
-
-        gamma_tri = triangle_threshold(positive, xp=self.xp)
-        gamma_otsu, _ = otsu_threshold(positive, xp=self.xp)
-        gamma = float(min(gamma_tri, gamma_otsu))
-        # Avoid division by zero downstream
-        if gamma <= 0:
-            gamma = np.finfo(np.float32).eps
-
-        # Hessian eigenvalues are in intensity/spacing^2 (physical-spaced gradient),
-        # but gamma is computed from raw intensity. Rescale so gamma_sq matches
-        # the units of s_sq in _filter_hessian; otherwise (1-exp(-s_sq/gamma_sq))
-        # saturates and vesselness magnitudes blow up vs the pre-spacing version.
-        spacing = self._get_spacing(gauss_volume.ndim)
-        spacing_geomean = float(np.prod(spacing)) ** (1.0 / gauss_volume.ndim)
-        if spacing_geomean > 0:
-            gamma = gamma / (spacing_geomean ** 2)
-        return gamma
-
     # -------------------------------------------------------------------------
-    # Hessian and Frobenius norm
+    # Hessian Frobenius mask (policy)
     # -------------------------------------------------------------------------
     def _get_frob_mask(self, frobenius_norm):
         """
@@ -429,136 +400,6 @@ class Filter:
 
         mask = frobenius_norm > (frobenius_threshold / self.frob_thresh_division)
         return mask
-
-    def _compute_hessian(
-        self, image: np.ndarray, mask: bool = True
-    ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-        """
-        Compute Hessian components and an optional Frobenius-based mask.
-
-        ``image`` may be a NumPy or CuPy array. The component dict keys
-        depend on dimensionality (2D: hxx/hxy/hyy; 3D: adds hxz/hyz/hzz).
-
-        Returns
-        -------
-        h_mask : xp.ndarray[bool]
-        h_components : dict
-            For 3D: keys 'hxx','hxy','hxz','hyy','hyz','hzz'
-            For 2D: keys 'hxx','hxy','hyy'
-        """
-        # Ensure working dtype
-        image = image.astype(self.work_dtype, copy=False)
-        spacing = self._get_spacing(image.ndim)
-
-        if image.ndim == 2:  # 2D dataset
-            if self.low_memory:
-                g0 = self.xp.gradient(image, spacing[0], axis=0)
-                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
-                    self.work_dtype, copy=False
-                )
-                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                del g0
-                g1 = self.xp.gradient(image, spacing[1], axis=1)
-                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                del g1
-            else:
-                g0, g1 = self.xp.gradient(image, *spacing)  # axes 0,1
-                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
-                    self.work_dtype, copy=False
-                )
-                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-
-            # Frobenius norm: hxx^2 + hyy^2 + 2*hxy^2
-            frob_sq = hxx ** 2 + hyy ** 2 + 2.0 * (hxy ** 2)
-            h_components = {"hxx": hxx, "hxy": hxy, "hyy": hyy}
-        elif image.ndim == 3:  # 3D dataset
-            if self.low_memory: 
-                g0 = self.xp.gradient(image, spacing[0], axis=0)
-                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
-                    self.work_dtype, copy=False
-                )
-                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                hxz = self.xp.gradient(g0, spacing[2], axis=2).astype(
-                    self.work_dtype, copy=False
-                )
-                del g0
-                g1 = self.xp.gradient(image, spacing[1], axis=1)
-                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                hyz = self.xp.gradient(g1, spacing[2], axis=2).astype(
-                    self.work_dtype, copy=False
-                )
-                del g1
-                g2 = self.xp.gradient(image, spacing[2], axis=2)
-                hzz = self.xp.gradient(g2, spacing[2], axis=2).astype(
-                    self.work_dtype, copy=False
-                )
-                del g2
-            else:
-                g0, g1, g2 = self.xp.gradient(image, *spacing)  # axes 0,1,2
-                hxx = self.xp.gradient(g0, spacing[0], axis=0).astype(
-                    self.work_dtype, copy=False
-                )
-                hxy = self.xp.gradient(g0, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                hxz = self.xp.gradient(g0, spacing[2], axis=2).astype(
-                    self.work_dtype, copy=False
-                )
-                hyy = self.xp.gradient(g1, spacing[1], axis=1).astype(
-                    self.work_dtype, copy=False
-                )
-                hyz = self.xp.gradient(g1, spacing[2], axis=2).astype(
-                    self.work_dtype, copy=False
-                )
-                hzz = self.xp.gradient(g2, spacing[2], axis=2).astype(
-                    self.work_dtype, copy=False
-                )
-
-            frob_sq = (
-                hxx ** 2
-                + hyy ** 2
-                + hzz ** 2
-                + 2.0 * (hxy ** 2 + hxz ** 2 + hyz ** 2)
-            )
-            h_components = {
-                "hxx": hxx,
-                "hxy": hxy,
-                "hxz": hxz,
-                "hyy": hyy,
-                "hyz": hyz,
-                "hzz": hzz,
-            }
-        else:
-            raise ValueError(f"Unsupported number of dimensions: {image.ndim}")
-
-        # Normalize Frobenius norm by max absolute Hessian component for stability
-        max_abs = 0.0
-        for comp in h_components.values():
-            if comp.size > 0:
-                max_abs = max(max_abs, float(self.xp.max(self.xp.abs(comp))))
-        if max_abs <= 0:
-            max_abs = 1.0
-        frobenius_norm = self.xp.sqrt(frob_sq) / max_abs
-
-        if mask:
-            h_mask = self._get_frob_mask(frobenius_norm)
-        else:
-            h_mask = self.xp.ones_like(image, dtype=bool)
-
-        return h_mask, h_components
 
     # -------------------------------------------------------------------------
     # Eigenvalues and vesselness
@@ -697,7 +538,9 @@ class Filter:
                     axis=-2,
                 )
                 eigenvalues = self._safe_eigvalsh(H_chunk)
-            v_chunk = self._filter_hessian(eigenvalues, gamma_sq=gamma_sq)
+            v_chunk = frangi_math.frangi(
+                eigenvalues, self.alpha_sq, self.beta_sq, gamma_sq, self.xp
+            )
             vessel_masked[start:end] = v_chunk.astype(self.work_dtype, copy=False)
 
         # Scatter back into full volume
@@ -706,92 +549,13 @@ class Filter:
         vesselness[coords] = vessel_masked
         return vesselness
 
-    def _filter_hessian(self, eigenvalues: np.ndarray, gamma_sq: float) -> np.ndarray:
-        """
-        Apply the Frangi filter to Hessian eigenvalues to detect vessel-like structures.
-
-        Parameters
-        ----------
-        eigenvalues : xp.ndarray, shape (N, 2) or (N, 3)
-            Eigenvalues sorted by absolute value.
-        gamma_sq : float
-            Squared gamma for vesselness calculation.
-
-        Returns
-        -------
-        filtered_im : xp.ndarray, shape (N,)
-        """
-        if self.im_info.no_z:
-            # 2D: eigenvalues[:, 0] is smallest |λ|, eigenvalues[:, 1] largest |λ|
-            l1 = eigenvalues[:, 0]
-            l2 = eigenvalues[:, 1]
-
-            rb_sq = (self.xp.abs(l1) / (self.xp.abs(l2) + 1e-12)) ** 2
-            s_sq = l1 ** 2 + l2 ** 2
-            filtered_im = self.xp.exp(-(rb_sq / self.beta_sq)) * (
-                1.0 - self.xp.exp(-(s_sq / gamma_sq))
-            )
-        else:
-            # 3D: eigenvalues[:, 0] <= eigenvalues[:, 1] <= eigenvalues[:, 2] in |·|
-            l1 = eigenvalues[:, 0]
-            l2 = eigenvalues[:, 1]
-            l3 = eigenvalues[:, 2]
-
-            ra_sq = (self.xp.abs(l2) / (self.xp.abs(l3) + 1e-12)) ** 2
-            rb_sq = (self.xp.abs(l2) / (self.xp.sqrt(self.xp.abs(l2 * l3)) + 1e-12)) ** 2
-            s_sq = l1 ** 2 + l2 ** 2 + l3 ** 2
-
-            filtered_im = (
-                (1.0 - self.xp.exp(-(ra_sq / self.alpha_sq)))
-                * self.xp.exp(-(rb_sq / self.beta_sq))
-                * (1.0 - self.xp.exp(-(s_sq / gamma_sq)))
-            )
-
-        # Exclude bright structures (vessels expected to be darker than background)
-        if not self.im_info.no_z:
-            filtered_im[eigenvalues[:, 2] > 0] = 0.0
-        filtered_im[eigenvalues[:, 1] > 0] = 0.0
-
-        # Clean up NaNs/Infs
-        filtered_im = self.xp.nan_to_num(
-            filtered_im, nan=0.0, posinf=0.0, neginf=0.0
-        )
-        return filtered_im
-
-    # -------------------------------------------------------------------------
-    # LoG filter
-    # -------------------------------------------------------------------------
-    def _filter_log(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray:
-        """
-        Apply a Laplacian-of-Gaussian filter across scales and retain the minimum
-        response (as in a multi-scale LoG).
-        """
-        frame = frame.astype(self.work_dtype, copy=False)
-        lapofg = None
-        for i, s in enumerate(self.sigmas):
-            sigma_vec = self._get_sigma_vec(s)
-            current_lapofg = -self.ndi.gaussian_laplace(frame, sigma_vec) * (float(s) ** 2)
-            current_lapofg = current_lapofg * mask
-            if i == 0:
-                lapofg = current_lapofg
-            else:
-                min_indices = current_lapofg > lapofg
-                # min_indices = current_lapofg < lapofg
-                lapofg[min_indices] = current_lapofg[min_indices]
-                
-        # Scale lapofg between 0 and 1
-        # lapofg_min = self.xp.min(lapofg)
-        lapofg[lapofg < 0] = 0.0
-        lapofg_max = self.xp.max(lapofg)
-        lapofg = (lapofg) / (lapofg_max + 1e-12)
-        return lapofg / 10.0
-
     # -------------------------------------------------------------------------
     # Per-frame processing
     # -------------------------------------------------------------------------
     def _compute_vesselness(self, frame, mask=True):
         vesselness = self.xp.zeros_like(frame, dtype=self.work_dtype)
         masks = self.xp.ones_like(frame, dtype=bool)
+        spacing = self._get_spacing(frame.ndim)
 
         # Start from raw frame and build Gaussian scales incrementally.
         # Must copy: the loop below uses output=gauss for in-place cascaded
@@ -827,10 +591,18 @@ class Filter:
 
             prev_sigma = sigma
 
-            gamma = self._calculate_gamma(gauss)
+            gamma = frangi_math.calculate_gamma(
+                gauss, spacing, self._subsample_for_thresholds, self.xp
+            )
             gamma_sq = 2.0 * (float(gamma) ** 2)
 
-            h_mask, h_components = self._compute_hessian(gauss, mask=mask)
+            h_components, frobenius_norm = frangi_math.compute_hessian(
+                gauss, spacing, self.low_memory, self.xp, self.work_dtype
+            )
+            if mask:
+                h_mask = self._get_frob_mask(frobenius_norm)
+            else:
+                h_mask = self.xp.ones_like(gauss, dtype=bool)
             if not self.xp.any(h_mask):
                 continue
 
@@ -915,7 +687,11 @@ class Filter:
             vesselness, masks = self._compute_vesselness(frame, mask=mask)
             vesselness = vesselness * masks
             if self.im_info.no_z:
-                blobness = self._filter_log(frame, mask=masks if mask else self.xp.ones_like(frame, bool))
+                log_mask = masks if mask else self.xp.ones_like(frame, bool)
+                blobness = frangi_math.log_blobness(
+                    frame, self.sigmas, self._get_sigma_vec, log_mask,
+                    self.xp, self.ndi, self.work_dtype,
+                )
                 blobness = self.xp.maximum(blobness, 0)  # keep bright-blob response only
                 vesselness = self.xp.maximum(vesselness, blobness)
             if self.remove_edges:
