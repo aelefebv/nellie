@@ -8,7 +8,7 @@ from qtpy.QtGui import QFont
 from qtpy.QtCore import Qt, QTimer
 
 from nellie.feature_extraction.hierarchical import Hierarchy
-from nellie.segmentation.filtering import Filter
+from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label
 from nellie.segmentation.mocap_marking import Markers
 from nellie.segmentation.networking import Network
@@ -323,11 +323,14 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            base_kwargs = {
-                "im_info": self.current_im_info,
-                "viewer": self.viewer,
-            }
-            preprocessing = Filter(**base_kwargs, **step_kwargs)
+            config_kwargs = dict(step_kwargs)
+            num_t = config_kwargs.pop("num_t", None)
+            preprocessing = Filter(
+                im_info=self.current_im_info,
+                config=FrangiConfig(**config_kwargs),
+                viewer=self.viewer,
+                num_t=num_t,
+            )
             preprocessing.run()
 
     def run_preprocessing(self):

@@ -6,7 +6,7 @@ including filtering, segmentation, tracking, and feature extraction.
 """
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.im_info.verifier import FileInfo, ImInfo
-from nellie.segmentation.filtering import Filter
+from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label
 from nellie.segmentation.mocap_marking import Markers
 from nellie.segmentation.networking import Network
@@ -54,7 +54,8 @@ def run(
     if timeit:
         start_time = time.perf_counter()
     preprocessing = Filter(
-        im_info, remove_edges=remove_edges, device=device, low_memory=low_memory
+        im_info,
+        FrangiConfig(remove_edges=remove_edges, device=device, low_memory=low_memory),
     )
     preprocessing.run()
     if timeit:

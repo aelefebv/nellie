@@ -9,8 +9,8 @@ Unresolved decisions, design questions, or known unknowns surfaced by the wiki s
 
 ## Open
 
-- **`run copy.py` is a stale developer scratch fork.** Not imported anywhere; older `run()` signature; Jupyter-style cells against a hard-coded Windows path. Decision needed: delete? See [[pipeline]].
-- **CLI is broken / out-of-date with `run.py`.** `nellie/cli.py` calls `run(tif_file, ..., ch=, num_t=, output_dirpath=)` but `run.py` no longer accepts those kwargs. Decision: fix `cli.py`, deprecate it, or delete? See [[pipeline]].
+- **`run copy.py` is a stale developer scratch fork.** Not imported anywhere; older `run()` signature; Jupyter-style cells against a hard-coded Windows path. Now also out-of-date with the `FrangiConfig` constructor (PRD #66). Decision needed: delete? See [[pipeline]].
+- **CLI is broken / out-of-date with `run.py`.** `nellie/cli.py` calls `run(tif_file, ..., ch=, num_t=, output_dirpath=)` but `run.py` no longer accepts those kwargs, and now also calls `Filter` via the pre-`FrangiConfig` kwargs (PRD #66). Decision: fix `cli.py`, deprecate it, or delete? See [[pipeline]].
 - **macOS hard-pinned to CPU** in `nellie/__init__.py` — the MPS branch is commented out. Will Apple Silicon GPU support be revived? See [[gpu-runtime]].
 - **`_clean_junctions` in `segmentation/networking.py` is dead code** — defined but never called from the main path. Remove or wire up? See [[networking]].
 - **`SettingsConfig` round-trip in the [[settings|napari settings widget]] is dead code today** — preset save/load not wired. Ship or remove?

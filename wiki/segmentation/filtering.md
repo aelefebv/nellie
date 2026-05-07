@@ -16,6 +16,7 @@ Tubular organelles (mitochondria, ER tubules) are low-contrast and varied in rad
 - Input: any [[im-info|ImInfo]] raw memmap.
 - Output `im_preprocessed` consumed by [[labelling]], [[networking]], [[mocap-marking]] (when `use_im='frangi'`), and [[feature-extraction]] (as the "structure image").
 - Calls `triangle_threshold` / `otsu_threshold` from [[gpu-runtime]].
+- Algorithm config is bundled in a `FrangiConfig` frozen dataclass colocated in `filtering.py`. `Filter(im_info, FrangiConfig(alpha_sq=0.3, ...), viewer=None, num_t=None)` is the construction shape. The cascade may mutate `Filter.device` / `Filter.low_memory` runtime state; `Filter.config` preserves the original intent.
 - Pure math primitives (Frangi formula, Hessian, multi-scale LoG, γ estimation) live in `nellie/segmentation/frangi_math.py` — Filter is the thin caller that holds `xp`, `ndi`, `alpha_sq`, `beta_sq`, etc. and passes them through.
 - Chunking primitives (`iter_chunks`, `compute_chunk_shape`, `safe_eigvalsh`, `subsample_for_thresholds`) live in `nellie/utils/chunking.py` — stage-agnostic, default `is_oom` predicate handles both NumPy and CuPy errors.
 - Backend resolution (`resolve_backend`, `try_import_cupy`, `free_gpu_memory`, `is_oom_error`) lives in [[gpu-runtime|`adaptive_run`]] — Filter's `_set_backend` / `_set_low_memory` / `_switch_to_cpu` are thin mutator wrappers required by the cascade contract.

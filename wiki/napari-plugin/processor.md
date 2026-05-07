@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Processor widget
@@ -13,7 +13,7 @@ The CLI / `run.py` path is synchronous and would freeze the UI. The processor wr
 
 ## Interactions
 
-- Reads per-step kwargs from [[settings|`Settings.get_*_params()`]] at click time.
+- Reads per-step kwargs from [[settings|`Settings.get_*_params()`]] at click time. The dict returned by `get_preprocessing_params()` is wrapped into a `FrangiConfig` (after popping `num_t`) before being passed to [[filtering|`Filter`]]. Other stages still take kwargs directly until they get their own `*Config` dataclasses.
 - Reads basic-tab checkboxes from [[settings|`Settings`]] directly: `remove_edges`, `analyze_node_level`, `voxel_reassign`, `remove_intermediates`. The basic tab is **shared mutable state**, not just a settings store.
 - Final step calls `analyzer.rewrite_dropdown()` on the main thread to refresh the [[analysis|Analyze tab]].
 - `check_file_existence` flips the loader's `analysis_tab` enabled when `features_organelles` exists.
