@@ -515,6 +515,7 @@ class Label:
         intensity_thresh = None
         if self.otsu_thresh_intensity:
             intensity_thresh = self._compute_intensity_otsu_threshold(original_view)
+            logger.info(f'Otsu intensity threshold: {intensity_thresh}')
             if intensity_thresh is None:
                 intensity_thresh = 0
         elif self.threshold is not None:
