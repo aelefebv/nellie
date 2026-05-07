@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Segmentation
@@ -36,5 +36,5 @@ Note that `Markers` runs **after** `Network` despite being conceptually "between
 ## Invariants
 
 - Each stage assumes its predecessor's outputs exist on disk at the documented `pipeline_paths` keys.
-- **Label IDs are per-frame, not stable across frames** — pinned by `test_label_ids_reset_per_frame`. Cross-frame stability is the job of [[voxel-reassignment]].
-- Stages must not mutate input memmaps — `test_masking_does_not_mutate_inputs` pins this.
+- **Label IDs are per-frame, not stable across frames.** Cross-frame stability is the job of [[voxel-reassignment]].
+- Stages must not mutate input memmaps — pinned for [[filtering]] by `test_input_memmap_unchanged` (and `test_2d_output_invariants`); the other stages share the invariant but are not yet covered by tests.
