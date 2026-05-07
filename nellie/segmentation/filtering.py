@@ -5,12 +5,11 @@ This module provides the Filter class, which implements a multi-scale Frangi fil
 optimized for large datasets with optional GPU acceleration.
 """
 
-import itertools
 import numpy as np
 
 from nellie.im_info.verifier import ImInfo
 from nellie.segmentation import frangi_math
-from nellie.utils import adaptive_run
+from nellie.utils import adaptive_run, chunking
 from nellie.utils.base_logger import logger
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 
@@ -322,42 +321,8 @@ class Filter:
     # -------------------------------------------------------------------------
     # Threshold helpers
     # -------------------------------------------------------------------------
-    def _sample_strides(self, shape, max_samples):
-        if max_samples is None or max_samples <= 0:
-            return (1,) * len(shape)
-        total = int(np.prod(shape))
-        if total <= max_samples:
-            return (1,) * len(shape)
-        ndim = len(shape)
-        stride = int(np.ceil((total / max_samples) ** (1.0 / ndim)))
-        strides = [max(1, stride) for _ in range(ndim)]
-        while int(np.prod([int(np.ceil(s / st)) for s, st in zip(shape, strides)])) > max_samples:
-            idx = int(np.argmax([s / st for s, st in zip(shape, strides)]))
-            strides[idx] += 1
-        return tuple(strides)
-
-    def _downsample(self, arr, strides):
-        if all(s == 1 for s in strides):
-            return arr
-        slices = tuple(slice(None, None, s) for s in strides)
-        return arr[slices]
-
     def _subsample_for_thresholds(self, arr):
-        """
-        Subsample large arrays before passing to triangle / Otsu threshold
-        to reduce memory and runtime.
-        """
-        if arr.size == 0:
-            return arr
-        strides = self._sample_strides(arr.shape, self.max_threshold_samples)
-        arr = self._downsample(arr, strides)
-        arr = arr[arr > 0]
-        if arr.size == 0:
-            return arr
-        if arr.size > self.max_threshold_samples:
-            stride = max(1, arr.size // self.max_threshold_samples)
-            arr = arr[::stride]
-        return arr
+        return chunking.subsample_for_thresholds(arr, self.max_threshold_samples, self.xp)
 
     # -------------------------------------------------------------------------
     # Hessian Frobenius mask (policy)
@@ -405,48 +370,12 @@ class Filter:
     # Eigenvalues and vesselness
     # -------------------------------------------------------------------------
     def _safe_eigvalsh(self, H_chunk):
-        """
-        Compute eigenvalues robustly, with GPU OOM fallback to smaller chunks
-        or CPU if necessary. Eigenvalues are sorted by absolute value.
-        """
-
-        def _eig_backend(arr):
-            ev = self.xp.linalg.eigvalsh(arr)
-            # sort by absolute value as in original implementation
-            order = self.xp.argsort(self.xp.abs(ev), axis=1)
-            ev = self.xp.take_along_axis(ev, order, axis=1)
-            return ev
-
-        if self.device_type != "cuda":
-            return _eig_backend(H_chunk)
-
-        # GPU case
-        try:
-            return _eig_backend(H_chunk)
-        except Exception as e:
-            if not self._is_oom_error(e):
-                raise
-
-            n = H_chunk.shape[0]
-            if n > 1:
-                # Split chunk and recurse to stay on GPU if possible
-                mid = n // 2
-                ev1 = self._safe_eigvalsh(H_chunk[:mid])
-                ev2 = self._safe_eigvalsh(H_chunk[mid:])
-                return self.xp.concatenate([ev1, ev2], axis=0)
-
-            if self.force_device:
-                raise
-
-            # Fall back to CPU for this chunk
-            try:
-                H_cpu = self.xp.asnumpy(H_chunk)
-            except Exception:
-                H_cpu = np.asarray(H_chunk)
-            ev_cpu = np.linalg.eigvalsh(H_cpu)
-            order = np.argsort(np.abs(ev_cpu), axis=1)
-            ev_cpu = np.take_along_axis(ev_cpu, order, axis=1)
-            return self.xp.asarray(ev_cpu)
+        """Thin wrapper around `chunking.safe_eigvalsh` carrying Filter's force-GPU flag."""
+        return chunking.safe_eigvalsh(
+            H_chunk,
+            self.xp,
+            force_device_gpu=(self.force_device and self.device_type == "cuda"),
+        )
 
     def _compute_chunkwise_eigenvalues(self, hessian_matrices, chunk_size=1e6):
         """
@@ -615,30 +544,6 @@ class Filter:
 
         return vesselness, masks
 
-    def _compute_chunk_shape(self, shape, max_chunk_voxels):
-        if max_chunk_voxels is None or max_chunk_voxels <= 0:
-            return tuple(shape)
-        chunk = list(shape)
-        while int(np.prod(chunk)) > max_chunk_voxels:
-            idx = int(np.argmax(chunk))
-            chunk[idx] = max(1, int(np.ceil(chunk[idx] / 2)))
-        return tuple(chunk)
-
-    def _iter_chunks(self, shape, chunk_shape, halo):
-        if halo is None or len(halo) != len(shape):
-            halo = (0,) * len(shape)
-        ranges = [range(0, dim, step) for dim, step in zip(shape, chunk_shape)]
-        for starts in itertools.product(*ranges):
-            ends = [min(start + step, dim) for start, step, dim in zip(starts, chunk_shape, shape)]
-            core = tuple(slice(s, e) for s, e in zip(starts, ends))
-            ext_starts = [max(0, s - h) for s, h in zip(starts, halo)]
-            ext_ends = [min(dim, e + h) for e, h, dim in zip(ends, halo, shape)]
-            ext = tuple(slice(s, e) for s, e in zip(ext_starts, ext_ends))
-            core_in_ext = tuple(
-                slice(s - es, e - es) for s, e, es in zip(starts, ends, ext_starts)
-            )
-            yield core, ext, core_in_ext
-
     def _run_frame_chunked(self, t, mask=True, max_chunk_voxels=None):
         frame_cpu = self.im_memmap[t, ...]
         shape = frame_cpu.shape
@@ -647,9 +552,9 @@ class Filter:
 
         while True:
             try:
-                chunk_shape = self._compute_chunk_shape(shape, chunk_voxels)
+                chunk_shape = chunking.compute_chunk_shape(shape, chunk_voxels)
                 vessel_out = np.zeros(shape, dtype=self.work_dtype)
-                for core, ext, core_in_ext in self._iter_chunks(shape, chunk_shape, halo):
+                for core, ext, core_in_ext in chunking.iter_chunks(shape, chunk_shape, halo):
                     chunk = frame_cpu[ext]
                     chunk_xp = self.xp.asarray(chunk, dtype=self.work_dtype)
                     vessel_chunk, mask_chunk = self._compute_vesselness(
