@@ -23,21 +23,21 @@ class Filter:
     def __init__(
         self,
         im_info: ImInfo,
-        num_t=None,
+        num_t: int | None = None,
         remove_edges: bool = False,
         min_radius_um: float = 0.25,
         max_radius_um: float = 1.0,
         alpha_sq: float = 0.5,
         beta_sq: float = 0.5,
-        frob_thresh=None,
-        frob_thresh_division=2,
+        frob_thresh: float | None = None,
+        frob_thresh_division: float = 2,
         viewer=None,
         device: str = "auto",
         # New optimization-related parameters
         low_memory: bool = False,
         max_chunk_voxels: int = int(1e6),
         max_threshold_samples: int = int(1e6),
-    ):
+    ) -> None:
         """
         Parameters
         ----------
@@ -91,7 +91,6 @@ class Filter:
         self.im_memmap = None
         self.frangi_memmap = None
 
-        self.sigma_vec = None
         self.sigmas = None
 
         self.alpha_sq = float(alpha_sq)
@@ -190,7 +189,7 @@ class Filter:
         device = adaptive_run.normalize_device(device)
         self.device = device
         self.xp, self.ndi, self.device_type = self._resolve_backend(device)
-        self.force_device = device in ("cpu", "gpu")
+        self.force_device = device in ("cpu", "gpu", "cuda")
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -214,7 +213,6 @@ class Filter:
         """
         logger.debug("Allocating memory for frangi filter.")
         self.im_memmap = self.im_info.get_memmap(self.im_info.im_path)
-        self.shape = self.im_memmap.shape
 
         im_frangi_path = self.im_info.pipeline_paths["im_preprocessed"]
         self.frangi_memmap = self.im_info.allocate_memory(
@@ -279,11 +277,9 @@ class Filter:
         Generate the sigma vector in (Z, Y, X) or (Y, X) depending on dimensionality.
         """
         if self.im_info.no_z:
-            self.sigma_vec = (float(sigma), float(sigma))
-        else:
-            # scale Z by resolution ratio
-            self.sigma_vec = (float(sigma) / self.z_ratio, float(sigma), float(sigma))
-        return self.sigma_vec
+            return (float(sigma), float(sigma))
+        # scale Z by resolution ratio
+        return (float(sigma) / self.z_ratio, float(sigma), float(sigma))
 
     def _set_default_sigmas(self):
         """
@@ -362,9 +358,13 @@ class Filter:
             arr = arr[::stride]
         return arr
 
-    def _calculate_gamma(self, gauss_volume):
+    def _calculate_gamma(self, gauss_volume: np.ndarray) -> float:
         """
         Estimate gamma using triangle and Otsu thresholds on the positive voxels.
+
+        ``gauss_volume`` may be a NumPy or CuPy array; the result is rescaled by
+        ``spacing_geomean ** 2`` so it lives in the same intensity-per-spacing²
+        units as the Hessian eigenvalues downstream.
         """
         positive = self._subsample_for_thresholds(gauss_volume)
         if positive.size == 0:
@@ -387,28 +387,6 @@ class Filter:
         if spacing_geomean > 0:
             gamma = gamma / (spacing_geomean ** 2)
         return gamma
-
-    def _estimate_gamma(self, frame, sigma):
-        """
-        Estimate gamma from a deterministic downsample of the Gaussian volume.
-        """
-        if frame.size == 0:
-            return np.finfo(np.float32).eps
-        strides = self._sample_strides(frame.shape, self.max_threshold_samples)
-        sample = self._downsample(frame, strides)
-        sample = self.xp.asarray(sample, dtype=self.work_dtype)
-        sigma_vec = self._get_sigma_vec(sigma)
-        if len(sigma_vec) != sample.ndim:
-            raise ValueError("Sigma vector does not match sample dimensionality")
-        sigma_vec_sample = tuple(float(s) / st for s, st in zip(sigma_vec, strides))
-        gauss_sample = self.ndi.gaussian_filter(
-            sample,
-            sigma=sigma_vec_sample,
-            mode="reflect",
-            cval=0.0,
-            truncate=self.truncate,
-        )
-        return self._calculate_gamma(gauss_sample)
 
     # -------------------------------------------------------------------------
     # Hessian and Frobenius norm
@@ -452,9 +430,14 @@ class Filter:
         mask = frobenius_norm > (frobenius_threshold / self.frob_thresh_division)
         return mask
 
-    def _compute_hessian(self, image, mask=True):
+    def _compute_hessian(
+        self, image: np.ndarray, mask: bool = True
+    ) -> tuple[np.ndarray, dict[str, np.ndarray]]:
         """
         Compute Hessian components and an optional Frobenius-based mask.
+
+        ``image`` may be a NumPy or CuPy array. The component dict keys
+        depend on dimensionality (2D: hxx/hxy/hyy; 3D: adds hxz/hyz/hzz).
 
         Returns
         -------
@@ -723,7 +706,7 @@ class Filter:
         vesselness[coords] = vessel_masked
         return vesselness
 
-    def _filter_hessian(self, eigenvalues, gamma_sq):
+    def _filter_hessian(self, eigenvalues: np.ndarray, gamma_sq: float) -> np.ndarray:
         """
         Apply the Frangi filter to Hessian eigenvalues to detect vessel-like structures.
 
@@ -778,7 +761,7 @@ class Filter:
     # -------------------------------------------------------------------------
     # LoG filter
     # -------------------------------------------------------------------------
-    def _filter_log(self, frame, mask):
+    def _filter_log(self, frame: np.ndarray, mask: np.ndarray) -> np.ndarray:
         """
         Apply a Laplacian-of-Gaussian filter across scales and retain the minimum
         response (as in a multi-scale LoG).
@@ -806,12 +789,6 @@ class Filter:
     # -------------------------------------------------------------------------
     # Per-frame processing
     # -------------------------------------------------------------------------
-    def _precompute_gammas(self, frame):
-        gammas = []
-        for sigma in self.sigmas:
-            gammas.append(self._estimate_gamma(frame, sigma))
-        return gammas
-
     def _compute_vesselness(self, frame, mask=True):
         vesselness = self.xp.zeros_like(frame, dtype=self.work_dtype)
         masks = self.xp.ones_like(frame, dtype=bool)
@@ -929,7 +906,6 @@ class Filter:
         logger.info(f"Running Frangi filter on t={t}.")
 
         frame_cpu = self.im_memmap[t, ...]
-        # gammas = self._precompute_gammas(frame_cpu)
 
         if self.low_memory:
             return self._run_frame_chunked(t, mask=mask)
@@ -951,13 +927,13 @@ class Filter:
             self._free_gpu_memory()
             # Try chunked on current backend
             try:
-                return self._run_frame_chunked(t, gammas, mask=mask)
+                return self._run_frame_chunked(t, mask=mask)
             except Exception as exc2:
                 if not self._is_oom_error(exc2):
                     raise
                 if self.device_type == "cuda" and not self.force_device:
                     self._switch_to_cpu()
-                    return self._run_frame_chunked(t, gammas, mask=mask)
+                    return self._run_frame_chunked(t, mask=mask)
                 raise
 
     # -------------------------------------------------------------------------
@@ -1044,7 +1020,7 @@ class Filter:
 
             self.frangi_memmap.flush()
 
-    def run(self, mask=True):
+    def run(self, mask: bool = True) -> None:
         """
         Main entry point: run the Frangi filter over the image.
         """
