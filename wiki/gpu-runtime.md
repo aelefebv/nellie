@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # GPU / runtime
@@ -24,6 +24,7 @@ Not a chunking primitive — a **device/memory mode arbitrator**. It exposes:
 - A peak-memory heuristic (`should_use_low_memory`): peak ≈ frame_bytes × **6.0**, refusing if peak > free × **0.7** headroom.
 - `mode_candidates(device_order, start_low_memory)` → ordered `(device, low_memory)` retry plan, e.g. `[(gpu, False), (gpu, True), (cpu, False), (cpu, True)]`.
 - OOM/unavailable classifiers: `is_oom_error` matches `MemoryError`, `cupy.cuda.memory.OutOfMemoryError`, and **string-sniffs** `"out of memory"`. `is_gpu_unavailable_error` catches `cupy` ImportError and message patterns.
+- Backend resolution: `resolve_backend(device)` returns `(xp, ndi, device_type)` for `"auto" | "cpu" | "gpu" | "cuda"`. `try_import_cupy(require=False)` returns `(cupy, cupy_ndi)` or `(None, None)`. `free_gpu_memory(xp)` is a no-op on NumPy.
 
 Solves: pipelines don't crash hard on OOM or missing CUDA — they cascade through device/memory modes until something fits.
 
