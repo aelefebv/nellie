@@ -30,6 +30,9 @@ docs = [
     "mkdocs-material",
     "mkdocstrings[python]",
 ]
+dev = [
+    "pytest",
+]
 
 [build-system]
 requires = ["setuptools>=64", "setuptools-scm>=8", "wheel"]
@@ -57,3 +60,7 @@ required-environments = [
     "sys_platform == 'linux' and platform_machine == 'x86_64'",
     "sys_platform == 'win32' and platform_machine == 'x86_64'",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]
