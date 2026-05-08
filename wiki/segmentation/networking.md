@@ -1,11 +1,11 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-08
 ---
 
 # Networking
 
-Skeletonize each instance, classify each skeleton voxel (background / isolated / tip / edge / junction), label branches, and propagate branch IDs back to fill each object's volume. Outputs: `im_skel` (int32, parent label ID at skel voxels), `im_pixel_class` (uint8 ∈ {0,1,2,3,4}), `im_skel_relabelled` (uint32, every voxel of an object gets a branch ID).
+Skeletonize each instance, classify each skeleton voxel (background / isolated / tip / edge / junction), label branches, and propagate branch IDs back to fill each object's volume. Outputs: `im_skel` (int32, branch ID at non-junction skel voxels; 0 at junction voxels and off-skeleton), `im_pixel_class` (uint8 ∈ {0,1,2,3,4}), `im_skel_relabelled` (uint32, every voxel of an object gets a branch ID).
 
 ## Why
 
@@ -38,10 +38,12 @@ Topology — branches, junctions, tips — is what enables network metrics (leng
 - **`_add_missing_skeleton_labels` guarantees every label has ≥1 skel voxel.** Without this, small/thin objects vanish from the skeleton; the fallback plants one voxel at the Frangi maximum within the label.
 - **Pixel class uses 3×3(×3) convolution count, clipped at 4** — so "junction" means "≥ 4 neighbors", not specifically "exactly 4".
 - **Per-object EDT uses anisotropic `sampling=self.scaling`**; the [[mocap-marking|marker-stage EDT]] does **not**. Different design choices in the two stages — be aware when comparing distance values.
-- **`_clean_junctions` exists but is never called from the main path** (dead-but-kept code).
+- **`im_skel`'s value at each skel voxel is a *branch* ID, not a parent-object ID.** It comes from `_run_frame_backend` returning `branch_skel_labels` (the connected-component IDs from `_get_branch_skel_labels`, which excludes pixel-class 4) as the first tuple element, which `_run_networking` writes to `skel_memmap`. Junction voxels and off-skeleton voxels are 0. Downstream ([[feature-extraction|`hierarchical.py`]]) reads it as branch labels — that's the actual contract; the parent-label framing in older docs/comments is wrong.
+- **`_clean_junctions`, `_local_max_peak`, and the multi-scale sigma machinery (`_set_default_sigmas`, `_get_sigma_vec`, `self.sigmas`/`sigma_min`/`sigma_max`) are dead** — defined but never called from any code path in the repo. The `__main__` block at the bottom is also dead (hardcoded Windows path). Slated for removal in the cleanups slice of the upcoming Network refactor (mirrors PRD #70's three-slice shape — see [[queue]]).
+- **`_remove_connected_label_pixels` GPU/auto branch is unreachable in the pipeline.** The sole pipeline caller (`_run_frame_backend`) always passes `force_cpu=True`, so the `_to_xp` path with OOM fallback never executes. The `force_cpu` knob and the GPU branch will likely collapse during the cleanups slice.
 
 ## Invariants
 
-- `im_skel`: int32; skel voxels carry parent label ID, 0 elsewhere.
+- `im_skel`: int32; non-junction skel voxels carry a branch ID (CC label of non-junction skeleton components from `_get_branch_skel_labels`); junction voxels (pixel-class 4) and all off-skeleton voxels are 0.
 - `im_pixel_class`: uint8, ∈ {0, 1, 2, 3, 4} where 0 = background, 1 = isolated, 2 = tip, 3 = edge, 4 = junction.
 - `im_skel_relabelled`: uint32; every voxel of an object gets a branch ID; voxels outside any object are 0.
