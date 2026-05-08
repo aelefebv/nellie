@@ -84,12 +84,13 @@ class Label:
         self.instance_label_memmap = None
         self.shape = ()
 
-        self.debug = {}
-
         self.viewer = viewer
 
         # Optimization / configuration parameters
         self.chunk_z = chunk_z if (not self.im_info.no_z and chunk_z is not None) else None
+        # Stash the *coerced* value (None for 2D), not the raw user input —
+        # ``chunk_z`` has no meaning without a Z axis, so passing
+        # ``chunk_z=...`` against a 2D image is intentionally a no-op.
         self._user_chunk_z = self.chunk_z
         self.flush_interval = max(1, int(flush_interval))
         min_radius_um = float(min_radius_um)
@@ -113,11 +114,9 @@ class Label:
         self._set_footprint()
 
     def _resolve_backend(self, device):
-        device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+        device = adaptive_run.normalize_device(device)
 
-        if device in ("gpu", "cuda"):
+        if device == "gpu":
             xp, ndi = self._try_import_cupy(require=True)
             return xp, ndi, "cuda"
         if device == "cpu":
@@ -284,7 +283,7 @@ class Label:
             idx = np.searchsorted(unique, labels_chunk)
             labels_chunk = new_ids[idx]
 
-            self._write_labels_chunk(t, z_start, z_end, labels_chunk)
+            self.instance_label_memmap[t, z_start:z_end, ...] = labels_chunk
             z_start = z_end
 
     def _infer_chunk_z(self):
@@ -322,18 +321,6 @@ class Label:
             pass
         return np
 
-    def _get_t(self):
-        """
-        Determines the number of timepoints to process.
-        """
-        if self.num_t is None:
-            if self.im_info.no_t:
-                self.num_t = 1
-            else:
-                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
-        else:
-            return
-
     def _allocate_memory(self):
         """
         Allocates memory for the original image, Frangi-filtered image, and
@@ -351,32 +338,6 @@ class Label:
             description='instance segmentation',
             return_memmap=True
         )
-
-    # ------------------------------------------------------------------
-    # Helpers for accessing per-frame views and writing to memmaps
-    # ------------------------------------------------------------------
-
-    def _get_frame_views(self, t):
-        """
-        Return CPU views (memmap slices) for original and Frangi frames at time t.
-        """
-        original_view = self.im_memmap[t, ...]
-        frangi_view = self.frangi_memmap[t, ...]
-        return original_view, frangi_view
-
-    def _write_labels_for_frame(self, t, labels):
-        """
-        Write a full label volume for timepoint t into the instance_label_memmap.
-        """
-        dst = self.instance_label_memmap
-        dst[t, ...] = labels
-
-    def _write_labels_chunk(self, t, z_start, z_end, labels_chunk):
-        """
-        Write a Z-chunk of labels for timepoint t into the instance_label_memmap.
-        """
-        dst = self.instance_label_memmap
-        dst[t, z_start:z_end, ...] = labels_chunk
 
     # ------------------------------------------------------------------
     # Thresholding and labeling
@@ -476,10 +437,6 @@ class Label:
             mask = self.xp.zeros_like(frame, dtype=bool)
         else:
             mask = frame > frangi_thresh
-
-        # # Morphological cleanup
-        # if self.footprint is not None:
-        #     mask = self.ndi.binary_opening(mask, structure=self.footprint)
 
         # Fill holes for 3D data
         if not self.im_info.no_z:
@@ -595,7 +552,7 @@ class Label:
             if labels is not None:
                 if self.device_type == 'cuda':
                     labels = labels.get()
-                self._write_labels_for_frame(t, labels)
+                self.instance_label_memmap[t, ...] = labels
             return
 
         # Assume Z is the first axis of the per-timepoint 3D volume
@@ -663,7 +620,7 @@ class Label:
                 else:
                     prev_boundary = None
 
-                self._write_labels_chunk(t, z_start, z_end, labels_chunk)
+                self.instance_label_memmap[t, z_start:z_end, ...] = labels_chunk
                 relabel_chunk_z = current_chunk if relabel_chunk_z is None else min(
                     relabel_chunk_z, current_chunk
                 )
@@ -702,7 +659,8 @@ class Label:
             if self.viewer is not None:
                 self.viewer.status = f'Extracting organelles. Frame: {t + 1} of {self.num_t}.'
 
-            original_view, frangi_view = self._get_frame_views(t)
+            original_view = self.im_memmap[t, ...]
+            frangi_view = self.frangi_memmap[t, ...]
             intensity_thresh, frangi_thresh = self._compute_frame_thresholds(original_view, frangi_view)
 
             if self.chunk_z is not None and not self.im_info.no_z:
@@ -726,7 +684,7 @@ class Label:
                 if labels is not None:
                     if self.device_type == 'cuda':
                         labels = labels.get()
-                    self._write_labels_for_frame(t, labels)
+                    self.instance_label_memmap[t, ...] = labels
 
             if (t + 1) % self.flush_interval == 0:
                 self.instance_label_memmap.flush()
@@ -758,7 +716,6 @@ class Label:
             try:
                 self._set_backend(dev)
                 self._set_low_memory(low)
-                self._get_t()
                 self._allocate_memory()
                 self._run_segmentation()
                 return
@@ -776,14 +733,3 @@ class Label:
                     continue
                 raise
         raise last_exc
-
-
-if __name__ == "__main__":
-    im_path = r"F:\2024_06_26_SD_ExM_nhs_u2OS_488+578_cropped.tif"
-    im_info = ImInfo(
-        im_path,
-        dim_res={'T': 1, 'Z': 0.2, 'Y': 0.1, 'X': 0.1},
-        dimension_order='ZYX'
-    )
-    segment_unique = Label(im_info)
-    segment_unique.run()
