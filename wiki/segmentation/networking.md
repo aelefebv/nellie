@@ -33,7 +33,7 @@ Topology — branches, junctions, tips — is what enables network metrics (leng
 
 - **Skeletonization runs on CPU only** (skimage). The GPU path is only for neighborhood / CC ops. Don't expect end-to-end GPU here.
 - **Per-stage device choreography is uneven.** Stages 1–3 (skeletonize, clean, patch) and stage 6 (per-object EDT) are forced CPU. Only stages 4–5 (`_get_pixel_class`, `_get_branch_skel_labels`) take the GPU path, and only when `device_type == "cuda" and not low_memory`. Setting `device="gpu"` does not move the heavy stages off CPU.
-- **Frame-level OOM fallback is separate from `run()`'s cascade.** `_run_frame` catches GPU OOM mid-pipeline, calls `_switch_to_cpu()`, and retries that frame. After this fires, all subsequent frames run on CPU for the rest of the call — there's no switch back.
+- **Frame-level OOM fallback is separate from `run()`'s cascade.** `_run_frame` catches GPU OOM mid-pipeline, calls `self._set_backend("cpu")`, and retries that frame. After this fires, all subsequent frames run on CPU for the rest of the call — there's no switch back.
 - **Low-memory mode swaps in chunked variants** (`_remove_connected_label_pixels_chunked`, `_get_pixel_class_chunked`) that tile via `_iter_chunks` with a 1-voxel halo, then trim. Chunking is per-stage, not pipeline-wide.
 - **`_remove_connected_label_pixels` deletes skel voxels touching multiple object IDs** (vectorized via min/max filters). Boundary voxels are intentionally preserved.
 - **`_add_missing_skeleton_labels` guarantees every label has ≥1 skel voxel.** Without this, small/thin objects vanish from the skeleton; the fallback plants one voxel at the Frangi maximum within the label.
