@@ -10,7 +10,7 @@ Unresolved decisions, design questions, or known unknowns surfaced by the wiki s
 ## Open
 
 - **macOS hard-pinned to CPU** in `nellie/__init__.py` — the MPS branch is commented out. Will Apple Silicon GPU support be revived? See [[gpu-runtime]].
-- **`_clean_junctions` in `segmentation/networking.py` is dead code** — defined but never called from the main path. Remove or wire up? See [[networking]].
+- **`_clean_junctions` in `segmentation/networking.py` is dead code** — defined but never called from the main path. **Scoped to Slice 2 (cleanups) of the upcoming Network PRD**, which mirrors PRD #70's three-slice shape (tests → cleanups → backend hoist). Bundled with the other Network dead-code findings from the recent dechaos pass: `_local_max_peak` + the LoG/sigma machinery, the `__main__` block, and the unreachable `force_cpu=False` branch of `_remove_connected_label_pixels`. See [[networking]].
 - **`SettingsConfig` round-trip in the [[settings|napari settings widget]] is dead code today** — preset save/load not wired. Ship or remove?
 - **Hu-moment cost weighting is unjustified in code** — z-scored sum of distance + stats + Hu blocks with no learned weights or rationale committed. Document the heuristic or replace? See [[hu-tracking]].
 - **`flow_interpolation.py __main__` block has a `self.im_info` typo bug** — uses `self` outside a class. Remove or fix. See [[flow-interpolation]].
