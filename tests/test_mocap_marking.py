@@ -30,10 +30,10 @@ Pins the wiki-documented invariants on both the 3D and 2D paths:
   ``im_marker_memmap.shape != self.shape and im_info.no_t``; the
   ``im_marker_memmap[t] = ...`` path fires otherwise
 
-The cross-frame state mutation in ``_run_frame``'s inner OOM cascade is
-**deliberately not pinned** here — Slice 3 of PRD #84 deletes that
-cascade entirely (resolved decision #2 in the dechaos report), so a test
-that pinned the mutation would force its own deletion in Slice 3.
+Slice 3 of PRD #84 deleted the inner per-frame OOM cascade entirely
+(resolved decision #2 in the dechaos report). OOM is now handled
+exclusively by the outer ``adaptive_run.mode_candidates`` cascade in
+``run()``. No test in this file pins the inner cascade behavior.
 
 The Frangi and Label memmaps that ``Markers`` consumes are precomputed
 once per session by ``conftest.frangi_*_path`` / ``conftest.label_*_path``;
@@ -248,9 +248,9 @@ def test_input_memmaps_not_mutated_3d(make_markers_imageinfo_3d) -> None:
 def test_empty_mask_short_circuits_to_zero_outputs(make_markers_imageinfo_3d) -> None:
     """All-zero label volume → all-zero ``marker`` / ``distance`` / ``border`` (no error).
 
-    ``_run_frame_impl`` (line 663) checks ``not xp_mod.any(mask_frame)``
-    and returns zero arrays without invoking the distance transform or
-    LoG pipeline. Pins the wiki-documented short-circuit.
+    ``_run_frame`` checks ``not xp_mod.any(mask_frame)`` and returns
+    zero arrays without invoking the distance transform or LoG
+    pipeline. Pins the wiki-documented short-circuit.
     """
     info = make_markers_imageinfo_3d()
     label_path = info.pipeline_paths["im_instance_label"]

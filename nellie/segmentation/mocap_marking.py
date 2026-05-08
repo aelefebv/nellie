@@ -11,7 +11,6 @@ Notes
 """
 import itertools
 import numpy as np
-from scipy import ndimage as sp_ndi  # CPU ndimage backend
 
 from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
@@ -135,7 +134,7 @@ class Markers:
         self.viewer = viewer
 
         self.device = adaptive_run.normalize_device(device)
-        self.xp, self.ndi, self.device_type = self._resolve_backend(self.device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
 
         # Morphological NMS radius
         self.peak_min_distance = peak_min_distance
@@ -148,45 +147,6 @@ class Markers:
     # -------------------------------------------------------------------------
     # Backend helpers
     # -------------------------------------------------------------------------
-    def _resolve_backend(self, device):
-        device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
-
-        if device in ("gpu", "cuda"):
-            xp_mod, ndi_mod = self._try_import_cupy(require=True)
-            return xp_mod, ndi_mod, "cuda"
-        if device == "cpu":
-            return np, sp_ndi, "cpu"
-
-        xp_mod, ndi_mod = self._try_import_cupy(require=False)
-        if xp_mod is not None:
-            return xp_mod, ndi_mod, "cuda"
-        return np, sp_ndi, "cpu"
-
-    def _try_import_cupy(self, require):
-        try:
-            import cupy
-            import cupyx.scipy.ndimage as ndi_mod
-        except ModuleNotFoundError as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
-            return None, None
-
-        try:
-            device_count = cupy.cuda.runtime.getDeviceCount()
-        except Exception as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
-            return None, None
-
-        if device_count <= 0:
-            if require:
-                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
-            return None, None
-
-        return cupy, ndi_mod
-
     def _to_cpu(self, arr):
         """Convert an array (xp or numpy) to a numpy.ndarray."""
         if isinstance(arr, np.ndarray):
@@ -202,36 +162,10 @@ class Markers:
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
-
-    def _is_oom_error(self, exc):
-        if isinstance(exc, MemoryError):
-            return True
-        if self.device_type != "cuda":
-            return False
-        try:
-            import cupy
-
-            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
-        except Exception:
-            return "OutOfMemory" in repr(exc)
-
-    def _free_gpu_memory(self):
-        if self.device_type != "cuda":
-            return
-        try:
-            self.xp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            return
-
-    def _switch_to_cpu(self):
-        self.xp = np
-        self.ndi = sp_ndi
-        self.device_type = "cpu"
-        self.device = "cpu"
 
     def _compute_chunk_shape(self, shape, max_chunk_voxels):
         if max_chunk_voxels is None or max_chunk_voxels <= 0:
@@ -602,13 +536,17 @@ class Markers:
 
         return xp_mod.concatenate(coords_list, axis=0)
 
-    def _run_frame_impl(self, t, low_memory=False, chunk_voxels=None):
+    def _run_frame(self, t):
         """
-        Internal implementation of marker detection for a single timepoint.
+        Runs marker detection for a single timepoint in the image.
 
-        This is called by _run_frame, which wraps it in GPU OOM handling.
+        OOM is not handled here; the outer ``run()`` cascade in
+        ``adaptive_run.mode_candidates`` retries the whole stage with
+        the next ``(device, low_memory)`` candidate when this raises.
         """
         xp_mod = self.xp
+        low_memory = bool(self.low_memory)
+        chunk_voxels = self.max_chunk_voxels if low_memory else None
         logger.info(f'Running motion capture marking, volume {t}/{self.num_t - 1}')
 
         # Load intensity and mask for this frame into the current backend
@@ -658,53 +596,6 @@ class Markers:
         border_mask = self._to_cpu(border_mask_backend).astype(np.uint8, copy=False)
 
         return marker, distance_im, border_mask
-
-    def _run_frame(self, t):
-        """
-        Runs marker detection for a single timepoint in the image with GPU OOM fallback.
-        """
-        low_memory = bool(self.low_memory)
-        chunk_voxels = self.max_chunk_voxels if low_memory else None
-        while True:
-            try:
-                return self._run_frame_impl(t, low_memory=low_memory, chunk_voxels=chunk_voxels)
-            except Exception as exc:
-                if not self._is_oom_error(exc):
-                    raise
-
-                self._free_gpu_memory()
-
-                if not low_memory:
-                    logger.warning(
-                        "Memory error encountered on frame %d (%s). "
-                        "Retrying with low-memory chunking.",
-                        t, str(exc)
-                    )
-                    low_memory = True
-                    self.low_memory = True
-                    chunk_voxels = self.max_chunk_voxels
-                    continue
-
-                if chunk_voxels is None or chunk_voxels <= 1:
-                    if self.device_type == "cuda":
-                        logger.warning(
-                            "Memory error on GPU frame %d (%s). "
-                            "Switching to CPU backend for remaining frames.",
-                            t, str(exc)
-                        )
-                        self._switch_to_cpu()
-                        low_memory = True
-                        chunk_voxels = self.max_chunk_voxels
-                        continue
-                    raise
-
-                chunk_voxels = max(1, int(chunk_voxels // 2))
-                self.max_chunk_voxels = chunk_voxels
-                logger.warning(
-                    "Memory error on frame %d (%s). "
-                    "Reducing chunk size to %d voxels and retrying.",
-                    t, str(exc), chunk_voxels
-                )
 
     def _run_mocap_marking(self):
         """
