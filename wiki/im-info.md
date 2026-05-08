@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Image metadata (`im_info`)
@@ -34,7 +34,8 @@ Normalizes heterogeneous microscopy file metadata (axes, pixel sizes, time inter
 - **TIFF tags without `ResolutionUnit` assume microns.** No warning.
 - **ND2 with one timepoint yields `T=None`** (not 0). Downstream code special-cases this.
 - **Mis-ordered axes are trusted from the source library** (`tifffile.series[0].axes`, `nd2.sizes`); fix via `change_axes()` if wrong. `_normalize_time_axis` will silently prepend `T` when shape has one extra leading singleton dim.
-- **`output_naming="detailed"` bakes resolutions into filenames** (with `.`→`p`), so re-running with edited `dim_res` produces a new file rather than overwriting.
+- **`output_naming="detailed"` bakes resolutions into filenames** (with `.`→`p`), so re-running with edited `dim_res` produces a new file rather than overwriting. The `"stable"` alternative keeps the original `filename_no_ext` — choose it when downstream tooling needs predictable paths across re-runs.
+- **`ImInfo` silently regenerates the OME-TIFF on load** if it's missing *or* if the cached file's axes don't include `T` (verifier.py:765–772). Caches written before the T-normalization landed get rewritten on first re-open without warning — usually fine, but means an existing `ome_output_path` mtime can shift just from constructing `ImInfo`.
 
 ## Invariants
 
@@ -53,4 +54,4 @@ Post-`ImInfo` init: in-memory array is always `T[Z]YX` with `T` first and Z abse
 
 Provenance (source axes, output axes, channel, t_start/t_end, `dim_res`) is JSON-serialized into the OME image description on save.
 
-`tests/test_verifier_metadata.py` pins the verifier behaviors.
+Verifier behaviors are **not currently pinned by tests** — the legacy `test_verifier_metadata.py` was wiped during the May 2026 test scaffold rebuild and only filtering coverage has been restored. See [[queue]].
