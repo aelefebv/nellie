@@ -133,3 +133,4 @@ nellie_output/
 docs/.DS_Store
 /outputs
 .obsidian/
+*/.obsidian
