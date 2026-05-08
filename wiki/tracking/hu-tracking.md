@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-08
 ---
 
 # Hu-moment tracking
@@ -26,7 +26,7 @@ Match [[mocap-marking|mocap markers]] across consecutive frames and write a `flo
   - **Matching** — dense pairwise cost matrix vs sparse `cKDTree`. Switched by `N_post * N_pre <= max_dense_pairs` (1e7). Sparse path is **CPU-only**.
 - **Adaptive degradation has two layers, both silent.** Inner: GPU OOM during a frame catches and retries that frame on CPU; dense ROI OOM falls to streaming; dense matching OOM falls to sparse. Outer: `run()` walks `adaptive_run.mode_candidates` over `(device, low_memory)` combos and retries the whole pipeline on each OOM. A run can degrade across both layers with only `logger.warning` to show for it.
 - **`low_memory` may be auto-enabled** by `adaptive_run.should_use_low_memory(im_info)` based on estimated memory usage — the constructor default is `False` but the actual run may force streaming ROI extraction anyway.
-- **Match-acceptance cost cutoff is a hardcoded `1.0`** in both `_find_best_matches` and the sparse path — not a constructor parameter, so changing the cost weighting in one place without changing the other will silently shift acceptance rates.
+- **Match-acceptance cost cutoff is a single module constant `_COST_CUTOFF = 1.0`** at the top of `hu_tracking.py`. Both `_find_best_matches` (dense) and `_match_frames_sparse` (sparse) reference the same constant, so the dense/sparse acceptance rates can no longer drift apart. `test_cost_cutoff_pinned_in_both_paths` is the authoritative spec — bumping the constant flips both paths atomically. Lifting to a constructor arg is deferred to the cross-stage `HuMomentTrackingConfig` slice; there is no documented tuning use case today.
 - **`_find_best_matches` returns the union of row-min and col-min candidates** (not Hungarian), so a target can appear in multiple pairs and downstream code sees duplicates.
 - **Hu moment 7 (mirror invariance) is intentionally omitted.**
 - **3D ROIs are reduced via 3-axis max projection then stacked into 18 features** (not a true 3D moment).

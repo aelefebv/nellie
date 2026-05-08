@@ -23,6 +23,13 @@ except Exception:  # ImportError or others
     GPU_OOM_ERRORS = ()
 
 
+# Single source of truth for the match-acceptance cost cutoff used in BOTH the
+# dense (``_find_best_matches``) and sparse (``_match_frames_sparse``) paths.
+# Pinned by ``test_cost_cutoff_pinned_in_both_paths``; lifting to a constructor
+# arg is deferred to the cross-stage HuMomentTrackingConfig slice.
+_COST_CUTOFF = 1.0
+
+
 @dataclass
 class _FrameFeatures:
     """Internal container for per-frame features."""
@@ -113,21 +120,18 @@ class HuMomentTracking:
             logger.warning("Time resolution missing; assuming 1.0s for max_distance_um scaling.")
         self.max_distance_um = max(max_distance_um * dt, 0.5)
 
-        self.shape = ()
-
         self.im_memmap = None
         self.im_frangi_memmap = None
         self.im_distance_memmap = None
         self.im_marker_memmap = None
         self.flow_vector_array_path = None
 
-        self.debug = None
         self.viewer = viewer
 
-        # Backend / device info
-        self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
-        self._on_gpu = self.device_type == "cuda"
+        # Backend / device info — normalize aliases ("cuda" → "gpu") at the
+        # constructor edge so downstream code only sees "auto" | "cpu" | "gpu".
+        self.device = adaptive_run.normalize_device(device)
+        self.xp, self.ndi, self.device_type = self._resolve_backend(self.device)
 
         # Matching / ROI mode tuning
         self.mode = mode  # "auto", "dense", "sparse"
@@ -183,7 +187,7 @@ class HuMomentTracking:
     def _is_oom_error(self, exc):
         if isinstance(exc, MemoryError):
             return True
-        if not self._on_gpu:
+        if self.device_type != "cuda":
             return False
         try:
             import cupy
@@ -192,7 +196,7 @@ class HuMomentTracking:
         return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
 
     def _free_gpu_memory(self):
-        if not self._on_gpu:
+        if self.device_type != "cuda":
             return
         try:
             self.xp.get_default_memory_pool().free_all_blocks()
@@ -203,18 +207,16 @@ class HuMomentTracking:
         self.xp = np
         self.ndi = sp_ndi
         self.device_type = "cpu"
-        self._on_gpu = False
 
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
         self.xp, self.ndi, self.device_type = self._resolve_backend(device)
-        self._on_gpu = self.device_type == "cuda"
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
 
-    def _to_cpu_array(self, arr):
+    def _to_cpu(self, arr):
         if isinstance(arr, np.ndarray):
             return arr
         if hasattr(arr, "get"):
@@ -492,14 +494,6 @@ class HuMomentTracking:
     # Meta / memory allocation
     # -------------------------------------------------------------------------
 
-    def _get_t(self):
-        """Determines the number of timepoints to process."""
-        if self.num_t is None:
-            if self.im_info.no_t:
-                self.num_t = 1
-            else:
-                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
-
     def _allocate_memory(self):
         """
         Allocates memory / memmaps for the necessary image data.
@@ -545,10 +539,6 @@ class HuMomentTracking:
         hu_moments = xp.concatenate((hu_moments_z, hu_moments_y, hu_moments_x), axis=1)
         return hu_moments
 
-    def _concatenate_hu_matrices(self, hu_matrices):
-        """Concatenates multiple feature matrices along the feature axis."""
-        return self.xp.concatenate(hu_matrices, axis=1)
-
     # -------------------------------------------------------------------------
     # Per-frame feature extraction (stats + Hu + coordinates)
     # -------------------------------------------------------------------------
@@ -573,7 +563,7 @@ class HuMomentTracking:
         try:
             return self._get_frame_features_impl(t)
         except GPU_OOM_ERRORS + (MemoryError,) as exc:
-            if self._on_gpu and self._is_oom_error(exc):
+            if self.device_type == "cuda" and self._is_oom_error(exc):
                 logger.warning(
                     f"Frame {t}: GPU OOM during feature extraction; switching to CPU."
                 )
@@ -636,7 +626,11 @@ class HuMomentTracking:
         dim = 2 if self.im_info.no_z else 3
         voxels_per_roi = max_radius ** dim
         total_voxels = int(num_markers * voxels_per_roi)
-        dense_limit = self.max_dense_roi_voxels_gpu if self._on_gpu else self.max_dense_roi_voxels_cpu
+        dense_limit = (
+            self.max_dense_roi_voxels_gpu
+            if self.device_type == "cuda"
+            else self.max_dense_roi_voxels_cpu
+        )
         use_dense = total_voxels <= dense_limit
         if self.low_memory:
             use_dense = False
@@ -659,14 +653,14 @@ class HuMomentTracking:
 
                 intensity_stats = self._calculate_mean_and_variance(intensity_sub_volumes)
                 frangi_stats = self._calculate_mean_and_variance(frangi_sub_volumes)
-                stats_feature_matrix = self._concatenate_hu_matrices([intensity_stats, frangi_stats])
+                stats_feature_matrix = xp.concatenate([intensity_stats, frangi_stats], axis=1)
 
                 intensity_hus = self._get_hu_moments(intensity_sub_volumes)
                 log_hu_feature_matrix = self._log_hu(intensity_hus)
 
                 del intensity_sub_volumes, frangi_sub_volumes, intensity_stats, frangi_stats, intensity_hus
             except GPU_OOM_ERRORS + (MemoryError,) as exc:
-                if self._on_gpu and self._is_oom_error(exc):
+                if self.device_type == "cuda" and self._is_oom_error(exc):
                     self._free_gpu_memory()
                 logger.warning(
                     f"Frame {t}: dense ROI extraction OOM; falling back to streaming ROI extraction."
@@ -770,7 +764,7 @@ class HuMomentTracking:
         if coords_post_phys.size == 0 or coords_pre_phys.size == 0:
             return xp.zeros((0, 0), dtype=xp.float32), xp.zeros((0, 0), dtype=bool)
 
-        if self._on_gpu:
+        if self.device_type == "cuda":
             A = xp.asarray(coords_post_phys)
             B = xp.asarray(coords_pre_phys)
             diff = A[:, None, :] - B[None, :, :]
@@ -906,8 +900,6 @@ class HuMomentTracking:
         if cost_matrix.size == 0:
             return [], [], []
 
-        cost_cutoff = 1.0
-
         # Row-wise minima
         row_min_idx = xp.argmin(cost_matrix, axis=1)
         row_min_val = xp.min(cost_matrix, axis=1)
@@ -923,7 +915,7 @@ class HuMomentTracking:
         # Row candidates
         for i, (r_idx, r_val) in enumerate(zip(row_min_idx, row_min_val)):
             val = float(r_val)
-            if val > cost_cutoff:
+            if val > _COST_CUTOFF:
                 continue
             row_matches.append(int(i))
             col_matches.append(int(r_idx))
@@ -932,7 +924,7 @@ class HuMomentTracking:
         # Column candidates
         for j, (c_idx, c_val) in enumerate(zip(col_min_idx, col_min_val)):
             val = float(c_val)
-            if val > cost_cutoff:
+            if val > _COST_CUTOFF:
                 continue
             row_matches.append(int(c_idx))
             col_matches.append(int(j))
@@ -1030,8 +1022,6 @@ class HuMomentTracking:
         col_min_val = np.full(n_pre, np.inf, dtype=np.float32)
         col_min_idx = np.full(n_pre, -1, dtype=np.int64)
 
-        cost_cutoff = 1.0
-
         for i_post, pre_list in enumerate(candidates_per_row):
             if not pre_list:
                 continue
@@ -1051,7 +1041,7 @@ class HuMomentTracking:
             z_hu = (hu_diff - mean_hu) / std_hu
 
             cost = z_dist + np.mean(z_stats, axis=1) + np.mean(z_hu, axis=1)
-            valid_mask = cost <= cost_cutoff
+            valid_mask = cost <= _COST_CUTOFF
             if not np.any(valid_mask):
                 continue
 
@@ -1080,14 +1070,14 @@ class HuMomentTracking:
 
         # Row-based candidates
         for i_post, (j_pre, c) in enumerate(zip(row_min_idx, row_min_val)):
-            if j_pre >= 0 and c <= cost_cutoff:
+            if j_pre >= 0 and c <= _COST_CUTOFF:
                 row_matches.append(int(i_post))
                 col_matches.append(int(j_pre))
                 costs.append(float(c))
 
         # Column-based candidates
         for j_pre, (i_post, c) in enumerate(zip(col_min_idx, col_min_val)):
-            if i_post >= 0 and c <= cost_cutoff:
+            if i_post >= 0 and c <= _COST_CUTOFF:
                 row_matches.append(int(i_post))
                 col_matches.append(int(j_pre))
                 costs.append(float(c))
@@ -1103,16 +1093,16 @@ class HuMomentTracking:
         hu_vecs = frame_t.hu
         pre_hu_vecs = frame_prev.hu
 
-        if self._on_gpu:
+        if self.device_type == "cuda":
             stats_vecs = self.xp.asarray(stats_vecs)
             pre_stats_vecs = self.xp.asarray(pre_stats_vecs)
             hu_vecs = self.xp.asarray(hu_vecs)
             pre_hu_vecs = self.xp.asarray(pre_hu_vecs)
         else:
-            stats_vecs = self._to_cpu_array(stats_vecs)
-            pre_stats_vecs = self._to_cpu_array(pre_stats_vecs)
-            hu_vecs = self._to_cpu_array(hu_vecs)
-            pre_hu_vecs = self._to_cpu_array(pre_hu_vecs)
+            stats_vecs = self._to_cpu(stats_vecs)
+            pre_stats_vecs = self._to_cpu(pre_stats_vecs)
+            hu_vecs = self._to_cpu(hu_vecs)
+            pre_hu_vecs = self._to_cpu(pre_hu_vecs)
 
         n_post = stats_vecs.shape[0]
         n_pre = pre_stats_vecs.shape[0]
@@ -1138,7 +1128,7 @@ class HuMomentTracking:
                 )
                 return self._find_best_matches(cost_matrix)
             except GPU_OOM_ERRORS + (MemoryError,) as exc:
-                if self._on_gpu and self._is_oom_error(exc):
+                if self.device_type == "cuda" and self._is_oom_error(exc):
                     logger.warning(
                         "Dense matching OOM; switching to CPU and falling back to sparse KDTree matching."
                     )
@@ -1262,7 +1252,6 @@ class HuMomentTracking:
             try:
                 self._set_backend(dev)
                 self._set_low_memory(low)
-                self._get_t()
                 self._allocate_memory()
                 self._run_hu_tracking()
                 return
@@ -1280,10 +1269,3 @@ class HuMomentTracking:
                     continue
                 raise
         raise last_exc
-
-
-if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
-    im_info = ImInfo(im_path)
-    hu = HuMomentTracking(im_info, num_t=2)
-    hu.run()
