@@ -18,6 +18,14 @@ The cascade extends one more layer for Network: ``label_*_path``
 fixtures run Filter+Label once per session and expose the resulting
 ``im_instance_label`` memmap path; ``make_network_imageinfo_*``
 per-test factories copy in BOTH the Frangi and Label memmaps.
+
+Markers piggybacks on the same Filter+Label session caches:
+``make_markers_imageinfo_*`` per-test factories copy in BOTH the Frangi
+and Label memmaps unconditionally. Markers' inputs are a strict subset
+of Network's (raw + Frangi only when ``use_im='frangi'`` + Label always),
+but copying both memmaps lets a single factory shape serve both
+``use_im='distance'`` and ``use_im='frangi'`` tests without
+re-parametrizing.
 """
 
 from __future__ import annotations
@@ -352,5 +360,110 @@ def make_network_imageinfo_2d_module(
     """Module-scoped variant of :func:`make_network_imageinfo_2d`."""
     workdir = tmp_path_factory.mktemp("network_2d_module")
     return _make_network_imageinfo_factory(
+        workdir, FIXTURE_2D_PATH, frangi_2d_path, label_2d_path
+    )
+
+
+# ------------------------------------------------------------------
+# Markers-input fixtures (per-test + module-scoped) for
+# ``Markers`` characterization tests.
+# ------------------------------------------------------------------
+
+
+def _make_markers_imageinfo_factory(
+    tmp_path: Path,
+    source_image: Path,
+    frangi_source: Path,
+    label_source: Path,
+):
+    """Build a factory that produces fresh ImInfos with both Frangi and Label memmaps pre-populated.
+
+    Mirrors :func:`_make_network_imageinfo_factory` exactly. Markers'
+    inputs are a strict subset of Network's: raw image (already
+    populated by ``_build_iminfo``), ``im_instance_label`` (always),
+    and ``im_preprocessed`` (only when ``use_im='frangi'``). Copying
+    both memmaps unconditionally lets a single factory shape serve
+    both ``use_im`` modes without re-parametrizing.
+
+    Each call:
+      1. Copies the raw source image into a fresh subdirectory.
+      2. Constructs an ImInfo (which sets up `pipeline_paths`).
+      3. Copies the precomputed Frangi memmap into ``im_preprocessed``.
+      4. Copies the precomputed Label memmap into ``im_instance_label``.
+
+    The returned ImInfo is ready for ``Markers(info)`` without re-running
+    Filter or Label.
+    """
+    counter = {"n": 0}
+
+    def _factory() -> ImInfo:
+        counter["n"] += 1
+        sub = tmp_path / f"markers_info_{counter['n']}"
+        sub.mkdir()
+        info = _build_iminfo(source_image, sub)
+        for src, key in (
+            (frangi_source, "im_preprocessed"),
+            (label_source, "im_instance_label"),
+        ):
+            dst = Path(info.pipeline_paths[key])
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, dst)
+        return info
+
+    return _factory
+
+
+@pytest.fixture
+def make_markers_imageinfo_3d(
+    tmp_path: Path, frangi_3d_path: Path, label_3d_path: Path
+):
+    """Factory: per-test 3D ImInfo with both Frangi and Label memmaps copied in.
+
+    Each call returns an ImInfo with isolated ``im_marker`` /
+    ``im_distance`` / ``im_border`` paths, so multiple Markers runs in
+    one test do not collide.
+    """
+    return _make_markers_imageinfo_factory(
+        tmp_path, FIXTURE_3D_PATH, frangi_3d_path, label_3d_path
+    )
+
+
+@pytest.fixture
+def make_markers_imageinfo_2d(
+    tmp_path: Path, frangi_2d_path: Path, label_2d_path: Path
+):
+    """Factory: per-test 2D ImInfo with both Frangi and Label memmaps copied in."""
+    return _make_markers_imageinfo_factory(
+        tmp_path, FIXTURE_2D_PATH, frangi_2d_path, label_2d_path
+    )
+
+
+@pytest.fixture(scope="module")
+def make_markers_imageinfo_3d_module(
+    tmp_path_factory: pytest.TempPathFactory,
+    frangi_3d_path: Path,
+    label_3d_path: Path,
+):
+    """Module-scoped variant of :func:`make_markers_imageinfo_3d`.
+
+    Provides a factory whose ImInfos persist for the lifetime of the
+    test module. Use this when a module-scoped Markers-output fixture
+    needs a stable workdir.
+    """
+    workdir = tmp_path_factory.mktemp("markers_3d_module")
+    return _make_markers_imageinfo_factory(
+        workdir, FIXTURE_3D_PATH, frangi_3d_path, label_3d_path
+    )
+
+
+@pytest.fixture(scope="module")
+def make_markers_imageinfo_2d_module(
+    tmp_path_factory: pytest.TempPathFactory,
+    frangi_2d_path: Path,
+    label_2d_path: Path,
+):
+    """Module-scoped variant of :func:`make_markers_imageinfo_2d`."""
+    workdir = tmp_path_factory.mktemp("markers_2d_module")
+    return _make_markers_imageinfo_factory(
         workdir, FIXTURE_2D_PATH, frangi_2d_path, label_2d_path
     )
