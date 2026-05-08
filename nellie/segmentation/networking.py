@@ -6,9 +6,7 @@ and analyzing their topology with optimized CPU/GPU processing.
 """
 import itertools
 import numpy as np
-import skimage.measure
 import skimage.morphology as morph
-from scipy.spatial import cKDTree
 from scipy import ndimage as ndi_cpu
 
 from nellie.utils import adaptive_run
@@ -84,19 +82,12 @@ class Network:
         else:
             self.scaling = (im_info.dim_res['Z'], im_info.dim_res['Y'], im_info.dim_res['X'])
 
-        self.shape = ()
-
         self.im_memmap = None
         self.im_frangi_memmap = None
         self.label_memmap = None
-        self.network_memmap = None  # kept for compatibility, not used
         self.pixel_class_memmap = None
         self.skel_memmap = None
         self.skel_relabelled_memmap = None
-
-        self.sigmas = None
-
-        self.debug = None
 
         self.viewer = viewer
 
@@ -104,11 +95,9 @@ class Network:
     # Helper methods for device handling
     # -------------------------------------------------------------------------
     def _resolve_backend(self, device):
-        device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+        device = adaptive_run.normalize_device(device)
 
-        if device in ("gpu", "cuda"):
+        if device == "gpu":
             xp, ndi = self._try_import_cupy(require=True)
             return xp, ndi, "cuda"
         if device == "cpu":
@@ -231,32 +220,20 @@ class Network:
     # -------------------------------------------------------------------------
     # Neighborhood-based skeleton cleanup
     # -------------------------------------------------------------------------
-    def _remove_connected_label_pixels(self, skel_labels, force_cpu: bool = False):
+    def _remove_connected_label_pixels(self, skel_labels):
         """
         Removes skeleton pixels that are connected to multiple labeled regions.
 
-        This vectorized implementation replaces the original per-pixel Python loop
-        with min/max filters over 3x3 (2D) or 3x3x3 (3D) neighborhoods.
+        Always runs on CPU: the sole pipeline caller (``_run_frame_backend``)
+        feeds CPU arrays in, and the vectorized 3×3(×3) min/max neighborhood
+        filters are inexpensive enough on CPU that the GPU branch was never
+        worth exercising. The chunked low-memory variant is retained for
+        peak-memory control on very large frames.
         """
-        if force_cpu:
-            labels_np = np.asarray(skel_labels)
-            if self.low_memory:
-                return self._remove_connected_label_pixels_chunked(labels_np)
-            return self._remove_connected_label_pixels_impl(labels_np, np, ndi_cpu)
-
-        labels_xp = self._to_xp(skel_labels)
+        labels_np = np.asarray(skel_labels)
         if self.low_memory:
-            labels_np = self._to_cpu(labels_xp)
             return self._remove_connected_label_pixels_chunked(labels_np)
-
-        try:
-            return self._remove_connected_label_pixels_impl(labels_xp, self.xp, self.ndi)
-        except Exception as exc:
-            if not self._is_oom_error(exc):
-                raise
-            self._free_gpu_memory()
-            labels_np = self._to_cpu(labels_xp)
-            return self._remove_connected_label_pixels_chunked(labels_np)
+        return self._remove_connected_label_pixels_impl(labels_np, np, ndi_cpu)
 
     def _remove_connected_label_pixels_impl(self, labels, xp, ndi):
         mask = labels > 0
@@ -448,38 +425,6 @@ class Network:
         return skel_out
 
     # -------------------------------------------------------------------------
-    # Sigma management for multi-scale filters
-    # -------------------------------------------------------------------------
-    def _get_sigma_vec(self, sigma):
-        """
-        Computes the sigma vector for multi-scale filtering based on image dimensions.
-        """
-        if self.im_info.no_z:
-            sigma_vec = (sigma, sigma)
-        else:
-            sigma_vec = (sigma / self.z_ratio, sigma, sigma)
-        return sigma_vec
-
-    def _set_default_sigmas(self):
-        """
-        Sets the default sigma values for multi-scale filtering based on the
-        minimum and maximum radius in pixels.
-        """
-        logger.debug('Setting sigma values for multi-scale filters.')
-        min_sigma_step_size = 0.2
-        num_sigma = 5
-
-        self.sigma_min = self.min_radius_px / 2
-        self.sigma_max = self.max_radius_px / 3
-
-        sigma_step_size_calculated = (self.sigma_max - self.sigma_min) / num_sigma
-        sigma_step_size = max(min_sigma_step_size, sigma_step_size_calculated)
-
-        # Use numpy here; sigma values are small and do not need GPU.
-        self.sigmas = np.arange(self.sigma_min, self.sigma_max, sigma_step_size).tolist()
-        logger.debug(f'Calculated sigma step size = {sigma_step_size_calculated}. Sigmas = {self.sigmas}')
-
-    # -------------------------------------------------------------------------
     # Branch relabeling using per-object distance transforms
     # -------------------------------------------------------------------------
     def _relabel_objects(self, branch_skel_labels, label_frame):
@@ -577,58 +522,6 @@ class Network:
         return relabelled_np
 
     # -------------------------------------------------------------------------
-    # Multi-scale peak detection with reduced memory footprint
-    # -------------------------------------------------------------------------
-    def _local_max_peak(self, frame, mask):
-        """
-        Detects local maxima using multi-scale Laplacian of Gaussian filtering.
-
-        This implementation is memory-friendly: instead of allocating a full
-        (num_sigma, *frame.shape) array, it keeps track of the best response
-        per voxel across scales.
-
-        Parameters
-        ----------
-        frame : xp.ndarray or numpy.ndarray
-            Input image.
-        mask : xp.ndarray or numpy.ndarray
-            Binary mask for regions of interest.
-
-        Returns
-        -------
-        xp.ndarray
-            Coordinates of detected local maxima.
-        """
-        if self.sigmas is None:
-            self._set_default_sigmas()
-
-        frame_xp = self._to_xp(frame)
-        mask_xp = self._to_xp(mask).astype(bool)
-
-        ndim = frame_xp.ndim
-        footprint = self.xp.ones((3,) * ndim)
-
-        best_response = self.xp.zeros_like(frame_xp, dtype=float)
-        peak_mask = self.xp.zeros_like(frame_xp, dtype=bool)
-
-        for s in self.sigmas:
-            sigma_vec = self._get_sigma_vec(float(s))
-
-            current = -self.ndi.gaussian_laplace(frame_xp, sigma_vec)
-            current *= (float(s) ** 2)
-            current *= mask_xp
-            current = self.xp.where(current < 0, 0, current)
-
-            max_local = self.ndi.maximum_filter(current, footprint=footprint, mode="nearest")
-            is_peak = (current == max_local) & (current > best_response) & (current > 0)
-
-            best_response = self.xp.where(is_peak, current, best_response)
-            peak_mask = peak_mask | is_peak
-
-        coords_3d = self.xp.argwhere(peak_mask)
-        return coords_3d
-
-    # -------------------------------------------------------------------------
     # Skeleton pixel classification
     # -------------------------------------------------------------------------
     def _get_pixel_class(self, skel, force_cpu: bool = False):
@@ -701,19 +594,6 @@ class Network:
             out[core] = core_sum.astype(np.uint8, copy=False)
 
         return out
-
-    # -------------------------------------------------------------------------
-    # Time dimension handling
-    # -------------------------------------------------------------------------
-    def _get_t(self):
-        """
-        Determines the number of timepoints to process.
-        """
-        if self.num_t is None:
-            if self.im_info.no_t:
-                self.num_t = 1
-            else:
-                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
 
     # -------------------------------------------------------------------------
     # Memory allocation for outputs
@@ -831,7 +711,7 @@ class Network:
         frangi_frame_cpu = np.asarray(self.im_frangi_memmap[t])
 
         skel_frame = self._skeletonize(label_frame_cpu)
-        skel_clean = self._remove_connected_label_pixels(skel_frame, force_cpu=True)
+        skel_clean = self._remove_connected_label_pixels(skel_frame)
         skel_clean = self._add_missing_skeleton_labels(
             skel_clean, label_frame_cpu, frangi_frame_cpu
         )
@@ -849,52 +729,6 @@ class Network:
         branch_labels = self._relabel_objects(branch_skel_labels, label_frame_cpu)
 
         return branch_skel_labels, pixel_class, branch_labels
-
-    # -------------------------------------------------------------------------
-    # Optional junction cleanup
-    # -------------------------------------------------------------------------
-    def _clean_junctions(self, pixel_class):
-        """
-        Cleans up junctions by removing closely spaced junction pixels.
-
-        This method uses regionprops to group junction pixels and keeps only the
-        pixel closest to the junction centroid as a junction, converting the
-        others to branch pixels.
-
-        Parameters
-        ----------
-        pixel_class : numpy.ndarray or xp.ndarray
-            Pixel classification of skeleton points.
-
-        Returns
-        -------
-        numpy.ndarray
-            Cleaned pixel classification with redundant junctions removed.
-        """
-        pc_np = self._to_cpu(pixel_class).copy()
-
-        junctions = pc_np == 4
-        if not junctions.any():
-            return pc_np
-
-        junction_labels = skimage.measure.label(junctions)
-        junction_objects = skimage.measure.regionprops(junction_labels)
-        junction_centroids = [obj.centroid for obj in junction_objects]
-
-        for junction_num, junction in enumerate(junction_objects):
-            coords = junction.coords
-            if len(coords) < 2:
-                continue
-            # Use KD-tree to find closest pixel to centroid
-            junction_tree = cKDTree(coords)
-            _, nearest_idx = junction_tree.query(junction_centroids[junction_num], k=1, workers=-1)
-            # Convert all other pixels in this junction component to branch class (3)
-            coords_list = coords.tolist()
-            coords_list.pop(nearest_idx)
-            coords_arr = np.array(coords_list).T
-            pc_np[tuple(coords_arr)] = 3
-
-        return pc_np
 
     # -------------------------------------------------------------------------
     # Full networking pipeline
@@ -957,7 +791,6 @@ class Network:
             try:
                 self._set_backend(dev)
                 self._set_low_memory(low)
-                self._get_t()
                 self._allocate_memory()
                 self._run_networking()
                 return
@@ -975,10 +808,3 @@ class Network:
                     continue
                 raise
         raise last_exc
-
-
-if __name__ == "__main__":
-    im_path = r"D:\\test_files\\nelly_tests\\deskewed-2023-07-13_14-58-28_000_wt_0_acquire.ome.tif"
-    im_info = ImInfo(im_path)
-    skel = Network(im_info, num_t=3)
-    skel.run()

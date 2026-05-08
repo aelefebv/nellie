@@ -84,7 +84,6 @@ def _build_cpu_network(info: ImInfo, **kwargs) -> Network:
     net = Network(info, num_t=2, **kwargs)
     net._set_backend("cpu")
     net._set_low_memory(kwargs.get("low_memory", False))
-    net._get_t()
     net._allocate_memory()
     return net
 
