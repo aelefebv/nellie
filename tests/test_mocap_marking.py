@@ -564,6 +564,7 @@ def test_single_frame_shape_branch_both_paths(tmp_path: Path) -> None:
 
     # Default _allocate_memory yields shape-matched memmaps (after
     # _normalize_memmap re-pads), so the else branch fires.
+    assert m_t.im_marker_memmap is not None
     assert m_t.im_marker_memmap.shape == m_t.shape, (
         "Test setup error: default memmap shape should match m.shape"
     )
