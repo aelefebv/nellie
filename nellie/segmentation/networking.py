@@ -59,7 +59,7 @@ class Network:
 
         self.im_info = im_info
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
         self.force_device = device is not None and device.lower() in ("cpu", "gpu", "cuda")
         self.low_memory = low_memory
         self.max_chunk_voxels = int(max_chunk_voxels)
@@ -94,79 +94,10 @@ class Network:
     # -------------------------------------------------------------------------
     # Helper methods for device handling
     # -------------------------------------------------------------------------
-    def _resolve_backend(self, device):
-        device = adaptive_run.normalize_device(device)
-
-        if device == "gpu":
-            xp, ndi = self._try_import_cupy(require=True)
-            return xp, ndi, "cuda"
-        if device == "cpu":
-            import numpy as np
-            import scipy.ndimage as ndi
-            return np, ndi, "cpu"
-
-        xp, ndi = self._try_import_cupy(require=False)
-        if xp is not None:
-            return xp, ndi, "cuda"
-        import numpy as np
-        import scipy.ndimage as ndi
-        return np, ndi, "cpu"
-
-    def _try_import_cupy(self, require):
-        try:
-            import cupy
-            import cupyx.scipy.ndimage as ndi
-        except ModuleNotFoundError as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
-            return None, None
-
-        try:
-            device_count = cupy.cuda.runtime.getDeviceCount()
-        except Exception as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
-            return None, None
-
-        if device_count <= 0:
-            if require:
-                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
-            return None, None
-
-        return cupy, ndi
-
-    def _is_oom_error(self, exc):
-        if isinstance(exc, MemoryError):
-            return True
-        if self.device_type != "cuda":
-            return False
-        try:
-            import cupy
-
-            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
-        except Exception:
-            return "OutOfMemory" in repr(exc)
-
-    def _free_gpu_memory(self):
-        if self.device_type != "cuda":
-            return
-        try:
-            self.xp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            return
-
-    def _switch_to_cpu(self):
-        import numpy as np
-        import scipy.ndimage as ndi
-
-        self.xp = np
-        self.ndi = ndi
-        self.device_type = "cpu"
-
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
         self.force_device = device in ("cpu", "gpu")
 
     def _set_low_memory(self, low_memory):
@@ -553,9 +484,9 @@ class Network:
         try:
             return self._get_pixel_class_impl(skel_xp, self.xp, self.ndi)
         except Exception as exc:
-            if not self._is_oom_error(exc):
+            if not adaptive_run.is_oom_error(exc):
                 raise
-            self._free_gpu_memory()
+            adaptive_run.free_gpu_memory(self.xp)
             skel_np = self._to_cpu(skel_xp)
             return self._get_pixel_class_chunked(skel_np)
 
@@ -670,9 +601,9 @@ class Network:
         try:
             non_junction_labels, _ = self.ndi.label(non_junctions, structure=structure)
         except Exception as exc:
-            if not self._is_oom_error(exc):
+            if not adaptive_run.is_oom_error(exc):
                 raise
-            self._free_gpu_memory()
+            adaptive_run.free_gpu_memory(self.xp)
             return self._get_branch_skel_labels(self._to_cpu(pc_xp), force_cpu=True)
         return non_junction_labels
 
@@ -698,11 +629,11 @@ class Network:
         try:
             return self._run_frame_backend(t)
         except Exception as exc:
-            if self.device_type != "cuda" or not self._is_oom_error(exc):
+            if self.device_type != "cuda" or not adaptive_run.is_oom_error(exc):
                 raise
             logger.warning("GPU OOM in networking; falling back to CPU for this frame.")
-            self._free_gpu_memory()
-            self._switch_to_cpu()
+            adaptive_run.free_gpu_memory(self.xp)
+            self._set_backend("cpu")
             return self._run_frame_backend(t)
 
     def _run_frame_backend(self, t):
