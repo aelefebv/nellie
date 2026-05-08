@@ -70,7 +70,7 @@ class Label:
         """
         self.im_info = im_info
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
@@ -113,76 +113,10 @@ class Label:
         self.footprint = None
         self._set_footprint()
 
-    def _resolve_backend(self, device):
-        device = adaptive_run.normalize_device(device)
-
-        if device == "gpu":
-            xp, ndi = self._try_import_cupy(require=True)
-            return xp, ndi, "cuda"
-        if device == "cpu":
-            import scipy.ndimage as ndi
-            return np, ndi, "cpu"
-
-        xp, ndi = self._try_import_cupy(require=False)
-        if xp is not None:
-            return xp, ndi, "cuda"
-        import scipy.ndimage as ndi
-        return np, ndi, "cpu"
-
-    def _try_import_cupy(self, require):
-        try:
-            import cupy
-            import cupyx.scipy.ndimage as ndi
-        except ModuleNotFoundError as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
-            return None, None
-
-        try:
-            device_count = cupy.cuda.runtime.getDeviceCount()
-        except Exception as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
-            return None, None
-
-        if device_count <= 0:
-            if require:
-                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
-            return None, None
-
-        return cupy, ndi
-
-    def _is_oom_error(self, exc):
-        if isinstance(exc, MemoryError):
-            return True
-        if self.device_type != "cuda":
-            return False
-        try:
-            import cupy
-            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
-        except Exception:
-            return "OutOfMemory" in repr(exc)
-
-    def _free_gpu_memory(self):
-        if self.device_type != "cuda":
-            return
-        try:
-            self.xp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            return
-
-    def _switch_to_cpu(self):
-        import scipy.ndimage as ndi
-
-        self.xp = np
-        self.ndi = ndi
-        self.device_type = "cpu"
-        self._set_footprint()
-
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
         self._set_footprint()
 
     def _set_low_memory(self, low_memory):
@@ -512,8 +446,8 @@ class Label:
             _, labels = self._get_labels(frangi_in_mem, frangi_thresh=frangi_thresh)
             return labels
         except Exception as exc:
-            if self._is_oom_error(exc) and self.device_type == "cuda":
-                self._free_gpu_memory()
+            if adaptive_run.is_oom_error(exc) and self.device_type == "cuda":
+                adaptive_run.free_gpu_memory(self.xp)
                 if not self.im_info.no_z:
                     logger.warning(
                         "CUDA OOM during full-volume labeling; "
@@ -529,7 +463,7 @@ class Label:
                     )
                     return None
                 logger.warning("CUDA OOM during full-volume labeling; switching to CPU.")
-                self._switch_to_cpu()
+                self._set_backend("cpu")
                 return self._run_frame_full_volume(
                     t,
                     original_view,
@@ -627,8 +561,8 @@ class Label:
 
                 z_start = z_end  # advance to next chunk
             except Exception as exc:
-                if self._is_oom_error(exc):
-                    self._free_gpu_memory()
+                if adaptive_run.is_oom_error(exc):
+                    adaptive_run.free_gpu_memory(self.xp)
                     if current_chunk > 1:
                         current_chunk = max(current_chunk // 2, 1)
                         logger.warning(
@@ -638,7 +572,7 @@ class Label:
                         continue
                     if self.device_type == "cuda":
                         logger.warning('OOM even with chunk_z=1; switching to CPU.')
-                        self._switch_to_cpu()
+                        self._set_backend("cpu")
                         continue
                     logger.error('OOM even with chunk_z=1 on CPU; aborting.')
                     raise
