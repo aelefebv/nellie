@@ -111,17 +111,16 @@ class Markers:
         elif num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
-        x_res = self.im_info.dim_res['X']
         if not self.im_info.no_z:
-            self.z_ratio = float(self.im_info.dim_res['Z']) / float(x_res)
+            self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
         else:
             self.z_ratio = 1.0
 
-        self.min_radius_um = max(min_radius_um, float(x_res))
+        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
         self.max_radius_um = max_radius_um
 
-        self.min_radius_px = self.min_radius_um / float(x_res)
-        self.max_radius_px = self.max_radius_um / float(x_res)
+        self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
+        self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']
 
         self.use_im = use_im
         self.num_sigma = num_sigma
