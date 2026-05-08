@@ -302,6 +302,7 @@ def test_remove_connected_label_pixels_full_vs_chunked_equivalence_3d(
     """
     info = make_network_imageinfo_3d()
     net = _build_cpu_network(info, low_memory=False, max_chunk_voxels=50_000)
+    assert net.label_memmap is not None  # populated by _allocate_memory in helper
     label_frame = np.asarray(net.label_memmap[0]).copy()
     skel_frame = net._skeletonize(label_frame)
 
@@ -409,7 +410,7 @@ def test_relabel_objects_uses_anisotropic_sampling_3d(
     # Override scaling to the test-specific anisotropic spacing. The
     # constructor pulls ``self.scaling`` from ``im_info.dim_res``;
     # overriding here drives the EDT sampling argument.
-    net.scaling = (4.0, 1.0, 1.0)
+    net.scaling = (4.0, 1.0, 1.0)  # type: ignore[assignment]
 
     label_frame = np.ones((3, 6, 3), dtype=np.int32)
     branch_skel_labels = np.zeros((3, 6, 3), dtype=np.int32)
