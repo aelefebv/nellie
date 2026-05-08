@@ -595,7 +595,6 @@ def test_dense_vs_sparse_match_set_equivalence(tmp_path: Path) -> None:
 
     h.ndi = sp_ndi
     h.device_type = "cpu"
-    h._on_gpu = False
     h.max_dense_pairs = int(1e12)
     h.max_dense_roi_voxels_cpu = int(1e12)
     h.max_dense_roi_voxels_gpu = int(1e12)
@@ -815,15 +814,14 @@ def test_cascade_a_per_frame_oom_mutates_device_type(
     This pins the PRE-Slice-3 contract for the per-frame inner OOM
     cascade (``hu_tracking.py:572-583``). On GPU OOM during feature
     extraction, ``_get_frame_features`` calls ``self._switch_to_cpu()``
-    which mutates ``self.xp`` / ``self.ndi`` / ``self.device_type`` /
-    ``self._on_gpu`` for the rest of the run.
+    which mutates ``self.xp`` / ``self.ndi`` / ``self.device_type``
+    for the rest of the run.
 
     CI has no GPU, so we simulate GPU state by direct attribute
-    assignment AFTER construction (``hu._on_gpu = True``,
-    ``hu.device_type = "cuda"``). The monkeypatched
-    ``_get_frame_features_impl`` raises ``MemoryError`` exactly once
-    on the second call (the first frame succeeds normally), then
-    delegates to the real implementation.
+    assignment AFTER construction (``hu.device_type = "cuda"``). The
+    monkeypatched ``_get_frame_features_impl`` raises ``MemoryError``
+    exactly once on the second call (the first frame succeeds
+    normally), then delegates to the real implementation.
 
     **Slice 3 (#94) will DELETE this test entirely** — the per-frame
     cascade is going away (resolved decision #1, dechaos report);
@@ -833,9 +831,8 @@ def test_cascade_a_per_frame_oom_mutates_device_type(
     info = make_hu_imageinfo_3d()
     h = HuMomentTracking(info, num_t=2, device="cpu")
 
-    # Simulate GPU state so the inner cascade's `if self._on_gpu`
-    # guard fires (line 576) and `_switch_to_cpu()` mutates state.
-    h._on_gpu = True
+    # Simulate GPU state so the inner cascade's `device_type == "cuda"`
+    # guard fires (line 566) and `_switch_to_cpu()` mutates state.
     h.device_type = "cuda"
 
     real_impl = HuMomentTracking._get_frame_features_impl
@@ -861,9 +858,6 @@ def test_cascade_a_per_frame_oom_mutates_device_type(
     assert h.device_type == "cpu", (
         f"Expected Cascade A to mutate device_type to 'cpu' after OOM; "
         f"got {h.device_type!r}. Slice 3 (#94) will delete this contract."
-    )
-    assert h._on_gpu is False, (
-        "Expected Cascade A to flip _on_gpu to False after OOM"
     )
 
 
@@ -891,9 +885,8 @@ def test_cascade_b_dense_match_oom_mutates_device_type(
     info = make_hu_imageinfo_3d()
     h = HuMomentTracking(info, num_t=2, device="cpu", mode="dense")
 
-    # Simulate GPU state so the inner cascade's `if self._on_gpu`
-    # guard fires (line 1141) and `_switch_to_cpu()` mutates state.
-    h._on_gpu = True
+    # Simulate GPU state so the inner cascade's `device_type == "cuda"`
+    # guard fires (line 1131) and `_switch_to_cpu()` mutates state.
     h.device_type = "cuda"
 
     real_get_cost = HuMomentTracking._get_cost_matrix
@@ -915,7 +908,4 @@ def test_cascade_b_dense_match_oom_mutates_device_type(
     assert h.device_type == "cpu", (
         f"Expected Cascade B to mutate device_type to 'cpu' after dense OOM; "
         f"got {h.device_type!r}. Slice 3 (#94) will invert this contract."
-    )
-    assert h._on_gpu is False, (
-        "Expected Cascade B to flip _on_gpu to False after dense OOM"
     )
