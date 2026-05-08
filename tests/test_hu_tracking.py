@@ -771,9 +771,7 @@ class _StubViewer:
         self.status_writes.append(value)
 
 
-def test_viewer_status_callback(
-    make_hu_imageinfo_2d, make_hu_imageinfo_2d_module
-) -> None:
+def test_viewer_status_callback(make_hu_imageinfo_2d) -> None:
     """``viewer.status`` is set once per frame; ``viewer=None`` is a no-op.
 
     The viewer-update branch in ``_run_hu_tracking`` (lines 1170-1171)
