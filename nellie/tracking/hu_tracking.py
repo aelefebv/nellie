@@ -5,7 +5,6 @@ This module provides the HuMomentTracking class for tracking objects using
 Hu moment invariants and optical flow interpolation.
 """
 import numpy as np
-import scipy.ndimage as sp_ndi
 from dataclasses import dataclass
 from scipy.spatial.distance import cdist
 from scipy.spatial import cKDTree
@@ -14,13 +13,6 @@ from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
 
 from nellie.im_info.verifier import ImInfo
-
-# Optional: GPU OOM handling (safe if CuPy is not installed)
-try:
-    import cupy  # type: ignore
-    GPU_OOM_ERRORS = (cupy.cuda.memory.OutOfMemoryError,)
-except Exception:  # ImportError or others
-    GPU_OOM_ERRORS = ()
 
 
 # Single source of truth for the match-acceptance cost cutoff used in BOTH the
@@ -131,7 +123,7 @@ class HuMomentTracking:
         # Backend / device info — normalize aliases ("cuda" → "gpu") at the
         # constructor edge so downstream code only sees "auto" | "cpu" | "gpu".
         self.device = adaptive_run.normalize_device(device)
-        self.xp, self.ndi, self.device_type = self._resolve_backend(self.device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
 
         # Matching / ROI mode tuning
         self.mode = mode  # "auto", "dense", "sparse"
@@ -144,74 +136,10 @@ class HuMomentTracking:
     # Backend helpers
     # -------------------------------------------------------------------------
 
-    def _resolve_backend(self, device):
-        device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
-
-        if device in ("gpu", "cuda"):
-            xp_mod, ndi_mod = self._try_import_cupy(require=True)
-            return xp_mod, ndi_mod, "cuda"
-        if device == "cpu":
-            return np, sp_ndi, "cpu"
-
-        # auto
-        xp_mod, ndi_mod = self._try_import_cupy(require=False)
-        if xp_mod is not None:
-            return xp_mod, ndi_mod, "cuda"
-        return np, sp_ndi, "cpu"
-
-    def _try_import_cupy(self, require):
-        try:
-            import cupy
-            import cupyx.scipy.ndimage as ndi_mod
-        except ModuleNotFoundError as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
-            return None, None
-
-        try:
-            device_count = cupy.cuda.runtime.getDeviceCount()
-        except Exception as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
-            return None, None
-
-        if device_count <= 0:
-            if require:
-                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
-            return None, None
-
-        return cupy, ndi_mod
-
-    def _is_oom_error(self, exc):
-        if isinstance(exc, MemoryError):
-            return True
-        if self.device_type != "cuda":
-            return False
-        try:
-            import cupy
-        except Exception:
-            return "OutOfMemory" in repr(exc)
-        return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
-
-    def _free_gpu_memory(self):
-        if self.device_type != "cuda":
-            return
-        try:
-            self.xp.get_default_memory_pool().free_all_blocks()
-        except Exception:
-            return
-
-    def _switch_to_cpu(self):
-        self.xp = np
-        self.ndi = sp_ndi
-        self.device_type = "cpu"
-
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -548,8 +476,10 @@ class HuMomentTracking:
         Extracts all features (mean, variance, Hu moments) and coordinates for a given timepoint.
 
         This method adaptively chooses between dense/batched ROI extraction and
-        streaming per-ROI extraction depending on estimated memory usage and
-        optionally falls back if dense extraction runs out of memory.
+        streaming per-ROI extraction depending on estimated memory usage. The
+        per-frame OOM cascade was removed in Slice 3 of #91 — on per-frame OOM,
+        the exception now propagates to the outer ``adaptive_run.mode_candidates``
+        cascade in ``run()``.
 
         Parameters
         ----------
@@ -560,19 +490,6 @@ class HuMomentTracking:
         -------
         _FrameFeatures
         """
-        try:
-            return self._get_frame_features_impl(t)
-        except GPU_OOM_ERRORS + (MemoryError,) as exc:
-            if self.device_type == "cuda" and self._is_oom_error(exc):
-                logger.warning(
-                    f"Frame {t}: GPU OOM during feature extraction; switching to CPU."
-                )
-                self._free_gpu_memory()
-                self._switch_to_cpu()
-                return self._get_frame_features_impl(t)
-            raise
-
-    def _get_frame_features_impl(self, t) -> _FrameFeatures:
         xp = self.xp
         ndi = self.ndi
 
@@ -659,9 +576,11 @@ class HuMomentTracking:
                 log_hu_feature_matrix = self._log_hu(intensity_hus)
 
                 del intensity_sub_volumes, frangi_sub_volumes, intensity_stats, frangi_stats, intensity_hus
-            except GPU_OOM_ERRORS + (MemoryError,) as exc:
-                if self.device_type == "cuda" and self._is_oom_error(exc):
-                    self._free_gpu_memory()
+            except Exception as exc:
+                if not adaptive_run.is_oom_error(exc):
+                    raise
+                if self.device_type == "cuda":
+                    adaptive_run.free_gpu_memory(self.xp)
                 logger.warning(
                     f"Frame {t}: dense ROI extraction OOM; falling back to streaming ROI extraction."
                 )
@@ -1127,17 +1046,16 @@ class HuMomentTracking:
                     stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs
                 )
                 return self._find_best_matches(cost_matrix)
-            except GPU_OOM_ERRORS + (MemoryError,) as exc:
-                if self.device_type == "cuda" and self._is_oom_error(exc):
-                    logger.warning(
-                        "Dense matching OOM; switching to CPU and falling back to sparse KDTree matching."
-                    )
-                    self._free_gpu_memory()
-                    self._switch_to_cpu()
-                else:
-                    logger.warning(
-                        "Dense matching OOM; falling back to sparse KDTree matching."
-                    )
+            except Exception as exc:
+                if not adaptive_run.is_oom_error(exc):
+                    raise
+                # Sparse path is CPU-only on the matching axis; later frames'
+                # feature extraction can still benefit from GPU. Free the pool
+                # before sparse runs but do NOT mutate self.device_type.
+                adaptive_run.free_gpu_memory(self.xp)
+                logger.warning(
+                    "Dense matching OOM; falling back to sparse KDTree matching."
+                )
 
         # Sparse fallback or forced sparse mode
         return self._match_frames_sparse(
