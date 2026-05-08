@@ -48,20 +48,19 @@ Pins the wiki-documented invariants on both the 3D and 2D paths:
 - ``viewer.status`` callback: no-op when ``viewer=None``; called once
   per frame when ``viewer`` is a stub.
 
-- **Architecture characterization (PRE-Slice 3 contract — these will be
-  rewritten in Slice 3)**:
-  - Cascade A (``_get_frame_features_impl`` per-frame OOM): a
-    ``MemoryError`` raised once during feature extraction triggers
-    ``_switch_to_cpu()`` and mutates ``self.device_type`` to ``"cpu"``
-    for the rest of the run. Slice 3 (#94) will DELETE this cascade
-    entirely; the test will be removed.
-  - Cascade B (``_match_frames`` dense → sparse fallback OOM): a
-    ``MemoryError`` raised once during cost-matrix computation
-    triggers ``_switch_to_cpu()`` and mutates ``self.device_type`` to
-    ``"cpu"`` for the rest of the run. Slice 3 (#94) will INVERT this
-    test — the new contract is that ``self.device_type`` should be
-    UNCHANGED after the dense → sparse fallback (sparse is CPU-only on
-    the matching axis but should not mutate the backend wholesale).
+- **Architecture characterization (POST-Slice 3 contract)**:
+  - Cascade A (per-frame ``_get_frame_features`` OOM) was DELETED in
+    Slice 3 of #91. On per-frame OOM, the exception now propagates to
+    the outer ``adaptive_run.mode_candidates`` cascade in ``run()``,
+    which retries the whole stage with the next ``(device, low_memory)``
+    candidate. The Slice 1 characterization test for this cascade was
+    removed when the wrapper went away.
+  - Cascade B (``_match_frames`` dense → sparse fallback OOM) survives
+    BUT no longer mutates ``self.device_type``. A ``MemoryError`` raised
+    once during cost-matrix computation falls through to the sparse
+    KDTree matcher (sparse is CPU-only on the matching axis), but later
+    frames keep their original backend — feature extraction for
+    subsequent frames can still run on GPU.
 
 The Markers ``im_marker`` / ``im_distance`` memmaps that
 ``HuMomentTracking`` consumes are precomputed once per session by
@@ -806,94 +805,46 @@ def test_viewer_status_callback(make_hu_imageinfo_2d) -> None:
 # -------------------------------------------------------------------------
 
 
-def test_cascade_a_per_frame_oom_mutates_device_type(
+def test_cascade_b_dense_match_oom_does_not_mutate_device_type(
     make_hu_imageinfo_3d, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cascade A: per-frame ``_get_frame_features_impl`` OOM mutates ``self.device_type``.
+    """Cascade B: ``_match_frames`` dense → sparse OOM does NOT mutate ``self.device_type``.
 
-    This pins the PRE-Slice-3 contract for the per-frame inner OOM
-    cascade (``hu_tracking.py:572-583``). On GPU OOM during feature
-    extraction, ``_get_frame_features`` calls ``self._switch_to_cpu()``
-    which mutates ``self.xp`` / ``self.ndi`` / ``self.device_type``
-    for the rest of the run.
-
-    CI has no GPU, so we simulate GPU state by direct attribute
-    assignment AFTER construction (``hu.device_type = "cuda"``). The
-    monkeypatched ``_get_frame_features_impl`` raises ``MemoryError``
-    exactly once on the second call (the first frame succeeds
-    normally), then delegates to the real implementation.
-
-    **Slice 3 (#94) will DELETE this test entirely** — the per-frame
-    cascade is going away (resolved decision #1, dechaos report);
-    OOM will propagate to the outer ``adaptive_run.mode_candidates``
-    cascade in ``run()`` instead.
-    """
-    info = make_hu_imageinfo_3d()
-    h = HuMomentTracking(info, num_t=2, device="cpu")
-
-    # Simulate GPU state so the inner cascade's `device_type == "cuda"`
-    # guard fires (line 566) and `_switch_to_cpu()` mutates state.
-    h.device_type = "cuda"
-
-    real_impl = HuMomentTracking._get_frame_features_impl
-    state = {"raised": False, "calls": 0}
-
-    def flaky_impl(self, t):
-        state["calls"] += 1
-        # Allow frame 0 to succeed normally; raise once on frame 1.
-        if state["calls"] == 2 and not state["raised"]:
-            state["raised"] = True
-            raise MemoryError("simulated per-frame OOM (Cascade A)")
-        return real_impl(self, t)
-
-    monkeypatch.setattr(
-        HuMomentTracking, "_get_frame_features_impl", flaky_impl
-    )
-    h.run()
-    _release_hu(h)
-
-    assert state["raised"], (
-        "Test setup error: synthetic MemoryError was never raised"
-    )
-    assert h.device_type == "cpu", (
-        f"Expected Cascade A to mutate device_type to 'cpu' after OOM; "
-        f"got {h.device_type!r}. Slice 3 (#94) will delete this contract."
-    )
-
-
-def test_cascade_b_dense_match_oom_mutates_device_type(
-    make_hu_imageinfo_3d, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Cascade B: ``_match_frames`` dense → sparse OOM mutates ``self.device_type``.
-
-    This pins the PRE-Slice-3 contract for the matching inner OOM
-    cascade (``hu_tracking.py:1140-1146``). On GPU OOM during the
-    dense cost-matrix computation, ``_match_frames`` calls
-    ``self._switch_to_cpu()`` then falls through to the sparse
-    KDTree-based matcher; the backend mutation persists across all
-    later frames.
+    This pins the POST-Slice-3 contract for the matching inner OOM
+    cascade. On GPU OOM during the dense cost-matrix computation,
+    ``_match_frames`` falls through to the sparse KDTree-based matcher
+    but no longer calls ``self._switch_to_cpu()`` — later frames keep
+    their original backend (sparse is CPU-only on the matching axis
+    only; feature extraction for subsequent frames can still run on GPU).
 
     CI has no GPU, so we simulate GPU state by direct attribute
-    assignment AFTER construction. The monkeypatched
-    ``_get_cost_matrix`` raises ``MemoryError`` once.
+    assignment from inside the flaky monkeypatch — the outer
+    ``adaptive_run.mode_candidates`` cascade in ``run()`` calls
+    ``_set_backend("cpu")`` first, which would clobber any device_type
+    set on the constructor. We snapshot ``self.device_type`` from
+    inside the flaky callback (right before raising), then assert the
+    same value persists across the OOM and the sparse fallback.
 
-    **Slice 3 (#94) will INVERT this test** — the new contract is
-    that the dense → sparse fallback should NOT mutate
-    ``self.device_type`` (the matching axis is CPU-only by design,
-    but later frames should keep their original backend).
+    Slice 3 of #91 inverted this from the PRE-Slice-3 contract (which
+    asserted ``self.device_type == "cpu"``). The outer
+    ``adaptive_run.mode_candidates`` cascade in ``run()`` is now the
+    single source of truth for backend switching; inner cascades log,
+    free GPU memory, and fall back algorithmically without touching
+    ``self.xp`` / ``self.ndi`` / ``self.device_type``.
     """
     info = make_hu_imageinfo_3d()
     h = HuMomentTracking(info, num_t=2, device="cpu", mode="dense")
 
-    # Simulate GPU state so the inner cascade's `device_type == "cuda"`
-    # guard fires (line 1131) and `_switch_to_cpu()` mutates state.
-    h.device_type = "cuda"
-
     real_get_cost = HuMomentTracking._get_cost_matrix
-    state = {"raised": False}
+    state: dict[str, object] = {"raised": False, "device_type_at_raise": None}
 
     def flaky_get_cost(self, *args, **kwargs):
         if not state["raised"]:
+            # Simulate GPU state right before the OOM so the inner
+            # cascade's behavior is exercised as it would be on a real
+            # GPU run; snapshot it so we can assert it survives.
+            self.device_type = "cuda"
+            state["device_type_at_raise"] = self.device_type
             state["raised"] = True
             raise MemoryError("simulated dense matching OOM (Cascade B)")
         return real_get_cost(self, *args, **kwargs)
@@ -905,7 +856,10 @@ def test_cascade_b_dense_match_oom_mutates_device_type(
     assert state["raised"], (
         "Test setup error: synthetic MemoryError was never raised"
     )
-    assert h.device_type == "cpu", (
-        f"Expected Cascade B to mutate device_type to 'cpu' after dense OOM; "
-        f"got {h.device_type!r}. Slice 3 (#94) will invert this contract."
+    assert h.device_type == state["device_type_at_raise"], (
+        f"Expected Cascade B to leave device_type unchanged "
+        f"({state['device_type_at_raise']!r}) after dense OOM; got "
+        f"{h.device_type!r}. Slice 3 of #91 removed the cross-frame "
+        f"backend mutation; the sparse fallback is algorithmic-only on "
+        f"the matching axis."
     )
