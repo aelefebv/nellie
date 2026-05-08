@@ -1415,6 +1415,15 @@ wheels = [
 ]
 
 [[package]]
+name = "iniconfig"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
+]
+
+[[package]]
 name = "ipykernel"
 version = "6.31.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2626,6 +2635,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+]
 docs = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
@@ -2645,10 +2657,11 @@ requires-dist = [
     { name = "ome-types" },
     { name = "packaging" },
     { name = "pandas" },
+    { name = "pytest", marker = "extra == 'dev'" },
     { name = "scikit-image" },
     { name = "scipy" },
 ]
-provides-extras = ["docs"]
+provides-extras = ["docs", "dev"]
 
 [[package]]
 name = "nest-asyncio"
@@ -3352,6 +3365,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pluggy"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
 name = "pooch"
 version = "1.8.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3924,6 +3946,24 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/46/27/47598e701d284497216bf97bf8b6a69f5e61412e716c232ff2b7e6cb2100/pyqt6_sip-13.11.1-cp312-cp312-macosx_10_9_universal2.whl", hash = "sha256:ba9d362dd1e54b43bc2594f8841e1e39d24789716d28f08e5c9282af9fca342c", size = 112564, upload-time = "2026-03-09T13:01:14.628Z" },
     { url = "https://files.pythonhosted.org/packages/ee/0b/dc76c463c203e630b2c6417d4d5e337e919a265ac1c10127ef413551f5de/pyqt6_sip-13.11.1-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:0c6d097aae7df312519e2b36e001bd796f6a2ce060ab8b9ed793daa8f407fe2e", size = 112552, upload-time = "2026-03-09T13:01:21.493Z" },
     { url = "https://files.pythonhosted.org/packages/20/1d/62c633faedef5bb3b8c7486a72e8a6466adaa2a14efcfccf85bb23426748/pyqt6_sip-13.11.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:cb931c1af45294bbe8039c5cfda184e3023f5dc766fc884964010eedd8fd85db", size = 112678, upload-time = "2026-03-09T13:01:28.15Z" },
+]
+
+[[package]]
+name = "pytest"
+version = "9.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
+    { name = "iniconfig" },
+    { name = "packaging" },
+    { name = "pluggy" },
+    { name = "pygments" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7d/0d/549bd94f1a0a402dc8cf64563a117c0f3765662e2e668477624baeec44d5/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c", size = 1572165, upload-time = "2026-04-07T17:16:18.027Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d4/24/a372aaf5c9b7208e7112038812994107bc65a84cd00e0354a88c2c77a617/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9", size = 375249, upload-time = "2026-04-07T17:16:16.13Z" },
 ]
 
 [[package]]
