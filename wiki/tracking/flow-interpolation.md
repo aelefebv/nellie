@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Flow interpolation
@@ -19,8 +19,10 @@ Hu tracking only matches markers; voxel reassignment and label trajectories need
 ## Gotchas
 
 - **Caches per-`current_t` KDTree.** Switching the `forward` flag mid-stream needs a fresh instance — flipping in place returns stale results.
-- **Backward mode shifts `check_coords` by the stored vector** so queries land at predicted positions (since the array stores pre-coords + forward vector).
+- **Forward looks up markers by origin; backward looks up by destination.** The stored array is `(pre-coord, forward-vector)`. Forward mode queries against marker origins at `t`; backward mode shifts origins by their vector so queries land at predicted positions at `t`. In both cases, "nearby" means "markers whose vector actually touches the query point" — this symmetry is what lets the same weighting code serve both directions.
 - **Returns NaN rows for queries with no neighbors within `max_distance_um`.** Callers must handle NaN explicitly.
+- **NaN is terminal in `interpolate_all_forward/backward`.** Once a coord's interpolated vector is all-NaN, the driver overwrites the coord with NaN and never revives it on later frames — tracks die silently mid-sequence rather than skipping a gap.
+- **`max_distance_um` is scaled by `dim_res['T']` at construction**, with a 0.5 μm floor. The constructor argument is effectively μm-per-frame, so the search radius grows with frame interval. Passing `0.5` does not give a 0.5 μm radius unless `dt == 1`.
 - **The `__main__` block has a `self.im_info` typo bug** (uses `self` outside a class). Don't run the script standalone.
 
 ## Invariants

@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Mocap marking
@@ -23,6 +23,8 @@ Detect motion-tracking anchor points (multi-scale LoG peaks) inside each label, 
 - **Distance is clamped to `2 * max_radius_px`.** Mimics the legacy KD-tree's behavior for infinities; if you remove the clamp, downstream LoG can pick up runaway peaks.
 - **Empty mask short-circuits to all-zero outputs.** No error.
 - **Low-memory chunked LoG/NMS uses `_log_halo` (= `truncate * sigma_max`) and `_nms_halo`** to keep results identical to the unchunked path. `test_mocap_marking_low_memory_matches_full_2d` pins this equivalence.
+- **Multi-scale reduction is per-pixel "best response wins", with scales streamed.** No 4D `(scale, z, y, x)` array; per sigma the scale-normalized `-LoG · σ²` is computed and a running best-response mask is updated in place. Dropping the `σ²` factor breaks cross-scale comparison (small scales dominate); stacking instead of streaming will OOM on real volumes.
+- **`_run_frame` has its own OOM cascade that mutates `self` and persists across frames.** On OOM: free GPU pool → enable `low_memory` → halve `max_chunk_voxels` → switch to CPU. Each downgrade sticks for every later frame. This runs *inside* the outer [[gpu-runtime|adaptive_run]] cascade in `run()`, which only retries by re-running the whole stage from frame 0.
 
 ## Invariants
 
