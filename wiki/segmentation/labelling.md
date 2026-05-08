@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-07
 ---
 
 # Labelling
@@ -9,23 +9,40 @@ Threshold the [[filtering|Frangi]] volume and emit per-frame instance labels (co
 
 ## Why
 
-Frangi response is continuous; tracking and features need discrete object IDs. Combining triangle and Otsu in **log10 domain** handles the heavy-tailed Frangi histogram. Intensity Otsu on the raw image optionally pre-masks before Frangi thresholding so dim-but-Frangi-positive noise gets dropped.
+Frangi response is continuous; tracking and features need discrete object IDs. Combining triangle and Otsu in **log10 domain** (taking the `min()` — the more conservative threshold) handles the heavy-tailed Frangi histogram. Intensity Otsu on the raw image optionally pre-masks before Frangi thresholding so dim-but-Frangi-positive noise gets dropped.
 
 ## Interactions
 
 - Input: raw + Frangi memmaps (both from [[im-info|ImInfo]] paths).
 - Output `im_instance_label` consumed by [[networking]], [[mocap-marking]], [[tracking/index|tracking]], and [[feature-extraction]].
 - Threshold helpers from [[gpu-runtime|gpu_functions]].
+- Outer backend/mode selection goes through [[gpu-runtime|adaptive_run]]; inner per-frame backend lifecycle (resolve, OOM detect, free, switch-to-CPU) is **reimplemented inside `Label`** rather than reusing those helpers. See gotchas below.
+
+## Adaptive backend & low-memory mode
+
+Two layers of fallback wrap the per-frame work:
+
+- **Outer (`run()`)** iterates `(device, low_memory)` candidates from `adaptive_run.mode_candidates`, re-running `_set_backend` / `_set_low_memory` / `_get_t` / `_allocate_memory` / `_run_segmentation` for each. `low_memory` may be auto-enabled at start by `adaptive_run.should_use_low_memory(im_info, ...)` even if the user didn't ask for it.
+- **Inner (per-frame)** OOM during full-volume labeling falls back to **chunked-Z with `initial_chunk = full Z`** in 3D, or to CPU in 2D. Inside the chunked-Z loop, OOM **halves `chunk_z`**; at `chunk_z=1` on CUDA it switches to CPU; at `chunk_z=1` on CPU it aborts.
+
+The two layers can interact non-obviously. An OOM the inner cascade **silently recovers from** (full→chunked, halving `chunk_z`, cuda→cpu) never reaches the outer `run()` retry loop. So an inner CPU switch can leave the run finishing on CPU even though the outer mode is still `gpu` — the outer loop only sees what the inner loop chose to re-raise.
+
+Chunk size: when `low_memory=True` and no explicit `chunk_z` is given, `_infer_chunk_z` derives it from `max_chunk_voxels // (Y*X)`. **Gotcha:** an explicit user `chunk_z` is stashed in `_user_chunk_z` and reapplied on every `_set_low_memory` call — toggling `low_memory` does **not** override an explicit chunk. The stash is captured *after* the `no_z` gate, however, so passing `chunk_z=...` against a 2D image silently records `None` — the user's value is dropped, not preserved for later.
 
 ## Gotchas
 
 - **Z-chunked path uses union-find to stitch label IDs across chunk boundaries** (boundary slice pair lookup), then a relabel pass renumbers densely. Only triggered when `had_merges` is true. If you tweak chunking, re-verify equivalence with the unchunked path.
-- **Min-area is the pixel area/volume of a sphere of `min_radius_um`** — not a literal pixel count. Anisotropy is honored.
+- **Threshold sampling is strided, not exhaustive.** `_sample_nonzero` strides through the flat frame at two offsets, capped at `threshold_sampling_pixels` (default 1M). Falls back to a full-array scan only if the strided pass returns nothing. Threshold values can therefore drift slightly across volumes of different sizes.
+- **Min-area is the pixel area/volume of a sphere of `min_radius_um`** — not a literal pixel count. Anisotropy is honored. **`min_radius_um` is floored at `x_res`** in the constructor; you can't ask for objects smaller than one X pixel.
+- **2D vs 3D differ inside `_get_labels`:** only 3D runs `binary_fill_holes`, and the structuring footprint is `(3,3)` vs `(3,3,3)`.
 - **A smoothing pass after pruning** (`uniform_filter` then `> 0.5`) re-runs CC, so the final label count can differ from the initial count.
-- **Label IDs are not stable across frames** — pinned by `test_label_ids_reset_per_frame`. Cross-frame identity is the job of [[voxel-reassignment]].
+- **Label IDs are not stable across frames.** Cross-frame identity is the job of [[voxel-reassignment]].
+- `flush_interval` controls how often `instance_label_memmap` is flushed during the per-frame loop (default = every frame).
+- **Backend lifecycle is duplicated.** `_resolve_backend`, `_try_import_cupy`, `_is_oom_error`, `_free_gpu_memory`, and `_switch_to_cpu` re-implement what [[gpu-runtime|`adaptive_run`]] already exposes, and the implementations have drifted (notably `_is_oom_error` vs `adaptive_run.is_oom_error`'s string-sniffing path). Hoisting onto the canonical helpers is queued in [[queue]] ("Per-stage test bootstrap + backend hoist").
+- **`_run_frame_full_volume` returns `labels | None`; `_run_frame_chunked_z` returns `None` always.** Same shape, different meanings: `None` from full-volume signals "I already wrote chunked instead, don't write again"; `None` from chunked is just side-effect convention. Anyone replacing either method has to preserve this asymmetry or move the memmap write into the orchestrator.
 
 ## Invariants
 
 - Output is int32; background = 0; IDs dense within a frame; small components (< sphere of `min_radius_um`) are removed.
-- Mutating intensity / Frangi inputs is forbidden — `test_masking_does_not_mutate_inputs` pins this.
+- Mutating intensity / Frangi inputs is forbidden.
 - Input shape == output shape.
