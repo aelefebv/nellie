@@ -16,7 +16,7 @@ Frangi response is continuous; tracking and features need discrete object IDs. C
 - Input: raw + Frangi memmaps (both from [[im-info|ImInfo]] paths).
 - Output `im_instance_label` consumed by [[networking]], [[mocap-marking]], [[tracking/index|tracking]], and [[feature-extraction]].
 - Threshold helpers from [[gpu-runtime|gpu_functions]].
-- Outer backend/mode selection goes through [[gpu-runtime|adaptive_run]]; inner per-frame backend lifecycle (resolve, OOM detect, free, switch-to-CPU) is **reimplemented inside `Label`** rather than reusing those helpers. See gotchas below.
+- Backend selection and OOM cascade go through [[gpu-runtime|`adaptive_run`]].
 
 ## Adaptive backend & low-memory mode
 
@@ -39,7 +39,6 @@ Chunk size: when `low_memory=True` and no explicit `chunk_z` is given, `_infer_c
 - **A smoothing pass after pruning** (`uniform_filter` then `> 0.5`) re-runs CC, so the final label count can differ from the initial count.
 - **Label IDs are not stable across frames.** Cross-frame identity is the job of [[voxel-reassignment]].
 - `flush_interval` controls how often `instance_label_memmap` is flushed during the per-frame loop (default = every frame).
-- **Backend lifecycle is duplicated.** `_resolve_backend`, `_try_import_cupy`, `_is_oom_error`, `_free_gpu_memory`, and `_switch_to_cpu` re-implement what [[gpu-runtime|`adaptive_run`]] already exposes, and the implementations have drifted (notably `_is_oom_error` vs `adaptive_run.is_oom_error`'s string-sniffing path). Hoisting onto the canonical helpers is queued in [[queue]] ("Per-stage test bootstrap + backend hoist").
 - **`_run_frame_full_volume` returns `labels | None`; `_run_frame_chunked_z` returns `None` always.** Same shape, different meanings: `None` from full-volume signals "I already wrote chunked instead, don't write again"; `None` from chunked is just side-effect convention. Anyone replacing either method has to preserve this asymmetry or move the memmap write into the orchestrator.
 
 ## Invariants
