@@ -66,7 +66,6 @@ class SettingsConfig:
     mocap_max_radius_um: float
     mocap_use_im: str
     mocap_num_sigma: int
-    mocap_prefer_gpu: bool
     mocap_peak_min_distance: int
     mocap_device: str
     mocap_low_memory: bool
@@ -272,8 +271,6 @@ class Settings(QWidget):
         self.mocap_use_im.setCurrentText("distance")
 
         self.mocap_num_sigma = self._make_int_spinbox(5, min_value=1, max_value=100)
-        self.mocap_prefer_gpu = QCheckBox("Prefer GPU")
-        self.mocap_prefer_gpu.setChecked(True)
         self.mocap_peak_min_distance = self._make_int_spinbox(2, min_value=1, max_value=1000)
         self.mocap_device = self._make_device_combo("auto")
         self.mocap_low_memory = QCheckBox("Low memory")
@@ -548,7 +545,6 @@ class Settings(QWidget):
         layout.addRow("Max radius (um)", self.mocap_max_radius_um)
         layout.addRow("Use image", self.mocap_use_im)
         layout.addRow("Num sigma", self.mocap_num_sigma)
-        layout.addRow("Prefer GPU", self.mocap_prefer_gpu)
         layout.addRow("Peak min distance", self.mocap_peak_min_distance)
         layout.addRow("Device", self.mocap_device)
         layout.addRow("Low memory", self.mocap_low_memory)
@@ -698,7 +694,6 @@ class Settings(QWidget):
             mocap_max_radius_um=self.mocap_max_radius_um.value(),
             mocap_use_im=self.mocap_use_im.currentText(),
             mocap_num_sigma=self.mocap_num_sigma.value(),
-            mocap_prefer_gpu=self.mocap_prefer_gpu.isChecked(),
             mocap_peak_min_distance=self.mocap_peak_min_distance.value(),
             mocap_device=self.mocap_device.currentText(),
             mocap_low_memory=self.mocap_low_memory.isChecked(),
@@ -807,7 +802,6 @@ class Settings(QWidget):
         self.mocap_max_radius_um.setValue(config.mocap_max_radius_um)
         self.mocap_use_im.setCurrentText(config.mocap_use_im)
         self.mocap_num_sigma.setValue(config.mocap_num_sigma)
-        self.mocap_prefer_gpu.setChecked(config.mocap_prefer_gpu)
         self.mocap_peak_min_distance.setValue(config.mocap_peak_min_distance)
         self.mocap_device.setCurrentText(config.mocap_device)
         self.mocap_low_memory.setChecked(config.mocap_low_memory)
@@ -911,7 +905,6 @@ class Settings(QWidget):
             "max_radius_um": self.mocap_max_radius_um.value(),
             "use_im": self.mocap_use_im.currentText(),
             "num_sigma": self.mocap_num_sigma.value(),
-            "prefer_gpu": self.mocap_prefer_gpu.isChecked(),
             "peak_min_distance": self.mocap_peak_min_distance.value(),
             "device": self.mocap_device.currentText(),
             "low_memory": self.mocap_low_memory.isChecked(),

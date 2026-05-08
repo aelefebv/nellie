@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-08
 ---
 
 # Mocap marking
@@ -22,9 +22,10 @@ Detect motion-tracking anchor points (multi-scale LoG peaks) inside each label, 
 - **NMS is morphological max-filter** (window `2 * peak_min_distance + 1`), not KD-tree. Chosen for GPU-friendliness, not theoretical purity.
 - **Distance is clamped to `2 * max_radius_px`.** Mimics the legacy KD-tree's behavior for infinities; if you remove the clamp, downstream LoG can pick up runaway peaks.
 - **Empty mask short-circuits to all-zero outputs.** No error.
-- **Low-memory chunked LoG/NMS uses `_log_halo` (= `truncate * sigma_max`) and `_nms_halo`** to keep results identical to the unchunked path. `test_mocap_marking_low_memory_matches_full_2d` pins this equivalence.
+- **Low-memory chunked LoG/NMS uses `_log_halo` (= `truncate * sigma_max`) and `_nms_halo`** to keep results identical to the unchunked path. `test_low_memory_matches_full_2d` / `_3d` pin this equivalence.
 - **Multi-scale reduction is per-pixel "best response wins", with scales streamed.** No 4D `(scale, z, y, x)` array; per sigma the scale-normalized `-LoG · σ²` is computed and a running best-response mask is updated in place. Dropping the `σ²` factor breaks cross-scale comparison (small scales dominate); stacking instead of streaming will OOM on real volumes.
 - **`_run_frame` has its own OOM cascade that mutates `self` and persists across frames.** On OOM: free GPU pool → enable `low_memory` → halve `max_chunk_voxels` → switch to CPU. Each downgrade sticks for every later frame. This runs *inside* the outer [[gpu-runtime|adaptive_run]] cascade in `run()`, which only retries by re-running the whole stage from frame 0.
+- **`prefer_gpu` was dropped in Slice 2 of #84** (matching Network/Label/Filter); pass `device="cpu"` instead. The constructor now normalizes `device` through `adaptive_run.normalize_device` so `"cuda"` is accepted as a synonym for `"gpu"`. The constructor also indexes `dim_res['X']` / `dim_res['Z']` directly — a missing X (or Z, when the image has Z) now raises `KeyError` instead of silently falling back to a 1.0 µm scale.
 
 ## Invariants
 

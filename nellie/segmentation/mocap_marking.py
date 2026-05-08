@@ -47,8 +47,6 @@ class Markers:
         Specifies which image to use for peak detection ('distance' or 'frangi').
     num_sigma : int
         Number of sigma steps for multi-scale filtering.
-    shape : tuple
-        Shape of the input image.
     im_memmap : np.ndarray or None
         Memory-mapped original image data.
     im_frangi_memmap : np.ndarray or None
@@ -61,8 +59,6 @@ class Markers:
         Memory-mapped output for distance transform.
     im_border_memmap : np.ndarray or None
         Memory-mapped output for image borders.
-    debug : dict or None
-        Debugging information for tracking the marking process.
     viewer : object or None
         Viewer object for displaying status during processing.
     device : {"auto", "cpu", "gpu"}
@@ -71,15 +67,13 @@ class Markers:
         If True, prefer chunked LoG and NMS to reduce peak memory at the cost of speed.
     max_chunk_voxels : int
         Maximum voxels per chunk when low-memory mode is used.
-    use_gpu : bool
-        Whether to use the GPU backend (if available). Automatically set to False on GPU OOM.
     peak_min_distance : int
         Minimum separation (in pixels) between peaks in morphological NMS.
     """
 
     def __init__(self, im_info: ImInfo, num_t=None,
                  min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5,
-                 viewer=None, prefer_gpu=True, peak_min_distance=2,
+                 viewer=None, peak_min_distance=2,
                  device="auto", low_memory=False, max_chunk_voxels=int(1e6)):
         """
         Initializes the Markers object with image metadata and marking parameters.
@@ -100,8 +94,6 @@ class Markers:
             Number of sigma steps for multi-scale filtering (default is 5).
         viewer : object or None, optional
             Viewer object for displaying status during processing (default is None).
-        prefer_gpu : bool, optional
-            Whether to prefer GPU backend when available (default is True).
         peak_min_distance : int, optional
             Minimum distance (in pixels) between peaks for NMS (default is 2).
         device : {"auto", "cpu", "gpu"}, optional
@@ -119,10 +111,9 @@ class Markers:
         elif num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
-        x_res = self.im_info.dim_res.get('X') or 1.0
-        z_res = self.im_info.dim_res.get('Z') or x_res
+        x_res = self.im_info.dim_res['X']
         if not self.im_info.no_z:
-            self.z_ratio = float(z_res) / float(x_res)
+            self.z_ratio = float(self.im_info.dim_res['Z']) / float(x_res)
         else:
             self.z_ratio = 1.0
 
@@ -134,9 +125,6 @@ class Markers:
 
         self.use_im = use_im
         self.num_sigma = num_sigma
-        self.sigmas = []
-
-        self.shape = ()
 
         self.im_memmap = None
         self.im_frangi_memmap = None
@@ -145,16 +133,10 @@ class Markers:
         self.im_distance_memmap = None
         self.im_border_memmap = None
 
-        self.debug = None
-
         self.viewer = viewer
 
-        # Backend selection; prefer_gpu only affects "auto".
-        if (device or "auto").lower() == "auto" and not prefer_gpu:
-            device = "cpu"
-        self.device = device or "auto"
-        self._xp, self._ndi, self.device_type = self._resolve_backend(self.device)
-        self.use_gpu = self.device_type == "cuda"
+        self.device = adaptive_run.normalize_device(device)
+        self.xp, self.ndi, self.device_type = self._resolve_backend(self.device)
 
         # Morphological NMS radius
         self.peak_min_distance = peak_min_distance
@@ -167,16 +149,6 @@ class Markers:
     # -------------------------------------------------------------------------
     # Backend helpers
     # -------------------------------------------------------------------------
-    @property
-    def xp(self):
-        """Array module for the current backend."""
-        return self._xp
-
-    @property
-    def ndi_backend(self):
-        """Ndimage backend for the current backend."""
-        return self._ndi
-
     def _resolve_backend(self, device):
         device = (device or "auto").lower()
         if device not in ("auto", "cpu", "gpu", "cuda"):
@@ -222,7 +194,7 @@ class Markers:
             return arr
         # Try xp.asnumpy if available (e.g. cupy), otherwise fall back to np.asarray
         try:
-            asnumpy = self._xp.asnumpy
+            asnumpy = self.xp.asnumpy
         except AttributeError:
             return np.asarray(arr)
         else:
@@ -231,8 +203,7 @@ class Markers:
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self._xp, self._ndi, self.device_type = self._resolve_backend(device)
-        self.use_gpu = self.device_type == "cuda"
+        self.xp, self.ndi, self.device_type = self._resolve_backend(device)
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -253,15 +224,14 @@ class Markers:
         if self.device_type != "cuda":
             return
         try:
-            self._xp.get_default_memory_pool().free_all_blocks()
+            self.xp.get_default_memory_pool().free_all_blocks()
         except Exception:
             return
 
     def _switch_to_cpu(self):
-        self._xp = np
-        self._ndi = sp_ndi
+        self.xp = np
+        self.ndi = sp_ndi
         self.device_type = "cpu"
-        self.use_gpu = False
         self.device = "cpu"
 
     def _compute_chunk_shape(self, shape, max_chunk_voxels):
@@ -361,18 +331,6 @@ class Markers:
             self.sigmas = [self.sigma_min]
             logger.warning("No sigma values generated; falling back to a single sigma=%f.", self.sigma_min)
 
-    def _get_t(self):
-        """
-        Determines the number of timepoints to process.
-
-        If `num_t` is not set and the image contains a temporal dimension, it sets `num_t` to the number of timepoints.
-        """
-        if self.num_t is None:
-            if self.im_info.no_t:
-                self.num_t = 1
-            else:
-                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
-
     def _allocate_memory(self):
         """
         Allocates memory for motion capture markers, distance transform, and border images.
@@ -434,7 +392,7 @@ class Markers:
             (dilation(mask) XOR mask), with no overlap with the original mask.
         """
         xp_mod = self.xp
-        ndi_mod = self.ndi_backend
+        ndi_mod = self.ndi
 
         # Border mask: outside shell from one-pixel dilation minus original mask
         border_mask = ndi_mod.binary_dilation(mask, iterations=1) ^ mask
@@ -476,7 +434,7 @@ class Markers:
             return self._local_max_peak_chunked(use_im, mask, distance_im, chunk_voxels)
 
         xp_mod = self.xp
-        ndi_mod = self.ndi_backend
+        ndi_mod = self.ndi
 
         # Valid pixels: inside the object mask and with positive distance
         valid_mask = mask & (distance_im > 0)
@@ -512,7 +470,7 @@ class Markers:
 
     def _local_max_peak_chunked(self, use_im, mask, distance_im, chunk_voxels):
         xp_mod = self.xp
-        ndi_mod = self.ndi_backend
+        ndi_mod = self.ndi
 
         shape = use_im.shape
         chunk_shape = self._compute_chunk_shape(shape, chunk_voxels or self.max_chunk_voxels)
@@ -586,7 +544,7 @@ class Markers:
             return self._remove_close_peaks_chunked(coords, intensity_im, chunk_voxels)
 
         xp_mod = self.xp
-        ndi_mod = self.ndi_backend
+        ndi_mod = self.ndi
 
         if coords.size == 0:
             return coords
@@ -607,7 +565,7 @@ class Markers:
 
     def _remove_close_peaks_chunked(self, coords, intensity_im, chunk_voxels):
         xp_mod = self.xp
-        ndi_mod = self.ndi_backend
+        ndi_mod = self.ndi
 
         if coords.size == 0:
             return coords
@@ -807,7 +765,6 @@ class Markers:
             try:
                 self._set_backend(dev)
                 self._set_low_memory(low)
-                self._get_t()
                 self._allocate_memory()
                 self._set_default_sigmas()
                 self._run_mocap_marking()
@@ -826,11 +783,3 @@ class Markers:
                     continue
                 raise
         raise last_exc
-
-
-if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
-    im_info = ImInfo(im_path)
-    num_t = 3
-    markers = Markers(im_info, num_t=num_t)
-    markers.run()
