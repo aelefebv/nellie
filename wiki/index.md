@@ -33,3 +33,7 @@ Entry point into the wiki. Articles document the *why* and *connective tissue* o
 ## Build & ops
 
 - [[build-release]] — versioning, multi-platform lock, release flow
+
+## Decisions
+
+- [[decisions/index|Architecture decision records]] — hard-to-reverse choices and their rationale

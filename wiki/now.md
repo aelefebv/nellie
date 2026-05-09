@@ -9,6 +9,7 @@ Snapshot of what's active in the codebase right now. Refreshed by the NOW pass (
 
 ## Active work
 
+- **Apple Silicon / MPS GPU acceleration (PRD #140).** Adding PyTorch+MPS as a third backend axis alongside numpy and cupy. Scope: filtering + labelling + networking + hu_tracking onboard in v1. New shim modules `torch_xp` and `torch_ndi`; `adaptive_run.resolve_backend` extends with an `mps` arm; `device="gpu"` becomes platform-aware. Three ADRs filed in [[decisions/index|decisions/]]. Currently in Phase 2→3 transition (PRD filed, breaking into issues next).
 - **Filtering perf pass on `dechao`.** Closed-form 3×3 symmetric eigenvalues replaced LAPACK `eigvalsh` in the 3D path; dense `h_mask` fast path added; in-place reductions; cached cupy backend probe; `_get_frob_mask` no longer copies the volume to mask infs. End-to-end 3D `Filter.run()` ~2.4× faster on the yeast fixture (1223 ms → 507 ms). Opt-in benchmark suite (`tests/test_filtering_perf.py`, `pytest -m benchmark`) pins the wins. See [[segmentation/filtering#performance|filtering#Performance]].
 
 ## Recently shipped
