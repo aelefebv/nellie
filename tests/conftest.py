@@ -36,8 +36,9 @@ Distance) so each test gets an isolated working directory ready for
 ``HuMomentTracking(info)`` without re-running any upstream stage.
 
 The cascade extends two more layers for VoxelReassigner: a Network
-session cache (``network_*_path``) runs Filter+Label+Network once per
-session and exposes the resulting ``im_skel_relabelled`` memmap, and a
+session cache (``network_*_paths``) runs Filter+Label+Network once per
+session and exposes the resulting ``im_skel`` / ``im_pixel_class`` /
+``im_skel_relabelled`` memmaps as a ``dict[str, Path]``, and a
 Hu-output session cache (``hu_outputs_*_path``) runs
 Filter+Label+Markers+Hu once per session and exposes the resulting
 ``flow_vector_array.npy``. ``make_voxel_reassign_imageinfo_*`` per-test
@@ -50,6 +51,19 @@ BEFORE constructing the VoxelReassigner because
 ``VoxelReassigner.__init__`` constructs two ``FlowInterpolator``
 instances unconditionally (when not ``no_t``), and FlowInterpolator
 loads ``flow_vector_array.npy`` immediately at construction.
+
+The cascade extends one more layer for Hierarchy: a VoxelReassigner-
+output session cache (``voxel_reassign_outputs_*_paths``) runs
+Filter+Label+Network+Markers+Hu+VoxelReassigner once per session and
+exposes the resulting ``im_obj_label_reassigned`` /
+``im_branch_label_reassigned`` memmaps as a ``dict[str, Path]``.
+``make_hierarchical_imageinfo_*`` per-test factories copy in 9-11 files
+(``im_preprocessed`` + ``im_distance`` + ``im_skel`` +
+``im_pixel_class`` + ``im_instance_label`` + ``im_skel_relabelled`` +
+``im_border`` always, plus the two reassigned memmaps when
+``include_reassigned=True`` and ``flow_vector_array.npy`` when
+``include_flow=True``) so each test gets an isolated working directory
+ready for ``Hierarchy(info)`` without re-running any upstream stage.
 """
 
 from __future__ import annotations
@@ -66,6 +80,7 @@ from nellie.segmentation.labelling import Label
 from nellie.segmentation.mocap_marking import Markers
 from nellie.segmentation.networking import Network
 from nellie.tracking.hu_tracking import HuMomentTracking
+from nellie.tracking.voxel_reassignment import VoxelReassigner
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_3D_PATH = REPO_ROOT / "tests" / "fixtures" / "yeast_3d_t0_to_1.ome.tif"
@@ -703,13 +718,18 @@ def make_hu_imageinfo_2d_module(
 # ------------------------------------------------------------------
 
 
-def _run_network_to_disk(im_info: ImInfo) -> Path:
-    """Run Network to populate ``im_skel_relabelled`` on disk and release its memmap handles.
+def _run_network_to_disk(im_info: ImInfo) -> dict[str, Path]:
+    """Run Network and return paths to ``im_skel`` / ``im_pixel_class`` / ``im_skel_relabelled``.
 
     Assumes the Frangi memmap (``im_preprocessed``) and Label memmap
     (``im_instance_label``) are already on disk in ``im_info``'s pipeline
     tree (pre-populated by ``_run_filter_to_disk`` + ``_run_label_to_disk``
-    or by copying session-cached outputs).
+    or by copying session-cached outputs). Drops Network's memmap
+    handles so Windows lets us read/copy the files later.
+
+    Returns a dict so downstream stages (Hierarchy) can pick the subset
+    they need; VoxelReassigner only consumes ``im_skel_relabelled`` while
+    Hierarchy consumes all three.
     """
     net = Network(im_info, num_t=2, device="cpu")
     net.run()
@@ -721,18 +741,23 @@ def _run_network_to_disk(im_info: ImInfo) -> Path:
     net.im_memmap = None
     net.im_frangi_memmap = None
     gc.collect()
-    return Path(im_info.pipeline_paths["im_skel_relabelled"])
+    return {
+        "im_skel": Path(im_info.pipeline_paths["im_skel"]),
+        "im_pixel_class": Path(im_info.pipeline_paths["im_pixel_class"]),
+        "im_skel_relabelled": Path(im_info.pipeline_paths["im_skel_relabelled"]),
+    }
 
 
 def _run_filter_label_network_for_session(
     tmp_path_factory: pytest.TempPathFactory, source_image: Path, sub_name: str
-) -> Path:
-    """Build a session ImInfo, run Filter+Label+Network, return the relabelled-skel path.
+) -> dict[str, Path]:
+    """Build a session ImInfo, run Filter+Label+Network, return the Network output paths dict.
 
-    Used by ``network_3d_path`` / ``network_2d_path`` to materialize
-    Network's ``im_skel_relabelled`` output once per session in its own
-    workdir (independent of the session-scoped ``imageinfo_*`` workdir,
-    which earlier fixtures may have populated).
+    Used by ``network_3d_paths`` / ``network_2d_paths`` to materialize
+    Network's ``im_skel`` / ``im_pixel_class`` / ``im_skel_relabelled``
+    outputs once per session in its own workdir (independent of the
+    session-scoped ``imageinfo_*`` workdir, which earlier fixtures may
+    have populated).
     """
     workdir = tmp_path_factory.mktemp(sub_name)
     info = _build_iminfo(source_image, workdir)
@@ -742,20 +767,21 @@ def _run_filter_label_network_for_session(
 
 
 @pytest.fixture(scope="session")
-def network_3d_path(
+def network_3d_paths(
     tmp_path_factory: pytest.TempPathFactory,
     frangi_3d_path: Path,
     label_3d_path: Path,
-) -> Path:
-    """Session-scoped: path to a precomputed 3D ``im_skel_relabelled`` memmap.
+) -> dict[str, Path]:
+    """Session-scoped: paths to precomputed 3D Network outputs.
 
     Runs Filter + Label + Network once per session against the 3D yeast
-    fixture so that downstream VoxelReassigner tests can reuse the
-    result via ``make_voxel_reassign_imageinfo_3d``. Depends on
-    ``frangi_3d_path`` and ``label_3d_path`` only to serialize relative
-    to the existing cascade — the actual Network run uses its own
-    workdir to keep output paths isolated from any other test that
-    mutates the upstream workdirs.
+    fixture and returns ``{"im_skel": Path, "im_pixel_class": Path,
+    "im_skel_relabelled": Path}``. Downstream VoxelReassigner tests
+    consume only ``im_skel_relabelled``; downstream Hierarchy tests
+    consume all three. Depends on ``frangi_3d_path`` and ``label_3d_path``
+    only to serialize relative to the existing cascade — the actual
+    Network run uses its own workdir to keep output paths isolated from
+    any other test that mutates the upstream workdirs.
     """
     del frangi_3d_path  # only used to serialize the cascade order
     del label_3d_path
@@ -765,12 +791,12 @@ def network_3d_path(
 
 
 @pytest.fixture(scope="session")
-def network_2d_path(
+def network_2d_paths(
     tmp_path_factory: pytest.TempPathFactory,
     frangi_2d_path: Path,
     label_2d_path: Path,
-) -> Path:
-    """Session-scoped: path to a precomputed 2D ``im_skel_relabelled`` memmap (see :func:`network_3d_path`)."""
+) -> dict[str, Path]:
+    """Session-scoped: paths to precomputed 2D Network outputs (see :func:`network_3d_paths`)."""
     del frangi_2d_path
     del label_2d_path
     return _run_filter_label_network_for_session(
@@ -931,7 +957,7 @@ def _make_voxel_reassign_imageinfo_factory(
 def make_voxel_reassign_imageinfo_3d(
     tmp_path: Path,
     label_3d_path: Path,
-    network_3d_path: Path,
+    network_3d_paths: dict[str, Path],
     hu_outputs_3d_path: Path,
 ):
     """Factory: per-test 3D ImInfo with Label + Network + Hu outputs copied in.
@@ -945,7 +971,7 @@ def make_voxel_reassign_imageinfo_3d(
         tmp_path,
         FIXTURE_3D_PATH,
         label_3d_path,
-        network_3d_path,
+        network_3d_paths["im_skel_relabelled"],
         hu_outputs_3d_path,
     )
 
@@ -954,7 +980,7 @@ def make_voxel_reassign_imageinfo_3d(
 def make_voxel_reassign_imageinfo_2d(
     tmp_path: Path,
     label_2d_path: Path,
-    network_2d_path: Path,
+    network_2d_paths: dict[str, Path],
     hu_outputs_2d_path: Path,
 ):
     """Factory: per-test 2D ImInfo with Label + Network + Hu outputs copied in."""
@@ -962,7 +988,7 @@ def make_voxel_reassign_imageinfo_2d(
         tmp_path,
         FIXTURE_2D_PATH,
         label_2d_path,
-        network_2d_path,
+        network_2d_paths["im_skel_relabelled"],
         hu_outputs_2d_path,
     )
 
@@ -971,7 +997,7 @@ def make_voxel_reassign_imageinfo_2d(
 def make_voxel_reassign_imageinfo_3d_module(
     tmp_path_factory: pytest.TempPathFactory,
     label_3d_path: Path,
-    network_3d_path: Path,
+    network_3d_paths: dict[str, Path],
     hu_outputs_3d_path: Path,
 ):
     """Module-scoped variant of :func:`make_voxel_reassign_imageinfo_3d`.
@@ -985,7 +1011,7 @@ def make_voxel_reassign_imageinfo_3d_module(
         workdir,
         FIXTURE_3D_PATH,
         label_3d_path,
-        network_3d_path,
+        network_3d_paths["im_skel_relabelled"],
         hu_outputs_3d_path,
     )
 
@@ -994,7 +1020,7 @@ def make_voxel_reassign_imageinfo_3d_module(
 def make_voxel_reassign_imageinfo_2d_module(
     tmp_path_factory: pytest.TempPathFactory,
     label_2d_path: Path,
-    network_2d_path: Path,
+    network_2d_paths: dict[str, Path],
     hu_outputs_2d_path: Path,
 ):
     """Module-scoped variant of :func:`make_voxel_reassign_imageinfo_2d`."""
@@ -1003,6 +1029,321 @@ def make_voxel_reassign_imageinfo_2d_module(
         workdir,
         FIXTURE_2D_PATH,
         label_2d_path,
-        network_2d_path,
+        network_2d_paths["im_skel_relabelled"],
+        hu_outputs_2d_path,
+    )
+
+
+# ------------------------------------------------------------------
+# VoxelReassigner-output fixtures (session-scoped) for downstream
+# Hierarchy tests. This is the heaviest session fixture in the suite
+# — full upstream pipeline through stage 6 (Filter+Label+Network+
+# Markers+Hu+VoxelReassigner).
+# ------------------------------------------------------------------
+
+
+def _run_voxel_reassign_to_disk(im_info: ImInfo) -> dict[str, Path]:
+    """Run VoxelReassigner and return paths to its two reassigned memmaps.
+
+    Assumes the Label memmap (``im_instance_label``), Network memmap
+    (``im_skel_relabelled``), and Hu ``flow_vector_array.npy`` are
+    already on disk in ``im_info``'s pipeline tree (pre-populated by
+    the upstream session caches).
+
+    Drops VoxelReassigner's memmap handles so Windows lets us read/copy
+    the files later (mirrors ``_run_filter_to_disk`` / ``_run_label_to_disk``).
+    """
+    v = VoxelReassigner(im_info, num_t=2, device="cpu")
+    v.run()
+    v.branch_label_memmap = None
+    v.obj_label_memmap = None
+    v.reassigned_branch_memmap = None
+    v.reassigned_obj_memmap = None
+    v.flow_interpolator_fw = None
+    v.flow_interpolator_bw = None
+    gc.collect()
+    return {
+        "im_obj_label_reassigned": Path(
+            im_info.pipeline_paths["im_obj_label_reassigned"]
+        ),
+        "im_branch_label_reassigned": Path(
+            im_info.pipeline_paths["im_branch_label_reassigned"]
+        ),
+    }
+
+
+def _run_full_pipeline_for_voxel_reassign_outputs(
+    tmp_path_factory: pytest.TempPathFactory, source_image: Path, sub_name: str
+) -> dict[str, Path]:
+    """Build a session ImInfo, run the full upstream pipeline through VoxelReassigner.
+
+    Used by ``voxel_reassign_outputs_3d_paths`` /
+    ``voxel_reassign_outputs_2d_paths`` to materialize VoxelReassigner's
+    ``im_obj_label_reassigned`` / ``im_branch_label_reassigned``
+    outputs once per session in its own workdir. **This is the heaviest
+    new session fixture in the suite** — Filter + Label + Network +
+    Markers + Hu + VoxelReassigner on a 2-frame yeast volume.
+
+    Also exposes ``im_border`` from the same workdir's Markers run so
+    Hierarchy tests can pull it from here without paying for a second
+    Markers session run. (Markers' ``im_border`` is intentionally hidden
+    by the lighter ``markers_*_paths`` session cache because
+    HuMomentTracking does not consume it; Hierarchy does.)
+    """
+    workdir = tmp_path_factory.mktemp(sub_name)
+    info = _build_iminfo(source_image, workdir)
+    _run_filter_to_disk(info)
+    _run_label_to_disk(info)
+    _run_network_to_disk(info)
+    _run_markers_to_disk(info)
+    _run_hu_to_disk(info)
+    paths = _run_voxel_reassign_to_disk(info)
+    paths["im_border"] = Path(info.pipeline_paths["im_border"])
+    return paths
+
+
+@pytest.fixture(scope="session")
+def voxel_reassign_outputs_3d_paths(
+    tmp_path_factory: pytest.TempPathFactory,
+    frangi_3d_path: Path,
+    label_3d_path: Path,
+    network_3d_paths: dict[str, Path],
+    markers_3d_paths: dict[str, Path],
+    hu_outputs_3d_path: Path,
+) -> dict[str, Path]:
+    """Session-scoped: paths to precomputed 3D VoxelReassigner outputs.
+
+    Runs Filter + Label + Network + Markers + Hu + VoxelReassigner once
+    per session against the 3D yeast fixture so that downstream Hierarchy
+    tests can reuse the result via ``make_hierarchical_imageinfo_3d``.
+    Depends on the upstream session caches only to serialize relative
+    to the existing cascade — the actual VoxelReassigner run uses its
+    own workdir.
+    """
+    del frangi_3d_path  # only used to serialize the cascade order
+    del label_3d_path
+    del network_3d_paths
+    del markers_3d_paths
+    del hu_outputs_3d_path
+    return _run_full_pipeline_for_voxel_reassign_outputs(
+        tmp_path_factory, FIXTURE_3D_PATH, "voxel_reassign_outputs_3d_session"
+    )
+
+
+@pytest.fixture(scope="session")
+def voxel_reassign_outputs_2d_paths(
+    tmp_path_factory: pytest.TempPathFactory,
+    frangi_2d_path: Path,
+    label_2d_path: Path,
+    network_2d_paths: dict[str, Path],
+    markers_2d_paths: dict[str, Path],
+    hu_outputs_2d_path: Path,
+) -> dict[str, Path]:
+    """Session-scoped: paths to precomputed 2D VoxelReassigner outputs (see :func:`voxel_reassign_outputs_3d_paths`)."""
+    del frangi_2d_path
+    del label_2d_path
+    del network_2d_paths
+    del markers_2d_paths
+    del hu_outputs_2d_path
+    return _run_full_pipeline_for_voxel_reassign_outputs(
+        tmp_path_factory, FIXTURE_2D_PATH, "voxel_reassign_outputs_2d_session"
+    )
+
+
+# ------------------------------------------------------------------
+# Hierarchy-input fixtures (per-test + module-scoped) for
+# ``Hierarchy`` characterization tests.
+#
+# Hierarchy is the LAST stage of the pipeline and consumes outputs
+# from EVERY upstream stage. The factory copies in 9-11 files:
+#   - 7 always: im_preprocessed (Frangi), im_distance + im_border
+#     (Markers), im_skel + im_pixel_class + im_skel_relabelled
+#     (Network), im_instance_label (Label).
+#   - 2 conditional (include_reassigned=True by default): the two
+#     VoxelReassigner outputs (im_obj_label_reassigned,
+#     im_branch_label_reassigned). Tests that exercise the no_t or
+#     "VoxelReassigner outputs missing on disk" code path can pass
+#     include_reassigned=False to skip.
+#   - 1 conditional (include_flow=True by default):
+#     flow_vector_array.npy from Hu. Tests that exercise
+#     enable_motility=False or no_t paths can pass include_flow=False.
+# ------------------------------------------------------------------
+
+
+def _make_hierarchical_imageinfo_factory(
+    tmp_path: Path,
+    source_image: Path,
+    frangi_source: Path,
+    label_source: Path,
+    markers_sources: dict[str, Path],
+    network_sources: dict[str, Path],
+    voxel_reassign_sources: dict[str, Path],
+    hu_source: Path,
+):
+    """Build a factory that produces fresh ImInfos with the 9-11 Hierarchy inputs pre-populated.
+
+    ``voxel_reassign_sources`` is the rich dict produced by
+    :func:`_run_full_pipeline_for_voxel_reassign_outputs`, which
+    exposes ``im_obj_label_reassigned`` /
+    ``im_branch_label_reassigned`` AND ``im_border`` (the latter
+    materialized by the same session run's Markers stage). The
+    ``markers_sources`` arg is the lighter ``markers_*_paths`` dict
+    (``im_marker`` / ``im_distance``) — only ``im_distance`` is
+    consumed here.
+
+    Each call:
+      1. Copies the raw source image into a fresh subdirectory.
+      2. Constructs an ImInfo (which sets up ``pipeline_paths``).
+      3. Copies the 7 always-required files: Frangi + Distance + Skel
+         + PixelClass + InstanceLabel + SkelRelabelled + Border.
+      4. Optionally copies the 2 VoxelReassigner outputs (controlled by
+         ``include_reassigned`` keyword on the returned factory).
+      5. Optionally copies the Hu ``flow_vector_array.npy`` (controlled
+         by ``include_flow`` keyword).
+
+    The returned ImInfo is ready for ``Hierarchy(info)`` without
+    re-running any upstream stage.
+    """
+    counter = {"n": 0}
+
+    def _factory(
+        *, include_reassigned: bool = True, include_flow: bool = True
+    ) -> ImInfo:
+        counter["n"] += 1
+        sub = tmp_path / f"hierarchy_info_{counter['n']}"
+        sub.mkdir()
+        info = _build_iminfo(source_image, sub)
+        always_copy = (
+            (frangi_source, "im_preprocessed"),
+            (markers_sources["im_distance"], "im_distance"),
+            (network_sources["im_skel"], "im_skel"),
+            (network_sources["im_pixel_class"], "im_pixel_class"),
+            (label_source, "im_instance_label"),
+            (network_sources["im_skel_relabelled"], "im_skel_relabelled"),
+            (voxel_reassign_sources["im_border"], "im_border"),
+        )
+        for src, key in always_copy:
+            dst = Path(info.pipeline_paths[key])
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, dst)
+        if include_reassigned:
+            for key in (
+                "im_obj_label_reassigned",
+                "im_branch_label_reassigned",
+            ):
+                dst = Path(info.pipeline_paths[key])
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(voxel_reassign_sources[key], dst)
+        if include_flow:
+            dst = Path(info.pipeline_paths["flow_vector_array"])
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(hu_source, dst)
+        return info
+
+    return _factory
+
+
+@pytest.fixture
+def make_hierarchical_imageinfo_3d(
+    tmp_path: Path,
+    frangi_3d_path: Path,
+    label_3d_path: Path,
+    markers_3d_paths: dict[str, Path],
+    network_3d_paths: dict[str, Path],
+    voxel_reassign_outputs_3d_paths: dict[str, Path],
+    hu_outputs_3d_path: Path,
+):
+    """Factory: per-test 3D ImInfo with all 9-11 Hierarchy inputs copied in.
+
+    Each call returns an ImInfo with isolated ``features_*.csv`` /
+    ``adjacency_maps.pkl`` paths, so multiple Hierarchy runs in one
+    test do not collide. Pass ``include_reassigned=False`` to skip the
+    two VoxelReassigner memmaps and ``include_flow=False`` to skip the
+    Hu flow array.
+    """
+    return _make_hierarchical_imageinfo_factory(
+        tmp_path,
+        FIXTURE_3D_PATH,
+        frangi_3d_path,
+        label_3d_path,
+        markers_3d_paths,
+        network_3d_paths,
+        voxel_reassign_outputs_3d_paths,
+        hu_outputs_3d_path,
+    )
+
+
+@pytest.fixture
+def make_hierarchical_imageinfo_2d(
+    tmp_path: Path,
+    frangi_2d_path: Path,
+    label_2d_path: Path,
+    markers_2d_paths: dict[str, Path],
+    network_2d_paths: dict[str, Path],
+    voxel_reassign_outputs_2d_paths: dict[str, Path],
+    hu_outputs_2d_path: Path,
+):
+    """Factory: per-test 2D ImInfo with all 9-11 Hierarchy inputs copied in (see :func:`make_hierarchical_imageinfo_3d`)."""
+    return _make_hierarchical_imageinfo_factory(
+        tmp_path,
+        FIXTURE_2D_PATH,
+        frangi_2d_path,
+        label_2d_path,
+        markers_2d_paths,
+        network_2d_paths,
+        voxel_reassign_outputs_2d_paths,
+        hu_outputs_2d_path,
+    )
+
+
+@pytest.fixture(scope="module")
+def make_hierarchical_imageinfo_3d_module(
+    tmp_path_factory: pytest.TempPathFactory,
+    frangi_3d_path: Path,
+    label_3d_path: Path,
+    markers_3d_paths: dict[str, Path],
+    network_3d_paths: dict[str, Path],
+    voxel_reassign_outputs_3d_paths: dict[str, Path],
+    hu_outputs_3d_path: Path,
+):
+    """Module-scoped variant of :func:`make_hierarchical_imageinfo_3d`.
+
+    Provides a factory whose ImInfos persist for the lifetime of the
+    test module. Use this when a module-scoped Hierarchy-output fixture
+    needs a stable workdir.
+    """
+    workdir = tmp_path_factory.mktemp("hierarchy_3d_module")
+    return _make_hierarchical_imageinfo_factory(
+        workdir,
+        FIXTURE_3D_PATH,
+        frangi_3d_path,
+        label_3d_path,
+        markers_3d_paths,
+        network_3d_paths,
+        voxel_reassign_outputs_3d_paths,
+        hu_outputs_3d_path,
+    )
+
+
+@pytest.fixture(scope="module")
+def make_hierarchical_imageinfo_2d_module(
+    tmp_path_factory: pytest.TempPathFactory,
+    frangi_2d_path: Path,
+    label_2d_path: Path,
+    markers_2d_paths: dict[str, Path],
+    network_2d_paths: dict[str, Path],
+    voxel_reassign_outputs_2d_paths: dict[str, Path],
+    hu_outputs_2d_path: Path,
+):
+    """Module-scoped variant of :func:`make_hierarchical_imageinfo_2d`."""
+    workdir = tmp_path_factory.mktemp("hierarchy_2d_module")
+    return _make_hierarchical_imageinfo_factory(
+        workdir,
+        FIXTURE_2D_PATH,
+        frangi_2d_path,
+        label_2d_path,
+        markers_2d_paths,
+        network_2d_paths,
+        voxel_reassign_outputs_2d_paths,
         hu_outputs_2d_path,
     )
