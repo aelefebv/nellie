@@ -530,7 +530,10 @@ def label(input, structure=None, output=None):  # noqa: A002 - matches scipy API
     import scipy.ndimage as scipy_ndi
     in_np = _to_numpy(input)
     struct_np = _to_numpy(structure) if structure is not None else None
-    labels_np, num_features = scipy_ndi.label(in_np, structure=struct_np)
+    # scipy stub overloads `label` to return `int` when output= is provided,
+    # tuple otherwise. We always pass output=None here, so the tuple form is
+    # guaranteed — Pyright can't narrow the overload.
+    labels_np, num_features = scipy_ndi.label(in_np, structure=struct_np)  # type: ignore[misc]
     labels_out = _from_numpy_like(labels_np, input)
     if output is not None:
         output.copy_(labels_out if hasattr(output, "copy_") else labels_np)
