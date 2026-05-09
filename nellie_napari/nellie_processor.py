@@ -309,7 +309,7 @@ class NellieProcessor(QWidget):
         return getattr(self.nellie, "settings", None)
 
     @thread_worker(ignore_errors=True)
-    def _run_preprocessing(self, im_info_list, step_kwargs):
+    def _run_preprocessing(self, im_info_list, config: FrangiConfig, num_t: int | None):
         """
         Run the preprocessing step in a separate thread. Filters the image to remove noise or unwanted edges before segmentation.
 
@@ -317,21 +317,20 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        step_kwargs : dict
-            Keyword arguments for the Filter class (excluding im_info/viewer).
+        config : FrangiConfig
+            Algorithm configuration for the Filter stage.
+        num_t : int or None
+            Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            config_kwargs = dict(step_kwargs)
-            num_t = config_kwargs.pop("num_t", None)
-            preprocessing = Filter(
+            Filter(
                 im_info=self.current_im_info,
-                config=FrangiConfig(**config_kwargs),
+                config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            )
-            preprocessing.run()
+            ).run()
 
     def run_preprocessing(self):
         """
@@ -339,16 +338,23 @@ class NellieProcessor(QWidget):
         If the full pipeline is running, it automatically proceeds to segmentation after preprocessing is finished.
         """
         self.status = "preprocessing"
-        remove_edges = self.nellie.settings.remove_edges_checkbox.isChecked()
         settings = self._get_settings()
-        step_kwargs = settings.get_preprocessing_params() if settings else {}
-        step_kwargs["remove_edges"] = remove_edges
-        worker = self._run_preprocessing(self.im_info_list, step_kwargs)
+        config, num_t = (
+            settings.get_preprocessing_params() if settings else (FrangiConfig(), None)
+        )
+        worker = self._run_preprocessing(self.im_info_list, config, num_t)
         next_step = self.run_segmentation if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_segmentation(self, im_info_list, label_kwargs, network_kwargs):
+    def _run_segmentation(
+        self,
+        im_info_list,
+        label_config: LabelConfig,
+        label_num_t: int | None,
+        network_config: NetworkConfig,
+        network_num_t: int | None,
+    ):
         """
         Run the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.
 
@@ -356,32 +362,30 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        label_kwargs : dict
-            Keyword arguments for the Label class (excluding im_info/viewer).
-        network_kwargs : dict
-            Keyword arguments for the Network class (excluding im_info/viewer).
+        label_config : LabelConfig
+            Algorithm configuration for the Label stage.
+        label_num_t : int or None
+            Optional per-step override for Label's number of timepoints.
+        network_config : NetworkConfig
+            Algorithm configuration for the Network stage.
+        network_num_t : int or None
+            Optional per-step override for Network's number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            label_config_kwargs = dict(label_kwargs)
-            label_num_t = label_config_kwargs.pop("num_t", None)
-            segmenting = Label(
+            Label(
                 im_info=self.current_im_info,
-                config=LabelConfig(**label_config_kwargs),
+                config=label_config,
                 viewer=self.viewer,
                 num_t=label_num_t,
-            )
-            segmenting.run()
-            network_config_kwargs = dict(network_kwargs)
-            network_num_t = network_config_kwargs.pop("num_t", None)
-            networking = Network(
+            ).run()
+            Network(
                 im_info=self.current_im_info,
-                config=NetworkConfig(**network_config_kwargs),
+                config=network_config,
                 viewer=self.viewer,
                 num_t=network_num_t,
-            )
-            networking.run()
+            ).run()
 
     def run_segmentation(self):
         """
@@ -390,14 +394,20 @@ class NellieProcessor(QWidget):
         """
         self.status = "segmentation"
         settings = self._get_settings()
-        label_kwargs = settings.get_segmentation_label_params() if settings else {}
-        network_kwargs = settings.get_segmentation_network_params() if settings else {}
-        worker = self._run_segmentation(self.im_info_list, label_kwargs, network_kwargs)
+        label_config, label_num_t = (
+            settings.get_segmentation_label_params() if settings else (LabelConfig(), None)
+        )
+        network_config, network_num_t = (
+            settings.get_segmentation_network_params() if settings else (NetworkConfig(), None)
+        )
+        worker = self._run_segmentation(
+            self.im_info_list, label_config, label_num_t, network_config, network_num_t
+        )
         next_step = self.run_mocap if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_mocap(self, im_info_list, step_kwargs):
+    def _run_mocap(self, im_info_list, config: MarkersConfig, num_t: int | None):
         """
         Run the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.
 
@@ -405,21 +415,20 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        step_kwargs : dict
-            Keyword arguments for the Markers class (excluding im_info/viewer).
+        config : MarkersConfig
+            Algorithm configuration for the Markers stage.
+        num_t : int or None
+            Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            config_kwargs = dict(step_kwargs)
-            num_t = config_kwargs.pop("num_t", None)
-            mocap_marking = Markers(
+            Markers(
                 im_info=self.current_im_info,
-                config=MarkersConfig(**config_kwargs),
+                config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            )
-            mocap_marking.run()
+            ).run()
 
     def run_mocap(self):
         """
@@ -428,13 +437,15 @@ class NellieProcessor(QWidget):
         """
         self.status = "mocap marking"
         settings = self._get_settings()
-        step_kwargs = settings.get_mocap_params() if settings else {}
-        worker = self._run_mocap(self.im_info_list, step_kwargs)
+        config, num_t = (
+            settings.get_mocap_params() if settings else (MarkersConfig(), None)
+        )
+        worker = self._run_mocap(self.im_info_list, config, num_t)
         next_step = self.run_tracking if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_tracking(self, im_info_list, step_kwargs):
+    def _run_tracking(self, im_info_list, config: HuMomentTrackingConfig, num_t: int | None):
         """
         Run the tracking step in a separate thread. Tracks the motion of the marked points over time.
 
@@ -442,21 +453,20 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        step_kwargs : dict
-            Keyword arguments for the HuMomentTracking class (excluding im_info/viewer).
+        config : HuMomentTrackingConfig
+            Algorithm configuration for the HuMomentTracking stage.
+        num_t : int or None
+            Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            config_kwargs = dict(step_kwargs)
-            num_t = config_kwargs.pop("num_t", None)
-            hu_tracking = HuMomentTracking(
+            HuMomentTracking(
                 im_info=self.current_im_info,
-                config=HuMomentTrackingConfig(**config_kwargs),
+                config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            )
-            hu_tracking.run()
+            ).run()
 
     def run_tracking(self):
         """
@@ -465,8 +475,10 @@ class NellieProcessor(QWidget):
         """
         self.status = "tracking"
         settings = self._get_settings()
-        step_kwargs = settings.get_tracking_params() if settings else {}
-        worker = self._run_tracking(self.im_info_list, step_kwargs)
+        config, num_t = (
+            settings.get_tracking_params() if settings else (HuMomentTrackingConfig(), None)
+        )
+        worker = self._run_tracking(self.im_info_list, config, num_t)
         next_step = None
         if self.pipeline:
             if self.nellie.settings.voxel_reassign.isChecked():
@@ -476,7 +488,7 @@ class NellieProcessor(QWidget):
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_reassign(self, im_info_list, step_kwargs):
+    def _run_reassign(self, im_info_list, config: VoxelReassignerConfig, num_t: int | None):
         """
         Run the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.
 
@@ -484,21 +496,20 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        step_kwargs : dict
-            Keyword arguments for the VoxelReassigner class (excluding im_info/viewer).
+        config : VoxelReassignerConfig
+            Algorithm configuration for the VoxelReassigner stage.
+        num_t : int or None
+            Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            config_kwargs = dict(step_kwargs)
-            num_t = config_kwargs.pop("num_t", None)
-            vox_reassign = VoxelReassigner(
+            VoxelReassigner(
                 im_info=self.current_im_info,
-                config=VoxelReassignerConfig(**config_kwargs),
+                config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            )
-            vox_reassign.run()
+            ).run()
 
     def run_reassign(self):
         """
@@ -507,13 +518,20 @@ class NellieProcessor(QWidget):
         """
         self.status = "voxel reassignment"
         settings = self._get_settings()
-        step_kwargs = settings.get_reassign_params() if settings else {}
-        worker = self._run_reassign(self.im_info_list, step_kwargs)
+        config, num_t = (
+            settings.get_reassign_params() if settings else (VoxelReassignerConfig(), None)
+        )
+        worker = self._run_reassign(self.im_info_list, config, num_t)
         next_step = self.run_feature_export if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_feature_export(self, im_info_list, skip_nodes, remove_intermediates_checked, step_kwargs):
+    def _run_feature_export(
+        self,
+        im_info_list,
+        config: HierarchyConfig,
+        remove_intermediates_checked: bool,
+    ):
         """
         Run the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
 
@@ -521,22 +539,19 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        skip_nodes : bool
-            Whether to skip node-level feature extraction.
+        config : HierarchyConfig
+            Algorithm configuration for the Hierarchy stage.
         remove_intermediates_checked : bool
-            Whether to remove intermediate files.
-        step_kwargs : dict
-            Keyword arguments for the Hierarchy class (excluding im_info/viewer/skip_nodes).
+            Whether to remove intermediate files after each Hierarchy run.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            hierarchy = Hierarchy(
+            Hierarchy(
                 im_info=self.current_im_info,
-                config=HierarchyConfig(skip_nodes=skip_nodes, **step_kwargs),
+                config=config,
                 viewer=self.viewer,
-            )
-            hierarchy.run()
+            ).run()
             if remove_intermediates_checked:
                 try:
                     self.current_im_info.remove_intermediates()
@@ -560,20 +575,13 @@ class NellieProcessor(QWidget):
         Start the feature extraction step and updates the UI to reflect that feature extraction is running.
         """
         self.status = "feature export"
-        analyze_node_level_checked = self.nellie.settings.analyze_node_level.isChecked()
         remove_intermediates_checked = self.nellie.settings.remove_intermediates_checkbox.isChecked()
         settings = self._get_settings()
-        step_kwargs = settings.get_feature_params() if settings else {}
-        skip_nodes_override = step_kwargs.pop("skip_nodes", None)
-        skip_nodes = not bool(analyze_node_level_checked)
-        if skip_nodes_override is not None:
-            skip_nodes = bool(skip_nodes_override)
-
+        config = settings.get_feature_params() if settings else HierarchyConfig()
         worker = self._run_feature_export(
             self.im_info_list,
-            skip_nodes,
+            config,
             remove_intermediates_checked,
-            step_kwargs,
         )
         # This is the last step in the pipeline; always treat as final.
         self._start_worker(worker, final=True)

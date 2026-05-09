@@ -16,6 +16,14 @@ from qtpy.QtWidgets import (
     QScrollArea,
 )
 
+from nellie.feature_extraction.hierarchical import HierarchyConfig
+from nellie.segmentation.filtering import FrangiConfig
+from nellie.segmentation.labelling import LabelConfig
+from nellie.segmentation.mocap_marking import MarkersConfig
+from nellie.segmentation.networking import NetworkConfig
+from nellie.tracking.hu_tracking import HuMomentTrackingConfig
+from nellie.tracking.voxel_reassignment import VoxelReassignerConfig
+
 
 @dataclass
 class SettingsConfig:
@@ -407,9 +415,6 @@ class Settings(QWidget):
 
     def _optional_spinbox_value(self, override, spinbox):
         return spinbox.value() if override.isChecked() else None
-
-    def _prune_none(self, params: dict) -> dict:
-        return {key: value for key, value in params.items() if value is not None}
 
     def set_ui(self):
         """
@@ -835,121 +840,126 @@ class Settings(QWidget):
             self.feature_node_chunk_size.setValue(config.feature_node_chunk_size)
         self.feature_max_node_mask_elems.setValue(config.feature_max_node_mask_elems)
 
-    def get_preprocessing_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.preprocessing_num_t_override, self.preprocessing_num_t
-            ),
-            "min_radius_um": self.preprocessing_min_radius_um.value(),
-            "max_radius_um": self.preprocessing_max_radius_um.value(),
-            "alpha_sq": self.preprocessing_alpha_sq.value(),
-            "beta_sq": self.preprocessing_beta_sq.value(),
-            "frob_thresh": self._optional_spinbox_value(
+    def get_preprocessing_params(self) -> tuple[FrangiConfig, int | None]:
+        config = FrangiConfig(
+            remove_edges=self.remove_edges_checkbox.isChecked(),
+            min_radius_um=self.preprocessing_min_radius_um.value(),
+            max_radius_um=self.preprocessing_max_radius_um.value(),
+            alpha_sq=self.preprocessing_alpha_sq.value(),
+            beta_sq=self.preprocessing_beta_sq.value(),
+            frob_thresh=self._optional_spinbox_value(
                 self.preprocessing_frob_thresh_override, self.preprocessing_frob_thresh
             ),
-            "frob_thresh_division": self.preprocessing_frob_thresh_division.value(),
-            "device": self.preprocessing_device.currentText(),
-            "low_memory": self.preprocessing_low_memory.isChecked(),
-            "max_chunk_voxels": self.preprocessing_max_chunk_voxels.value(),
-            "max_threshold_samples": self.preprocessing_max_threshold_samples.value(),
-        }
-        return self._prune_none(params)
+            frob_thresh_division=self.preprocessing_frob_thresh_division.value(),
+            device=self.preprocessing_device.currentText(),
+            low_memory=self.preprocessing_low_memory.isChecked(),
+            max_chunk_voxels=self.preprocessing_max_chunk_voxels.value(),
+            max_threshold_samples=self.preprocessing_max_threshold_samples.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.preprocessing_num_t_override, self.preprocessing_num_t
+        )
+        return config, num_t
 
-    def get_segmentation_label_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.segmentation_label_num_t_override, self.segmentation_label_num_t
-            ),
-            "threshold": self._optional_spinbox_value(
+    def get_segmentation_label_params(self) -> tuple[LabelConfig, int | None]:
+        config = LabelConfig(
+            threshold=self._optional_spinbox_value(
                 self.segmentation_label_threshold_override, self.segmentation_label_threshold
             ),
-            "otsu_thresh_intensity": self.segmentation_label_otsu_thresh_intensity.isChecked(),
-            "chunk_z": self._optional_spinbox_value(
+            otsu_thresh_intensity=self.segmentation_label_otsu_thresh_intensity.isChecked(),
+            chunk_z=self._optional_spinbox_value(
                 self.segmentation_label_chunk_z_override, self.segmentation_label_chunk_z
             ),
-            "flush_interval": self.segmentation_label_flush_interval.value(),
-            "min_radius_um": self.segmentation_label_min_radius_um.value(),
-            "threshold_sampling_pixels": self.segmentation_label_threshold_sampling_pixels.value(),
-            "histogram_nbins": self.segmentation_label_histogram_nbins.value(),
-            "device": self.segmentation_label_device.currentText(),
-            "low_memory": self.segmentation_label_low_memory.isChecked(),
-            "max_chunk_voxels": self.segmentation_label_max_chunk_voxels.value(),
-        }
-        return self._prune_none(params)
+            flush_interval=self.segmentation_label_flush_interval.value(),
+            min_radius_um=self.segmentation_label_min_radius_um.value(),
+            threshold_sampling_pixels=self.segmentation_label_threshold_sampling_pixels.value(),
+            histogram_nbins=self.segmentation_label_histogram_nbins.value(),
+            device=self.segmentation_label_device.currentText(),
+            low_memory=self.segmentation_label_low_memory.isChecked(),
+            max_chunk_voxels=self.segmentation_label_max_chunk_voxels.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.segmentation_label_num_t_override, self.segmentation_label_num_t
+        )
+        return config, num_t
 
-    def get_segmentation_network_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.segmentation_network_num_t_override, self.segmentation_network_num_t
-            ),
-            "min_radius_um": self.segmentation_network_min_radius_um.value(),
-            "max_radius_um": self.segmentation_network_max_radius_um.value(),
-            "device": self.segmentation_network_device.currentText(),
-            "low_memory": self.segmentation_network_low_memory.isChecked(),
-            "max_chunk_voxels": self.segmentation_network_max_chunk_voxels.value(),
-        }
-        return self._prune_none(params)
+    def get_segmentation_network_params(self) -> tuple[NetworkConfig, int | None]:
+        config = NetworkConfig(
+            min_radius_um=self.segmentation_network_min_radius_um.value(),
+            max_radius_um=self.segmentation_network_max_radius_um.value(),
+            device=self.segmentation_network_device.currentText(),
+            low_memory=self.segmentation_network_low_memory.isChecked(),
+            max_chunk_voxels=self.segmentation_network_max_chunk_voxels.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.segmentation_network_num_t_override, self.segmentation_network_num_t
+        )
+        return config, num_t
 
-    def get_mocap_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.mocap_num_t_override, self.mocap_num_t
-            ),
-            "min_radius_um": self.mocap_min_radius_um.value(),
-            "max_radius_um": self.mocap_max_radius_um.value(),
-            "use_im": self.mocap_use_im.currentText(),
-            "num_sigma": self.mocap_num_sigma.value(),
-            "peak_min_distance": self.mocap_peak_min_distance.value(),
-            "device": self.mocap_device.currentText(),
-            "low_memory": self.mocap_low_memory.isChecked(),
-            "max_chunk_voxels": self.mocap_max_chunk_voxels.value(),
-        }
-        return self._prune_none(params)
+    def get_mocap_params(self) -> tuple[MarkersConfig, int | None]:
+        config = MarkersConfig(
+            min_radius_um=self.mocap_min_radius_um.value(),
+            max_radius_um=self.mocap_max_radius_um.value(),
+            use_im=self.mocap_use_im.currentText(),
+            num_sigma=self.mocap_num_sigma.value(),
+            peak_min_distance=self.mocap_peak_min_distance.value(),
+            device=self.mocap_device.currentText(),
+            low_memory=self.mocap_low_memory.isChecked(),
+            max_chunk_voxels=self.mocap_max_chunk_voxels.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.mocap_num_t_override, self.mocap_num_t
+        )
+        return config, num_t
 
-    def get_tracking_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.tracking_num_t_override, self.tracking_num_t
-            ),
-            "max_distance_um": self.tracking_max_distance_um.value(),
-            "device": self.tracking_device.currentText(),
-            "mode": self.tracking_mode.currentText(),
-            "max_dense_pairs": self.tracking_max_dense_pairs.value(),
-            "max_dense_roi_voxels_cpu": self.tracking_max_dense_roi_voxels_cpu.value(),
-            "max_dense_roi_voxels_gpu": self.tracking_max_dense_roi_voxels_gpu.value(),
-            "low_memory": self.tracking_low_memory.isChecked(),
-        }
-        return self._prune_none(params)
+    def get_tracking_params(self) -> tuple[HuMomentTrackingConfig, int | None]:
+        config = HuMomentTrackingConfig(
+            max_distance_um=self.tracking_max_distance_um.value(),
+            device=self.tracking_device.currentText(),
+            mode=self.tracking_mode.currentText(),
+            max_dense_pairs=self.tracking_max_dense_pairs.value(),
+            max_dense_roi_voxels_cpu=self.tracking_max_dense_roi_voxels_cpu.value(),
+            max_dense_roi_voxels_gpu=self.tracking_max_dense_roi_voxels_gpu.value(),
+            low_memory=self.tracking_low_memory.isChecked(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.tracking_num_t_override, self.tracking_num_t
+        )
+        return config, num_t
 
-    def get_reassign_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.reassign_num_t_override, self.reassign_num_t
-            ),
-            "store_running_matches": self.reassign_store_running_matches.isChecked(),
-            "max_refine_iterations": self.reassign_max_refine_iterations.value(),
-            "device": self.reassign_device.currentText(),
-            "low_memory": self.reassign_low_memory.isChecked(),
-            "max_query_points": self.reassign_max_query_points.value(),
-            "max_bruteforce_pairs": self.reassign_max_bruteforce_pairs.value(),
-        }
-        return self._prune_none(params)
+    def get_reassign_params(self) -> tuple[VoxelReassignerConfig, int | None]:
+        config = VoxelReassignerConfig(
+            store_running_matches=self.reassign_store_running_matches.isChecked(),
+            max_refine_iterations=self.reassign_max_refine_iterations.value(),
+            device=self.reassign_device.currentText(),
+            low_memory=self.reassign_low_memory.isChecked(),
+            max_query_points=self.reassign_max_query_points.value(),
+            max_bruteforce_pairs=self.reassign_max_bruteforce_pairs.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.reassign_num_t_override, self.reassign_num_t
+        )
+        return config, num_t
 
-    def get_feature_params(self) -> dict:
-        params = {
-            "low_memory": self.feature_low_memory.isChecked(),
-            "enable_motility": self.feature_enable_motility.isChecked(),
-            "enable_adjacency": self.feature_enable_adjacency.isChecked(),
-            "device": self.feature_device.currentText(),
-            "max_node_mask_elems": self.feature_max_node_mask_elems.value(),
-        }
-
+    def get_feature_params(self) -> HierarchyConfig:
         if self.feature_skip_nodes_override.isChecked():
-            params["skip_nodes"] = self.feature_skip_nodes.isChecked()
-        if self.feature_node_chunk_size_override.isChecked():
-            params["node_chunk_size"] = self.feature_node_chunk_size.value()
-
-        return params
+            skip_nodes = self.feature_skip_nodes.isChecked()
+        else:
+            skip_nodes = not self.analyze_node_level.isChecked()
+        node_chunk_size = (
+            self.feature_node_chunk_size.value()
+            if self.feature_node_chunk_size_override.isChecked()
+            else None
+        )
+        return HierarchyConfig(
+            skip_nodes=skip_nodes,
+            low_memory=self.feature_low_memory.isChecked(),
+            enable_motility=self.feature_enable_motility.isChecked(),
+            enable_adjacency=self.feature_enable_adjacency.isChecked(),
+            device=self.feature_device.currentText(),
+            node_chunk_size=node_chunk_size,
+            max_node_mask_elems=self.feature_max_node_mask_elems.value(),
+        )
 
 
 if __name__ == "__main__":
