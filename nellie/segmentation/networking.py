@@ -33,6 +33,21 @@ class NetworkConfig:
     low_memory: bool = False
     max_chunk_voxels: int = int(1e6)
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        for name, value in (
+            ("min_radius_um", self.min_radius_um),
+            ("max_radius_um", self.max_radius_um),
+            ("max_chunk_voxels", self.max_chunk_voxels),
+        ):
+            if value <= 0:
+                raise ValueError(f"NetworkConfig.{name} must be > 0, got {value}")
+        if self.min_radius_um > self.max_radius_um:
+            raise ValueError(
+                f"NetworkConfig.min_radius_um ({self.min_radius_um}) must be <= "
+                f"max_radius_um ({self.max_radius_um})"
+            )
+
 
 class Network:
     """

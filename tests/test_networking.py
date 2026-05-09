@@ -479,3 +479,35 @@ def test_2d_output_invariants(
     assert hashlib.sha256(raw_path.read_bytes()).hexdigest() == raw_before
     assert hashlib.sha256(frangi_path.read_bytes()).hexdigest() == frangi_before
     assert hashlib.sha256(label_path.read_bytes()).hexdigest() == label_before
+
+
+# -------------------------------------------------------------------------
+# NetworkConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_network_config_default_constructs() -> None:
+    NetworkConfig()
+
+
+def test_network_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        NetworkConfig(device="bogus")
+
+
+@pytest.mark.parametrize("field", [
+    "min_radius_um", "max_radius_um", "max_chunk_voxels",
+])
+def test_network_config_rejects_nonpositive_numeric(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        NetworkConfig(**{field: 0})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=field):
+        NetworkConfig(**{field: -1})  # type: ignore[arg-type]
+
+
+def test_network_config_rejects_inverted_radius_range() -> None:
+    with pytest.raises(ValueError, match="min_radius_um"):
+        NetworkConfig(min_radius_um=2.0, max_radius_um=1.0)
+
+
+def test_network_config_equal_radii_ok() -> None:
+    NetworkConfig(min_radius_um=0.5, max_radius_um=0.5)
