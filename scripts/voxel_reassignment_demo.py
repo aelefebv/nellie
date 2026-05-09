@@ -8,7 +8,7 @@ import pickle
 
 import numpy as np
 
-from nellie.im_info.verifier import FileInfo, ImInfo
+from nellie.im_info import load_image
 from nellie.tracking.voxel_reassignment import VoxelReassigner, VoxelReassignerConfig
 
 
@@ -50,10 +50,7 @@ def accumulate_pair_counts(src_ids, dst_ids, n_src, n_dst, use_gpu=True):
 
 def main():
     im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
-    file_info = FileInfo(im_path)
-    file_info.find_metadata()
-    file_info.load_metadata()
-    im_info = ImInfo.from_file_info(file_info)
+    im_info = load_image(im_path)
 
     run_obj = VoxelReassigner(im_info, VoxelReassignerConfig(), num_t=3)
     run_obj.run()

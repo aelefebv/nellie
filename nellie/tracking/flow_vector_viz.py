@@ -123,14 +123,10 @@ def load_mocap_markers_as_points(
 
 
 if __name__ == "__main__":
-    from nellie.im_info.verifier import FileInfo
-    
-    test_file = "/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/variant_TCZYX_dup2.ome.tif"
-    file_info = FileInfo(test_file)
-    file_info.find_metadata()
-    file_info.load_metadata()
+    from nellie.im_info import load_image
 
-    im_info = ImInfo.from_file_info(file_info)
+    test_file = "/Users/austin/test_files/nellie_all_tests/yeast_3d_mitochondria.ome_variants/variant_TCZYX_dup2.ome.tif"
+    im_info = load_image(test_file)
 
     tracks, props = load_flow_vectors_as_tracks(im_info, cost_threshold=None, stride=1)
     markers = load_mocap_markers_as_points(im_info, point_stride=1)
