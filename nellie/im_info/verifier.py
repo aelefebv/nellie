@@ -126,6 +126,75 @@ def transform_to_axes(
     return data, ''.join(final_axes)
 
 
+def _write_ome_tiff(
+    path: str,
+    *,
+    data: np.ndarray | None = None,
+    shape: tuple[int, ...] | None = None,
+    dtype: str | np.dtype | None = None,
+    axes: str,
+    dim_res: DimRes,
+    description: str = "No description.",
+) -> None:
+    """
+    Write an OME-TIFF file and inject canonical OME XML metadata.
+
+    Either ``data`` (writes the array) or ``shape`` + ``dtype``
+    (allocates an empty file) must be provided. After writing, re-opens
+    the OME XML to set ``physical_size_*`` + ``time_increment`` from
+    ``dim_res`` (only non-None values are written; None values leave
+    the OME field at the tifffile default), set the OME pixel type
+    (mapping ``float32`` → ``'float'``, ``float64`` → ``'double'``),
+    and set the OME image description.
+
+    Single source of truth for the write-then-reopen-to-set-OME-XML
+    pattern shared by ``FileInfo.save_ome_tiff`` and
+    ``ImInfo.allocate_memory``.
+
+    Raises
+    ------
+    ValueError
+        If neither ``data`` nor both ``shape`` and ``dtype`` are
+        provided.
+    """
+    if data is not None:
+        tifffile.imwrite(
+            path, data, bigtiff=True,
+            metadata={"axes": axes}, photometric="minisblack",
+        )
+        dtype_name = data.dtype.name
+    else:
+        if shape is None or dtype is None:
+            raise ValueError(
+                "Either data or both shape+dtype must be provided"
+            )
+        tifffile.imwrite(
+            path, shape=shape, dtype=dtype, bigtiff=True,
+            metadata={"axes": axes}, photometric="minisblack",
+        )
+        dtype_name = np.dtype(dtype).name
+
+    if dtype_name == 'float64':
+        dtype_name = 'double'
+    elif dtype_name == 'float32':
+        dtype_name = 'float'
+
+    comment = tifffile.tiffcomment(path)
+    assert comment is not None
+    ome = ome_types.from_xml(comment)
+    ome.images[0].description = description
+    if dim_res.get('X') is not None:
+        ome.images[0].pixels.physical_size_x = dim_res['X']
+    if dim_res.get('Y') is not None:
+        ome.images[0].pixels.physical_size_y = dim_res['Y']
+    if dim_res.get('Z') is not None:
+        ome.images[0].pixels.physical_size_z = dim_res['Z']
+    if dim_res.get('T') is not None:
+        ome.images[0].pixels.time_increment = dim_res['T']
+    ome.images[0].pixels.type = dtype_name
+    tifffile.tiffcomment(path, ome.to_xml())
+
+
 class FileInfo:
     """
     A class to handle file information, metadata extraction, and basic file operations for microscopy image files.
@@ -678,20 +747,6 @@ class FileInfo:
             data = np.moveaxis(data, t_index, 0)
             axes = 'T' + axes.replace('T', '')
 
-        tifffile.imwrite(
-            self.ome_output_path,
-            data,
-            bigtiff=True,
-            metadata={"axes": axes},
-            photometric="minisblack",
-        )
-
-        ome_xml = tifffile.tiffcomment(self.ome_output_path)
-        ome = ome_types.from_xml(ome_xml)
-        ome.images[0].pixels.physical_size_x = self.dim_res['X']
-        ome.images[0].pixels.physical_size_y = self.dim_res['Y']
-        ome.images[0].pixels.physical_size_z = self.dim_res['Z']
-        ome.images[0].pixels.time_increment = self.dim_res['T']
         def _normalize_value(value):
             if isinstance(value, np.generic):
                 return value.item()
@@ -705,15 +760,15 @@ class FileInfo:
             "t_start": self.t_start,
             "t_end": self.t_end,
         }
-        ome.images[0].description = json.dumps(provenance, sort_keys=True)
-        dtype_name = data.dtype.name
-        if data.dtype.name == 'float64':
-            dtype_name = 'double'
-        if data.dtype.name == 'float32':
-            dtype_name = 'float'
-        ome.images[0].pixels.type = dtype_name
-        ome_xml = ome.to_xml()
-        tifffile.tiffcomment(self.ome_output_path, ome_xml)
+        assert self.ome_output_path is not None
+        assert self.dim_res is not None
+        _write_ome_tiff(
+            self.ome_output_path,
+            data=data,
+            axes=axes,
+            dim_res=self.dim_res,
+            description=json.dumps(provenance, sort_keys=True),
+        )
 
 
 class ImInfo:
@@ -1013,43 +1068,23 @@ class ImInfo:
             else:
                 raise ValueError('Data dimensions do not match axes')
         if data is None:
-            if len(axes) != len(self.shape):
+            if self.shape is None or len(axes) != len(self.shape):
                 raise ValueError('Shape does not match axes')
-            tifffile.imwrite(
+            _write_ome_tiff(
                 output_path,
                 shape=self.shape,
                 dtype=dtype,
-                bigtiff=True,
-                metadata={"axes": axes},
-                photometric="minisblack",
+                axes=axes,
+                dim_res=self.dim_res,
+                description=description,
             )
-            dtype_name = np.dtype(dtype).name if dtype is not None else 'float'
         else:
-            tifffile.imwrite(
+            _write_ome_tiff(
                 output_path,
-                data,
-                bigtiff=True,
-                metadata={"axes": axes},
-                photometric="minisblack",
+                data=data,
+                axes=axes,
+                dim_res=self.dim_res,
+                description=description,
             )
-            dtype_name = data.dtype.name
-        ome = ome_types.from_xml(tifffile.tiffcomment(output_path))
-        ome.images[0].description = description
-        if self.dim_res.get('X') is not None:
-            ome.images[0].pixels.physical_size_x = self.dim_res['X']
-        if self.dim_res.get('Y') is not None:
-            ome.images[0].pixels.physical_size_y = self.dim_res['Y']
-        if self.dim_res.get('Z') is not None:
-            ome.images[0].pixels.physical_size_z = self.dim_res['Z']
-        if self.dim_res.get('T') is not None:
-            ome.images[0].pixels.time_increment = self.dim_res['T']
-
-        if dtype_name == 'float64':
-            dtype_name = 'double'
-        if dtype_name == 'float32':
-            dtype_name = 'float'
-        ome.images[0].pixels.type = dtype_name
-        ome_xml = ome.to_xml()
-        tifffile.tiffcomment(output_path, ome_xml)
         if return_memmap:
             return self.get_memmap(output_path, read_mode=read_mode)

@@ -125,6 +125,117 @@ def test_find_metadata_creates_output_dirs(tmp_path) -> None:
 
 
 # ============================================================
+# A0a. _write_ome_tiff helper (Slice 7 — shared OME XML writer)
+# ============================================================
+
+
+def test_write_ome_tiff_data_path_round_trip(tmp_path) -> None:
+    """``_write_ome_tiff`` with ``data`` writes the array + injects metadata.
+
+    Verifies the post-Slice 7 helper produces a file that round-trips
+    through tifffile + ome_types: shape preserved, dim_res in OME pixel
+    metadata, description in OME image description.
+    """
+    from nellie.im_info.verifier import _write_ome_tiff
+
+    arr = np.arange(2 * 16 * 16, dtype=np.uint16).reshape(2, 16, 16)
+    out = tmp_path / "round_trip.ome.tif"
+    _write_ome_tiff(
+        str(out),
+        data=arr,
+        axes="TYX",
+        dim_res={"X": 0.108, "Y": 0.108, "Z": None, "T": 2.0},
+        description="hello",
+    )
+    assert out.exists()
+    assert tifffile.imread(str(out)).shape == (2, 16, 16)
+    comment = tifffile.tiffcomment(str(out))
+    assert comment is not None
+    ome = ome_types.from_xml(comment)
+    assert ome.images[0].description == "hello"
+    assert ome.images[0].pixels.physical_size_x == pytest.approx(0.108)
+    assert ome.images[0].pixels.physical_size_y == pytest.approx(0.108)
+    assert ome.images[0].pixels.time_increment == pytest.approx(2.0)
+
+
+def test_write_ome_tiff_shape_dtype_path_allocates_empty(tmp_path) -> None:
+    """``_write_ome_tiff`` with ``shape`` + ``dtype`` allocates an empty file."""
+    from nellie.im_info.verifier import _write_ome_tiff
+
+    out = tmp_path / "empty.ome.tif"
+    _write_ome_tiff(
+        str(out),
+        shape=(2, 16, 16),
+        dtype="uint16",
+        axes="TYX",
+        dim_res={"X": 0.1, "Y": 0.1, "Z": None, "T": None},
+    )
+    assert out.exists()
+    arr = tifffile.imread(str(out))
+    assert arr.shape == (2, 16, 16)
+    assert arr.dtype == np.uint16
+
+
+def test_write_ome_tiff_skips_none_dim_res_values(tmp_path) -> None:
+    """None ``dim_res`` values are NOT written into the OME XML.
+
+    Pins the conditional-set behavior. None values leave the OME field
+    at the tifffile default (typically also None) instead of explicitly
+    overwriting with None.
+    """
+    from nellie.im_info.verifier import _write_ome_tiff
+
+    arr = np.zeros((1, 8, 8), dtype=np.uint16)
+    out = tmp_path / "partial.ome.tif"
+    _write_ome_tiff(
+        str(out),
+        data=arr,
+        axes="TYX",
+        dim_res={"X": 0.5, "Y": 0.5, "Z": None, "T": None},
+        description="partial",
+    )
+    comment = tifffile.tiffcomment(str(out))
+    assert comment is not None
+    ome = ome_types.from_xml(comment)
+    assert ome.images[0].pixels.physical_size_x == pytest.approx(0.5)
+    assert ome.images[0].pixels.physical_size_y == pytest.approx(0.5)
+    # Z and T were None in dim_res — left at tifffile's default (None).
+    assert ome.images[0].pixels.physical_size_z is None
+    assert ome.images[0].pixels.time_increment is None
+
+
+def test_write_ome_tiff_dtype_name_mapping(tmp_path) -> None:
+    """float32 → 'float', float64 → 'double' in the OME pixel type."""
+    from nellie.im_info.verifier import _write_ome_tiff
+
+    arr32 = np.zeros((1, 4, 4), dtype=np.float32)
+    out32 = tmp_path / "f32.ome.tif"
+    _write_ome_tiff(str(out32), data=arr32, axes="TYX", dim_res={"X": 1.0, "Y": 1.0, "Z": None, "T": None})
+    comment32 = tifffile.tiffcomment(str(out32))
+    assert comment32 is not None
+    assert ome_types.from_xml(comment32).images[0].pixels.type.value == "float"
+
+    arr64 = np.zeros((1, 4, 4), dtype=np.float64)
+    out64 = tmp_path / "f64.ome.tif"
+    _write_ome_tiff(str(out64), data=arr64, axes="TYX", dim_res={"X": 1.0, "Y": 1.0, "Z": None, "T": None})
+    comment64 = tifffile.tiffcomment(str(out64))
+    assert comment64 is not None
+    assert ome_types.from_xml(comment64).images[0].pixels.type.value == "double"
+
+
+def test_write_ome_tiff_raises_when_missing_data_and_shape(tmp_path) -> None:
+    """``_write_ome_tiff`` requires either ``data`` OR ``shape``+``dtype``."""
+    from nellie.im_info.verifier import _write_ome_tiff
+
+    with pytest.raises(ValueError, match="Either data or both shape\\+dtype must be provided"):
+        _write_ome_tiff(
+            str(tmp_path / "nope.ome.tif"),
+            axes="TYX",
+            dim_res={"X": 1.0, "Y": 1.0, "Z": None, "T": None},
+        )
+
+
+# ============================================================
 # A. Per-format dim_res extraction (metadata_type branches)
 # ============================================================
 
