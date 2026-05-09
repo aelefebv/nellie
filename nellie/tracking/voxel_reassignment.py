@@ -77,7 +77,7 @@ class VoxelReassigner:
         if self.low_memory:
             self.max_query_points = min(self.max_query_points, int(2e5))
             self.max_bruteforce_pairs = min(self.max_bruteforce_pairs, int(2e6))
-        self.xp, self.device_type, self._cp, self._gpu_kdtree_cls = self._resolve_backend(device)
+        self.xp, self.device_type, self._gpu_kdtree_cls = self._resolve_backend(device)
         self._warned_gpu_fallback = False
 
         # handle single-timepoint data early
@@ -91,11 +91,7 @@ class VoxelReassigner:
             self.obj_label_memmap = None
             self.reassigned_branch_memmap = None
             self.reassigned_obj_memmap = None
-            self.debug = None
             self.viewer = viewer
-            self.shape = None
-            self.spatial_shape = None
-            self.match_coord_dtype = None
             self.store_running_matches = store_running_matches
             self.max_refine_iterations = max_refine_iterations
             return
@@ -117,18 +113,11 @@ class VoxelReassigner:
         self.reassigned_branch_memmap = None
         self.reassigned_obj_memmap = None
 
-        self.debug = None
-
         self.viewer = viewer
 
         # optimization / behavior controls
         self.store_running_matches = store_running_matches
         self.max_refine_iterations = max_refine_iterations
-
-        # will be set in _allocate_memory
-        self.shape = None
-        self.spatial_shape = None
-        self.match_coord_dtype = None
 
     # -------------------------------------------------------------------------
     # Backend helpers
@@ -141,14 +130,14 @@ class VoxelReassigner:
 
         if device in ("gpu", "cuda"):
             xp, kdtree_cls = self._try_import_cupy(require=True)
-            return xp, "cuda", xp, kdtree_cls
+            return xp, "cuda", kdtree_cls
         if device == "cpu":
-            return np, "cpu", None, None
+            return np, "cpu", None
 
         xp, kdtree_cls = self._try_import_cupy(require=False)
         if xp is not None:
-            return xp, "cuda", xp, kdtree_cls
-        return np, "cpu", None, None
+            return xp, "cuda", kdtree_cls
+        return np, "cpu", None
 
     def _try_import_cupy(self, require):
         try:
@@ -191,10 +180,10 @@ class VoxelReassigner:
             return "OutOfMemory" in repr(exc)
 
     def _free_gpu_memory(self):
-        if self.device_type != "cuda" or self._cp is None:
+        if self.device_type != "cuda":
             return
         try:
-            self._cp.get_default_memory_pool().free_all_blocks()
+            self.xp.get_default_memory_pool().free_all_blocks()
         except Exception:
             return
 
@@ -206,13 +195,12 @@ class VoxelReassigner:
             self._warned_gpu_fallback = True
         self.xp = np
         self.device_type = "cpu"
-        self._cp = None
         self._gpu_kdtree_cls = None
 
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.device_type, self._cp, self._gpu_kdtree_cls = self._resolve_backend(device)
+        self.xp, self.device_type, self._gpu_kdtree_cls = self._resolve_backend(device)
         self._warned_gpu_fallback = False
 
     def _set_low_memory(self, low_memory):
@@ -238,10 +226,10 @@ class VoxelReassigner:
         if coords_real_scaled.size == 0:
             return _TreeHandle(backend="cpu", tree=None, coords_real_scaled=None)
 
-        if self.device_type == "cuda" and self._cp is not None:
+        if self.device_type == "cuda":
             if self._gpu_kdtree_cls is not None:
                 try:
-                    coords_gpu = self._cp.asarray(coords_real_scaled, dtype=self._cp.float32)
+                    coords_gpu = self.xp.asarray(coords_real_scaled, dtype=self.xp.float32)
                     tree = self._gpu_kdtree_cls(coords_gpu)
                     return _TreeHandle(backend="gpu", tree=tree, coords_real_scaled=coords_real_scaled)
                 except Exception as exc:
@@ -279,10 +267,10 @@ class VoxelReassigner:
 
         if tree_handle.backend == "gpu":
             try:
-                coords_query_gpu = self._cp.asarray(coords_query_scaled, dtype=self._cp.float32)
+                coords_query_gpu = self.xp.asarray(coords_query_scaled, dtype=self.xp.float32)
                 dist_gpu, idx_gpu = tree_handle.tree.query(coords_query_gpu, k=1)
-                dist = self._cp.asnumpy(dist_gpu).astype(np.float32, copy=False)
-                idx = self._cp.asnumpy(idx_gpu).astype(np.int64, copy=False)
+                dist = self.xp.asnumpy(dist_gpu).astype(np.float32, copy=False)
+                idx = self.xp.asnumpy(idx_gpu).astype(np.int64, copy=False)
                 return dist, idx
             except Exception as exc:
                 if self._is_oom_error(exc):
@@ -293,7 +281,7 @@ class VoxelReassigner:
                 return dist, idx
 
         if tree_handle.backend == "gpu_bruteforce":
-            if self._cp is None:
+            if self.device_type != "cuda":
                 cpu_tree = cKDTree(tree_handle.coords_real_scaled)
                 dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
                 return dist, idx
@@ -329,7 +317,7 @@ class VoxelReassigner:
         if n_real == 0 or n_query == 0:
             return np.empty((0,), dtype=np.float32), np.empty((0,), dtype=np.int64)
 
-        cp = self._cp
+        cp = self.xp
         coords_real_gpu = cp.asarray(coords_real_scaled, dtype=cp.float32)
         chunk_size = max(1, min(n_query, self.max_bruteforce_pairs // max(n_real, 1)))
 
@@ -846,16 +834,6 @@ class VoxelReassigner:
     # Dataset / memory helpers
     # -------------------------------------------------------------------------
 
-    def _get_t(self):
-        """
-        Gets the number of timepoints from the image metadata or sets it if not provided.
-        """
-        if self.num_t is None:
-            if self.im_info.no_t:
-                self.num_t = 1
-            else:
-                self.num_t = self.im_info.shape[self.im_info.axes.index('T')]
-
     def _allocate_memory(self):
         """
         Allocates memory for voxel reassignment, including initializing memory-mapped arrays for branch and object labels.
@@ -992,7 +970,6 @@ class VoxelReassigner:
     # -------------------------------------------------------------------------
 
     def _run_reassignment(self):
-        self._get_t()
         self._allocate_memory()
 
         # initialize reassigned labels at t=0
@@ -1110,7 +1087,3 @@ class VoxelReassigner:
                     continue
                 raise
         raise last_exc
-
-
-if __name__ == "__main__":
-    logger.info("See scripts/voxel_reassignment_demo.py for example usage.")

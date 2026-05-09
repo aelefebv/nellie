@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-08
 ---
 
 # Voxel reassignment
@@ -41,7 +41,7 @@ OOM at any tier triggers `_free_gpu_memory()` + `_switch_to_cpu()`; chunk-level 
 ## Gotchas
 
 - **Streams over timepoints**, not voxels-by-frame. Only two frames' worth of `argwhere` coordinates plus the candidate match arrays live in memory at once; outputs go straight into memmaps. Loop breaks early if any frame pair produces zero candidates — *all subsequent frames are then unreassigned*.
-- **Half-hoisted backend code.** `_resolve_backend`, `_try_import_cupy`, `_is_oom_error` are local copies that shadow the canonical versions in [[gpu-runtime|`adaptive_run`]]. The outer `run()` *does* call the canonical helpers; the inner per-tree path doesn't. Tracked in [[queue]] as part of the per-stage backend hoist.
+- **Half-hoisted backend code.** `_resolve_backend`, `_try_import_cupy`, `_is_oom_error` are local copies that shadow the canonical versions in [[gpu-runtime|`adaptive_run`]]. The outer `run()` *does* call the canonical helpers; the inner per-tree path doesn't. **Queued for the next slice (Slice 3 of #98)**, which hoists these onto `adaptive_run` alongside the other per-stage backends. Tracked in [[queue]].
 - **Uses ravel-index tricks on `spatial_shape` for fast uniqueness** — `_allocate_memory()` must run first or `_select_best_pairs` / `_vote_targets` / `_assign_unique_matches` raise.
 - **`match_coord_dtype` is auto-selected** from `max(spatial_shape)` (`uint16` / `uint32` / `uint64`). Saved `running_matches` round-trip back to int coordinates correctly only if the dataset's spatial extent fits — bumping image size past 65 535 in any axis silently widens the saved dtype.
 - **Low-memory mode rebuilds the second tree only after freeing the first** (and frees the GPU pool between forward/backward passes), trading speed for headroom; it also caps `max_query_points` at 2e5 and `max_bruteforce_pairs` at 2e6.
