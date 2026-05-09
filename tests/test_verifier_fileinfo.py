@@ -466,7 +466,7 @@ def test_time_range_errors_out_of_bounds(tmp_path) -> None:
     assert "Temporal range out of bounds" in fi._time_range_errors()
 
 
-# ---- _validate: asymmetric raise (THE design quirk) ----
+# ---- _validate: symmetric (Slice 5 — never raises) ----
 
 def test_validate_implicit_after_load_metadata_3d(tmp_path) -> None:
     """``load_metadata`` runs ``_validate`` implicitly; on a clean fixture, no errors."""
@@ -476,54 +476,98 @@ def test_validate_implicit_after_load_metadata_3d(tmp_path) -> None:
     assert fi.good_dims is True
 
 
-def test_validate_raises_only_on_time_errors(tmp_path) -> None:
-    """``_validate`` raises ValueError only when ``_time_range_errors`` is non-empty."""
+def test_validate_does_not_raise_on_time_errors(tmp_path) -> None:
+    """Slice 5 made ``_validate`` symmetric — it never raises.
+
+    Slice 1 pinned the asymmetric raise (``_validate`` raised on
+    time-range errors but flagged axis/dim errors silently). Slice 5
+    removed the raise — all errors flow through ``validation_errors``
+    + ``good_axes``/``good_dims`` flags. Programmer errors still raise
+    from the user-facing mutators (``select_temporal_range``,
+    ``change_axes``, ``change_dim_res``); ``_validate`` is now a pure
+    flag-mutator + path-refresher. See dechaos report Pass 5.
+    """
     fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
     fi.t_end = 99  # past max_t
-    with pytest.raises(ValueError, match="Temporal range out of bounds"):
-        fi._validate()
+    fi._validate()  # would have raised ValueError before Slice 5
+    assert "Temporal range out of bounds" in fi.validation_errors
 
 
 def test_validate_does_not_raise_on_axis_or_dim_errors(tmp_path) -> None:
-    """Pins current intentional behavior: ``_validate`` raises only on time errors.
-
-    Axis and dim errors are flagged via ``good_axes``/``good_dims``
-    booleans for the napari widget to display, not raised as
-    exceptions. Time errors are raised because they represent
-    programmer-error in the temporal slicing pipeline (the napari
-    widget already validates the range before calling). See dechaos
-    report Pass 5 and Slice 5.
-    """
+    """``_validate`` never raises on axis/dim errors either; flags via booleans + validation_errors."""
     fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
     fi.axes = "XY"  # length mismatch, axis-error path
-    # Should NOT raise even though _check_axes will flag the error
-    fi._validate()
+    fi._validate()  # never raises
     assert fi.good_axes is False
     assert "Axes length does not match data shape" in fi.validation_errors
 
 
-# ---- get_validation_errors: concatenated report, no mutation ----
+# ---- apply_defaults: extracted t_start/t_end mutator ----
 
-def test_get_validation_errors_returns_concatenated(tmp_path) -> None:
+def test_apply_defaults_fills_t_start_and_t_end_when_unset(tmp_path) -> None:
+    """``apply_defaults`` fills t_start=0 and t_end=max_t when unset."""
+    fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
+    fi.t_start = None  # type: ignore[assignment]
+    fi.t_end = None
+    fi.apply_defaults()
+    assert fi.t_start == 0
+    assert fi.t_end == 1  # 3D fixture has T=2 → max_t=1
+
+
+def test_apply_defaults_no_op_when_t_start_already_set(tmp_path) -> None:
+    """``apply_defaults`` preserves caller-set t_start/t_end values."""
+    fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
+    fi.t_start = 0
+    fi.t_end = 1
+    fi.apply_defaults()
+    assert (fi.t_start, fi.t_end) == (0, 1)
+
+
+def test_apply_defaults_no_op_when_good_axes_false(tmp_path) -> None:
+    """``apply_defaults`` is a no-op when ``good_axes`` is False."""
+    fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
+    fi.good_axes = False
+    fi.t_start = None  # type: ignore[assignment]
+    fi.t_end = None
+    fi.apply_defaults()
+    assert fi.t_start is None
+    assert fi.t_end is None
+
+
+def test_apply_defaults_no_op_when_no_t_axis(tmp_path) -> None:
+    """``apply_defaults`` is a no-op when 'T' is not in axes."""
+    fi = _loaded_file_info(FIXTURE_IMAGEJ_WITH_PHYSICALSIZE_PATH, tmp_path)
+    # ImageJ fixture is 'YX' (no T)
+    assert fi.axes == "YX"
+    fi.t_start = None  # type: ignore[assignment]
+    fi.t_end = None
+    fi.apply_defaults()
+    assert fi.t_start is None
+    assert fi.t_end is None
+
+
+# ---- compute_errors: concatenated report, no mutation ----
+
+def test_compute_errors_returns_concatenated(tmp_path) -> None:
     fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
     assert fi.dim_res is not None
     fi.axes = "TZQX"  # invalid letter
     fi.dim_res["X"] = None
     fi.t_end = 99
     expected = fi._axis_errors() + fi._dim_errors() + fi._time_range_errors()
-    assert fi.get_validation_errors() == expected
+    assert fi.compute_errors() == expected
 
 
-def test_get_validation_errors_does_not_mutate_flags(tmp_path) -> None:
-    """Unlike ``_check_axes``/``_check_dim_res``, ``get_validation_errors`` is read-only."""
+def test_compute_errors_does_not_mutate_flags(tmp_path) -> None:
+    """``compute_errors`` is a pure read; ``_validate`` is the flag-mutator."""
     fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
     assert fi.dim_res is not None
     # Force good flags True, then introduce a hidden error
     fi.good_axes = True
     fi.good_dims = True
     fi.dim_res["X"] = None
-    _ = fi.get_validation_errors()
-    # Flags should be unchanged because get_validation_errors does not mutate
+    _ = fi.compute_errors()
+    # Flags should be unchanged because compute_errors does not mutate
     assert fi.good_axes is True
     assert fi.good_dims is True
 

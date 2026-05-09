@@ -511,22 +511,6 @@ class FileInfo:
             self._get_tif_tags_metadata(self.metadata, self.axes)
         self._validate()
 
-    def _check_axes(self):
-        """
-        Validates the axes metadata and ensures the required axes (X, Y) are present.
-        """
-        errors = self._axis_errors()
-        self.good_axes = not errors
-        return errors
-
-    def _check_dim_res(self):
-        """
-        Validates the dimensional resolution metadata, ensuring that X, Y, Z, and T dimensions have valid resolutions.
-        """
-        errors = self._dim_errors()
-        self.good_dims = not errors
-        return errors
-
     def _axis_errors(self):
         errors = []
         if self.axes is None or self.shape is None:
@@ -572,8 +556,40 @@ class FileInfo:
             errors.append('Temporal range out of bounds')
         return errors
 
-    def get_validation_errors(self):
+    def compute_errors(self):
+        """
+        Aggregate axis, dim, and time-range errors. Pure read.
+
+        Returns
+        -------
+        list[str]
+            Empty if all three error sources are clean. Otherwise the
+            concatenation of ``_axis_errors`` + ``_dim_errors`` +
+            ``_time_range_errors`` results.
+        """
         return self._axis_errors() + self._dim_errors() + self._time_range_errors()
+
+    def apply_defaults(self):
+        """
+        Fill ``t_start``/``t_end`` defaults when axes are valid and T present.
+
+        No-op when ``good_axes`` is False, when ``T`` is absent from
+        ``self.axes``, or when ``self.shape`` is None. Otherwise:
+        ``t_start`` defaults to 0 (when None); ``t_end`` defaults to
+        ``shape[axes.index('T')] - 1`` (when None).
+        """
+        if not self.good_axes:
+            return
+        if self.axes is None or 'T' not in self.axes:
+            return
+        if self.shape is None:
+            return
+        if self.t_start is None:
+            self.t_start = 0
+        t_index = self.axes.index('T')
+        max_t = self.shape[t_index] - 1
+        if self.t_end is None:
+            self.t_end = max_t
 
     def change_axes(self, new_axes):
         """
@@ -721,35 +737,26 @@ class FileInfo:
 
     def _validate(self):
         """
-        Validates the current state of the axes and dimensional metadata, then updates output paths.
+        Recompute validation flags + ``validation_errors`` and update output paths.
 
-        This method performs several validation steps:
-        1. Calls `_check_axes()` to ensure the axes are valid.
-        2. Calls `_check_dim_res()` to ensure that the dimensional resolutions are valid.
-        3. Calls `select_temporal_range()` to set or update the time range if applicable.
-        4. Calls `_get_output_path()` to update the output paths based on the current metadata.
+        Thin orchestrator that:
+        1. Sets ``good_axes`` and ``good_dims`` from the pure
+           ``_axis_errors`` / ``_dim_errors`` results.
+        2. Calls ``apply_defaults`` to fill ``t_start``/``t_end`` when
+           the axes are valid and T is present.
+        3. Sets ``validation_errors`` to ``compute_errors()``.
+        4. Calls ``_get_output_path`` to refresh output filename strings.
 
-        The method ensures that all aspects of the metadata (axes, dimensional resolutions, and temporal range)
-        are consistent and correctly applied before further processing.
-
-        Raises
-        ------
-        ValueError
-            If any aspect of the metadata is invalid or inconsistent.
+        Never raises. Slice 5 made validation symmetric — failures are
+        always surfaced via ``validation_errors`` and the boolean flags.
+        Programmer-error mutators (``select_temporal_range``,
+        ``change_axes``, ``change_dim_res``) still raise directly on
+        invalid input at the entry point.
         """
-        axis_errors = self._check_axes()
-        dim_errors = self._check_dim_res()
-        if self.good_axes and 'T' in self.axes and self.shape is not None:
-            if self.t_start is None:
-                self.t_start = 0
-            t_index = self.axes.index('T')
-            max_t = self.shape[t_index] - 1
-            if self.t_end is None:
-                self.t_end = max_t
-        time_errors = self._time_range_errors()
-        self.validation_errors = axis_errors + dim_errors + time_errors
-        if time_errors:
-            raise ValueError(time_errors[0])
+        self.good_axes = not self._axis_errors()
+        self.good_dims = not self._dim_errors()
+        self.apply_defaults()
+        self.validation_errors = self.compute_errors()
         self._get_output_path()
 
     def read_file(self):
