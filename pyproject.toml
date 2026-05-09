@@ -33,6 +33,12 @@ docs = [
 dev = [
     "pytest",
 ]
+mps = [
+    # MPS is Apple Silicon only; constrain to Darwin so uv's required-environments
+    # resolution doesn't force a torch wheel for Linux/Windows where the extra
+    # has no useful effect (the cuda path still goes through cupy, not torch).
+    "torch; sys_platform == 'darwin'",
+]
 
 [build-system]
 requires = ["setuptools>=64", "setuptools-scm>=8", "wheel"]
@@ -63,7 +69,8 @@ required-environments = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "-m", "not benchmark"]
+addopts = ["-ra", "--strict-markers", "-m", "not benchmark and not mps"]
 markers = [
     "benchmark: timing-sensitive perf tests; opt in with `-m benchmark`",
+    "mps: torch+MPS hardware tests; opt in with `-m mps` (requires Mac + torch+MPS)",
 ]

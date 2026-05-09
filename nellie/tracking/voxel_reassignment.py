@@ -1051,16 +1051,14 @@ class VoxelReassigner:
             logger.info("Skipping voxel reassignment for non-temporal dataset.")
             return
         device = adaptive_run.normalize_device(self.device)
-        gpu_ok = adaptive_run.gpu_available()
-        if device == "gpu" and not gpu_ok:
+        device_order = adaptive_run.device_cascade(self.device)
+        if device == "gpu" and device_order == ["cpu"]:
             logger.warning("VoxelReassigner: GPU requested but not available; falling back to CPU.")
-        if device == "cpu" or not gpu_ok:
-            device_order = ["cpu"]
-        else:
-            device_order = ["gpu", "cpu"]
 
         start_low_memory = bool(self.low_memory) or adaptive_run.should_use_low_memory(
-            self.im_info, include_gpu="gpu" in device_order
+            self.im_info,
+            include_gpu="gpu" in device_order,
+            device_order=device_order,
         )
         if start_low_memory and not self.low_memory:
             logger.info("VoxelReassigner: enabling low-memory mode based on estimated usage.")
@@ -1074,7 +1072,7 @@ class VoxelReassigner:
                 return
             except Exception as exc:
                 last_exc = exc
-                if adaptive_run.is_gpu_unavailable_error(exc) and dev == "gpu":
+                if adaptive_run.is_gpu_unavailable_error(exc) and dev in ("gpu", "mps"):
                     logger.warning("VoxelReassigner: GPU backend unavailable; retrying on CPU.")
                     continue
                 if adaptive_run.is_oom_error(exc):

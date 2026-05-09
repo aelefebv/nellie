@@ -89,7 +89,7 @@ class Network:
         self.low_memory = bool(config.low_memory)
 
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
-        self.force_device = config.device.lower() in ("cpu", "gpu", "cuda")
+        self.force_device = config.device.lower() in ("cpu", "gpu", "cuda", "mps")
         self.max_chunk_voxels = int(config.max_chunk_voxels)
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
@@ -126,7 +126,7 @@ class Network:
         device = adaptive_run.normalize_device(device)
         self.device = device
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
-        self.force_device = device in ("cpu", "gpu")
+        self.force_device = device in ("cpu", "gpu", "mps")
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -731,16 +731,14 @@ class Network:
         Execute the full network analysis pipeline.
         """
         device = adaptive_run.normalize_device(self.device)
-        gpu_ok = adaptive_run.gpu_available()
-        if device == "gpu" and not gpu_ok:
+        device_order = adaptive_run.device_cascade(self.device)
+        if device == "gpu" and device_order == ["cpu"]:
             logger.warning("Network: GPU requested but not available; falling back to CPU.")
-        if device == "cpu" or not gpu_ok:
-            device_order = ["cpu"]
-        else:
-            device_order = ["gpu", "cpu"]
 
         start_low_memory = bool(self.low_memory) or adaptive_run.should_use_low_memory(
-            self.im_info, include_gpu="gpu" in device_order
+            self.im_info,
+            include_gpu="gpu" in device_order,
+            device_order=device_order,
         )
         if start_low_memory and not self.low_memory:
             logger.info("Network: enabling low-memory mode based on estimated usage.")
@@ -755,7 +753,7 @@ class Network:
                 return
             except Exception as exc:
                 last_exc = exc
-                if adaptive_run.is_gpu_unavailable_error(exc) and dev == "gpu":
+                if adaptive_run.is_gpu_unavailable_error(exc) and dev in ("gpu", "mps"):
                     logger.warning("Network: GPU backend unavailable; retrying on CPU.")
                     continue
                 if adaptive_run.is_oom_error(exc):

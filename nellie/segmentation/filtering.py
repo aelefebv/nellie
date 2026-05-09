@@ -118,7 +118,7 @@ class Filter:
         self.low_memory = config.low_memory
 
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
-        self.force_device = self.device.lower() in ("cpu", "gpu", "cuda")
+        self.force_device = self.device.lower() in ("cpu", "gpu", "cuda", "mps")
         self.truncate = 3.0
         if not self.im_info.no_z:
             z_res = self.im_info.dim_res.get("Z") or self.im_info.dim_res.get("X") or 1.0
@@ -162,7 +162,7 @@ class Filter:
         device = adaptive_run.normalize_device(device)
         self.device = device
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
-        self.force_device = device in ("cpu", "gpu", "cuda")
+        self.force_device = device in ("cpu", "gpu", "cuda", "mps")
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -609,7 +609,7 @@ class Filter:
             except Exception as exc2:
                 if not adaptive_run.is_oom_error(exc2):
                     raise
-                if self.device_type == "cuda" and not self.force_device:
+                if self.device_type in ("cuda", "mps") and not self.force_device:
                     self._switch_to_cpu()
                     return self._run_frame_chunked(t, mask=mask)
                 raise
@@ -704,16 +704,14 @@ class Filter:
         """
         logger.info("Running Frangi filter.")
         device = adaptive_run.normalize_device(self.device)
-        gpu_ok = adaptive_run.gpu_available()
-        if device == "gpu" and not gpu_ok:
+        device_order = adaptive_run.device_cascade(self.device)
+        if device == "gpu" and device_order == ["cpu"]:
             logger.warning("Filter: GPU requested but not available; falling back to CPU.")
-        if device == "cpu" or not gpu_ok:
-            device_order = ["cpu"]
-        else:
-            device_order = ["gpu", "cpu"]
 
         start_low_memory = bool(self.low_memory) or adaptive_run.should_use_low_memory(
-            self.im_info, include_gpu="gpu" in device_order
+            self.im_info,
+            include_gpu="gpu" in device_order,
+            device_order=device_order,
         )
         if start_low_memory and not self.low_memory:
             logger.info("Filter: enabling low-memory mode based on estimated usage.")
@@ -730,7 +728,7 @@ class Filter:
                 return
             except Exception as exc:
                 last_exc = exc
-                if adaptive_run.is_gpu_unavailable_error(exc) and dev == "gpu":
+                if adaptive_run.is_gpu_unavailable_error(exc) and dev in ("gpu", "mps"):
                     logger.warning("Filter: GPU backend unavailable; retrying on CPU.")
                     continue
                 if adaptive_run.is_oom_error(exc):
