@@ -124,6 +124,7 @@ import pytest
 from nellie.feature_extraction.hierarchical import (
     Branches,
     Hierarchy,
+    HierarchyConfig,
     Voxels,
     aggregate_stats_for_class,
     append_to_array,
@@ -170,10 +171,12 @@ def _run_hierarchy(info: ImInfo, **kwargs) -> Hierarchy:
 
     Always pinned to CPU for deterministic behavior. Caller is
     responsible for calling ``_release_hierarchy`` after inspecting
-    on-disk outputs.
+    on-disk outputs. ``viewer`` is forwarded as a separate constructor
+    arg (not a Config field).
     """
     kwargs.setdefault("device", "cpu")
-    h = Hierarchy(info, **kwargs)
+    viewer = kwargs.pop("viewer", None)
+    h = Hierarchy(info, HierarchyConfig(**kwargs), viewer=viewer)
     h.run()
     return h
 
@@ -1002,10 +1005,12 @@ def test_resolve_node_chunk_size_formula(make_hierarchical_imageinfo_3d) -> None
     info = make_hierarchical_imageinfo_3d(include_reassigned=False)
     h = Hierarchy(
         info,
-        skip_nodes=True,
-        device="cpu",
-        node_chunk_size=None,
-        max_node_mask_elems=int(5e7),
+        HierarchyConfig(
+            skip_nodes=True,
+            device="cpu",
+            node_chunk_size=None,
+            max_node_mask_elems=int(5e7),
+        ),
     )
 
     # num_voxels == 0 → 1.
@@ -1090,7 +1095,7 @@ def test_compute_branch_lengths_per_call_oom_fallback(
     ``self.hierarchy.device_type``).
     """
     info = make_hierarchical_imageinfo_3d()
-    h = Hierarchy(info, skip_nodes=True, device="cpu")
+    h = Hierarchy(info, HierarchyConfig(skip_nodes=True, device="cpu"))
     # Force GPU branch: post-Slice-3, the dispatch site reads
     # `self.hierarchy.device_type` and `self.hierarchy.xp` directly.
     h.device_type = "cuda"
@@ -1158,7 +1163,7 @@ def test_compute_branch_lengths_non_oom_exception_propagates(
     does NOT mutate ``self.hierarchy.device_type``.
     """
     info = make_hierarchical_imageinfo_3d()
-    h = Hierarchy(info, skip_nodes=True, device="cpu")
+    h = Hierarchy(info, HierarchyConfig(skip_nodes=True, device="cpu"))
     h.device_type = "cuda"
     h.xp = _FakeXp  # type: ignore[assignment]
 
@@ -1244,7 +1249,10 @@ def test_node_chunk_halving_on_memory_error(
     #
     # Direct approach via co-opting `_resolve_node_chunk_size`:
     info2 = make_hierarchical_imageinfo_3d()
-    h2 = Hierarchy(info2, skip_nodes=False, device="cpu", node_chunk_size=10)
+    h2 = Hierarchy(
+        info2,
+        HierarchyConfig(skip_nodes=False, device="cpu", node_chunk_size=10),
+    )
     chunk_size_history: list[int] = []
     real_resolve = h2._resolve_node_chunk_size
 
@@ -1286,7 +1294,7 @@ def test_outer_run_cascade_retries_low_memory_on_oom(
     method returns without raising.
     """
     info = make_hierarchical_imageinfo_3d()
-    h = Hierarchy(info, skip_nodes=True, device="cpu")
+    h = Hierarchy(info, HierarchyConfig(skip_nodes=True, device="cpu"))
 
     state = {"calls": 0, "low_memory_at_call": []}
     real_run_hierarchy = h._run_hierarchy

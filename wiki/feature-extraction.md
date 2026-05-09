@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-08
+modified: 2026-05-09
 ---
 
 # Feature extraction
@@ -26,6 +26,7 @@ A mitochondrial network is interesting at multiple scales simultaneously: a sing
 - **Consumes** (via `ImInfo.pipeline_paths` memmaps): raw, [[filtering|`im_preprocessed`]], [[mocap-marking|`im_distance`]], [[networking|`im_skel`]], [[networking|`im_pixel_class`]], [[labelling|`im_instance_label`]], [[networking|`im_skel_relabelled`]], [[mocap-marking|`im_border`]], and (when temporal) [[voxel-reassignment|tracked-reassigned label volumes]].
 - Motility pulls forward/backward flow through [[flow-interpolation|`FlowInterpolator`]].
 - **Outputs** read by the [[analysis|napari analysis widget]] and [[processor]].
+- Algorithm config is bundled in a `HierarchyConfig` frozen dataclass colocated in `hierarchical.py`. `Hierarchy(im_info, HierarchyConfig(skip_nodes=..., ...), viewer=None)` is the construction shape (no `num_t` arg — derived from `im_info.shape[0]`). The cascade may mutate `Hierarchy.device` / `Hierarchy.low_memory` runtime state; `Hierarchy.config` preserves the original intent.
 
 ## Output shape
 

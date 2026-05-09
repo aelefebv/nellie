@@ -4,7 +4,7 @@ Main entry point for the Nellie image analysis pipeline.
 This module provides the run function, which orchestrates the complete Nellie pipeline
 including filtering, segmentation, tracking, and feature extraction.
 """
-from nellie.feature_extraction.hierarchical import Hierarchy
+from nellie.feature_extraction.hierarchical import Hierarchy, HierarchyConfig
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
@@ -116,7 +116,8 @@ def run(
     if timeit:
         start_time = time.perf_counter()
     hierarchy = Hierarchy(
-        im_info, skip_nodes=False, device=device, low_memory=low_memory
+        im_info,
+        HierarchyConfig(skip_nodes=False, device=device, low_memory=low_memory),
     )
     hierarchy.run()
     if timeit:

@@ -7,7 +7,7 @@ from qtpy.QtWidgets import QWidget, QPushButton, QVBoxLayout, QGroupBox, QLabel,
 from qtpy.QtGui import QFont
 from qtpy.QtCore import Qt, QTimer
 
-from nellie.feature_extraction.hierarchical import Hierarchy
+from nellie.feature_extraction.hierarchical import Hierarchy, HierarchyConfig
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
@@ -531,12 +531,11 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            base_kwargs = {
-                "im_info": self.current_im_info,
-                "skip_nodes": skip_nodes,
-                "viewer": self.viewer,
-            }
-            hierarchy = Hierarchy(**base_kwargs, **step_kwargs)
+            hierarchy = Hierarchy(
+                im_info=self.current_im_info,
+                config=HierarchyConfig(skip_nodes=skip_nodes, **step_kwargs),
+                viewer=self.viewer,
+            )
             hierarchy.run()
             if remove_intermediates_checked:
                 try:
