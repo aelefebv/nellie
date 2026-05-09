@@ -135,6 +135,99 @@ def safe_eigvalsh(
         return xp.asarray(ev_cpu)
 
 
+def eigvalsh_3x3_symmetric(H: np.ndarray, xp: Any) -> np.ndarray:
+    """Closed-form eigenvalues of batched 3x3 symmetric matrices.
+
+    Drop-in replacement for `safe_eigvalsh` on 3x3 symmetric inputs.
+    Returns shape ``(N, 3)`` sorted by absolute value ascending — the
+    contract `frangi_math.frangi` (and `safe_eigvalsh`) rely on. Uses
+    Smith's 1961 trigonometric formula; vectorizes cleanly on both
+    NumPy and CuPy and skips the per-batch LAPACK call entirely.
+    """
+    return eigvalsh_3x3_components(
+        H[..., 0, 0],
+        H[..., 0, 1],
+        H[..., 0, 2],
+        H[..., 1, 1],
+        H[..., 1, 2],
+        H[..., 2, 2],
+        xp,
+    )
+
+
+def eigvalsh_3x3_components(
+    h11: np.ndarray,
+    h12: np.ndarray,
+    h13: np.ndarray,
+    h22: np.ndarray,
+    h23: np.ndarray,
+    h33: np.ndarray,
+    xp: Any,
+) -> np.ndarray:
+    """`eigvalsh_3x3_symmetric` variant that takes the six unique components directly.
+
+    Avoids materializing a full ``(N, 3, 3)`` tensor when the caller
+    already has the components as 1D arrays (e.g., the Frangi filter's
+    chunked Hessian path).
+    """
+    # Smith 1961: characteristic polynomial via the trigonometric ID
+    # 4·cos³(θ) − 3·cos(θ) = cos(3θ). For symmetric A:
+    #   p₁ = Σ aᵢⱼ²  (off-diagonal)
+    #   q  = trace(A) / 3
+    #   p² = (Σ (aᵢᵢ − q)² + 2·p₁) / 6
+    #   B  = (A − q·I) / p
+    #   r  = det(B) / 2
+    # eigenvalues = q + 2p·cos(arccos(r)/3 + k·2π/3) for k=0,1,2.
+    p1 = h12 * h12 + h13 * h13 + h23 * h23
+    q = (h11 + h22 + h33) / xp.float32(3.0)
+
+    h11q = h11 - q
+    h22q = h22 - q
+    h33q = h33 - q
+    p2 = h11q * h11q + h22q * h22q + h33q * h33q + xp.float32(2.0) * p1
+    p = xp.sqrt(p2 / xp.float32(6.0))
+
+    # When p == 0, the matrix is a scalar multiple of the identity (or
+    # zero) — every eigenvalue equals q. Substitute 1.0 to avoid div-by-
+    # zero in the formula; restore the correct value afterward.
+    is_degenerate = p <= xp.float32(0.0)
+    safe_p = xp.where(is_degenerate, xp.float32(1.0), p)
+    inv_p = xp.float32(1.0) / safe_p
+
+    b11 = h11q * inv_p
+    b12 = h12 * inv_p
+    b13 = h13 * inv_p
+    b22 = h22q * inv_p
+    b23 = h23 * inv_p
+    b33 = h33q * inv_p
+
+    # Cofactor expansion along the first row (B is symmetric)
+    det_b = (
+        b11 * (b22 * b33 - b23 * b23)
+        - b12 * (b12 * b33 - b23 * b13)
+        + b13 * (b12 * b23 - b22 * b13)
+    )
+    r = det_b / xp.float32(2.0)
+    # Float rounding can push r marginally outside [-1, 1] — arccos of
+    # that is NaN. Clip before the trig call.
+    r = xp.clip(r, xp.float32(-1.0), xp.float32(1.0))
+
+    phi = xp.arccos(r) / xp.float32(3.0)
+    two_p = xp.float32(2.0) * p
+
+    eig_max = q + two_p * xp.cos(phi)
+    eig_min = q + two_p * xp.cos(phi + xp.float32(2.0 * np.pi / 3.0))
+    eig_mid = xp.float32(3.0) * q - eig_max - eig_min
+
+    eig_max = xp.where(is_degenerate, q, eig_max)
+    eig_min = xp.where(is_degenerate, q, eig_min)
+    eig_mid = xp.where(is_degenerate, q, eig_mid)
+
+    eigenvalues = xp.stack([eig_min, eig_mid, eig_max], axis=-1)
+    order = xp.argsort(xp.abs(eigenvalues), axis=-1)
+    return xp.take_along_axis(eigenvalues, order, axis=-1)
+
+
 def _sample_strides(shape: tuple[int, ...], max_samples: int | None) -> tuple[int, ...]:
     if max_samples is None or max_samples <= 0:
         return (1,) * len(shape)

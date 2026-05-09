@@ -13,7 +13,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import scipy.ndimage as scipy_ndi
 
+from nellie.segmentation import frangi_math
 from nellie.segmentation.filtering import Filter, FrangiConfig
 
 
@@ -280,3 +282,176 @@ def test_frangi_config_rejects_inverted_radius_range() -> None:
 
 def test_frangi_config_equal_radii_ok() -> None:
     FrangiConfig(min_radius_um=0.5, max_radius_um=0.5)
+
+
+# -------------------------------------------------------------------------
+# `_get_frob_mask` inf handling
+#
+# `frobenius_norm = sqrt(...) / max_abs` from `compute_hessian` cannot
+# produce infs in normal pipelines (max_abs is guarded against zero), so
+# the inf branch is unreachable from real fixtures. Synthetic arrays
+# pin the contract directly: inf voxels stay in the mask, the input is
+# never mutated, and the pathological all-inf case yields no signal.
+# -------------------------------------------------------------------------
+
+def test_get_frob_mask_with_infs_keeps_them_and_preserves_input(
+    make_imageinfo_2d,
+) -> None:
+    info = make_imageinfo_2d()
+    filt = Filter(info, _CPU, num_t=2)
+
+    arr = np.array(
+        [[0.0, 0.5, 1.0, 2.0],
+         [3.0, np.inf, 5.0, np.inf],
+         [0.1, 0.2, 0.3, 0.4]],
+        dtype=np.float32,
+    )
+    snapshot = arr.copy()
+
+    mask = filt._get_frob_mask(arr)
+
+    assert mask.dtype == np.bool_
+    assert mask.shape == arr.shape
+    assert mask[1, 1] and mask[1, 3], "inf voxels must end up in the mask"
+    np.testing.assert_array_equal(arr, snapshot)
+
+    _release_filter(filt)
+
+
+def test_get_frob_mask_all_infs_yields_no_signal(make_imageinfo_2d) -> None:
+    info = make_imageinfo_2d()
+    filt = Filter(info, _CPU, num_t=2)
+
+    arr = np.full((4, 4), np.inf, dtype=np.float32)
+    mask = filt._get_frob_mask(arr)
+
+    assert mask.dtype == np.bool_
+    assert not mask.any(), (
+        "all-inf input has no finite signal to threshold against; "
+        "mask must be all-False to match prior behavior"
+    )
+
+    _release_filter(filt)
+
+
+# -------------------------------------------------------------------------
+# `_backend_for_array` dispatch
+# -------------------------------------------------------------------------
+
+def test_backend_for_array_dispatches_numpy(make_imageinfo_2d) -> None:
+    """A NumPy array must map to the (numpy, scipy.ndimage) backend pair."""
+    info = make_imageinfo_2d()
+    filt = Filter(info, _CPU, num_t=2)
+
+    xp, ndi = filt._backend_for_array(np.array([1.0, 2.0], dtype=np.float32))
+
+    assert xp is np
+    assert ndi is scipy_ndi
+
+    _release_filter(filt)
+
+
+# -------------------------------------------------------------------------
+# Dense vs sparse vesselness paths
+#
+# The dense fast path (active when h_mask covers every voxel) must be
+# numerically identical to the existing sparse path, which iterates over
+# the masked voxels via xp.where + scatter. Parametrized over 2D and 3D
+# so the closed-form 2D and 3D eigenvalue paths both get a focused
+# equivalence check.
+# -------------------------------------------------------------------------
+
+@pytest.fixture(params=["2d", "3d"])
+def synthetic_h_components(request, make_imageinfo_2d, make_imageinfo_3d):
+    """Realistic Hessian components from the first frame of the chosen fixture."""
+    factory = make_imageinfo_2d if request.param == "2d" else make_imageinfo_3d
+    info = factory()
+    filt = Filter(info, _CPU, num_t=2)
+    filt._get_t()
+    filt._set_default_sigmas()
+
+    raw = np.asarray(filt.im_info.get_memmap(filt.im_info.im_path)[0], dtype=np.float32)
+    sigma_vec = filt._get_sigma_vec(filt.sigmas[0])
+    smoothed = scipy_ndi.gaussian_filter(
+        raw, sigma=sigma_vec, mode="reflect", truncate=filt.truncate
+    )
+    spacing = filt._get_spacing(smoothed.ndim)
+    h_components, _frob = frangi_math.compute_hessian(
+        smoothed, spacing, low_memory=False, xp=np, work_dtype="float32"
+    )
+    gamma_sq = 2.0 * (1e-3 ** 2)
+
+    yield filt, h_components, gamma_sq
+
+    _release_filter(filt)
+
+
+def test_dense_and_sparse_vesselness_paths_agree(synthetic_h_components) -> None:
+    filt, h_components, gamma_sq = synthetic_h_components
+    template = next(iter(h_components.values()))
+    h_mask_all = np.ones(template.shape, dtype=bool)
+
+    dense_out = filt._compute_vesselness_dense(h_components, gamma_sq)
+    sparse_out = filt._compute_vesselness_sparse(h_components, h_mask_all, gamma_sq)
+
+    np.testing.assert_allclose(dense_out, sparse_out, atol=1e-6)
+
+
+def test_dispatcher_picks_dense_when_mask_full(synthetic_h_components) -> None:
+    """`_compute_vesselness_chunkwise` must route an all-True mask to the dense path."""
+    filt, h_components, gamma_sq = synthetic_h_components
+    template = next(iter(h_components.values()))
+    h_mask_all = np.ones(template.shape, dtype=bool)
+
+    calls = {"dense": 0, "sparse": 0}
+    real_dense = Filter._compute_vesselness_dense
+    real_sparse = Filter._compute_vesselness_sparse
+
+    def spy_dense(self, h_components, gamma_sq):
+        calls["dense"] += 1
+        return real_dense(self, h_components, gamma_sq)
+
+    def spy_sparse(self, h_components, h_mask, gamma_sq):
+        calls["sparse"] += 1
+        return real_sparse(self, h_components, h_mask, gamma_sq)
+
+    try:
+        Filter._compute_vesselness_dense = spy_dense
+        Filter._compute_vesselness_sparse = spy_sparse
+        filt._compute_vesselness_chunkwise(h_components, h_mask_all, gamma_sq)
+    finally:
+        Filter._compute_vesselness_dense = real_dense
+        Filter._compute_vesselness_sparse = real_sparse
+
+    assert calls == {"dense": 1, "sparse": 0}
+
+
+def test_dispatcher_picks_sparse_when_mask_partial(synthetic_h_components) -> None:
+    filt, h_components, gamma_sq = synthetic_h_components
+    template = next(iter(h_components.values()))
+    h_mask = np.ones(template.shape, dtype=bool)
+    # One False voxel — forces the sparse path. Index is shape-agnostic so
+    # the same line works for both 2D and 3D fixtures.
+    h_mask.flat[0] = False
+
+    calls = {"dense": 0, "sparse": 0}
+    real_dense = Filter._compute_vesselness_dense
+    real_sparse = Filter._compute_vesselness_sparse
+
+    def spy_dense(self, h_components, gamma_sq):
+        calls["dense"] += 1
+        return real_dense(self, h_components, gamma_sq)
+
+    def spy_sparse(self, h_components, h_mask, gamma_sq):
+        calls["sparse"] += 1
+        return real_sparse(self, h_components, h_mask, gamma_sq)
+
+    try:
+        Filter._compute_vesselness_dense = spy_dense
+        Filter._compute_vesselness_sparse = spy_sparse
+        filt._compute_vesselness_chunkwise(h_components, h_mask, gamma_sq)
+    finally:
+        Filter._compute_vesselness_dense = real_dense
+        Filter._compute_vesselness_sparse = real_sparse
+
+    assert calls == {"dense": 0, "sparse": 1}

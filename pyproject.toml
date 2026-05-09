@@ -63,4 +63,7 @@ required-environments = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers"]
+addopts = ["-ra", "--strict-markers", "-m", "not benchmark"]
+markers = [
+    "benchmark: timing-sensitive perf tests; opt in with `-m benchmark`",
+]

@@ -8,12 +8,32 @@ optimized for large datasets with optional GPU acceleration.
 from dataclasses import dataclass
 
 import numpy as np
+import scipy.ndimage as scipy_ndi
 
 from nellie.im_info.verifier import ImInfo
 from nellie.segmentation import frangi_math
 from nellie.utils import adaptive_run, chunking
 from nellie.utils.base_logger import logger
 from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
+
+
+def _probe_cupy_backend():
+    """Resolve the CuPy backend tuple once at import time.
+
+    Returns ``(cupy, cupyx.scipy.ndimage, cupy.ndarray)`` or ``None``
+    when CuPy is unavailable. Cached so `_backend_for_array` can dispatch
+    via a single `isinstance` check instead of re-importing per call.
+    """
+    try:
+        import cupy
+        import cupyx.scipy.ndimage as cupy_ndi
+
+        return (cupy, cupy_ndi, cupy.ndarray)
+    except Exception:
+        return None
+
+
+_CUPY_BACKEND = _probe_cupy_backend()
 
 
 @dataclass(frozen=True)
@@ -190,17 +210,13 @@ class Filter:
         return int(rmin), int(rmax), int(cmin), int(cmax)
 
     def _backend_for_array(self, arr):
-        try:
-            import cupy
-            import cupyx.scipy.ndimage as cupy_ndi
-
-            if isinstance(arr, cupy.ndarray):
-                return cupy, cupy_ndi
-        except Exception:
-            pass
-        import numpy as np
-        import scipy.ndimage as ndi
-        return np, ndi
+        # `_CUPY_BACKEND` is probed once at module import; this dispatcher
+        # is hot (called per frame in `_run_filter`, per call in
+        # `_mask_volume` / `_bbox`), so the per-call try/except + import
+        # the original did was pure overhead on CuPy-less installs.
+        if _CUPY_BACKEND is not None and isinstance(arr, _CUPY_BACKEND[2]):
+            return _CUPY_BACKEND[0], _CUPY_BACKEND[1]
+        return np, scipy_ndi
 
     def _get_spacing(self, ndim):
         if ndim == 2:
@@ -282,20 +298,27 @@ class Filter:
         -------
         mask : xp.ndarray of bool
         """
-        # Replace infs with max finite value to keep thresholds valid
+        # Infs would break `triangle_threshold` / `otsu_threshold`, both of
+        # which use `xp.histogram(range=(min, max))`. Exclude infs from
+        # threshold input only — the final `> thresh` comparison keeps
+        # them in the mask anyway (inf > finite is True). Avoids the
+        # full-volume copy the prior in-place inf-replacement required.
         inf_mask = self.xp.isinf(frobenius_norm)
-        if self.xp.any(inf_mask):
-            finite_vals = frobenius_norm[~inf_mask]
-            max_finite = float(self.xp.max(finite_vals)) if finite_vals.size > 0 else 0.0
-            frobenius_norm = frobenius_norm.copy()
-            frobenius_norm[inf_mask] = max_finite
+        has_infs = bool(self.xp.any(inf_mask))
+        if has_infs and bool(inf_mask.all()):
+            # Pathological: every voxel is inf. The prior code replaced
+            # infs with `max_finite=0` and thresholded `> 0`, returning
+            # an all-False mask. Match that.
+            return self.xp.zeros_like(frobenius_norm, dtype=bool)
 
         if not self.frob_thresh_division:
-            mask = frobenius_norm > 0
-            return mask
+            return frobenius_norm > 0
 
         if self.frob_thresh is None:
-            positive = self._subsample_for_thresholds(frobenius_norm)
+            threshold_input = (
+                frobenius_norm[~inf_mask] if has_infs else frobenius_norm
+            )
+            positive = self._subsample_for_thresholds(threshold_input)
             if positive.size == 0:
                 frobenius_threshold = 0.0
             else:
@@ -305,87 +328,123 @@ class Filter:
         else:
             frobenius_threshold = float(self.frob_thresh)
 
-        mask = frobenius_norm > (frobenius_threshold / self.frob_thresh_division)
-        return mask
+        return frobenius_norm > (frobenius_threshold / self.frob_thresh_division)
 
     # -------------------------------------------------------------------------
     # Eigenvalues and vesselness
     # -------------------------------------------------------------------------
-    def _safe_eigvalsh(self, H_chunk):
-        """Thin wrapper around `chunking.safe_eigvalsh` carrying Filter's force-GPU flag."""
-        return chunking.safe_eigvalsh(
-            H_chunk,
+    def _eigenvalues_from_chunk(self, h_chunks):
+        """Hessian eigenvalues from a dict of 1D component chunks.
+
+        Returns shape ``(N, 2)`` for 2D, ``(N, 3)`` for 3D, sorted by
+        absolute value ascending — what `frangi_math.frangi` expects.
+        Shared by the sparse and dense vesselness paths so both routes
+        stay in lockstep numerically.
+        """
+        if self.im_info.no_z:
+            hxx_c = h_chunks["hxx"]
+            hxy_c = h_chunks["hxy"]
+            hyy_c = h_chunks["hyy"]
+            trace = hxx_c + hyy_c
+            diff = hxx_c - hyy_c
+            delta = self.xp.sqrt(diff * diff + 4.0 * (hxy_c * hxy_c))
+            l1 = 0.5 * (trace - delta)
+            l2 = 0.5 * (trace + delta)
+            abs1 = self.xp.abs(l1)
+            abs2 = self.xp.abs(l2)
+            swap = abs1 > abs2
+            eig1 = self.xp.where(swap, l2, l1)
+            eig2 = self.xp.where(swap, l1, l2)
+            return self.xp.stack([eig1, eig2], axis=1)
+
+        # Closed-form Smith's formula for symmetric 3x3 eigenvalues —
+        # vectorizes cleanly over the chunk and skips both the (N, 3, 3)
+        # tensor materialization and the per-batch LAPACK `eigvalsh`
+        # that the prior `_safe_eigvalsh` path required. Same sort
+        # contract (abs ascending), same shape `(N, 3)`.
+        return chunking.eigvalsh_3x3_components(
+            h_chunks["hxx"], h_chunks["hxy"], h_chunks["hxz"],
+            h_chunks["hyy"], h_chunks["hyz"], h_chunks["hzz"],
             self.xp,
-            force_device_gpu=(self.force_device and self.device_type == "cuda"),
         )
 
     def _compute_vesselness_chunkwise(self, h_components, h_mask, gamma_sq):
+        """Dispatch to the dense fast path when h_mask covers every voxel.
+
+        The sparse path (the original implementation) is correct in all
+        cases but pays an `xp.where` coordinate materialization plus
+        per-chunk fancy indexing plus a final scatter — pure overhead
+        when the mask is fully True. `bool(h_mask.all())` costs one
+        reduction; the dense path saves the rest.
         """
-        Compute vesselness in chunks over the masked voxels to control memory.
+        if bool(h_mask.all()):
+            return self._compute_vesselness_dense(h_components, gamma_sq)
+        return self._compute_vesselness_sparse(h_components, h_mask, gamma_sq)
+
+    def _compute_vesselness_sparse(self, h_components, h_mask, gamma_sq):
+        """Vesselness over masked voxels only, scattered back into a full volume.
+
+        Used when the Frobenius mask is partial — paying the indexing
+        overhead is worth it to avoid evaluating frangi on voxels that
+        will be zeroed anyway.
         """
-        # Coordinates of voxels where we evaluate the Hessian
         coords = self.xp.where(h_mask)
         total_voxels = int(coords[0].size)
+        template = next(iter(h_components.values()))
         if total_voxels == 0:
-            # Return an all-zero volume
-            template = next(iter(h_components.values()))
             return self.xp.zeros_like(template, dtype=self.work_dtype)
 
         chunk_size = self.max_chunk_voxels
         if chunk_size is None or chunk_size <= 0:
             chunk_size = total_voxels
 
-        # Preallocate 1D buffer for vesselness values on masked voxels
         vessel_masked = self.xp.zeros(total_voxels, dtype=self.work_dtype)
 
-        # Iterate over chunks
         for start in range(0, total_voxels, chunk_size):
             end = min(start + chunk_size, total_voxels)
             idx_chunk = tuple(c[start:end] for c in coords)
-
-            if self.im_info.no_z:
-                # 2D Hessian
-                hxx_c = h_components["hxx"][idx_chunk]
-                hxy_c = h_components["hxy"][idx_chunk]
-                hyy_c = h_components["hyy"][idx_chunk]
-                trace = hxx_c + hyy_c
-                diff = hxx_c - hyy_c
-                delta = self.xp.sqrt(diff * diff + 4.0 * (hxy_c * hxy_c))
-                l1 = 0.5 * (trace - delta)
-                l2 = 0.5 * (trace + delta)
-                abs1 = self.xp.abs(l1)
-                abs2 = self.xp.abs(l2)
-                swap = abs1 > abs2
-                eig1 = self.xp.where(swap, l2, l1)
-                eig2 = self.xp.where(swap, l1, l2)
-                eigenvalues = self.xp.stack([eig1, eig2], axis=1)
-            else:
-                # 3D Hessian
-                hxx_c = h_components["hxx"][idx_chunk]
-                hxy_c = h_components["hxy"][idx_chunk]
-                hxz_c = h_components["hxz"][idx_chunk]
-                hyy_c = h_components["hyy"][idx_chunk]
-                hyz_c = h_components["hyz"][idx_chunk]
-                hzz_c = h_components["hzz"][idx_chunk]
-                H_chunk = self.xp.stack(
-                    [
-                        self.xp.stack([hxx_c, hxy_c, hxz_c], axis=-1),
-                        self.xp.stack([hxy_c, hyy_c, hyz_c], axis=-1),
-                        self.xp.stack([hxz_c, hyz_c, hzz_c], axis=-1),
-                    ],
-                    axis=-2,
-                )
-                eigenvalues = self._safe_eigvalsh(H_chunk)
+            h_chunks = {k: h_components[k][idx_chunk] for k in h_components}
+            eigenvalues = self._eigenvalues_from_chunk(h_chunks)
             v_chunk = frangi_math.frangi(
                 eigenvalues, self.alpha_sq, self.beta_sq, gamma_sq, self.xp
             )
             vessel_masked[start:end] = v_chunk.astype(self.work_dtype, copy=False)
 
-        # Scatter back into full volume
-        template = next(iter(h_components.values()))
         vesselness = self.xp.zeros_like(template, dtype=self.work_dtype)
         vesselness[coords] = vessel_masked
         return vesselness
+
+    def _compute_vesselness_dense(self, h_components, gamma_sq):
+        """Vesselness over the full volume via flat slicing — no `xp.where` indirection.
+
+        Iterating contiguous flat slices of the components keeps reads
+        contiguous and avoids both the coord arrays the sparse path
+        materializes and the per-chunk fancy indexing it performs.
+        """
+        template = next(iter(h_components.values()))
+        shape = template.shape
+        total = template.size
+        if total == 0:
+            return self.xp.zeros_like(template, dtype=self.work_dtype)
+
+        flat = {k: v.ravel() for k, v in h_components.items()}
+
+        chunk_size = self.max_chunk_voxels
+        if chunk_size is None or chunk_size <= 0:
+            chunk_size = total
+
+        vessel_flat = self.xp.zeros(total, dtype=self.work_dtype)
+
+        for start in range(0, total, chunk_size):
+            end = min(start + chunk_size, total)
+            h_chunks = {k: flat[k][start:end] for k in flat}
+            eigenvalues = self._eigenvalues_from_chunk(h_chunks)
+            v_chunk = frangi_math.frangi(
+                eigenvalues, self.alpha_sq, self.beta_sq, gamma_sq, self.xp
+            )
+            vessel_flat[start:end] = v_chunk.astype(self.work_dtype, copy=False)
+
+        return vessel_flat.reshape(shape)
 
     # -------------------------------------------------------------------------
     # Per-frame processing
@@ -448,7 +507,7 @@ class Filter:
                 h_components, h_mask, gamma_sq=gamma_sq
             )
 
-            vesselness = self.xp.maximum(vesselness, vessel_scale)
+            self.xp.maximum(vesselness, vessel_scale, out=vesselness)
             masks &= h_mask
 
         return vesselness, masks
@@ -475,16 +534,22 @@ class Filter:
                     vessel_chunk, mask_chunk = self._compute_vesselness(
                         chunk_xp, mask=mask
                     )
-                    vessel_chunk_masked = vessel_chunk * mask_chunk
+                    vessel_chunk *= mask_chunk
                     if self.device_type == "cuda":
-                        vessel_chunk_masked = vessel_chunk_masked.get()
+                        vessel_chunk = vessel_chunk.get()
                         if mask_out is not None:
                             mask_chunk = mask_chunk.get()
-                    vessel_out[core] = vessel_chunk_masked[core_in_ext]
+                    vessel_out[core] = vessel_chunk[core_in_ext]
                     if mask_out is not None:
                         mask_out[core] = mask_chunk[core_in_ext]
 
                 if fuse_blobness:
+                    # Allocating the full frame on-device after we just
+                    # went chunked looks wasteful, but it's intentional:
+                    # per-chunk LoG would require global normalization
+                    # across chunks, and for 2D this is a single Y×X
+                    # plane — small relative to the chunked Hessian
+                    # working set we just freed.
                     frame_xp = self.xp.asarray(frame_cpu, dtype=self.work_dtype)
                     log_mask = self.xp.asarray(mask_out)
                     blobness = frangi_math.log_blobness(
@@ -494,7 +559,7 @@ class Filter:
                     blobness = self.xp.maximum(blobness, 0)
                     if self.device_type == "cuda":
                         blobness = blobness.get()
-                    vessel_out = np.maximum(vessel_out, blobness)
+                    np.maximum(vessel_out, blobness, out=vessel_out)
 
                 if self.remove_edges:
                     vessel_out = self._remove_edges(vessel_out)
@@ -522,7 +587,7 @@ class Filter:
         try:
             frame = self.xp.asarray(frame_cpu, dtype=self.work_dtype)
             vesselness, masks = self._compute_vesselness(frame, mask=mask)
-            vesselness = vesselness * masks
+            vesselness *= masks
             if self.im_info.no_z:
                 log_mask = masks if mask else self.xp.ones_like(frame, bool)
                 blobness = frangi_math.log_blobness(
@@ -530,7 +595,7 @@ class Filter:
                     self.xp, self.ndi, self.work_dtype,
                 )
                 blobness = self.xp.maximum(blobness, 0)  # keep bright-blob response only
-                vesselness = self.xp.maximum(vesselness, blobness)
+                self.xp.maximum(vesselness, blobness, out=vesselness)
             if self.remove_edges:
                 vesselness = self._remove_edges(vesselness)
             return vesselness
