@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-06
+modified: 2026-05-09
 ---
 
 # Glossary
@@ -25,4 +25,5 @@ Project-specific vocabulary, abbreviations, and domain terms. Each entry: term, 
 - **radius-adaptive pattern matching** — [[hu-tracking|Hu-moment tracking]]'s defining trick: ROI radius scales with the local distance-transform value. Wide windows for blobs, thin for tubules.
 - **reassigned label** — Label propagated through time by [[voxel-reassignment]]. The `reassigned_label` column on the [[feature-extraction|components level]] carries this identity.
 - **skel_relabelled** — `im_skel_relabelled` from [[networking]]: every voxel of an object gets a branch ID via per-object EDT.
+- **stage Config** — Frozen `@dataclass` colocated above each algorithmic stage class (`FrangiConfig`, `LabelConfig`, `NetworkConfig`, `MarkersConfig`, `HuMomentTrackingConfig`, `VoxelReassignerConfig`, `HierarchyConfig`). Holds tuning knobs; `Stage(im_info, config, viewer, num_t)` is the canonical construction shape. `Stage.config` preserves original intent across cascade-mutated `Stage.device` / `Stage.low_memory` runtime state.
 - **voxel** — The lowest [[feature-extraction|hierarchy level]]. One row per foreground voxel per frame.
