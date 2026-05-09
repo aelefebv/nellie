@@ -40,15 +40,6 @@ from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
 
-# Optional GPU support via CuPy
-try:
-    import cupy as cp
-
-    _HAS_CUPY = True
-except Exception:  # no CuPy or GPU
-    cp = None
-    _HAS_CUPY = False
-
 
 class Hierarchy:
     """
@@ -107,8 +98,8 @@ class Hierarchy:
         self.low_memory = low_memory
         self.enable_motility = enable_motility
         self.enable_adjacency = enable_adjacency
-        self.device = (device or "auto").lower()
-        self.use_gpu = self._resolve_device(self.device)
+        self.device = adaptive_run.normalize_device(device or "auto")
+        self.xp, _ndi, self.device_type = adaptive_run.resolve_backend(self.device)
         self.node_chunk_size = node_chunk_size
         self.max_node_mask_elems = int(max_node_mask_elems)
 
@@ -127,29 +118,10 @@ class Hierarchy:
         self.components = None
         self.image = None
 
-    def _cupy_available(self) -> bool:
-        if not _HAS_CUPY or cp is None:
-            return False
-        try:
-            return cp.cuda.runtime.getDeviceCount() > 0
-        except Exception:
-            return False
-
-    def _resolve_device(self, device: str) -> bool:
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
-        if device in ("gpu", "cuda"):
-            if not self._cupy_available():
-                raise RuntimeError("GPU backend requested but CuPy/CUDA is not available.")
-            return True
-        if device == "cpu":
-            return False
-        return self._cupy_available()
-
     def _set_backend(self, device: str):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.use_gpu = self._resolve_device(device)
+        self.xp, _ndi, self.device_type = adaptive_run.resolve_backend(device)
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -1550,11 +1522,14 @@ class Branches:
         """
         Wrapper that tries GPU backend if enabled, falls back to CPU otherwise.
         """
-        if self.hierarchy.use_gpu and _HAS_CUPY:
+        if self.hierarchy.device_type == "cuda":
             try:
-                return self._compute_branch_lengths_and_degrees_backend(t, cp)
-            except cp.cuda.memory.OutOfMemoryError:
+                return self._compute_branch_lengths_and_degrees_backend(t, self.hierarchy.xp)
+            except Exception as exc:
+                if not adaptive_run.is_oom_error(exc):
+                    raise
                 logger.warning("GPU OOM computing branch lengths; falling back to CPU.")
+                adaptive_run.free_gpu_memory(self.hierarchy.xp)
         return self._compute_branch_lengths_and_degrees_backend(t, np)
 
     def _get_branch_stats(self, t):
