@@ -6,62 +6,21 @@ metadata from various microscopy file formats (TIFF, OME-TIFF, ND2).
 """
 import json
 import os
-from typing import TypedDict
 
 import nd2
 import numpy as np
 import ome_types
 from tifffile import tifffile
 
+from nellie.im_info.extractors import MetadataExtractor, detect_extractor
+from nellie.im_info.types import DimRes, infer_t_axis
 from nellie.utils.base_logger import logger
 
-
-class DimRes(TypedDict):
-    """Per-axis physical resolution: X/Y/Z in micrometers, T in seconds.
-
-    All four keys are always present; values are ``None`` until populated
-    by ``FileInfo.load_metadata`` (per-format extractor) or until the
-    corresponding axis is determined to be absent from the file.
-    """
-    X: float | None
-    Y: float | None
-    Z: float | None
-    T: float | None
-
-
-def infer_t_axis(
-    source_axes: str | None,
-    source_shape: tuple[int, ...] | None,
-) -> str | None:
-    """
-    Infer a leading T axis when the source library stripped it.
-
-    Some readers (notably tifffile on certain inputs) return an axes
-    string that omits a leading singleton T dim while keeping it in the
-    shape — e.g. axes='ZYX' but shape=(1, 16, 512, 512). This helper
-    detects that pattern and returns the prepended axes string.
-
-    Parameters
-    ----------
-    source_axes : str or None
-        Axes string from the source reader (e.g. 'ZYX', 'TZYX').
-    source_shape : tuple of int or None
-        Shape from the source reader.
-
-    Returns
-    -------
-    str or None
-        ``source_axes`` with 'T' prepended when the leading-singleton
-        heuristic fires; otherwise ``source_axes`` unchanged. Returns
-        ``None`` when either input is ``None``.
-    """
-    if source_axes is None or source_shape is None:
-        return source_axes
-    if 'T' in source_axes:
-        return source_axes
-    if len(source_shape) == len(source_axes) + 1 and source_shape[0] == 1:
-        return 'T' + source_axes
-    return source_axes
+# Backwards-compat re-exports: ``DimRes`` and ``infer_t_axis`` moved to
+# ``nellie.im_info.types`` in Slice 6 to break the verifier ↔ extractors
+# circular import. Existing ``from nellie.im_info.verifier import DimRes``
+# (or ``infer_t_axis``) imports keep working via the re-exports above.
+__all__ = ['FileInfo', 'ImInfo', 'DimRes', 'infer_t_axis', 'transform_to_axes']
 
 
 def transform_to_axes(
@@ -175,10 +134,12 @@ class FileInfo:
     ----------
     filepath : str
         Path to the input file.
-    metadata : dict or None
-        Stores the metadata extracted from the file.
     metadata_type : str or None
         Type of metadata detected (e.g., 'ome', 'imagej', 'nd2').
+        Slice 6: this is the only metadata-discriminator field on
+        ``FileInfo``; the polymorphic ``self.metadata`` field was
+        retired in favor of a stashed extractor instance
+        (``self._extractor``) consumed by ``load_metadata``.
     axes : str or None
         String representing the axes in the file (e.g., 'TZCYX').
     shape : tuple or None
@@ -216,22 +177,13 @@ class FileInfo:
 
     Methods
     -------
-    _find_tif_metadata()
-        Extract metadata from TIFF or OME-TIFF files.
-    _find_nd2_metadata()
-        Extract metadata from ND2 files.
     find_metadata()
-        Detect file type and extract corresponding metadata.
-    _get_imagej_metadata(metadata)
-        Extract dimensional resolution from ImageJ metadata.
-    _get_ome_metadata(metadata)
-        Extract dimensional resolution from OME metadata.
-    _get_tif_tags_metadata(metadata)
-        Extract dimensional resolution from generic TIFF tags.
-    _get_nd2_metadata(metadata)
-        Extract dimensional resolution from ND2 metadata.
+        Detect file type via the extractor factory and stash the
+        extractor instance, plus axes / shape / metadata_type. Calls
+        ``prepare_output_dirs`` first.
     load_metadata()
-        Load and validate dimensional metadata based on the file type.
+        Project the stashed extractor into ``self.dim_res`` via
+        ``parse_dim_res()``, then runs ``_validate``.
     _check_axes()
         Validate the axes metadata for correctness.
     _check_dim_res()
@@ -271,11 +223,16 @@ class FileInfo:
             Output naming strategy ("detailed" or "stable"). Defaults to "detailed".
         """
         self.filepath = filepath
-        self.metadata = None
-        self.metadata_type = None
+        self.metadata_type: str | None = None
         self.axes = None
         self.shape = None
         self.dim_res: DimRes | None = None
+        # Slice 6: extractor instance stashed by ``find_metadata`` and
+        # consumed by ``load_metadata`` (whose only job is now
+        # ``self._extractor.parse_dim_res()``). Not part of the public
+        # surface — callers should read ``metadata_type``/``axes``/
+        # ``shape``/``dim_res`` instead.
+        self._extractor: MetadataExtractor | None = None
 
         self.input_dir = os.path.dirname(filepath)
         self.basename = os.path.basename(filepath)
@@ -306,56 +263,18 @@ class FileInfo:
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.nellie_necessities_dir, exist_ok=True)
 
-    def _find_tif_metadata(self):
-        """
-        Extracts metadata from TIFF or OME-TIFF files and updates relevant class attributes.
-
-        Returns
-        -------
-        tuple
-            Metadata and metadata type extracted from the TIFF file.
-        """
-        with tifffile.TiffFile(self.filepath) as tif:
-            if tif.is_ome or tif.ome_metadata is not None:
-                ome_xml = tifffile.tiffcomment(self.filepath)
-                metadata = ome_types.from_xml(ome_xml)
-                metadata_type = 'ome'
-            elif tif.is_imagej:
-                metadata = tif.imagej_metadata
-                metadata_type = 'imagej'
-                if 'physicalsizex' not in metadata:
-                    metadata_type = 'imagej_tif_tags'
-                    metadata = [metadata, tif.pages[0].tags._dict]
-            else:
-                metadata = tif.pages[0].tags._dict
-                metadata_type = None
-
-            self.metadata = metadata
-            self.metadata_type = metadata_type
-            self.axes = tif.series[0].axes
-            self.shape = tif.series[0].shape
-            self.axes = infer_t_axis(self.axes, self.shape)
-
-        return metadata, metadata_type
-
-    def _find_nd2_metadata(self):
-        """
-        Extracts metadata from ND2 files and updates relevant class attributes.
-        """
-        with nd2.ND2File(self.filepath) as nd2_file:
-            metadata = {
-                "root": nd2_file.metadata,
-                "recorded_data": nd2_file.events(orient='list'),
-            }
-            self.metadata = metadata
-            self.metadata_type = 'nd2'
-            self.axes = ''.join(nd2_file.sizes.keys())
-            self.shape = tuple(nd2_file.sizes.values())
-            self.axes = infer_t_axis(self.axes, self.shape)
-
     def find_metadata(self):
         """
-        Detects file type (e.g., TIFF or ND2) and calls the appropriate metadata extraction method.
+        Detect file type and read its metadata via the appropriate extractor.
+
+        Slice 6 thinned this method to a 1-line factory call. The
+        legacy 6-method per-format dispatch
+        (``_find_tif_metadata``/``_find_nd2_metadata`` →
+        ``_get_*_metadata``) was extracted into the
+        ``nellie.im_info.extractors`` subpackage; ``detect_extractor``
+        opens the file ONCE, classifies it, and returns the appropriate
+        ``MetadataExtractor`` instance carrying ``axes``, ``shape``,
+        ``metadata_type``, and the format-specific raw fields.
 
         Also calls ``prepare_output_dirs`` so output directories exist
         before any subsequent ``save_ome_tiff`` call. Construction
@@ -367,148 +286,29 @@ class FileInfo:
             If the file type is not supported.
         """
         self.prepare_output_dirs()
-        if self.extension in ('.tiff', '.tif'):
-            self._find_tif_metadata()
-        elif self.extension == '.nd2':
-            self._find_nd2_metadata()
-        else:
-            raise ValueError('File type not supported')
-
-    def _get_imagej_metadata(self, metadata):
-        """
-        Extracts dimensional resolution from ImageJ metadata and stores it in `dim_res`.
-
-        Parameters
-        ----------
-        metadata : dict
-            ImageJ metadata extracted from the file.
-        """
-        self.dim_res['X'] = metadata['physicalsizex'] if 'physicalsizex' in metadata else None
-        self.dim_res['Y'] = metadata['physicalsizey'] if 'physicalsizey' in metadata else None
-        self.dim_res['Z'] = metadata['spacing'] if 'spacing' in metadata else None
-        self.dim_res['T'] = metadata['finterval'] if 'finterval' in metadata else None
-
-    def _get_ome_metadata(self, metadata):
-        """
-        Extracts dimensional resolution from OME metadata and stores it in `dim_res`.
-
-        Parameters
-        ----------
-        metadata : ome_types.OME
-            OME metadata object.
-        """
-        self.dim_res['X'] = metadata.images[0].pixels.physical_size_x
-        self.dim_res['Y'] = metadata.images[0].pixels.physical_size_y
-        self.dim_res['Z'] = metadata.images[0].pixels.physical_size_z
-        self.dim_res['T'] = metadata.images[0].pixels.time_increment
-
-    def _get_tif_tags_metadata(self, metadata, axes):
-        """
-        Extracts dimensional resolution from TIFF tag metadata and stores it in `dim_res`.
-
-        Parameters
-        ----------
-        metadata : dict
-            Dictionary of TIFF tags.
-        axes : str
-            Axes string for the file (used to gate Z/T extraction).
-            Pass ``self.axes`` from the caller; this is taken as an
-            explicit parameter rather than read from ``self`` to make
-            the dependency visible in the signature.
-        """
-        tag_names = {tag_value.name: tag_code for tag_code, tag_value in metadata.items()}
-
-        if 'XResolution' in tag_names:
-            self.dim_res['X'] = metadata[tag_names['XResolution']].value[1] \
-                                  / metadata[tag_names['XResolution']].value[0]
-        if 'YResolution' in tag_names:
-            self.dim_res['Y'] = metadata[tag_names['YResolution']].value[1] \
-                                  / metadata[tag_names['YResolution']].value[0]
-        if 'ResolutionUnit' in tag_names:
-            if metadata[tag_names['ResolutionUnit']].value == tifffile.RESUNIT.CENTIMETER:
-                self.dim_res['X'] *= 1E4
-                self.dim_res['Y'] *= 1E4
-            elif metadata[tag_names['ResolutionUnit']].value == tifffile.RESUNIT.INCH:
-                self.dim_res['X'] *= 25400
-                self.dim_res['Y'] *= 25400
-        if 'Z' in axes:
-            if 'ZResolution' in tag_names:
-                self.dim_res['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
-        if 'T' in axes:
-            if 'FrameRate' in tag_names:
-                self.dim_res['T'] = 1 / metadata[tag_names['FrameRate']].value[0]
-
-    def _get_nd2_metadata(self, metadata):
-        """
-        Extracts dimensional resolution from ND2 metadata and stores it in `dim_res`.
-
-        Parameters
-        ----------
-        metadata : dict
-            ND2 metadata object.
-        """
-        recorded_data = {}
-        root_metadata = None
-        if isinstance(metadata, dict):
-            recorded_data = metadata.get("recorded_data") or {}
-            root_metadata = metadata.get("root")
-        else:
-            recorded_data = getattr(metadata, "recorded_data", {}) or {}
-            root_metadata = metadata
-
-        timestamps = recorded_data.get("Time [s]")
-        if timestamps is not None:
-            if len(timestamps) >= 2:
-                diffs = np.diff(timestamps)
-                self.dim_res['T'] = float(np.median(diffs))
-            else:
-                self.dim_res['T'] = None
-
-        axes_calibration = None
-        if root_metadata is not None:
-            if isinstance(root_metadata, dict):
-                volume = root_metadata.get("volume")
-            else:
-                volume = getattr(root_metadata, "volume", None)
-            axes_calibration = getattr(volume, "axesCalibration", None)
-
-        if axes_calibration is None and root_metadata is not None:
-            if isinstance(root_metadata, dict):
-                channels = root_metadata.get("channels")
-            else:
-                channels = getattr(root_metadata, "channels", None)
-            if channels:
-                channel = channels[0]
-                if isinstance(channel, dict):
-                    channel_volume = channel.get("volume")
-                else:
-                    channel_volume = getattr(channel, "volume", None)
-                axes_calibration = getattr(channel_volume, "axesCalibration", None)
-
-        if axes_calibration is not None:
-            if len(axes_calibration) > 0:
-                self.dim_res['X'] = axes_calibration[0]
-            if len(axes_calibration) > 1:
-                self.dim_res['Y'] = axes_calibration[1]
-            if len(axes_calibration) > 2:
-                self.dim_res['Z'] = axes_calibration[2]
+        self._extractor = detect_extractor(self.filepath)
+        self.metadata_type = self._extractor.metadata_type
+        self.axes = self._extractor.axes
+        self.shape = self._extractor.shape
 
     def load_metadata(self):
         """
-        Loads and validates dimensional metadata based on the file type (OME, ImageJ, ND2, or generic TIFF).
+        Parse ``dim_res`` from the previously-detected extractor.
+
+        Must be called after ``find_metadata`` (which stashes the
+        extractor instance on ``self._extractor``). Populates
+        ``self.dim_res`` with the per-format physical pixel sizes and
+        time interval, then runs ``_validate``.
+
+        Raises
+        ------
+        ValueError
+            If ``find_metadata`` was not called first (no extractor
+            stashed on ``self._extractor``).
         """
-        self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
-        if self.metadata_type == 'ome':
-            self._get_ome_metadata(self.metadata)
-        elif self.metadata_type == 'imagej':
-            self._get_imagej_metadata(self.metadata)
-        elif self.metadata_type == 'imagej_tif_tags':
-            self._get_imagej_metadata(self.metadata[0])
-            self._get_tif_tags_metadata(self.metadata[1], self.axes)
-        elif self.metadata_type == 'nd2':
-            self._get_nd2_metadata(self.metadata)
-        elif self.metadata_type is None:
-            self._get_tif_tags_metadata(self.metadata, self.axes)
+        if self._extractor is None:
+            raise ValueError("find_metadata must be called before load_metadata")
+        self.dim_res = self._extractor.parse_dim_res()
         self._validate()
 
     def _axis_errors(self):
