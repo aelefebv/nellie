@@ -10,11 +10,34 @@ Notes
 - The border mask is the outside shell, computed as dilation(mask) XOR mask.
 """
 import itertools
+from dataclasses import dataclass
+
 import numpy as np
 
 from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
+
+
+@dataclass(frozen=True)
+class MarkersConfig:
+    """Algorithm configuration for ``Markers``.
+
+    Frozen — represents the user's intent at construction time. Markers
+    copies these values into mutable instance attributes that the
+    OOM/availability cascade can update mid-run (``device``, ``low_memory``).
+    Inspect ``Markers.config`` to see the original intent regardless of any
+    cascade-driven runtime fallbacks.
+    """
+
+    min_radius_um: float = 0.20
+    max_radius_um: float = 1
+    use_im: str = "distance"
+    num_sigma: int = 5
+    peak_min_distance: int = 2
+    device: str = "auto"
+    low_memory: bool = False
+    max_chunk_voxels: int = int(1e6)
 
 
 class Markers:
@@ -70,10 +93,13 @@ class Markers:
         Minimum separation (in pixels) between peaks in morphological NMS.
     """
 
-    def __init__(self, im_info: ImInfo, num_t=None,
-                 min_radius_um=0.20, max_radius_um=1, use_im='distance', num_sigma=5,
-                 viewer=None, peak_min_distance=2,
-                 device="auto", low_memory=False, max_chunk_voxels=int(1e6)):
+    def __init__(
+        self,
+        im_info: ImInfo,
+        config: MarkersConfig = MarkersConfig(),
+        viewer=None,
+        num_t: int | None = None,
+    ) -> None:
         """
         Initializes the Markers object with image metadata and marking parameters.
 
@@ -81,28 +107,15 @@ class Markers:
         ----------
         im_info : ImInfo
             An instance of the ImInfo class, containing metadata and paths for the image file.
-        num_t : int, optional
-            Number of timepoints to process. If None, defaults to the number of timepoints in the image.
-        min_radius_um : float, optional
-            Minimum radius of detected objects in micrometers (default is 0.20).
-        max_radius_um : float, optional
-            Maximum radius of detected objects in micrometers (default is 1).
-        use_im : str, optional
-            Specifies which image to use for peak detection ('distance' or 'frangi', default is 'distance').
-        num_sigma : int, optional
-            Number of sigma steps for multi-scale filtering (default is 5).
+        config : MarkersConfig
+            Algorithm configuration. Defaults to ``MarkersConfig()``.
         viewer : object or None, optional
             Viewer object for displaying status during processing (default is None).
-        peak_min_distance : int, optional
-            Minimum distance (in pixels) between peaks for NMS (default is 2).
-        device : {"auto", "cpu", "gpu"}, optional
-            Backend selection. "auto" uses GPU if available, otherwise CPU.
-        low_memory : bool, optional
-            If True, prefer chunked LoG and NMS to reduce memory at the cost of speed.
-        max_chunk_voxels : int, optional
-            Maximum number of voxels per chunk for low-memory processing.
+        num_t : int, optional
+            Number of timepoints to process. If None, defaults to the number of timepoints in the image.
         """
         self.im_info = im_info
+        self.config = config
 
         self.num_t = num_t
         if self.im_info.no_t:
@@ -115,14 +128,15 @@ class Markers:
         else:
             self.z_ratio = 1.0
 
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
-        self.max_radius_um = max_radius_um
+        # Aliases for hot path readability — config remains the source of truth.
+        self.min_radius_um = max(config.min_radius_um, self.im_info.dim_res['X'])
+        self.max_radius_um = config.max_radius_um
 
         self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
         self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']
 
-        self.use_im = use_im
-        self.num_sigma = num_sigma
+        self.use_im = config.use_im
+        self.num_sigma = config.num_sigma
 
         self.im_memmap = None
         self.im_frangi_memmap = None
@@ -133,15 +147,17 @@ class Markers:
 
         self.viewer = viewer
 
-        self.device = adaptive_run.normalize_device(device)
+        # Cascade-mutable runtime state. Initial values come from config;
+        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
+        self.device = adaptive_run.normalize_device(config.device)
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
 
         # Morphological NMS radius
-        self.peak_min_distance = peak_min_distance
+        self.peak_min_distance = config.peak_min_distance
 
         # Optional low-memory chunking
-        self.low_memory = bool(low_memory)
-        self.max_chunk_voxels = int(max_chunk_voxels)
+        self.low_memory = bool(config.low_memory)
+        self.max_chunk_voxels = int(config.max_chunk_voxels)
         self.truncate = 4.0
 
     # -------------------------------------------------------------------------

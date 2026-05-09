@@ -55,8 +55,8 @@ import tifffile
 
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter, FrangiConfig
-from nellie.segmentation.labelling import Label
-from nellie.segmentation.mocap_marking import Markers
+from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.mocap_marking import Markers, MarkersConfig
 
 
 def _release_markers(m: Markers) -> None:
@@ -78,7 +78,7 @@ def _release_markers(m: Markers) -> None:
 def _run_markers(info: ImInfo, **kwargs) -> dict[str, np.ndarray]:
     """Run ``Markers`` on ``info`` and return copies of the on-disk outputs."""
     kwargs.setdefault("device", "cpu")
-    m = Markers(info, num_t=2, **kwargs)
+    m = Markers(info, MarkersConfig(**kwargs), num_t=2)
     m.run()
     out = {
         "marker": np.asarray(m.im_marker_memmap).copy(),
@@ -323,7 +323,7 @@ def test_use_im_frangi_raises_when_frangi_absent(make_imageinfo_3d, label_3d_pat
     # Markers' run() catches OOM/GPU-unavailable errors and continues
     # the cascade, but a missing-file error should propagate cleanly.
     with pytest.raises(Exception) as exc_info:
-        Markers(info, num_t=2, device="cpu", use_im="frangi").run()
+        Markers(info, MarkersConfig(device="cpu", use_im="frangi"), num_t=2).run()
 
     # The actual error type is FileNotFoundError from tifffile.memmap
     # (or RuntimeError if the inner check at line 678 is reached on a
@@ -423,14 +423,14 @@ def test_viewer_status_callback(make_markers_imageinfo_2d) -> None:
     """
     # No-op arm: viewer=None.
     info_none = make_markers_imageinfo_2d()
-    m_none = Markers(info_none, num_t=2, device="cpu", viewer=None)
+    m_none = Markers(info_none, MarkersConfig(device="cpu"), viewer=None, num_t=2)
     m_none.run()  # must not raise
     _release_markers(m_none)
 
     # Stub-viewer arm: assert per-frame writes.
     info_stub = make_markers_imageinfo_2d()
     stub = _StubViewer()
-    m_stub = Markers(info_stub, num_t=2, device="cpu", viewer=stub)
+    m_stub = Markers(info_stub, MarkersConfig(device="cpu"), viewer=stub, num_t=2)
     m_stub.run()
     assert len(stub.status_writes) == 2, (
         f"Expected viewer.status set once per frame (2 writes); "
@@ -498,7 +498,7 @@ def _build_single_frame_iminfo(workdir: Path) -> ImInfo:
     file_info.load_metadata()
     info = ImInfo(file_info)
     Filter(info, FrangiConfig(device="cpu"), num_t=1).run()
-    Label(info, num_t=1, device="cpu").run()
+    Label(info, LabelConfig(device="cpu"), num_t=1).run()
     gc.collect()
     return info
 
@@ -527,7 +527,7 @@ def test_single_frame_shape_branch_both_paths(tmp_path: Path) -> None:
     """
     # ----- [:] arm -----
     info = _build_single_frame_iminfo(tmp_path / "splat_branch")
-    m_splat = Markers(info, num_t=1, device="cpu")
+    m_splat = Markers(info, MarkersConfig(device="cpu"), num_t=1)
     m_splat._set_backend("cpu")
     m_splat._set_low_memory(False)
     m_splat._allocate_memory()
@@ -556,7 +556,7 @@ def test_single_frame_shape_branch_both_paths(tmp_path: Path) -> None:
 
     # ----- [t] arm -----
     info_t = _build_single_frame_iminfo(tmp_path / "frame_branch")
-    m_t = Markers(info_t, num_t=1, device="cpu")
+    m_t = Markers(info_t, MarkersConfig(device="cpu"), num_t=1)
     m_t._set_backend("cpu")
     m_t._set_low_memory(False)
     m_t._allocate_memory()

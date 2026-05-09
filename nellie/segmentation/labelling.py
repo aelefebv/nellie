@@ -4,6 +4,8 @@ Semantic and instance segmentation for microscopy images.
 This module provides the Label class for thresholding-based segmentation with
 optimizations for large volumes and optional GPU acceleration.
 """
+from dataclasses import dataclass
+
 import numpy as np
 
 from nellie.utils import adaptive_run
@@ -14,68 +16,70 @@ from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 _UNSET = object()
 
 
+@dataclass(frozen=True)
+class LabelConfig:
+    """Algorithm configuration for ``Label``.
+
+    Frozen — represents the user's intent at construction time. Label
+    copies these values into mutable instance attributes that the
+    OOM/availability cascade can update mid-run (``device``, ``low_memory``).
+    Inspect ``Label.config`` to see the original intent regardless of any
+    cascade-driven runtime fallbacks.
+    """
+
+    threshold: float | None = None
+    otsu_thresh_intensity: bool = False
+    chunk_z: int | None = None
+    flush_interval: int = 1
+    min_radius_um: float = 0.25
+    threshold_sampling_pixels: int = 1_000_000
+    histogram_nbins: int = 256
+    device: str = "auto"
+    low_memory: bool = False
+    max_chunk_voxels: int = int(1e6)
+
+
 class Label:
     """
     A class for semantic and instance segmentation of microscopy images using
     thresholding techniques, optimized for large volumes and optional GPU acceleration.
     """
 
-    def __init__(self, im_info: ImInfo,
-                 num_t=None,
-                 threshold=None,
-                 otsu_thresh_intensity=False,
-                 viewer=None,
-                 chunk_z=None,
-                 flush_interval=1,
-                 min_radius_um=0.25,
-                 threshold_sampling_pixels=1_000_000,
-                 histogram_nbins=256,
-                 device="auto",
-                 low_memory: bool = False,
-                 max_chunk_voxels: int = int(1e6)):
+    def __init__(
+        self,
+        im_info: ImInfo,
+        config: LabelConfig = LabelConfig(),
+        viewer=None,
+        num_t: int | None = None,
+    ) -> None:
         """
         Parameters
         ----------
         im_info : ImInfo
             Image metadata and paths.
-        num_t : int, optional
-            Number of timepoints to process.
-        threshold : float or None, optional
-            Fixed intensity threshold for segmentation (if not using Otsu).
-        otsu_thresh_intensity : bool, optional
-            Whether to apply Otsu's method for intensity thresholding.
+        config : LabelConfig
+            Algorithm configuration. Defaults to ``LabelConfig()``.
         viewer : object or None, optional
             Viewer object for displaying status.
-        chunk_z : int or None, optional
-            If not None and image has Z, process each timepoint in Z-chunks of
-            this size instead of the full volume. If None and
-            low_memory is True, a chunk size is inferred from max_chunk_voxels.
-        flush_interval : int, optional
-            How often (in frames) to flush the output memmap to disk.
-        min_radius_um : float, optional
-            Minimum expected object radius in micrometers. Labels smaller than
-            the area/volume of a circle/sphere with this radius are removed.
-        threshold_sampling_pixels : int, optional
-            Maximum number of pixels sampled when computing global thresholds
-            to reduce histogram cost for very large volumes.
-        histogram_nbins : int, optional
-            Number of bins to use in histogram-based thresholding.
-        device : {"auto", "cpu", "gpu"}, optional
-            Backend selection. "auto" uses GPU if available, otherwise CPU.
-        low_memory : bool, optional
-            If True, prefer chunked Z processing to reduce peak memory usage.
-        max_chunk_voxels : int, optional
-            Target maximum number of voxels per Z-chunk when low_memory is True
-            and chunk_z is not specified.
+        num_t : int, optional
+            Number of timepoints to process.
         """
         self.im_info = im_info
-        self.device = device
-        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
+        self.config = config
+
+        # Cascade-mutable runtime state. Initial values come from config;
+        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
+        self.device = config.device
+        self.low_memory = bool(config.low_memory)
+
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
-        self.threshold = threshold
-        self.otsu_thresh_intensity = otsu_thresh_intensity
+
+        # Aliases for hot path readability — config remains the source of truth.
+        self.threshold = config.threshold
+        self.otsu_thresh_intensity = config.otsu_thresh_intensity
 
         self.im_memmap = None
         self.frangi_memmap = None
@@ -87,20 +91,19 @@ class Label:
         self.viewer = viewer
 
         # Optimization / configuration parameters
-        self.chunk_z = chunk_z if (not self.im_info.no_z and chunk_z is not None) else None
+        self.chunk_z = config.chunk_z if (not self.im_info.no_z and config.chunk_z is not None) else None
         # Stash the *coerced* value (None for 2D), not the raw user input —
         # ``chunk_z`` has no meaning without a Z axis, so passing
         # ``chunk_z=...`` against a 2D image is intentionally a no-op.
         self._user_chunk_z = self.chunk_z
-        self.flush_interval = max(1, int(flush_interval))
-        min_radius_um = float(min_radius_um)
+        self.flush_interval = max(1, int(config.flush_interval))
+        min_radius_um = float(config.min_radius_um)
         x_res = self.im_info.dim_res.get("X") or 1.0
         self.min_radius_um = max(min_radius_um, float(x_res))
-        self.threshold_sampling_pixels = int(threshold_sampling_pixels)
-        self.histogram_nbins = int(histogram_nbins)
+        self.threshold_sampling_pixels = int(config.threshold_sampling_pixels)
+        self.histogram_nbins = int(config.histogram_nbins)
         self.eps = 1e-8
-        self.low_memory = bool(low_memory)
-        self.max_chunk_voxels = int(max_chunk_voxels)
+        self.max_chunk_voxels = int(config.max_chunk_voxels)
 
         if self.low_memory and self.chunk_z is None and not self.im_info.no_z:
             inferred_chunk = self._infer_chunk_z()

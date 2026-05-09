@@ -81,8 +81,8 @@ import tifffile
 
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter, FrangiConfig
-from nellie.segmentation.labelling import Label
-from nellie.segmentation.mocap_marking import Markers
+from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.mocap_marking import Markers, MarkersConfig
 from nellie.tracking.hu_tracking import (
     HuMomentTracking,
     _FrameFeatures,
@@ -396,8 +396,8 @@ def _build_single_frame_iminfo(workdir: Path) -> ImInfo:
     file_info.load_metadata()
     info = ImInfo(file_info)
     Filter(info, FrangiConfig(device="cpu"), num_t=1).run()
-    Label(info, num_t=1, device="cpu").run()
-    Markers(info, num_t=1, device="cpu").run()
+    Label(info, LabelConfig(device="cpu"), num_t=1).run()
+    Markers(info, MarkersConfig(device="cpu"), num_t=1).run()
     gc.collect()
     return info
 

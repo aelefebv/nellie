@@ -17,6 +17,7 @@ Frangi response is continuous; tracking and features need discrete object IDs. C
 - Output `im_instance_label` consumed by [[networking]], [[mocap-marking]], [[tracking/index|tracking]], and [[feature-extraction]].
 - Threshold helpers from [[gpu-runtime|gpu_functions]].
 - Backend selection and OOM cascade go through [[gpu-runtime|`adaptive_run`]].
+- Algorithm config is bundled in a `LabelConfig` frozen dataclass colocated in `labelling.py`. `Label(im_info, LabelConfig(threshold=..., ...), viewer=None, num_t=None)` is the construction shape. The cascade may mutate `Label.device` / `Label.low_memory` runtime state; `Label.config` preserves the original intent.
 
 ## Adaptive backend & low-memory mode
 
