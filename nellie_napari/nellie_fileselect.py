@@ -709,7 +709,7 @@ class NellieFileSelect(QWidget):
             self.preview_button.setEnabled(True)
             self.process_button.setEnabled(True)
 
-        errors = self.file_info.get_validation_errors()
+        errors = self.file_info.compute_errors()
         self._set_validation_messages(errors)
 
     def check_available_dims(self) -> None:
