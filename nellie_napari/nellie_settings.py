@@ -899,21 +899,21 @@ class Settings(QWidget):
         )
         return config, num_t
 
-    def get_mocap_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.mocap_num_t_override, self.mocap_num_t
-            ),
-            "min_radius_um": self.mocap_min_radius_um.value(),
-            "max_radius_um": self.mocap_max_radius_um.value(),
-            "use_im": self.mocap_use_im.currentText(),
-            "num_sigma": self.mocap_num_sigma.value(),
-            "peak_min_distance": self.mocap_peak_min_distance.value(),
-            "device": self.mocap_device.currentText(),
-            "low_memory": self.mocap_low_memory.isChecked(),
-            "max_chunk_voxels": self.mocap_max_chunk_voxels.value(),
-        }
-        return self._prune_none(params)
+    def get_mocap_params(self) -> tuple[MarkersConfig, int | None]:
+        config = MarkersConfig(
+            min_radius_um=self.mocap_min_radius_um.value(),
+            max_radius_um=self.mocap_max_radius_um.value(),
+            use_im=self.mocap_use_im.currentText(),
+            num_sigma=self.mocap_num_sigma.value(),
+            peak_min_distance=self.mocap_peak_min_distance.value(),
+            device=self.mocap_device.currentText(),
+            low_memory=self.mocap_low_memory.isChecked(),
+            max_chunk_voxels=self.mocap_max_chunk_voxels.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.mocap_num_t_override, self.mocap_num_t
+        )
+        return config, num_t
 
     def get_tracking_params(self) -> dict:
         params = {

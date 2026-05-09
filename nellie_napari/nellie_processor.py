@@ -407,7 +407,7 @@ class NellieProcessor(QWidget):
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_mocap(self, im_info_list, step_kwargs):
+    def _run_mocap(self, im_info_list, config: MarkersConfig, num_t: int | None):
         """
         Run the mocap marking step in a separate thread. Marks the motion capture points within the segmented regions.
 
@@ -415,21 +415,20 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        step_kwargs : dict
-            Keyword arguments for the Markers class (excluding im_info/viewer).
+        config : MarkersConfig
+            Algorithm configuration for the Markers stage.
+        num_t : int or None
+            Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            config_kwargs = dict(step_kwargs)
-            num_t = config_kwargs.pop("num_t", None)
-            mocap_marking = Markers(
+            Markers(
                 im_info=self.current_im_info,
-                config=MarkersConfig(**config_kwargs),
+                config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            )
-            mocap_marking.run()
+            ).run()
 
     def run_mocap(self):
         """
@@ -438,8 +437,10 @@ class NellieProcessor(QWidget):
         """
         self.status = "mocap marking"
         settings = self._get_settings()
-        step_kwargs = settings.get_mocap_params() if settings else {}
-        worker = self._run_mocap(self.im_info_list, step_kwargs)
+        config, num_t = (
+            settings.get_mocap_params() if settings else (MarkersConfig(), None)
+        )
+        worker = self._run_mocap(self.im_info_list, config, num_t)
         next_step = self.run_tracking if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 
