@@ -30,7 +30,7 @@ import ome_types
 import pytest
 import tifffile
 
-from nellie.im_info.verifier import FileInfo
+from nellie.im_info.verifier import FileInfo, infer_t_axis
 
 # Fixture paths are derived once at import time from the same on-disk
 # locations the conftest constants point at. (The ``tests/`` directory
@@ -231,7 +231,32 @@ def test_unsupported_extension_raises(tmp_path) -> None:
 
 
 # ============================================================
-# B. Axes normalization (_normalize_time_axis)
+# A1. infer_t_axis (pure-logic)
+# ============================================================
+#
+# Slice 4 extracted ``_normalize_time_axis`` (a side-effect-on-self
+# method) into ``infer_t_axis``, a pure module-level function. These
+# tests exercise the function directly with edge inputs that wouldn't
+# fire through the FileInfo integration paths below.
+
+
+def test_infer_t_axis_returns_unchanged_for_none_inputs() -> None:
+    """Both ``source_axes`` and ``source_shape`` ``None`` → return ``None``."""
+    assert infer_t_axis(None, None) is None
+
+
+def test_infer_t_axis_no_op_when_shape_extra_singleton_at_non_zero_position() -> None:
+    """Shape has an extra dim but NOT at position 0 → no T prepend.
+
+    ``axes='ZYX'`` + ``shape=(16, 1, 512, 512)`` exposes the
+    leading-singleton heuristic's narrow gate: only a leading singleton
+    triggers T-prepend; a singleton at any other position does not.
+    """
+    assert infer_t_axis('ZYX', (16, 1, 512, 512)) == 'ZYX'
+
+
+# ============================================================
+# B. Axes normalization (infer_t_axis)
 # ============================================================
 
 def test_normalize_time_axis_imagej_with_physicalsize_stays_yx(tmp_path) -> None:
@@ -240,8 +265,8 @@ def test_normalize_time_axis_imagej_with_physicalsize_stays_yx(tmp_path) -> None
     assert fi.axes == "YX"
 
 
-def test_normalize_time_axis_prepends_t_when_leading_singleton(tmp_path) -> None:
-    """``_normalize_time_axis``: axes='ZYX' + shape=(1,16,512,512) → axes='TZYX'.
+def test_infer_t_axis_prepends_t_when_leading_singleton(tmp_path) -> None:
+    """``infer_t_axis``: axes='ZYX' + shape=(1,16,512,512) → axes='TZYX'.
 
     Driven by direct state manipulation: tifffile won't let us write a
     file whose axes string disagrees with the data shape, so the
@@ -252,35 +277,35 @@ def test_normalize_time_axis_prepends_t_when_leading_singleton(tmp_path) -> None
     fi = FileInfo(str(dst))
     fi.axes = "ZYX"
     fi.shape = (1, 16, 512, 512)
-    fi._normalize_time_axis()
+    fi.axes = infer_t_axis(fi.axes, fi.shape)
     assert fi.axes == "TZYX"
 
 
-def test_normalize_time_axis_noop_when_t_already_present(tmp_path) -> None:
+def test_infer_t_axis_noop_when_t_already_present(tmp_path) -> None:
     dst = _copy_fixture_to_tmp(FIXTURE_3D_PATH, tmp_path)
     fi = FileInfo(str(dst))
     fi.axes = "TZYX"
     fi.shape = (2, 17, 192, 279)
-    fi._normalize_time_axis()
+    fi.axes = infer_t_axis(fi.axes, fi.shape)
     assert fi.axes == "TZYX"
 
 
-def test_normalize_time_axis_noop_when_axes_none(tmp_path) -> None:
+def test_infer_t_axis_noop_when_axes_none(tmp_path) -> None:
     dst = _copy_fixture_to_tmp(FIXTURE_3D_PATH, tmp_path)
     fi = FileInfo(str(dst))
     fi.axes = None
     fi.shape = (16, 512, 512)
-    fi._normalize_time_axis()
+    fi.axes = infer_t_axis(fi.axes, fi.shape)
     assert fi.axes is None
 
 
-def test_normalize_time_axis_noop_when_lengths_match(tmp_path) -> None:
+def test_infer_t_axis_noop_when_lengths_match(tmp_path) -> None:
     """Lengths match (no leading singleton): leave axes alone."""
     dst = _copy_fixture_to_tmp(FIXTURE_3D_PATH, tmp_path)
     fi = FileInfo(str(dst))
     fi.axes = "ZYX"
     fi.shape = (16, 512, 512)
-    fi._normalize_time_axis()
+    fi.axes = infer_t_axis(fi.axes, fi.shape)
     assert fi.axes == "ZYX"
 
 

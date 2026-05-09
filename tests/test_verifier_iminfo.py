@@ -12,13 +12,16 @@ dechaos report calls out — the ``_normalize_axes`` allowed-set divergence
 from ``FileInfo._axis_errors`` (C-axis), the auto-regen on T-axis stale,
 and the partial-flag semantics of ``_check_axes_exist``.
 
-The tests intentionally exercise some private ``ImInfo`` methods
-directly (``_normalize_axes`` / ``_normalize_memmap``). Those normalizer
-paths are awkward to drive end-to-end because synthesizing a
-non-canonical OME-TIFF that survives ``ImInfo``'s constructor without
-being re-saved by ``save_ome_tiff`` is impractical. Calling the methods
-directly with synthetic numpy arrays is the cheapest way to pin the
-specific paths that Slice 4's normalizer unification will touch.
+The tests intentionally exercise the module-level normalizer
+``transform_to_axes`` directly with synthetic numpy arrays. End-to-end
+testing through the constructor would re-write the synthetic file via
+``save_ome_tiff`` (which has its own normalization), so direct calls
+are the cheapest way to pin each branch. Slice 4 of the dechaos refactor
+collapsed the three normalizer copies (``_normalize_time_axis``,
+``_normalize_axes``, ``_normalize_memmap``) into two pure functions
+(``infer_t_axis``, ``transform_to_axes``); the canonical-mode tests
+exercise ``transform_to_axes(data, axes)`` and the match-mode tests
+exercise ``transform_to_axes(data, file_axes, target_axes=info.axes)``.
 
 See ``wiki/outputs/dechaos-verifier.md`` for the full structural review
 and refactor plan.
@@ -36,7 +39,7 @@ import ome_types
 import pytest
 import tifffile
 
-from nellie.im_info.verifier import FileInfo, ImInfo
+from nellie.im_info.verifier import FileInfo, ImInfo, transform_to_axes
 
 
 def _release_iminfo_memmap(info: ImInfo) -> None:
@@ -380,155 +383,264 @@ def test_pipeline_paths_nellie_necessities_routing(imageinfo_3d: ImInfo) -> None
 
 
 # ============================================================================
-# C. ``_normalize_axes`` (called from ``_get_ome_metadata``)
+# C0. transform_to_axes (pure-logic)
 # ============================================================================
 #
-# These tests call the private ``_normalize_axes`` method directly with
-# synthetic numpy arrays. End-to-end testing through the constructor
+# Slice 4 promoted ``_normalize_axes`` / ``_normalize_memmap`` into the
+# module-level ``transform_to_axes`` function with two modes (canonical
+# when ``target_axes=None``; match when a target string is supplied).
+# These pure-logic tests exercise edge cases that wouldn't fire through
+# the existing integration paths below.
+
+
+def test_transform_to_axes_canonical_t_in_middle_position() -> None:
+    """``axes='ZTYX'`` with T at position 1 reorders to canonical ``'TZYX'``.
+
+    Distinct from ``test_transform_to_axes_moves_t_to_position_zero``
+    in that no ImInfo state is needed — pure module-level call.
+    """
+    data = np.zeros((16, 2, 512, 512), dtype=np.uint16)
+    out, axes = transform_to_axes(data, 'ZTYX')
+    assert axes == 'TZYX'
+    assert out.shape == (2, 16, 512, 512)
+
+
+def test_transform_to_axes_match_z_in_target_but_not_source_raises() -> None:
+    """Target has Z but source lacks Z → set-equality check raises ``ValueError``.
+
+    This path was un-exercised before Slice 4 because ``_normalize_memmap``'s
+    caller always passed ``self.axes`` as target. In any realistic workflow
+    the target axes set is a subset of (or equal to) the source axes set;
+    Slice 4's set-equality check now also detects the inverse mismatch.
+    """
+    data = np.zeros((2, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match="Axes mismatch"):
+        transform_to_axes(data, 'TYX', target_axes='TZYX')
+
+
+def test_transform_to_axes_canonical_raises_on_none_source_axes() -> None:
+    """``source_axes=None`` raises ``ValueError`` — the new contract.
+
+    Slice 3's ``_normalize_axes`` raised the same message; Slice 4's
+    ``transform_to_axes`` re-pins it as the function's first guard.
+    The ``get_memmap`` caller short-circuits on ``file_axes is None``
+    BEFORE calling ``transform_to_axes`` (verifier.py: ``if file_axes
+    is None: return memmap``), so this guard only fires for direct
+    callers.
+    """
+    data = np.zeros((2, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match="Axes metadata is not initialized"):
+        transform_to_axes(data, None)
+
+
+def test_transform_to_axes_canonical_rejects_c_in_source() -> None:
+    """``axes='TCYX'`` raises ``ValueError("Unsupported axes found: ['C']")``.
+
+    Pins the canonical-mode allowed-set check (``{'T','Z','Y','X'}``).
+    Distinct from ``test_transform_to_axes_rejects_c_axis`` below in
+    that the data here is 4D-with-T-already-present; the older test
+    drives the T-prepend path.
+    """
+    data = np.zeros((2, 3, 16, 16), dtype=np.uint16)
+    with pytest.raises(ValueError, match=r"Unsupported axes found: \['C'\]"):
+        transform_to_axes(data, 'TCYX')
+
+
+# ============================================================================
+# C. ``transform_to_axes`` (canonical mode, called from ``_get_ome_metadata``)
+# ============================================================================
+#
+# These tests call the module-level ``transform_to_axes`` function directly
+# with synthetic numpy arrays. End-to-end testing through the constructor
 # would re-write the synthetic file via ``save_ome_tiff`` (which has its
-# own normalization), so the only practical way to characterize each
-# branch is the direct call. Slice 4 of the dechaos refactor unifies the
-# three normalizer copies into one — these tests pin the surface that
-# the unified normalizer must reproduce.
+# own normalization), so the only practical way to characterize each branch
+# is the direct call. Slice 4 of the dechaos refactor unified the three
+# normalizer copies into one — these tests pin the canonical-mode surface
+# (no ``target_axes``) that the unified normalizer must reproduce.
 
 
-def test_normalize_axes_prepends_t_when_missing(make_imageinfo_3d) -> None:
-    """``axes='ZYX'`` with non-singleton Z gets a T prepended (verifier.py:897-899)."""
-    info = make_imageinfo_3d()
+def test_transform_to_axes_prepends_t_when_missing() -> None:
+    """``axes='ZYX'`` with non-singleton Z gets a T prepended."""
     data = np.zeros((4, 16, 16), dtype=np.uint16)
-    norm_data, norm_axes = info._normalize_axes(data, 'ZYX')
+    norm_data, norm_axes = transform_to_axes(data, 'ZYX')
     assert norm_axes == 'TZYX'
     assert norm_data.shape == (1, 4, 16, 16)
 
 
-def test_normalize_axes_moves_t_to_position_zero(make_imageinfo_3d) -> None:
-    """``axes='ZTYX'`` with T at position 1 gets reordered to ``'TZYX'`` (verifier.py:901-904)."""
-    info = make_imageinfo_3d()
+def test_transform_to_axes_moves_t_to_position_zero() -> None:
+    """``axes='ZTYX'`` with T at position 1 gets reordered to ``'TZYX'``."""
     data = np.zeros((16, 2, 16, 16), dtype=np.uint16)
-    norm_data, norm_axes = info._normalize_axes(data, 'ZTYX')
+    norm_data, norm_axes = transform_to_axes(data, 'ZTYX')
     assert norm_axes == 'TZYX'
     assert norm_data.shape == (2, 16, 16, 16)
 
 
-def test_normalize_axes_squeezes_singleton_z(make_imageinfo_3d) -> None:
+def test_transform_to_axes_squeezes_singleton_z() -> None:
     """``axes='ZYX'`` with ``Z=1`` collapses to ``'TYX'`` after T-prepend + Z-squeeze."""
-    info = make_imageinfo_3d()
     data = np.zeros((1, 16, 16), dtype=np.uint16)
-    norm_data, norm_axes = info._normalize_axes(data, 'ZYX')
+    norm_data, norm_axes = transform_to_axes(data, 'ZYX')
     assert norm_axes == 'TYX'
     assert norm_data.shape == (1, 16, 16)
 
 
-def test_normalize_axes_preserves_z_when_not_singleton(make_imageinfo_3d) -> None:
+def test_transform_to_axes_preserves_z_when_not_singleton() -> None:
     """``axes='ZYX'`` with ``Z>1`` preserves Z in the canonical ``'TZYX'`` order."""
-    info = make_imageinfo_3d()
     data = np.zeros((16, 16, 16), dtype=np.uint16)
-    norm_data, norm_axes = info._normalize_axes(data, 'ZYX')
+    norm_data, norm_axes = transform_to_axes(data, 'ZYX')
     assert norm_axes == 'TZYX'
     assert norm_data.shape == (1, 16, 16, 16)
 
 
-def test_normalize_axes_2d_yx_gets_t_prepended(make_imageinfo_3d) -> None:
+def test_transform_to_axes_2d_yx_gets_t_prepended() -> None:
     """Pure ``'YX'`` data gains a single-timepoint T prefix → ``'TYX'``."""
-    info = make_imageinfo_3d()
     data = np.zeros((16, 16), dtype=np.uint16)
-    norm_data, norm_axes = info._normalize_axes(data, 'YX')
+    norm_data, norm_axes = transform_to_axes(data, 'YX')
     assert norm_axes == 'TYX'
     assert norm_data.shape == (1, 16, 16)
 
 
-def test_normalize_axes_missing_yx_raises(make_imageinfo_3d) -> None:
-    """Axes lacking Y or X raise ``ValueError`` (verifier.py:916-917)."""
-    info = make_imageinfo_3d()
+def test_transform_to_axes_missing_yx_raises() -> None:
+    """Axes lacking Y or X raise ``ValueError``."""
     data = np.zeros((4, 16), dtype=np.uint16)
     with pytest.raises(ValueError, match="Axes must include both Y and X"):
-        info._normalize_axes(data, 'ZX')
+        transform_to_axes(data, 'ZX')
 
 
-def test_normalize_axes_rejects_c_axis(make_imageinfo_3d) -> None:
+def test_transform_to_axes_rejects_c_axis() -> None:
     """Axes containing C raise ``ValueError("Unsupported axes found: ['C']")``.
 
-    Pins current intentional behavior: ``ImInfo._normalize_axes`` excludes
-    ``C`` from its allowed set (verifier.py:912 — ``{'T', 'Z', 'Y', 'X'}``).
+    Pins current intentional behavior: ``transform_to_axes`` (canonical
+    mode) excludes ``C`` from its allowed set (``{'T', 'Z', 'Y', 'X'}``).
     ``FileInfo._axis_errors`` accepts multichannel input via its allowed
     set (verifier.py:373 — ``{'T', 'Z', 'Y', 'X', 'C'}``); ``save_ome_tiff``
     collapses ``C`` via channel-take before writing the canonical
     OME-TIFF, so ``ImInfo`` should only ever read post-collapse files.
     The two allowed sets diverge intentionally — see dechaos report
-    Pass 5 ("``_normalize_axes`` excludes C; ``_axis_errors`` includes C
-    in allowed set") and ``test_verifier_fileinfo.py``.
+    Pass 5 ("normalizer excludes C; ``_axis_errors`` includes C in
+    allowed set") and ``test_verifier_fileinfo.py``.
     """
-    info = make_imageinfo_3d()
     data = np.zeros((1, 4, 16, 16), dtype=np.uint16)
     with pytest.raises(ValueError, match=r"Unsupported axes found: \['C'\]"):
-        info._normalize_axes(data, 'CZYX')
+        transform_to_axes(data, 'CZYX')
 
 
-def test_normalize_axes_returns_string_in_canonical_order(make_imageinfo_3d) -> None:
+def test_transform_to_axes_returns_string_in_canonical_order() -> None:
     """Returned axes is a string with T first, Z (if present) second, then YX."""
-    info = make_imageinfo_3d()
     # Already-canonical input — output should equal input.
     data = np.zeros((2, 4, 16, 16), dtype=np.uint16)
-    _, norm_axes = info._normalize_axes(data, 'TZYX')
+    _, norm_axes = transform_to_axes(data, 'TZYX')
     assert isinstance(norm_axes, str)
     assert norm_axes == 'TZYX'
 
     # Reordered input — output must still be canonical.
     data = np.zeros((4, 2, 16, 16), dtype=np.uint16)
-    _, norm_axes = info._normalize_axes(data, 'ZTYX')
+    _, norm_axes = transform_to_axes(data, 'ZTYX')
     assert norm_axes == 'TZYX'
 
 
 # ============================================================================
-# D. ``_normalize_memmap`` (called from ``get_memmap``)
+# D. ``transform_to_axes`` (match mode, called from ``get_memmap``)
 # ============================================================================
 #
 # The 3D ``imageinfo_3d`` has self.axes='TZYX'; the 2D variant has
-# self.axes='TYX'. ``_normalize_memmap`` reads ``self.axes`` to decide
-# whether to squeeze Z. Use whichever fixture matches the test's intent.
+# self.axes='TYX'. ``transform_to_axes`` (with ``target_axes=info.axes``)
+# uses the target string to decide whether to squeeze Z. Use whichever
+# fixture matches the test's intent.
 
 
-def test_normalize_memmap_no_op_when_axes_match(imageinfo_3d: ImInfo) -> None:
+def test_transform_to_axes_match_no_op_when_axes_match(imageinfo_3d: ImInfo) -> None:
     """When ``file_axes == self.axes``, the memmap shape passes through."""
     data = np.zeros((2, 17, 192, 279), dtype=np.uint16)
-    out = imageinfo_3d._normalize_memmap(data, 'TZYX')
+    out, _ = transform_to_axes(data, 'TZYX', target_axes=imageinfo_3d.axes)
     assert out.shape == (2, 17, 192, 279)
 
 
-def test_normalize_memmap_prepends_t_when_missing(imageinfo_3d: ImInfo) -> None:
+def test_transform_to_axes_match_prepends_t_when_missing(imageinfo_3d: ImInfo) -> None:
     """``file_axes='ZYX'`` against ``self.axes='TZYX'`` gains a T prefix."""
     data = np.zeros((17, 192, 279), dtype=np.uint16)
-    out = imageinfo_3d._normalize_memmap(data, 'ZYX')
+    out, _ = transform_to_axes(data, 'ZYX', target_axes=imageinfo_3d.axes)
     assert out.shape == (1, 17, 192, 279)
 
 
-def test_normalize_memmap_squeezes_singleton_z(imageinfo_2d: ImInfo) -> None:
+def test_transform_to_axes_match_squeezes_singleton_z(imageinfo_2d: ImInfo) -> None:
     """When ``self.axes`` lacks Z but the memmap has ``Z=1``, Z is squeezed."""
     # 2D ImInfo has self.axes='TYX' — so a TZYX memmap with Z=1 must squeeze.
     data = np.zeros((2, 1, 192, 279), dtype=np.uint16)
-    out = imageinfo_2d._normalize_memmap(data, 'TZYX')
+    out, _ = transform_to_axes(data, 'TZYX', target_axes=imageinfo_2d.axes)
     assert out.shape == (2, 192, 279)
 
 
-def test_normalize_memmap_z_gt_1_when_target_lacks_z_raises(
+def test_transform_to_axes_match_z_gt_1_when_target_lacks_z_raises(
     imageinfo_2d: ImInfo,
 ) -> None:
-    """``Z>1`` against a target that lacks Z is unrecoverable — raises (verifier.py:954-955)."""
+    """``Z>1`` against a target that lacks Z is unrecoverable — raises ``ValueError``."""
     data = np.zeros((2, 5, 192, 279), dtype=np.uint16)
     with pytest.raises(
         ValueError,
-        match="Z axis present with size > 1, but ImInfo expects no Z axis",
+        match="Z axis present with size > 1, but target axes lacks Z",
     ):
-        imageinfo_2d._normalize_memmap(data, 'TZYX')
+        transform_to_axes(data, 'TZYX', target_axes=imageinfo_2d.axes)
 
 
-def test_normalize_memmap_returns_memmap_unchanged_when_file_axes_none(
-    imageinfo_3d: ImInfo,
+def test_get_memmap_returns_memmap_unchanged_when_axes_lookup_fails(
+    imageinfo_3d: ImInfo, tmp_path: Path, monkeypatch,
 ) -> None:
-    """``file_axes=None`` is the early-return path (verifier.py:935-936)."""
+    """``get_memmap`` returns the raw memmap when the axes-lookup branch raises.
+
+    Slice 4 moved the ``file_axes is None`` early-return out of the
+    normalizer (which now raises ``ValueError`` on ``None``) and into
+    the ``get_memmap`` caller. We let ``tifffile.memmap`` succeed
+    normally, then swap ``TiffFile`` to a raising stub for the
+    axes-lookup that follows — the ``except`` branch fires, ``file_axes``
+    stays ``None``, and ``get_memmap`` returns the raw memmap
+    untransformed. (The old ``_normalize_memmap`` had this early-return
+    baked into the normalizer itself; the new contract cleanly separates
+    the data-shape transform from the missing-axes fallback.)
+    """
+    # Build a synthetic TIFF the memmap call can succeed against.
+    p = tmp_path / "synthetic.tif"
+    arr = np.zeros((2, 17, 192, 279), dtype=np.uint16)
+    tifffile.imwrite(str(p), arr, metadata={'axes': 'TZYX'},
+                     photometric='minisblack')
+
+    from nellie.im_info import verifier as verifier_module
+
+    # Pre-build the memmap so tifffile.memmap inside get_memmap can
+    # succeed without invoking the raising TiffFile we're about to
+    # install. We monkeypatch ``tifffile.memmap`` in the verifier module
+    # to return our pre-built memmap, then replace ``TiffFile`` with a
+    # stub that always raises so the axes-lookup ``except`` branch fires.
+    real_memmap = verifier_module.tifffile.memmap(str(p), mode='r+')
+
+    def _stub_memmap(*_args, **_kwargs):
+        return real_memmap
+
+    def _raise(*_args, **_kwargs):
+        raise RuntimeError("synthetic axes lookup failure")
+
+    monkeypatch.setattr(verifier_module.tifffile, 'memmap', _stub_memmap)
+    monkeypatch.setattr(verifier_module.tifffile, 'TiffFile', _raise)
+
+    out = imageinfo_3d.get_memmap(str(p))
+
+    # Memmap returned unchanged (no transform).
+    assert out is real_memmap
+    assert out.shape == (2, 17, 192, 279)
+
+
+def test_transform_to_axes_match_raises_on_none_source_axes() -> None:
+    """Pin the new contract: ``transform_to_axes`` raises on ``None`` source axes.
+
+    The old ``_normalize_memmap`` short-circuited on
+    ``file_axes is None`` (returned the raw memmap unchanged). Slice 4
+    moved that early-return into the ``get_memmap`` caller; the
+    normalizer itself now raises ``ValueError`` so direct callers that
+    forget to pre-validate their axes string fail loudly instead of
+    silently bypassing the transform.
+    """
     data = np.zeros((2, 17, 192, 279), dtype=np.uint16)
-    out = imageinfo_3d._normalize_memmap(data, None)
-    assert out is data
+    with pytest.raises(ValueError, match="Axes metadata is not initialized"):
+        transform_to_axes(data, None, target_axes='TZYX')
 
 
 # ============================================================================
