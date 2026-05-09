@@ -915,20 +915,20 @@ class Settings(QWidget):
         )
         return config, num_t
 
-    def get_tracking_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.tracking_num_t_override, self.tracking_num_t
-            ),
-            "max_distance_um": self.tracking_max_distance_um.value(),
-            "device": self.tracking_device.currentText(),
-            "mode": self.tracking_mode.currentText(),
-            "max_dense_pairs": self.tracking_max_dense_pairs.value(),
-            "max_dense_roi_voxels_cpu": self.tracking_max_dense_roi_voxels_cpu.value(),
-            "max_dense_roi_voxels_gpu": self.tracking_max_dense_roi_voxels_gpu.value(),
-            "low_memory": self.tracking_low_memory.isChecked(),
-        }
-        return self._prune_none(params)
+    def get_tracking_params(self) -> tuple[HuMomentTrackingConfig, int | None]:
+        config = HuMomentTrackingConfig(
+            max_distance_um=self.tracking_max_distance_um.value(),
+            device=self.tracking_device.currentText(),
+            mode=self.tracking_mode.currentText(),
+            max_dense_pairs=self.tracking_max_dense_pairs.value(),
+            max_dense_roi_voxels_cpu=self.tracking_max_dense_roi_voxels_cpu.value(),
+            max_dense_roi_voxels_gpu=self.tracking_max_dense_roi_voxels_gpu.value(),
+            low_memory=self.tracking_low_memory.isChecked(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.tracking_num_t_override, self.tracking_num_t
+        )
+        return config, num_t
 
     def get_reassign_params(self) -> dict:
         params = {
