@@ -29,6 +29,144 @@ class DimRes(TypedDict):
     T: float | None
 
 
+def infer_t_axis(
+    source_axes: str | None,
+    source_shape: tuple[int, ...] | None,
+) -> str | None:
+    """
+    Infer a leading T axis when the source library stripped it.
+
+    Some readers (notably tifffile on certain inputs) return an axes
+    string that omits a leading singleton T dim while keeping it in the
+    shape — e.g. axes='ZYX' but shape=(1, 16, 512, 512). This helper
+    detects that pattern and returns the prepended axes string.
+
+    Parameters
+    ----------
+    source_axes : str or None
+        Axes string from the source reader (e.g. 'ZYX', 'TZYX').
+    source_shape : tuple of int or None
+        Shape from the source reader.
+
+    Returns
+    -------
+    str or None
+        ``source_axes`` with 'T' prepended when the leading-singleton
+        heuristic fires; otherwise ``source_axes`` unchanged. Returns
+        ``None`` when either input is ``None``.
+    """
+    if source_axes is None or source_shape is None:
+        return source_axes
+    if 'T' in source_axes:
+        return source_axes
+    if len(source_shape) == len(source_axes) + 1 and source_shape[0] == 1:
+        return 'T' + source_axes
+    return source_axes
+
+
+def transform_to_axes(
+    data: np.ndarray,
+    source_axes: str | None,
+    target_axes: str | None = None,
+) -> tuple[np.ndarray, str]:
+    """
+    Transform a data array so its axes match a target layout.
+
+    Two modes:
+
+    - **Canonical mode** (``target_axes=None``): derive a canonical
+      ``T[Z]YX`` target — T is prepended if absent (or moved to index 0
+      if present elsewhere); singleton Z is always squeezed; the result
+      must contain Y and X and use only ``{T, Z, Y, X}``.
+    - **Match mode** (``target_axes`` is a string): rearrange to match
+      the supplied target. T is prepended if source lacks T; Z is
+      squeezed only when the target lacks Z (raises if Z>1 in source
+      but missing in target). Source axes set must equal target axes
+      set after T-handling and the conditional Z-squeeze.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Data array to transform.
+    source_axes : str
+        Axes string describing ``data``'s current layout.
+    target_axes : str or None, optional
+        Desired axes layout. ``None`` triggers canonical mode.
+
+    Returns
+    -------
+    (np.ndarray, str)
+        Transformed array and its final axes string.
+
+    Raises
+    ------
+    ValueError
+        If ``source_axes`` is ``None``, validation fails, or
+        dimensions become inconsistent with the resulting axes.
+    """
+    if source_axes is None:
+        raise ValueError("Axes metadata is not initialized")
+
+    axes_list = list(source_axes)
+
+    # Step 1: ensure T is at index 0 (prepend or moveaxis).
+    if 'T' not in axes_list:
+        data = data[np.newaxis, ...]
+        axes_list = ['T'] + axes_list
+    else:
+        t_index = axes_list.index('T')
+        if t_index != 0:
+            data = np.moveaxis(data, t_index, 0)
+            axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
+
+    target_list = list(target_axes) if target_axes is not None else None
+
+    # Step 2: Z handling. Canonical mode always squeezes singleton Z;
+    # match mode squeezes only when target lacks Z (and raises on Z>1).
+    if 'Z' in axes_list:
+        z_index = axes_list.index('Z')
+        if target_list is None:
+            if data.shape[z_index] == 1:
+                data = np.squeeze(data, axis=z_index)
+                axes_list.pop(z_index)
+        elif 'Z' not in target_list:
+            if data.shape[z_index] == 1:
+                data = np.squeeze(data, axis=z_index)
+                axes_list.pop(z_index)
+            else:
+                raise ValueError(
+                    "Z axis present with size > 1, but target axes lacks Z"
+                )
+
+    # Step 3: validate and pick the final ordering.
+    if target_list is None:
+        allowed_axes = {'T', 'Z', 'Y', 'X'}
+        extra_axes = [ax for ax in axes_list if ax not in allowed_axes]
+        if extra_axes:
+            raise ValueError(f"Unsupported axes found: {extra_axes}")
+        if 'Y' not in axes_list or 'X' not in axes_list:
+            raise ValueError("Axes must include both Y and X")
+        final_axes = ['T']
+        if 'Z' in axes_list:
+            final_axes.append('Z')
+        final_axes.extend(['Y', 'X'])
+    else:
+        if set(axes_list) != set(target_list):
+            extra = sorted(set(axes_list) - set(target_list))
+            missing = sorted(set(target_list) - set(axes_list))
+            raise ValueError(f"Axes mismatch. Extra: {extra}, missing: {missing}")
+        final_axes = target_list
+
+    if axes_list != final_axes:
+        order = [axes_list.index(ax) for ax in final_axes]
+        data = np.transpose(data, order)
+
+    if data.ndim != len(final_axes):
+        raise ValueError("Data dimensions do not match normalized axes")
+
+    return data, ''.join(final_axes)
+
+
 class FileInfo:
     """
     A class to handle file information, metadata extraction, and basic file operations for microscopy image files.
@@ -196,7 +334,7 @@ class FileInfo:
             self.metadata_type = metadata_type
             self.axes = tif.series[0].axes
             self.shape = tif.series[0].shape
-            self._normalize_time_axis()
+            self.axes = infer_t_axis(self.axes, self.shape)
 
         return metadata, metadata_type
 
@@ -213,7 +351,7 @@ class FileInfo:
             self.metadata_type = 'nd2'
             self.axes = ''.join(nd2_file.sizes.keys())
             self.shape = tuple(nd2_file.sizes.values())
-            self._normalize_time_axis()
+            self.axes = infer_t_axis(self.axes, self.shape)
 
     def find_metadata(self):
         """
@@ -235,14 +373,6 @@ class FileInfo:
             self._find_nd2_metadata()
         else:
             raise ValueError('File type not supported')
-
-    def _normalize_time_axis(self):
-        if self.axes is None or self.shape is None:
-            return
-        if 'T' in self.axes:
-            return
-        if len(self.shape) == len(self.axes) + 1 and self.shape[0] == 1:
-            self.axes = 'T' + self.axes
 
     def _get_imagej_metadata(self, metadata):
         """
@@ -1001,7 +1131,7 @@ class ImInfo:
         with tifffile.TiffFile(self.im_path) as tif:
             self.file_axes = tif.series[0].axes
             self.file_shape = tif.series[0].shape
-        self.im, self.axes = self._normalize_axes(self.im, self.file_axes)
+        self.im, self.axes = transform_to_axes(self.im, self.file_axes)
         self.new_axes = self.axes
         self.shape = self.im.shape
         self.ome_metadata = ome_types.from_xml(tifffile.tiffcomment(self.im_path))
@@ -1009,84 +1139,6 @@ class ImInfo:
         self.dim_res['Y'] = self.ome_metadata.images[0].pixels.physical_size_y
         self.dim_res['Z'] = self.ome_metadata.images[0].pixels.physical_size_z
         self.dim_res['T'] = self.ome_metadata.images[0].pixels.time_increment
-
-    def _normalize_axes(self, data, axes):
-        """
-        Normalize axes to a canonical order (T, Z, Y, X) and squeeze singleton Z.
-        """
-        if axes is None:
-            raise ValueError("Axes metadata is not initialized")
-        axes_list = list(axes)
-        # Ensure T exists and is first.
-        if 'T' not in axes_list:
-            data = data[np.newaxis, ...]
-            axes_list = ['T'] + axes_list
-        else:
-            t_index = axes_list.index('T')
-            if t_index != 0:
-                data = np.moveaxis(data, t_index, 0)
-                axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
-        # Squeeze singleton Z if present.
-        if 'Z' in axes_list:
-            z_index = axes_list.index('Z')
-            if data.shape[z_index] == 1:
-                data = np.squeeze(data, axis=z_index)
-                axes_list.pop(z_index)
-        # Validate axes
-        allowed_axes = {'T', 'Z', 'Y', 'X'}
-        extra_axes = [ax for ax in axes_list if ax not in allowed_axes]
-        if extra_axes:
-            raise ValueError(f"Unsupported axes found: {extra_axes}")
-        if 'Y' not in axes_list or 'X' not in axes_list:
-            raise ValueError("Axes must include both Y and X")
-        # Canonical order: T, Z (if present), Y, X
-        target_axes = ['T']
-        if 'Z' in axes_list:
-            target_axes.append('Z')
-        target_axes.extend(['Y', 'X'])
-        if axes_list != target_axes:
-            order = [axes_list.index(ax) for ax in target_axes]
-            data = np.transpose(data, order)
-            axes_list = target_axes
-        if data.ndim != len(axes_list):
-            raise ValueError("Data dimensions do not match normalized axes")
-        return data, ''.join(axes_list)
-
-    def _normalize_memmap(self, memmap, file_axes):
-        """
-        Normalize a memmap to the canonical axes used by this ImInfo instance.
-        """
-        if file_axes is None:
-            return memmap
-        data = memmap
-        axes_list = list(file_axes)
-        # Ensure T exists and is first.
-        if 'T' not in axes_list:
-            data = data[np.newaxis, ...]
-            axes_list = ['T'] + axes_list
-        else:
-            t_index = axes_list.index('T')
-            if t_index != 0:
-                data = np.moveaxis(data, t_index, 0)
-                axes_list = ['T'] + [ax for i, ax in enumerate(axes_list) if i != t_index]
-        # Squeeze singleton Z if this ImInfo treats Z as absent.
-        if 'Z' in axes_list and 'Z' not in self.axes:
-            z_index = axes_list.index('Z')
-            if data.shape[z_index] == 1:
-                data = np.squeeze(data, axis=z_index)
-                axes_list.pop(z_index)
-            else:
-                raise ValueError("Z axis present with size > 1, but ImInfo expects no Z axis")
-        # Validate axes match target
-        target_axes = list(self.axes)
-        if set(axes_list) != set(target_axes):
-            extra = sorted(set(axes_list) - set(target_axes))
-            missing = sorted(set(target_axes) - set(axes_list))
-            raise ValueError(f"Axes mismatch. Extra: {extra}, missing: {missing}")
-        if axes_list != target_axes:
-            order = [axes_list.index(ax) for ax in target_axes]
-            data = np.transpose(data, order)
-        return data
 
     def get_memmap(self, file_path, read_mode='r+'):
         """
@@ -1111,7 +1163,9 @@ class ImInfo:
                 file_axes = tif.series[0].axes
         except Exception:
             file_axes = None
-        return self._normalize_memmap(memmap, file_axes)
+        if file_axes is None:
+            return memmap
+        return transform_to_axes(memmap, file_axes, target_axes=self.axes)[0]
 
     def allocate_memory(self, output_path, dtype='float', data=None, description='No description.',
                         return_memmap=False, read_mode='r+'):
