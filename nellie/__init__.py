@@ -1,55 +1,34 @@
-# from nellie.utils.base_logger import logger
+# Static module-level dispatch — keeps the legacy ``nellie.xp`` / ``nellie.ndi``
+# attributes that early callers still import. This is *not* the canonical
+# device-resolution surface — see :mod:`nellie.utils.adaptive_run` and
+# wiki/decisions/0002-adaptive-run-extension-over-static-torch-xp.md
+# for why per-stage dispatch is the path forward.
+#
+# macOS stays pinned to numpy here. MPS is selected per-stage via
+# ``adaptive_run.resolve_backend("mps")`` when the user opts in via
+# ``device="auto"`` / ``"gpu"`` / ``"mps"``.
 import platform
 
-device_type = 'cpu'
-# if it's a mac
-if platform.system() == 'Darwin':
-    # if it has pytorch
-    # try:
-    #     import torch
-    #     # For Mac GPUs with MPS support
-    #     if torch.backends.mps.is_available():
-    #         import nellie.utils.torch_xp as xp
-    #         device_type = 'mps'
-    #         logger.warning('GPU packages detected, running via GPU.')
-    #     else:
-    #         import numpy as xp
-    #         device_type = 'cpu'
-    #         logger.warning('GPU packages not detected, running via CPU.')
-    # except ModuleNotFoundError:
-    import numpy as xp
-    device_type = 'cpu'
-    # logger.warning('GPU packages not detected, running via CPU.')
 
-    xp_bk = None
+device_type = "cpu"
+xp_bk = None
+is_gpu = False
+
+if platform.system() == "Darwin":
+    import numpy as xp
     import scipy.ndimage as ndi
     from skimage import filters, morphology, measure
-
-    is_gpu = False
-
-
-# if it's an NVIDIA GPU
 else:
     try:
         import cupy as xp
         import cupy_backends as xp_bk
         import cupyx.scipy.ndimage as ndi
+
         is_gpu = True
-        # logger.info('GPU packages detected, running via GPU.')
-        device_type = 'cuda'
+        device_type = "cuda"
     except ModuleNotFoundError:
         import numpy as xp
-
-        xp_bk = None
         import scipy.ndimage as ndi
         from skimage import filters, morphology, measure
 
-        is_gpu = False
-        # logger.warning('GPU packages not detected, running via CPU.')
-        device_type = 'cpu'
-
-# from .segmentation import Filter, Label, Markers, Network
-# from .tracking import HuMomentTracking, VoxelReassigner, LabelTracks, FlowInterpolator
-# from .feature_extraction import Hierarchy
-# from .im_info import FileInfo, ImInfo
-# from .run import run
+        xp_bk = None
