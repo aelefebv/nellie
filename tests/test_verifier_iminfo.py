@@ -26,6 +26,7 @@ and refactor plan.
 
 from __future__ import annotations
 
+import gc
 import os
 import time
 from pathlib import Path
@@ -36,6 +37,17 @@ import pytest
 import tifffile
 
 from nellie.im_info.verifier import FileInfo, ImInfo
+
+
+def _release_iminfo_memmap(info: ImInfo) -> None:
+    """Drop the ``im_info.im`` memmap so Windows lets us delete the file.
+
+    Required for tests that call ``remove_intermediates`` (or any test
+    that needs to delete or overwrite ``im_info.im_path``). Mirrors
+    ``_release_filter`` in test_filtering.py.
+    """
+    info.im = None  # type: ignore[assignment]
+    gc.collect()
 
 # ``conftest`` is on ``sys.path`` because pytest's rootdir-based collection
 # adds the test directory before importing test modules. A relative
@@ -610,6 +622,7 @@ def test_remove_intermediates_preserves_csv_files(make_imageinfo_3d) -> None:
         with open(path, 'wb') as f:
             f.write(b'x')
 
+    _release_iminfo_memmap(info)  # Windows: release im_path mmap before delete
     info.remove_intermediates()
 
     # Intermediates deleted.
@@ -633,5 +646,6 @@ def test_remove_intermediates_deletes_canonical_im_path(make_imageinfo_3d) -> No
     """
     info = make_imageinfo_3d()
     assert os.path.exists(info.im_path)
+    _release_iminfo_memmap(info)  # Windows: release im_path mmap before delete
     info.remove_intermediates()
     assert not os.path.exists(info.im_path)
