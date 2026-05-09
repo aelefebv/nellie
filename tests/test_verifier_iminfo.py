@@ -834,3 +834,64 @@ def test_remove_intermediates_deletes_canonical_im_path(make_imageinfo_3d) -> No
     _release_iminfo_memmap(info)  # Windows: release im_path mmap before delete
     info.remove_intermediates()
     assert not os.path.exists(info.im_path)
+
+
+# ============================================================================
+# I. ``load_image`` orchestrator (Slice 8 — final slice)
+# ============================================================================
+
+
+def test_load_image_returns_loaded_iminfo(tmp_path: Path) -> None:
+    """``load_image(path)`` returns a fully-loaded ImInfo with axes/shape/dim_res populated."""
+    from nellie.im_info import load_image
+
+    workdir = tmp_path / 'wd'
+    workdir.mkdir()
+    src = copy_fixture_to_tmp(FIXTURE_3D_PATH, workdir)
+
+    info = load_image(src)
+    assert info.axes == 'TZYX'
+    assert info.shape == (2, 17, 192, 279)
+    assert info.dim_res == pytest.approx(
+        {'X': 0.0655, 'Y': 0.0655, 'Z': 0.25, 'T': 4.535566806793213}
+    )
+    assert info.im is not None
+    assert info.pipeline_paths
+    assert info.im_path is not None
+    assert os.path.exists(info.im_path)
+
+
+def test_load_image_equivalent_to_explicit_boot(tmp_path: Path) -> None:
+    """``load_image(path)`` produces an ImInfo equivalent to the manual 4-step boot."""
+    from nellie.im_info import load_image
+
+    workdir = tmp_path / 'wd'
+    workdir.mkdir()
+    src_a = copy_fixture_to_tmp(FIXTURE_3D_PATH, workdir / 'a')
+    src_b = copy_fixture_to_tmp(FIXTURE_3D_PATH, workdir / 'b')
+
+    via_orchestrator = load_image(src_a)
+
+    fi = FileInfo(str(src_b))
+    fi.find_metadata()
+    fi.load_metadata()
+    via_explicit = ImInfo.from_file_info(fi)
+
+    assert via_orchestrator.axes == via_explicit.axes
+    assert via_orchestrator.shape == via_explicit.shape
+    assert via_orchestrator.dim_res == via_explicit.dim_res
+    assert via_orchestrator.no_z == via_explicit.no_z
+    assert via_orchestrator.no_t == via_explicit.no_t
+    assert set(via_orchestrator.pipeline_paths.keys()) == set(via_explicit.pipeline_paths.keys())
+
+
+def test_load_image_forwards_output_dir_kwarg(tmp_path: Path) -> None:
+    """``load_image(path, output_dir=...)`` forwards the kwarg to FileInfo."""
+    from nellie.im_info import load_image
+
+    src = copy_fixture_to_tmp(FIXTURE_3D_PATH, tmp_path / 'src')
+    custom_out = tmp_path / 'custom_output'
+
+    info = load_image(src, output_dir=str(custom_out))
+    assert info.file_info.output_dir == str(custom_out)
+    assert custom_out.exists()

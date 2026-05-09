@@ -74,7 +74,7 @@ from pathlib import Path
 
 import pytest
 
-from nellie.im_info.verifier import FileInfo, ImInfo
+from nellie.im_info import ImInfo, load_image
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
@@ -108,10 +108,7 @@ FIXTURE_RAW_TIFF_INCH_PATH = (
 def _build_iminfo(source: Path, workdir: Path) -> ImInfo:
     dst = workdir / source.name
     shutil.copy(source, dst)
-    file_info = FileInfo(str(dst))
-    file_info.find_metadata()
-    file_info.load_metadata()
-    return ImInfo.from_file_info(file_info)
+    return load_image(dst)
 
 
 @pytest.fixture(scope="session")

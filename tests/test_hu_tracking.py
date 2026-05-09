@@ -79,7 +79,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from nellie.im_info.verifier import FileInfo, ImInfo
+from nellie.im_info import ImInfo, load_image
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
@@ -392,10 +392,7 @@ def _build_single_frame_iminfo(workdir: Path) -> ImInfo:
             "PhysicalSizeYUnit": "µm",
         },
     )
-    file_info = FileInfo(str(raw_path))
-    file_info.find_metadata()
-    file_info.load_metadata()
-    info = ImInfo.from_file_info(file_info)
+    info = load_image(raw_path)
     Filter(info, FrangiConfig(device="cpu"), num_t=1).run()
     Label(info, LabelConfig(device="cpu"), num_t=1).run()
     Markers(info, MarkersConfig(device="cpu"), num_t=1).run()

@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from nellie.im_info.verifier import FileInfo, ImInfo
+from nellie.im_info import ImInfo, load_image
 from nellie.segmentation.labelling import Label, LabelConfig
 
 
@@ -100,10 +100,7 @@ def _build_synthetic_label_iminfo(workdir: Path) -> ImInfo:
         },
     )
 
-    file_info = FileInfo(str(raw_path))
-    file_info.find_metadata()
-    file_info.load_metadata()
-    info = ImInfo.from_file_info(file_info)
+    info = load_image(raw_path)
 
     rng = np.random.default_rng(42)
     frangi = rng.uniform(0.005, 0.05, size=_SYNTHETIC_SHAPE).astype(np.float32)
