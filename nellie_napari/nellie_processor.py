@@ -347,7 +347,14 @@ class NellieProcessor(QWidget):
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_segmentation(self, im_info_list, label_kwargs, network_kwargs):
+    def _run_segmentation(
+        self,
+        im_info_list,
+        label_config: LabelConfig,
+        label_num_t: int | None,
+        network_config: NetworkConfig,
+        network_num_t: int | None,
+    ):
         """
         Run the segmentation step in a separate thread. Labels and segments regions of interest in the preprocessed image.
 
@@ -355,32 +362,30 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        label_kwargs : dict
-            Keyword arguments for the Label class (excluding im_info/viewer).
-        network_kwargs : dict
-            Keyword arguments for the Network class (excluding im_info/viewer).
+        label_config : LabelConfig
+            Algorithm configuration for the Label stage.
+        label_num_t : int or None
+            Optional per-step override for Label's number of timepoints.
+        network_config : NetworkConfig
+            Algorithm configuration for the Network stage.
+        network_num_t : int or None
+            Optional per-step override for Network's number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            label_config_kwargs = dict(label_kwargs)
-            label_num_t = label_config_kwargs.pop("num_t", None)
-            segmenting = Label(
+            Label(
                 im_info=self.current_im_info,
-                config=LabelConfig(**label_config_kwargs),
+                config=label_config,
                 viewer=self.viewer,
                 num_t=label_num_t,
-            )
-            segmenting.run()
-            network_config_kwargs = dict(network_kwargs)
-            network_num_t = network_config_kwargs.pop("num_t", None)
-            networking = Network(
+            ).run()
+            Network(
                 im_info=self.current_im_info,
-                config=NetworkConfig(**network_config_kwargs),
+                config=network_config,
                 viewer=self.viewer,
                 num_t=network_num_t,
-            )
-            networking.run()
+            ).run()
 
     def run_segmentation(self):
         """
@@ -389,9 +394,15 @@ class NellieProcessor(QWidget):
         """
         self.status = "segmentation"
         settings = self._get_settings()
-        label_kwargs = settings.get_segmentation_label_params() if settings else {}
-        network_kwargs = settings.get_segmentation_network_params() if settings else {}
-        worker = self._run_segmentation(self.im_info_list, label_kwargs, network_kwargs)
+        label_config, label_num_t = (
+            settings.get_segmentation_label_params() if settings else (LabelConfig(), None)
+        )
+        network_config, network_num_t = (
+            settings.get_segmentation_network_params() if settings else (NetworkConfig(), None)
+        )
+        worker = self._run_segmentation(
+            self.im_info_list, label_config, label_num_t, network_config, network_num_t
+        )
         next_step = self.run_mocap if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 

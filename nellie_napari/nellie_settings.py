@@ -864,40 +864,40 @@ class Settings(QWidget):
         )
         return config, num_t
 
-    def get_segmentation_label_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.segmentation_label_num_t_override, self.segmentation_label_num_t
-            ),
-            "threshold": self._optional_spinbox_value(
+    def get_segmentation_label_params(self) -> tuple[LabelConfig, int | None]:
+        config = LabelConfig(
+            threshold=self._optional_spinbox_value(
                 self.segmentation_label_threshold_override, self.segmentation_label_threshold
             ),
-            "otsu_thresh_intensity": self.segmentation_label_otsu_thresh_intensity.isChecked(),
-            "chunk_z": self._optional_spinbox_value(
+            otsu_thresh_intensity=self.segmentation_label_otsu_thresh_intensity.isChecked(),
+            chunk_z=self._optional_spinbox_value(
                 self.segmentation_label_chunk_z_override, self.segmentation_label_chunk_z
             ),
-            "flush_interval": self.segmentation_label_flush_interval.value(),
-            "min_radius_um": self.segmentation_label_min_radius_um.value(),
-            "threshold_sampling_pixels": self.segmentation_label_threshold_sampling_pixels.value(),
-            "histogram_nbins": self.segmentation_label_histogram_nbins.value(),
-            "device": self.segmentation_label_device.currentText(),
-            "low_memory": self.segmentation_label_low_memory.isChecked(),
-            "max_chunk_voxels": self.segmentation_label_max_chunk_voxels.value(),
-        }
-        return self._prune_none(params)
+            flush_interval=self.segmentation_label_flush_interval.value(),
+            min_radius_um=self.segmentation_label_min_radius_um.value(),
+            threshold_sampling_pixels=self.segmentation_label_threshold_sampling_pixels.value(),
+            histogram_nbins=self.segmentation_label_histogram_nbins.value(),
+            device=self.segmentation_label_device.currentText(),
+            low_memory=self.segmentation_label_low_memory.isChecked(),
+            max_chunk_voxels=self.segmentation_label_max_chunk_voxels.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.segmentation_label_num_t_override, self.segmentation_label_num_t
+        )
+        return config, num_t
 
-    def get_segmentation_network_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.segmentation_network_num_t_override, self.segmentation_network_num_t
-            ),
-            "min_radius_um": self.segmentation_network_min_radius_um.value(),
-            "max_radius_um": self.segmentation_network_max_radius_um.value(),
-            "device": self.segmentation_network_device.currentText(),
-            "low_memory": self.segmentation_network_low_memory.isChecked(),
-            "max_chunk_voxels": self.segmentation_network_max_chunk_voxels.value(),
-        }
-        return self._prune_none(params)
+    def get_segmentation_network_params(self) -> tuple[NetworkConfig, int | None]:
+        config = NetworkConfig(
+            min_radius_um=self.segmentation_network_min_radius_um.value(),
+            max_radius_um=self.segmentation_network_max_radius_um.value(),
+            device=self.segmentation_network_device.currentText(),
+            low_memory=self.segmentation_network_low_memory.isChecked(),
+            max_chunk_voxels=self.segmentation_network_max_chunk_voxels.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.segmentation_network_num_t_override, self.segmentation_network_num_t
+        )
+        return config, num_t
 
     def get_mocap_params(self) -> dict:
         params = {
