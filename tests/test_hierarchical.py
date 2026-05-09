@@ -121,7 +121,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import nellie.feature_extraction.hierarchical as hier_module
 from nellie.feature_extraction.hierarchical import (
     Branches,
     Hierarchy,
@@ -1166,7 +1165,8 @@ def test_compute_branch_lengths_non_oom_exception_propagates(
     branches = Branches.__new__(Branches)
     branches.hierarchy = h
 
-    def fake_backend(t, xp):
+    def fake_backend(_t, xp):
+        del _t  # signature-only positional parameter
         if xp is _FakeXp:
             raise ValueError("simulated non-OOM failure")
         # CPU branch should never run in this test — the ValueError
