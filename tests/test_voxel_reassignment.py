@@ -56,21 +56,21 @@ Pins the wiki-documented invariants on both the 3D and 2D paths:
 - Viewer callback: no-op when ``viewer=None``; called once per frame
   with the formatted message when ``viewer`` is a stub.
 
-- **Architecture characterization (PRE-Slice 3 contract — these will
-  be INVERTED in Slice 3 of #101)**:
-  - Cross-frame mutation for ``_build_tree`` GPU OOM (Site 1):
+- **Architecture characterization (POST-Slice 3 of #101 — Option A2
+  inner-cascade contract)**:
+  - No cross-frame mutation for ``_build_tree`` GPU OOM (Site 1):
     simulate GPU state post-construction, then trigger a
     ``MemoryError`` from the GPU KDTree class → assert
-    ``self.device_type == "cpu"`` after recovery.
-  - Cross-frame mutation for ``_query_tree`` GPU OOM (Sites 3+4):
+    ``self.device_type == "cuda"`` (unchanged) after the local CPU
+    rebuild fallback runs.
+  - No cross-frame mutation for ``_query_tree`` GPU OOM (Sites 3+4):
     simulate GPU state, rig the GPU tree's ``query`` to raise
-    ``MemoryError`` → assert ``self.device_type == "cpu"`` after
-    recovery.
-  - Latent silent-fallback for ``_query_tree`` non-OOM exceptions:
-    rig the GPU query to raise ``ValueError`` → current behavior
-    swallows the exception silently and switches to CPU. Slice 3
-    will INVERT this (the new contract is ``ValueError`` should
-    PROPAGATE out of ``run()``).
+    ``MemoryError`` → assert ``self.device_type == "cuda"``
+    (unchanged) after the local CPU rebuild fallback runs.
+  - Non-OOM exception propagation for ``_query_tree`` (latent bug
+    fix): rig the GPU query to raise ``ValueError`` → the explicit
+    ``adaptive_run.is_oom_error`` gate propagates the exception out
+    of ``_query_tree`` instead of silently flipping the backend.
 
 The Network ``im_skel_relabelled`` and Hu ``flow_vector_array.npy``
 that ``VoxelReassigner`` consumes are precomputed once per session by
@@ -945,23 +945,20 @@ def test_viewer_status_callback(make_voxel_reassign_imageinfo_2d) -> None:
 
 
 # -------------------------------------------------------------------------
-# Architecture characterization (PRE-Slice 3 contract)
+# Architecture characterization (POST-Slice 3 of #101 — Option A2)
 #
-# These tests pin the CURRENT behavior — Slice 3 (#101) will INVERT
-# them. Each test is marked with a comment indicating the upcoming
-# Slice 3 contract change. The current behavior is:
-#   - Inner GPU OOM in _build_tree calls self._switch_to_cpu(), which
-#     mutates self.device_type / self.xp / self._cp / self._gpu_kdtree_cls
-#     and persists across all later frames.
+# These tests pin the new inner-cascade contract:
+#   - Inner GPU OOM in _build_tree does the local CPU KDTree rebuild
+#     within the same call but leaves self.device_type unchanged. The
+#     outer mode_candidates cascade in run() is the single source of
+#     truth for cross-frame backend switching. Subsequent frames retry
+#     GPU.
 #   - Inner GPU OOM in _query_tree (gpu and gpu_bruteforce branches)
-#     same story.
-#   - The _query_tree GPU branch's `except Exception` (line 287)
-#     swallows non-OOM exceptions silently and still calls
-#     _switch_to_cpu, hiding bugs like dtype mismatches.
-# Slice 3 fixes all three sites under Option A2: drop _switch_to_cpu;
-# keep the local algorithmic fallback (per-call CPU rebuild); add
-# explicit `if not adaptive_run.is_oom_error(exc): raise` so non-OOM
-# exceptions propagate.
+#     same story — local CPU KDTree rebuild, no device_type mutation.
+#   - The _query_tree GPU branches' explicit
+#     `if not adaptive_run.is_oom_error(exc): raise` gate ensures
+#     non-OOM exceptions propagate out instead of being silently
+#     swallowed (latent bug fix from PRE-Slice-3).
 # -------------------------------------------------------------------------
 
 
@@ -969,8 +966,8 @@ class _FakeGpuKDTreeOOM:
     """A class-callable that raises ``MemoryError`` on instantiation.
 
     Stands in for ``cupyx.scipy.spatial.cKDTree`` so the GPU-build
-    branch in ``_build_tree`` (lines 241-258) takes the OOM-fallback
-    path without needing cupy installed.
+    branch in ``_build_tree`` takes the OOM-fallback path without
+    needing cupy installed.
     """
 
     def __init__(self, *args, **kwargs):
@@ -981,42 +978,39 @@ def _simulate_gpu_state(v: VoxelReassigner, *, kdtree_cls=None) -> None:
     """Mutate a CPU-constructed VoxelReassigner into a "GPU state".
 
     CI has no cupy, so we simulate the post-resolve GPU state by
-    directly assigning the attributes that ``_resolve_backend`` would
+    directly assigning the attributes that
+    ``adaptive_run.resolve_backend`` + ``_get_gpu_kdtree_cls`` would
     set on a real GPU run. Using ``np`` for ``self.xp`` is fine
     because the GPU code paths in ``_build_tree`` / ``_query_tree``
     only call ``.asarray`` (numpy supports it) before delegating to
-    the rigged tree class / tree.query. The actual ``MemoryError`` is
-    raised by the rigged class/method, so we never hit a real cupy
-    code path. (``self._cp`` was dropped in Slice 2 of #98 — the
-    code now reads from ``self.xp`` directly when on GPU.)
+    the rigged tree class / tree.query. The actual ``MemoryError`` /
+    ``ValueError`` is raised by the rigged class/method, so we never
+    hit a real cupy code path.
     """
     v.device_type = "cuda"
     v.xp = np
     v._gpu_kdtree_cls = kdtree_cls
 
 
-def test_build_tree_gpu_oom_simulates_cross_frame_mutation(
+def test_build_tree_gpu_oom_does_not_mutate_device_type(
     make_voxel_reassign_imageinfo_3d,
 ) -> None:
-    """Cascade Site 1: ``_build_tree`` GPU OOM mutates ``self.device_type`` to "cpu".
+    """Cascade Site 1: ``_build_tree`` GPU OOM does NOT mutate ``self.device_type``.
 
-    PRE-Slice 3 contract: ``_switch_to_cpu`` is called inside
-    ``_build_tree`` (line 250) when the GPU KDTree class raises
-    ``MemoryError``. The mutation persists across all later frames.
-
-    Slice 3 of #101 (Option A2) will INVERT this: drop the
-    ``_switch_to_cpu`` call; keep the local CPU KDTree fallback
-    within the same call. The new contract: ``self.device_type``
-    stays at the value it had before the OOM (no cross-frame
-    mutation from inner cascades).
+    POST-Slice 3 (Option A2) contract: when the GPU KDTree class raises
+    ``MemoryError``, ``_build_tree`` does the local CPU KDTree rebuild
+    in the same call but leaves ``self.device_type`` unchanged. This
+    means subsequent ``_build_tree`` calls in later frames retry GPU.
+    The outer ``mode_candidates`` cascade in ``run()`` is the single
+    source of truth for cross-frame backend switching.
 
     Setup: CPU-construct a VoxelReassigner (so the FlowInterpolator
     dependency loads cleanly), then mutate it into a "GPU state" so
     the GPU branch of ``_build_tree`` is taken. The rigged
     ``_gpu_kdtree_cls`` raises ``MemoryError`` on instantiation,
-    triggering the ``_is_oom_error`` → ``_switch_to_cpu`` fallback at
-    lines 247-250. Call ``_build_tree`` directly (not ``.run()``) so
-    we don't have to set up the full per-frame state.
+    triggering the local CPU rebuild fallback (the
+    ``adaptive_run.is_oom_error`` check + ``adaptive_run.free_gpu_memory``
+    + ``_warn_gpu_fallback`` block).
     """
     info = make_voxel_reassign_imageinfo_3d()
     v = VoxelReassigner(info, num_t=2, device="cpu")
@@ -1026,38 +1020,35 @@ def test_build_tree_gpu_oom_simulates_cross_frame_mutation(
         [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32
     )
     handle = v._build_tree(coords)
-    # The OOM fallback path lands on the CPU KDTree (line 261) after
-    # _switch_to_cpu (line 250). The handle backend is "cpu" because
-    # _switch_to_cpu set device_type="cpu" so the gpu_bruteforce branch
-    # (line 253) is skipped.
+    # The OOM fallback path lands on the CPU KDTree within the same call.
+    # Because `gpu_kdtree_failed` is set to True, the gpu_bruteforce branch
+    # is skipped even though device_type stayed "cuda".
     assert handle.backend == "cpu", (
         f"Expected cpu fallback after GPU KDTree OOM; got {handle.backend!r}"
     )
-    # PRE-SLICE-3 CONTRACT: cross-frame mutation. Slice 3 will INVERT
-    # this assertion (the new contract is `self.device_type == "cuda"`,
-    # because `_switch_to_cpu` is removed under Option A2).
-    assert v.device_type == "cpu", (
-        f"PRE-Slice-3 contract: _build_tree GPU OOM should call "
-        f"_switch_to_cpu and mutate device_type to 'cpu'; got "
-        f"{v.device_type!r}. Slice 3 of #101 will invert this contract."
+    # POST-SLICE-3 CONTRACT (Option A2): no cross-frame mutation from
+    # inner cascades. device_type stays at whatever the outer cascade set.
+    assert v.device_type == "cuda", (
+        f"POST-Slice-3 contract: _build_tree GPU OOM should NOT mutate "
+        f"self.device_type; expected 'cuda' (unchanged from "
+        f"_simulate_gpu_state), got {v.device_type!r}. The outer "
+        f"mode_candidates cascade is the single source of truth for "
+        f"backend switching."
     )
     _release_voxel_reassigner(v)
 
 
-def test_query_tree_gpu_oom_simulates_cross_frame_mutation(
+def test_query_tree_gpu_oom_does_not_mutate_device_type(
     make_voxel_reassign_imageinfo_3d,
 ) -> None:
-    """Cascade Sites 3+4: ``_query_tree`` GPU OOM mutates ``self.device_type`` to "cpu".
+    """Cascade Sites 3+4: ``_query_tree`` GPU OOM does NOT mutate ``self.device_type``.
 
-    PRE-Slice 3 contract: ``_switch_to_cpu`` is called inside
-    ``_query_tree`` (line 290) when the GPU tree's ``query`` method
-    raises ``MemoryError``. The mutation persists across all later
-    frames.
-
-    Slice 3 of #101 (Option A2) will INVERT this: drop the
-    ``_switch_to_cpu`` call; keep the local CPU rebuild fallback
-    (lines 291-293). The new contract: ``self.device_type`` stays
-    unchanged (no cross-frame mutation from inner cascades).
+    POST-Slice 3 (Option A2) contract: when the GPU tree's ``query``
+    method raises ``MemoryError``, ``_query_tree`` rebuilds the CPU
+    KDTree in the same call and queries it. ``self.device_type`` stays
+    unchanged so subsequent ``_query_tree`` calls retry GPU. The outer
+    ``mode_candidates`` cascade in ``run()`` is the single source of
+    truth for cross-frame backend switching.
 
     Setup: CPU-construct, simulate GPU state, manually craft a
     ``_TreeHandle(backend="gpu", tree=fake_tree, ...)`` whose
@@ -1081,36 +1072,34 @@ def test_query_tree_gpu_oom_simulates_cross_frame_mutation(
     )
     query = np.array([[4.1, 5.1, 6.1]], dtype=np.float32)
     dist, idx = v._query_tree(handle, query)
-    # Local CPU rebuild fallback (lines 291-293) produces a real result.
+    # Local CPU rebuild fallback produces a real result.
     assert dist.shape == (1,)
     assert idx.shape == (1,)
     assert idx[0] == 1  # nearest to (4.1, 5.1, 6.1) is row 1
-    # PRE-SLICE-3 CONTRACT: cross-frame mutation. Slice 3 will INVERT
-    # this assertion (the new contract is `self.device_type == "cuda"`).
-    assert v.device_type == "cpu", (
-        f"PRE-Slice-3 contract: _query_tree GPU OOM should call "
-        f"_switch_to_cpu and mutate device_type to 'cpu'; got "
-        f"{v.device_type!r}. Slice 3 of #101 will invert this contract."
+    # POST-SLICE-3 CONTRACT (Option A2): no cross-frame mutation from
+    # inner cascades. device_type stays at whatever the outer cascade set.
+    assert v.device_type == "cuda", (
+        f"POST-Slice-3 contract: _query_tree GPU OOM should NOT mutate "
+        f"self.device_type; expected 'cuda' (unchanged from "
+        f"_simulate_gpu_state), got {v.device_type!r}. The outer "
+        f"mode_candidates cascade is the single source of truth for "
+        f"backend switching."
     )
     _release_voxel_reassigner(v)
 
 
-def test_query_tree_gpu_value_error_silent_fallback(
+def test_query_tree_gpu_non_oom_exception_propagates(
     make_voxel_reassign_imageinfo_3d,
 ) -> None:
-    """Latent bug: ``_query_tree`` GPU silently swallows non-OOM exceptions.
+    """Latent bug fix: ``_query_tree`` GPU non-OOM exceptions propagate.
 
-    PRE-Slice 3 contract: the GPU branch's ``except Exception`` at
-    line 287 catches ALL exceptions, not just OOM. Only the
-    ``_free_gpu_memory()`` call is gated on ``_is_oom_error`` (line
-    288); ``_switch_to_cpu`` (line 290) runs unconditionally. So a
-    non-OOM exception (e.g., a ``ValueError`` from a dtype mismatch)
-    silently flips the backend to CPU instead of propagating.
-
-    Slice 3 of #101 (Option A2) will INVERT this: add explicit
-    ``if not adaptive_run.is_oom_error(exc): raise`` so non-OOM
-    exceptions propagate out of ``run()`` instead of being swallowed.
-    The new contract is: ``ValueError`` should propagate.
+    POST-Slice 3 (Option A2) contract: the explicit
+    ``if not adaptive_run.is_oom_error(exc): raise`` gate at the
+    ``_query_tree`` GPU branch ensures non-OOM exceptions (e.g., a
+    ``ValueError`` from a dtype mismatch) propagate out instead of
+    being silently swallowed. This fixes the PRE-Slice-3 latent bug
+    where the bare ``except Exception`` flipped the backend on any
+    error and hid genuine bugs.
 
     Setup: same as the GPU OOM test, but rig ``tree.query`` to raise
     ``ValueError`` instead of ``MemoryError``.
@@ -1134,18 +1123,17 @@ def test_query_tree_gpu_value_error_silent_fallback(
     )
     query = np.array([[4.1, 5.1, 6.1]], dtype=np.float32)
 
-    # Current behavior: ValueError is swallowed; CPU fallback rebuilds
-    # the tree and returns a result. No exception propagates.
-    dist, idx = v._query_tree(handle, query)
-    assert dist.shape == (1,)
-    assert idx.shape == (1,)
-    # PRE-SLICE-3 CONTRACT: silent fallback to CPU. Slice 3 will INVERT
-    # this — the new contract is `with pytest.raises(ValueError):
-    # v._query_tree(handle, query)`.
-    assert v.device_type == "cpu", (
-        f"PRE-Slice-3 latent bug contract: _query_tree GPU non-OOM "
-        f"exception should be silently swallowed and trigger "
-        f"_switch_to_cpu; got device_type={v.device_type!r}. Slice 3 "
-        f"of #101 will invert this — ValueError will propagate."
+    # POST-SLICE-3 CONTRACT (Option A2 + latent bug fix): non-OOM
+    # exceptions propagate out of ``_query_tree`` instead of being
+    # silently swallowed and triggering a backend flip.
+    with pytest.raises(ValueError, match="simulated non-OOM GPU error"):
+        v._query_tree(handle, query)
+
+    # Backend remains unchanged — the inner cascade no longer mutates
+    # device_type at all.
+    assert v.device_type == "cuda", (
+        f"POST-Slice-3 contract: device_type should be unchanged after a "
+        f"non-OOM exception (the exception propagated, no fallback ran); "
+        f"got {v.device_type!r}."
     )
     _release_voxel_reassigner(v)

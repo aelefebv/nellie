@@ -30,7 +30,7 @@ The expensive matching (steps 1–3) runs **once** per frame pair using the unio
 3. **`cpu`** — `scipy.spatial.cKDTree` with `workers=-1`.
 4. **`cpu_bruteforce`** — chunked NumPy pairwise distances. Final fallback when KDTree allocation fails.
 
-OOM at any tier triggers `_free_gpu_memory()` + `_switch_to_cpu()`; chunk-level OOM in brute-force mode halves `chunk_size` and retries. Outer `run()` wraps the whole pipeline in `adaptive_run.mode_candidates(...)` so a full-frame failure cascades through `(gpu, low=False) → (gpu, low=True) → (cpu, low=False) → (cpu, low=True)` before raising.
+OOM at any tier triggers `adaptive_run.free_gpu_memory(self.xp)` + a **local-only** CPU rebuild within the same call (no `self.device_type` mutation). Subsequent frames retry GPU; if the GPU is genuinely full, every frame pays a fast OOM-and-fallback cost rather than getting stuck on CPU after one bad frame. Non-OOM exceptions in the GPU branches **propagate** (no silent backend flip). Chunk-level OOM in brute-force mode halves `chunk_size` and retries. Outer `run()` wraps the whole pipeline in `adaptive_run.mode_candidates(...)` so a full-frame failure cascades through `(gpu, low=False) → (gpu, low=True) → (cpu, low=False) → (cpu, low=True)` before raising — this **outer cascade is the single source of truth** for cross-frame backend switching.
 
 ## Interactions
 
@@ -41,7 +41,7 @@ OOM at any tier triggers `_free_gpu_memory()` + `_switch_to_cpu()`; chunk-level 
 ## Gotchas
 
 - **Streams over timepoints**, not voxels-by-frame. Only two frames' worth of `argwhere` coordinates plus the candidate match arrays live in memory at once; outputs go straight into memmaps. Loop breaks early if any frame pair produces zero candidates — *all subsequent frames are then unreassigned*.
-- **Half-hoisted backend code.** `_resolve_backend`, `_try_import_cupy`, `_is_oom_error` are local copies that shadow the canonical versions in [[gpu-runtime|`adaptive_run`]]. The outer `run()` *does* call the canonical helpers; the inner per-tree path doesn't. **Queued for the next slice (Slice 3 of #98)**, which hoists these onto `adaptive_run` alongside the other per-stage backends. Tracked in [[queue]].
+- **Backend code fully hoisted onto [[gpu-runtime|`adaptive_run`]]** (Slice 3 of PRD #98, PR #104) — the prior `_resolve_backend` / `_try_import_cupy` / `_is_oom_error` / `_free_gpu_memory` / `_switch_to_cpu` local copies are gone. `_set_backend` calls `adaptive_run.resolve_backend` directly; the inner cascade calls `adaptive_run.is_oom_error` / `adaptive_run.free_gpu_memory(self.xp)`. The only remaining stage-local backend code is `_get_gpu_kdtree_cls()`, which is irreducible (`adaptive_run.try_import_cupy` returns `(cupy, ndimage)`, not the spatial KDTree). Warning rate-limit lives in `_warn_gpu_fallback(reason)`.
 - **Uses ravel-index tricks on `spatial_shape` for fast uniqueness** — `_allocate_memory()` must run first or `_select_best_pairs` / `_vote_targets` / `_assign_unique_matches` raise.
 - **`match_coord_dtype` is auto-selected** from `max(spatial_shape)` (`uint16` / `uint32` / `uint64`). Saved `running_matches` round-trip back to int coordinates correctly only if the dataset's spatial extent fits — bumping image size past 65 535 in any axis silently widens the saved dtype.
 - **Low-memory mode rebuilds the second tree only after freeing the first** (and frees the GPU pool between forward/backward passes), trading speed for headroom; it also caps `max_query_points` at 2e5 and `max_bruteforce_pairs` at 2e6.

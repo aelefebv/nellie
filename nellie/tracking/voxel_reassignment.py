@@ -68,7 +68,7 @@ class VoxelReassigner:
             Maximum number of pairwise distances to compute in GPU brute-force mode.
         """
         self.im_info = im_info
-        self.device = device
+        self.device = adaptive_run.normalize_device(device)
         self._base_max_query_points = max(1, int(max_query_points))
         self._base_max_bruteforce_pairs = max(1, int(max_bruteforce_pairs))
         self.max_query_points = self._base_max_query_points
@@ -77,7 +77,8 @@ class VoxelReassigner:
         if self.low_memory:
             self.max_query_points = min(self.max_query_points, int(2e5))
             self.max_bruteforce_pairs = min(self.max_bruteforce_pairs, int(2e6))
-        self.xp, self.device_type, self._gpu_kdtree_cls = self._resolve_backend(device)
+        self.xp, _ndi, self.device_type = adaptive_run.resolve_backend(self.device)
+        self._gpu_kdtree_cls = self._get_gpu_kdtree_cls() if self.device_type == "cuda" else None
         self._warned_gpu_fallback = False
 
         # handle single-timepoint data early
@@ -123,87 +124,35 @@ class VoxelReassigner:
     # Backend helpers
     # -------------------------------------------------------------------------
 
-    def _resolve_backend(self, device):
-        device = (device or "auto").lower()
-        if device not in ("auto", "cpu", "gpu", "cuda"):
-            raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
+    def _get_gpu_kdtree_cls(self):
+        """Return ``cupyx.scipy.spatial.cKDTree`` or None if unavailable.
 
-        if device in ("gpu", "cuda"):
-            xp, kdtree_cls = self._try_import_cupy(require=True)
-            return xp, "cuda", kdtree_cls
-        if device == "cpu":
-            return np, "cpu", None
-
-        xp, kdtree_cls = self._try_import_cupy(require=False)
-        if xp is not None:
-            return xp, "cuda", kdtree_cls
-        return np, "cpu", None
-
-    def _try_import_cupy(self, require):
+        Irreducible local helper: ``adaptive_run.try_import_cupy`` returns
+        ``(cupy, cupyx.scipy.ndimage)`` — only this stage needs the spatial
+        KDTree class, so the import lives here.
+        """
         try:
-            import cupy
             import cupyx.scipy.spatial as cupy_spatial
-        except ModuleNotFoundError as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CuPy is not installed.") from exc
-            return None, None
+            return cupy_spatial.cKDTree
+        except (ImportError, AttributeError):
+            return None
 
-        try:
-            device_count = cupy.cuda.runtime.getDeviceCount()
-        except Exception as exc:
-            if require:
-                raise RuntimeError("GPU backend requested but CUDA is not available.") from exc
-            return None, None
+    def _warn_gpu_fallback(self, reason):
+        """Log a single GPU-fallback warning per VoxelReassigner instance.
 
-        if device_count <= 0:
-            if require:
-                raise RuntimeError("GPU backend requested but no CUDA devices were found.")
-            return None, None
-
-        try:
-            kdtree_cls = cupy_spatial.cKDTree
-        except Exception:
-            kdtree_cls = None
-
-        return cupy, kdtree_cls
-
-    def _is_oom_error(self, exc):
-        if isinstance(exc, MemoryError):
-            return True
-        if self.device_type != "cuda":
-            return False
-        try:
-            import cupy
-
-            return isinstance(exc, cupy.cuda.memory.OutOfMemoryError)
-        except Exception:
-            return "OutOfMemory" in repr(exc)
-
-    def _free_gpu_memory(self):
-        if self.device_type != "cuda":
-            return
-        pool_fn = getattr(self.xp, "get_default_memory_pool", None)
-        if pool_fn is None:
-            return
-        try:
-            pool_fn().free_all_blocks()
-        except Exception:
-            return
-
-    def _switch_to_cpu(self, reason):
-        if self.device_type == "cpu":
-            return
+        Replaces the warning-rate-limit role formerly held by ``_switch_to_cpu``.
+        Backend-mutation duties are gone (Option A2 inner cascade — local
+        rebuild only); this just preserves the once-per-instance log.
+        """
         if not self._warned_gpu_fallback:
             logger.warning(reason)
             self._warned_gpu_fallback = True
-        self.xp = np
-        self.device_type = "cpu"
-        self._gpu_kdtree_cls = None
 
     def _set_backend(self, device):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.xp, self.device_type, self._gpu_kdtree_cls = self._resolve_backend(device)
+        self.xp, _ndi, self.device_type = adaptive_run.resolve_backend(device)
+        self._gpu_kdtree_cls = self._get_gpu_kdtree_cls() if self.device_type == "cuda" else None
         self._warned_gpu_fallback = False
 
     def _set_low_memory(self, low_memory):
@@ -229,25 +178,35 @@ class VoxelReassigner:
         if coords_real_scaled.size == 0:
             return _TreeHandle(backend="cpu", tree=None, coords_real_scaled=None)
 
-        if self.device_type == "cuda":
-            if self._gpu_kdtree_cls is not None:
-                try:
-                    coords_gpu = self.xp.asarray(coords_real_scaled, dtype=self.xp.float32)
-                    tree = self._gpu_kdtree_cls(coords_gpu)
-                    return _TreeHandle(backend="gpu", tree=tree, coords_real_scaled=coords_real_scaled)
-                except Exception as exc:
-                    if self._is_oom_error(exc):
-                        self._free_gpu_memory()
-                        self._switch_to_cpu("GPU KDTree OOM; falling back to CPU matching.")
-                    else:
-                        self._switch_to_cpu("GPU KDTree unavailable; falling back to CPU matching.")
-            if self.device_type == "cuda":
-                return _TreeHandle(
-                    backend="gpu_bruteforce",
-                    tree=None,
-                    coords_real_scaled=coords_real_scaled,
-                )
+        # Local CPU rebuild only on GPU OOM — outer mode_candidates cascade
+        # is the single source of truth for backend switching. Subsequent
+        # _build_tree calls in later frames will retry GPU.
+        gpu_kdtree_failed = False
+        if self.device_type == "cuda" and self._gpu_kdtree_cls is not None:
+            try:
+                coords_gpu = self.xp.asarray(coords_real_scaled, dtype=self.xp.float32)
+                tree = self._gpu_kdtree_cls(coords_gpu)
+                return _TreeHandle(backend="gpu", tree=tree, coords_real_scaled=coords_real_scaled)
+            except Exception as exc:
+                if not adaptive_run.is_oom_error(exc):
+                    raise
+                adaptive_run.free_gpu_memory(self.xp)
+                self._warn_gpu_fallback("GPU KDTree OOM; falling back to CPU within this call.")
+                gpu_kdtree_failed = True
+        if (
+            self.device_type == "cuda"
+            and self._gpu_kdtree_cls is None
+            and not gpu_kdtree_failed
+        ):
+            # GPU is available but cupyx.scipy.spatial.cKDTree isn't installed;
+            # use the GPU brute-force fallback strategy.
+            return _TreeHandle(
+                backend="gpu_bruteforce",
+                tree=None,
+                coords_real_scaled=coords_real_scaled,
+            )
 
+        # CPU path: default, or local fallback after GPU KDTree OOM in this call.
         try:
             return _TreeHandle(backend="cpu", tree=cKDTree(coords_real_scaled), coords_real_scaled=None)
         except MemoryError:
@@ -276,9 +235,13 @@ class VoxelReassigner:
                 idx = self.xp.asnumpy(idx_gpu).astype(np.int64, copy=False)
                 return dist, idx
             except Exception as exc:
-                if self._is_oom_error(exc):
-                    self._free_gpu_memory()
-                self._switch_to_cpu("GPU query failed; falling back to CPU matching.")
+                # Local CPU rebuild only — outer mode_candidates cascade is the
+                # single source of truth for backend switching. Non-OOM errors
+                # propagate (no silent backend flip on dtype mismatches, etc.).
+                if not adaptive_run.is_oom_error(exc):
+                    raise
+                adaptive_run.free_gpu_memory(self.xp)
+                self._warn_gpu_fallback("GPU query failed; falling back to CPU within this call.")
                 cpu_tree = cKDTree(tree_handle.coords_real_scaled)
                 dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
                 return dist, idx
@@ -295,9 +258,13 @@ class VoxelReassigner:
             try:
                 return self._query_bruteforce_gpu(tree_handle.coords_real_scaled, coords_query_scaled)
             except Exception as exc:
-                if self._is_oom_error(exc):
-                    self._free_gpu_memory()
-                self._switch_to_cpu("GPU brute-force OOM; falling back to CPU matching.")
+                # Local CPU rebuild only — outer mode_candidates cascade is the
+                # single source of truth for backend switching. Non-OOM errors
+                # propagate.
+                if not adaptive_run.is_oom_error(exc):
+                    raise
+                adaptive_run.free_gpu_memory(self.xp)
+                self._warn_gpu_fallback("GPU brute-force OOM; falling back to CPU within this call.")
                 cpu_tree = cKDTree(tree_handle.coords_real_scaled)
                 dist, idx = cpu_tree.query(coords_query_scaled, k=1, workers=-1)
                 return dist, idx
@@ -340,12 +307,12 @@ class VoxelReassigner:
                 dist_out[start:end] = cp.asnumpy(dist_gpu).astype(np.float32, copy=False)
                 del coords_chunk_gpu, diff, dist_sq, idx_gpu, dist_gpu
                 if self.low_memory:
-                    self._free_gpu_memory()
+                    adaptive_run.free_gpu_memory(self.xp)
                 start = end
             except Exception as exc:
-                if not self._is_oom_error(exc):
+                if not adaptive_run.is_oom_error(exc):
                     raise
-                self._free_gpu_memory()
+                adaptive_run.free_gpu_memory(self.xp)
                 if chunk_size <= 1:
                     raise
                 chunk_size = max(1, chunk_size // 2)
@@ -781,7 +748,7 @@ class VoxelReassigner:
 
             tree_next = None
             if self.device_type == "cuda":
-                self._free_gpu_memory()
+                adaptive_run.free_gpu_memory(self.xp)
 
             tree_prev = self._build_tree(self._scale_coords(vox_prev))
 
@@ -792,7 +759,7 @@ class VoxelReassigner:
 
             tree_prev = None
             if self.device_type == "cuda":
-                self._free_gpu_memory()
+                adaptive_run.free_gpu_memory(self.xp)
         else:
             tree_prev = self._build_tree(self._scale_coords(vox_prev))
             tree_next = self._build_tree(self._scale_coords(vox_next))
