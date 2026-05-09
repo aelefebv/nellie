@@ -73,18 +73,15 @@ the five sub-classes (``Voxels`` / ``Nodes`` / ``Branches`` /
   ``(num_nodes, num_voxels, low_memory)`` combinations.
 
 - Backend characterization (CPU-only paths):
-  - ``device='cpu'``: post-run ``self.use_gpu == False``. **NOTE:
-    Slice 2 drops ``use_gpu`` from the constructor — this test will
-    be adjusted in Slice 2 to assert ``self.device == "cpu"``
-    instead.**
+  - ``device='cpu'``: post-run ``self.device_type == "cpu"``.
   - ``Branches._compute_branch_lengths_and_degrees`` per-call OOM
-    fallback: monkeypatch the backend to raise
-    ``cp.cuda.memory.OutOfMemoryError`` on the first GPU call →
-    assert it falls through to CPU and the per-call fallback does
-    NOT mutate ``self.use_gpu``. **NOTE: Slice 3 will widen the
-    catch from the narrow ``cp.cuda.memory.OutOfMemoryError`` to
-    the broader OOM family via ``adaptive_run.is_oom_error``; this
-    test will be inverted to pin the new contract.**
+    fallback: monkeypatch the backend to raise an OOM-family
+    exception recognized by ``adaptive_run.is_oom_error`` on the
+    first GPU call → assert it falls through to CPU and the
+    per-call fallback does NOT mutate ``self.hierarchy.device_type``.
+    Also pin the post-Slice-3 contract that non-OOM exceptions
+    (e.g. ``ValueError``) PROPAGATE out of the wrapper instead of
+    being silently swallowed.
 
 - Adaptive chunk halving: ``Voxels._get_node_info`` ``_process_chunks``
   ``MemoryError`` halving — monkeypatch first call to raise; assert
@@ -219,7 +216,7 @@ def hierarchy_outputs_3d(make_hierarchical_imageinfo_3d_module) -> dict:
         "features_image": Path(info.pipeline_paths["features_image"]),
         "adjacency_maps": Path(info.pipeline_paths["adjacency_maps"]),
     }
-    use_gpu = h.use_gpu
+    device_type = h.device_type
     num_t = h.num_t
     assert h.voxels is not None
     assert h.branches is not None
@@ -233,7 +230,7 @@ def hierarchy_outputs_3d(make_hierarchical_imageinfo_3d_module) -> dict:
     return {
         "info": info,
         "paths": paths,
-        "use_gpu": use_gpu,
+        "device_type": device_type,
         "num_t": num_t,
         "voxel_counts_per_t": voxel_counts_per_t,
         "branch_counts_per_t": branch_counts_per_t,
@@ -853,7 +850,8 @@ def _make_synthetic_hierarchy_for_branches(
             # Wrap into a 3-D "(T, Y, X)"-shape stack with T=1.
             self.im_skel = im_skel_2d[None, :, :]
             self.im_distance = im_distance_2d[None, :, :]
-            self.use_gpu = False
+            self.device_type = "cpu"
+            self.xp = np
 
     return _HierarchyStub()
 
@@ -1042,15 +1040,37 @@ def test_resolve_node_chunk_size_formula(make_hierarchical_imageinfo_3d) -> None
 # -------------------------------------------------------------------------
 
 
-def test_device_cpu_post_run_use_gpu_false(hierarchy_outputs_3d) -> None:
-    """End-to-end ``device='cpu'`` run: post-run ``self.use_gpu == False``.
+def test_device_cpu_post_run_device_type_cpu(hierarchy_outputs_3d) -> None:
+    """End-to-end ``device='cpu'`` run: post-run ``self.device_type == "cpu"``.
 
-    NOTE (Slice 2 follow-up): Slice 2 of PRD #105 drops ``use_gpu``
-    from the constructor signature in favor of a single ``device``
-    argument. After Slice 2 lands, this test will be adjusted to
-    assert ``self.device == "cpu"`` instead.
+    Pinning the canonical post-Slice-3 backend-state attribute. Slice 3
+    of PRD #105 deleted ``self.use_gpu`` along with the local
+    ``_resolve_device`` helper; backend state now lives on
+    ``self.device_type`` (set by ``adaptive_run.resolve_backend``).
     """
-    assert hierarchy_outputs_3d["use_gpu"] is False
+    assert hierarchy_outputs_3d["device_type"] == "cpu"
+
+
+class _FakeXp:
+    """Duck-typed stand-in for ``cupy`` at the GPU dispatch site.
+
+    ``Branches._compute_branch_lengths_and_degrees`` reads
+    ``self.hierarchy.xp`` to pick the GPU array module and passes it
+    to the backend. After Slice 3 of PRD #105, the OOM-handling site
+    also calls ``adaptive_run.free_gpu_memory(self.hierarchy.xp)`` —
+    that helper duck-types on ``get_default_memory_pool`` and no-ops
+    when the attribute is missing. We expose a no-op pool function
+    here so the helper exercises its happy path during the test
+    without needing a real CuPy install.
+    """
+
+    @staticmethod
+    def get_default_memory_pool():
+        class _Pool:
+            def free_all_blocks(self):
+                return None
+
+        return _Pool()
 
 
 def test_compute_branch_lengths_per_call_oom_fallback(
@@ -1058,46 +1078,24 @@ def test_compute_branch_lengths_per_call_oom_fallback(
 ) -> None:
     """``Branches._compute_branch_lengths_and_degrees`` per-call OOM fallback works.
 
-    Monkeypatch ``_HAS_CUPY=True`` plus a stub ``cp`` module on the
-    hierarchical module so the GPU branch in
-    ``_compute_branch_lengths_and_degrees`` (lines 1630-1639) is taken.
-    Rig ``_compute_branch_lengths_and_degrees_backend`` to raise
-    ``cp.cuda.memory.OutOfMemoryError`` on the FIRST call (when called
-    with the fake ``cp``); assert the call falls through to the CPU
-    backend (``np``) and returns the correct lengths. Then call again
-    on the next frame; assert it still tries GPU first (i.e. the
-    per-call fallback does NOT mutate ``self.hierarchy.use_gpu``).
-
-    NOTE (Slice 3 follow-up): Slice 3 of PRD #105 widens the catch
-    from the narrow ``cp.cuda.memory.OutOfMemoryError`` to the broader
-    OOM family via ``adaptive_run.is_oom_error``. After Slice 3 lands,
-    this test will be inverted to pin the new contract — the rigged
-    exception will become an ``adaptive_run``-recognized OOM type and
-    the assertion stays.
+    Force the GPU dispatch branch by stubbing ``h.device_type = "cuda"``
+    and ``h.xp = _FakeXp`` (post-Slice-3, the gate is
+    ``self.hierarchy.device_type == "cuda"``). Rig
+    ``_compute_branch_lengths_and_degrees_backend`` to raise
+    ``MemoryError`` on the first GPU call — ``adaptive_run.is_oom_error``
+    recognises ``MemoryError`` via direct ``isinstance``, exercising the
+    widened OOM-family catch added in Slice 3 of PRD #105. Assert the
+    call falls through to the CPU backend (``np``) and returns the
+    correct lengths. Then call again; assert it still tries GPU first
+    (i.e. the per-call fallback does NOT mutate
+    ``self.hierarchy.device_type``).
     """
     info = make_hierarchical_imageinfo_3d()
     h = Hierarchy(info, skip_nodes=True, device="cpu")
-    h.use_gpu = True  # force GPU branch for the per-call dispatch
-
-    # Build a stub `cp` module exposing `.cuda.memory.OutOfMemoryError`.
-    # We don't need a fully functional cupy stand-in because we
-    # monkeypatch `_compute_branch_lengths_and_degrees_backend` to
-    # short-circuit before any `xp.<method>` calls would actually run
-    # against the fake.
-    class _FakeOOM(Exception):
-        pass
-
-    class _FakeMemoryNS:
-        OutOfMemoryError = _FakeOOM
-
-    class _FakeCudaNS:
-        memory = _FakeMemoryNS
-
-    class _FakeCp:
-        cuda = _FakeCudaNS
-
-    monkeypatch.setattr(hier_module, "_HAS_CUPY", True)
-    monkeypatch.setattr(hier_module, "cp", _FakeCp)
+    # Force GPU branch: post-Slice-3, the dispatch site reads
+    # `self.hierarchy.device_type` and `self.hierarchy.xp` directly.
+    h.device_type = "cuda"
+    h.xp = _FakeXp  # type: ignore[assignment]
 
     branches = Branches.__new__(Branches)
     branches.hierarchy = h
@@ -1107,15 +1105,15 @@ def test_compute_branch_lengths_per_call_oom_fallback(
 
     def fake_backend(t, xp):
         state["calls"].append(xp)
-        if xp is _FakeCp and not state["raised"]:
+        if xp is _FakeXp and not state["raised"]:
             state["raised"] = True
-            raise _FakeOOM("simulated GPU OOM")
+            raise MemoryError("simulated GPU OOM")
         # For the np call, delegate to the real backend so we get a
-        # valid result. For a non-raising _FakeCp call we should never
+        # valid result. For a non-raising _FakeXp call we should never
         # be reached in this test (we only let the fallback fire once).
         if xp is np:
             return real_backend(t, np)
-        # Defensive: if reached with _FakeCp after `raised=True`, return
+        # Defensive: if reached with _FakeXp after `raised=True`, return
         # the np result (caller doesn't care which backend produced it).
         return real_backend(t, np)
 
@@ -1126,21 +1124,67 @@ def test_compute_branch_lengths_per_call_oom_fallback(
     # Ensure im_skel is loaded (would normally be done by _allocate_memory).
     h._allocate_memory()
     lengths = branches._compute_branch_lengths_and_degrees(0)[0]
-    # First call: tried GPU (fake_cp) → raised → fell back to np.
-    assert state["calls"][0] is _FakeCp
+    # First call: tried GPU (_FakeXp) → raised MemoryError →
+    # `adaptive_run.is_oom_error` matched → fell back to np.
+    assert state["calls"][0] is _FakeXp
     assert state["calls"][1] is np
     assert lengths.dtype == np.float32
 
     # Second call (same frame for simplicity) — the per-call fallback should
-    # NOT have mutated h.use_gpu, so it tries GPU first again.
+    # NOT have mutated h.device_type, so it tries GPU first again.
     state["calls"].clear()
     state["raised"] = True  # don't raise again so we can verify GPU was tried first
     branches._compute_branch_lengths_and_degrees(0)
-    assert state["calls"][0] is _FakeCp, (
+    assert state["calls"][0] is _FakeXp, (
         f"second call should still try GPU first; got {state['calls'][0]}. "
-        f"Per-call fallback must not mutate self.hierarchy.use_gpu."
+        f"Per-call fallback must not mutate self.hierarchy.device_type."
     )
-    assert h.use_gpu is True
+    assert h.device_type == "cuda"
+
+    _release_hierarchy(h)
+
+
+def test_compute_branch_lengths_non_oom_exception_propagates(
+    make_hierarchical_imageinfo_3d, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Non-OOM exceptions PROPAGATE out of ``_compute_branch_lengths_and_degrees``.
+
+    Slice 3 of PRD #105 added an explicit
+    ``if not adaptive_run.is_oom_error(exc): raise`` gate at the
+    OOM-handling site (mirroring Hu PR #97 / VoxelReassigner PR #104).
+    A ``ValueError`` raised by the GPU backend must NOT be silently
+    swallowed by the CPU-fallback path — it propagates to the caller
+    so genuine bugs surface instead of masquerading as a CPU result.
+    Also pin: even after a non-OOM exception, the per-call dispatch
+    does NOT mutate ``self.hierarchy.device_type``.
+    """
+    info = make_hierarchical_imageinfo_3d()
+    h = Hierarchy(info, skip_nodes=True, device="cpu")
+    h.device_type = "cuda"
+    h.xp = _FakeXp  # type: ignore[assignment]
+
+    branches = Branches.__new__(Branches)
+    branches.hierarchy = h
+
+    def fake_backend(t, xp):
+        if xp is _FakeXp:
+            raise ValueError("simulated non-OOM failure")
+        # CPU branch should never run in this test — the ValueError
+        # must propagate before we get there.
+        raise AssertionError(
+            "CPU fallback should not run when the GPU backend raises a non-OOM error."
+        )
+
+    monkeypatch.setattr(
+        branches, "_compute_branch_lengths_and_degrees_backend", fake_backend
+    )
+
+    h._allocate_memory()
+    with pytest.raises(ValueError, match="simulated non-OOM failure"):
+        branches._compute_branch_lengths_and_degrees(0)
+
+    # No cross-frame mutation even after a non-OOM raise.
+    assert h.device_type == "cuda"
 
     _release_hierarchy(h)
 
