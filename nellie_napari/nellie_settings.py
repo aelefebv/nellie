@@ -416,9 +416,6 @@ class Settings(QWidget):
     def _optional_spinbox_value(self, override, spinbox):
         return spinbox.value() if override.isChecked() else None
 
-    def _prune_none(self, params: dict) -> dict:
-        return {key: value for key, value in params.items() if value is not None}
-
     def set_ui(self):
         """
         Initialize and set the layout and UI components for the Settings class.
@@ -944,21 +941,25 @@ class Settings(QWidget):
         )
         return config, num_t
 
-    def get_feature_params(self) -> dict:
-        params = {
-            "low_memory": self.feature_low_memory.isChecked(),
-            "enable_motility": self.feature_enable_motility.isChecked(),
-            "enable_adjacency": self.feature_enable_adjacency.isChecked(),
-            "device": self.feature_device.currentText(),
-            "max_node_mask_elems": self.feature_max_node_mask_elems.value(),
-        }
-
+    def get_feature_params(self) -> HierarchyConfig:
         if self.feature_skip_nodes_override.isChecked():
-            params["skip_nodes"] = self.feature_skip_nodes.isChecked()
-        if self.feature_node_chunk_size_override.isChecked():
-            params["node_chunk_size"] = self.feature_node_chunk_size.value()
-
-        return params
+            skip_nodes = self.feature_skip_nodes.isChecked()
+        else:
+            skip_nodes = not self.analyze_node_level.isChecked()
+        node_chunk_size = (
+            self.feature_node_chunk_size.value()
+            if self.feature_node_chunk_size_override.isChecked()
+            else None
+        )
+        return HierarchyConfig(
+            skip_nodes=skip_nodes,
+            low_memory=self.feature_low_memory.isChecked(),
+            enable_motility=self.feature_enable_motility.isChecked(),
+            enable_adjacency=self.feature_enable_adjacency.isChecked(),
+            device=self.feature_device.currentText(),
+            node_chunk_size=node_chunk_size,
+            max_node_mask_elems=self.feature_max_node_mask_elems.value(),
+        )
 
 
 if __name__ == "__main__":

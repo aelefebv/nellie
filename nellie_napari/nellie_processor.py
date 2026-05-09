@@ -526,7 +526,12 @@ class NellieProcessor(QWidget):
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_feature_export(self, im_info_list, skip_nodes, remove_intermediates_checked, step_kwargs):
+    def _run_feature_export(
+        self,
+        im_info_list,
+        config: HierarchyConfig,
+        remove_intermediates_checked: bool,
+    ):
         """
         Run the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
 
@@ -534,22 +539,19 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        skip_nodes : bool
-            Whether to skip node-level feature extraction.
+        config : HierarchyConfig
+            Algorithm configuration for the Hierarchy stage.
         remove_intermediates_checked : bool
-            Whether to remove intermediate files.
-        step_kwargs : dict
-            Keyword arguments for the Hierarchy class (excluding im_info/viewer/skip_nodes).
+            Whether to remove intermediate files after each Hierarchy run.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            hierarchy = Hierarchy(
+            Hierarchy(
                 im_info=self.current_im_info,
-                config=HierarchyConfig(skip_nodes=skip_nodes, **step_kwargs),
+                config=config,
                 viewer=self.viewer,
-            )
-            hierarchy.run()
+            ).run()
             if remove_intermediates_checked:
                 try:
                     self.current_im_info.remove_intermediates()
@@ -573,20 +575,13 @@ class NellieProcessor(QWidget):
         Start the feature extraction step and updates the UI to reflect that feature extraction is running.
         """
         self.status = "feature export"
-        analyze_node_level_checked = self.nellie.settings.analyze_node_level.isChecked()
         remove_intermediates_checked = self.nellie.settings.remove_intermediates_checkbox.isChecked()
         settings = self._get_settings()
-        step_kwargs = settings.get_feature_params() if settings else {}
-        skip_nodes_override = step_kwargs.pop("skip_nodes", None)
-        skip_nodes = not bool(analyze_node_level_checked)
-        if skip_nodes_override is not None:
-            skip_nodes = bool(skip_nodes_override)
-
+        config = settings.get_feature_params() if settings else HierarchyConfig()
         worker = self._run_feature_export(
             self.im_info_list,
-            skip_nodes,
+            config,
             remove_intermediates_checked,
-            step_kwargs,
         )
         # This is the last step in the pipeline; always treat as final.
         self._start_worker(worker, final=True)
