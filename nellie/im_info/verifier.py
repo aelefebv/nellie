@@ -117,7 +117,11 @@ class FileInfo:
     """
     def __init__(self, filepath, output_dir=None, output_naming="detailed"):
         """
-        Initializes the FileInfo object and creates directories for outputs if they do not exist.
+        Initializes the FileInfo object — pure-data, no I/O.
+
+        Output directories are created lazily by ``prepare_output_dirs``,
+        which is called automatically from ``find_metadata``. Construction
+        itself does not touch the filesystem.
 
         Parameters
         ----------
@@ -141,12 +145,7 @@ class FileInfo:
         self.extension = os.path.splitext(filepath)[1].lower()
         self.output_naming = output_naming
         self.output_dir = output_dir or os.path.join(self.input_dir, 'nellie_output')
-        if not os.path.exists(self.output_dir):
-            os.makedirs(self.output_dir)
-
         self.nellie_necessities_dir = os.path.join(self.output_dir, 'nellie_necessities')
-        if not os.path.exists(self.nellie_necessities_dir):
-            os.makedirs(self.nellie_necessities_dir)
 
         self.ome_output_path = None
         self.good_dims = False
@@ -157,6 +156,17 @@ class FileInfo:
         self.t_start = 0
         self.t_end = None
         self.dtype = None
+
+    def prepare_output_dirs(self):
+        """
+        Create ``output_dir`` and ``nellie_necessities_dir`` if missing.
+
+        Idempotent (uses ``exist_ok=True``). Called automatically from
+        ``find_metadata``; can be invoked explicitly by callers that
+        want directories created without metadata extraction.
+        """
+        os.makedirs(self.output_dir, exist_ok=True)
+        os.makedirs(self.nellie_necessities_dir, exist_ok=True)
 
     def _find_tif_metadata(self):
         """
@@ -209,11 +219,16 @@ class FileInfo:
         """
         Detects file type (e.g., TIFF or ND2) and calls the appropriate metadata extraction method.
 
+        Also calls ``prepare_output_dirs`` so output directories exist
+        before any subsequent ``save_ome_tiff`` call. Construction
+        itself does not touch the filesystem; this method does.
+
         Raises
         ------
         ValueError
             If the file type is not supported.
         """
+        self.prepare_output_dirs()
         if self.extension in ('.tiff', '.tif'):
             self._find_tif_metadata()
         elif self.extension == '.nd2':
@@ -820,9 +835,16 @@ class ImInfo:
     """
     def __init__(self, file_info: FileInfo):
         """
-        Initializes the ImInfo object, loading image data and setting up directories for screenshots and graphs.
+        Thin constructor — pure-data, no I/O.
 
-        If the OME-TIFF file does not exist, it creates one by calling `save_ome_tiff()` from the FileInfo class.
+        Stores ``file_info`` and computes the path-derived attributes
+        (``im_path``, ``screenshot_dir``, ``graph_dir``). Initializes
+        all loaded-state attributes to None / empty defaults.
+
+        Use ``ImInfo.from_file_info(file_info)`` for the standard
+        construct-and-load entry point. Calling ``__init__`` alone
+        leaves ``self.im`` as None and ``pipeline_paths`` empty;
+        downstream stages will fail until ``load()`` runs.
 
         Parameters
         ----------
@@ -831,6 +853,45 @@ class ImInfo:
         """
         self.file_info = file_info
         self.im_path = file_info.ome_output_path
+        self.screenshot_dir = os.path.join(self.file_info.output_dir, 'screenshots')
+        self.graph_dir = os.path.join(self.file_info.output_dir, 'graphs')
+
+        self.im = None
+        self.dim_res: DimRes = {'X': None, 'Y': None, 'Z': None, 'T': None}
+        self.axes = None
+        self.new_axes = None
+        self.shape = None
+        self.ome_metadata = None
+        self.file_axes = None
+        self.file_shape = None
+        self.no_z = True
+        self.no_t = True
+        self.pipeline_paths = {}
+
+    @classmethod
+    def from_file_info(cls, file_info: FileInfo) -> "ImInfo":
+        """
+        Construct an ``ImInfo`` and load it in one step.
+
+        Equivalent to ``info = ImInfo(file_info); info.load()``.
+        This is the canonical entry point — every production caller
+        should use it. The thin ``__init__`` exists for tests that
+        want to inspect path computations without the I/O cost of a
+        full load.
+        """
+        instance = cls(file_info)
+        instance.load()
+        return instance
+
+    def load(self) -> None:
+        """
+        Perform the I/O sequence: regen-on-stale, memmap, metadata, paths.
+
+        Idempotent — calling ``load()`` twice re-loads the memmap and
+        re-derives axes/shape/dim_res. Used by ``from_file_info`` and
+        by tests that want to load explicitly after a thin construction.
+        """
+        file_info = self.file_info
         needs_regen = not os.path.exists(self.im_path)
         if not needs_regen:
             with tifffile.TiffFile(self.im_path) as tif:
@@ -841,20 +902,7 @@ class ImInfo:
             file_info.save_ome_tiff()
         self.im = tifffile.memmap(self.im_path)
 
-        self.screenshot_dir = os.path.join(self.file_info.output_dir, 'screenshots')
-        self.graph_dir = os.path.join(self.file_info.output_dir, 'graphs')
-
-        self.dim_res: DimRes = {'X': None, 'Y': None, 'Z': None, 'T': None}
-        self.axes = None
-        self.new_axes = None
-        self.shape = None
-        self.ome_metadata = None
-        self.file_axes = None
-        self.file_shape = None
         self._get_ome_metadata()
-
-        self.no_z = True
-        self.no_t = True
         self._check_axes_exist()
 
         self.pipeline_paths = {}

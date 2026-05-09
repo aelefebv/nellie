@@ -395,7 +395,7 @@ def _build_single_frame_iminfo(workdir: Path) -> ImInfo:
     file_info = FileInfo(str(raw_path))
     file_info.find_metadata()
     file_info.load_metadata()
-    info = ImInfo(file_info)
+    info = ImInfo.from_file_info(file_info)
     Filter(info, FrangiConfig(device="cpu"), num_t=1).run()
     Label(info, LabelConfig(device="cpu"), num_t=1).run()
     Markers(info, MarkersConfig(device="cpu"), num_t=1).run()

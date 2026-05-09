@@ -103,7 +103,7 @@ def _build_synthetic_label_iminfo(workdir: Path) -> ImInfo:
     file_info = FileInfo(str(raw_path))
     file_info.find_metadata()
     file_info.load_metadata()
-    info = ImInfo(file_info)
+    info = ImInfo.from_file_info(file_info)
 
     rng = np.random.default_rng(42)
     frangi = rng.uniform(0.005, 0.05, size=_SYNTHETIC_SHAPE).astype(np.float32)

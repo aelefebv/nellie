@@ -188,6 +188,79 @@ def test_canonical_ome_tiff_exists_after_construction(imageinfo_3d: ImInfo) -> N
     assert os.path.exists(imageinfo_3d.im_path)
 
 
+# ------ Thin constructor (Slice 3 boundary) ------
+
+
+def test_thin_constructor_does_no_io(tmp_path: Path) -> None:
+    """``ImInfo(file_info)`` is a thin constructor — no filesystem I/O.
+
+    Slice 3 split ``ImInfo``'s I/O into ``load()``. The bare
+    constructor stores ``file_info`` and computes path-derived
+    attributes only; it does NOT call ``save_ome_tiff``, does NOT
+    open the canonical OME-TIFF, and does NOT memmap. ``info.im``
+    is None until ``load()`` (or ``from_file_info``) runs.
+
+    Pinned so that pure-logic tests in subsequent slices can construct
+    an ImInfo to inspect path computations without triggering OME-TIFF
+    regen or memmap allocation.
+    """
+    workdir = tmp_path / 'wd'
+    workdir.mkdir()
+    src = copy_fixture_to_tmp(FIXTURE_3D_PATH, workdir)
+    fi = FileInfo(str(src))
+    fi.find_metadata()
+    fi.load_metadata()
+
+    # Construct without load — no I/O should fire.
+    info = ImInfo(fi)
+    assert info.im is None
+    assert info.axes is None
+    assert info.shape is None
+    assert info.ome_metadata is None
+    assert info.pipeline_paths == {}
+    # Path-derived attrs ARE populated (they're pure-string ops)
+    assert info.im_path == fi.ome_output_path
+    assert info.screenshot_dir == os.path.join(fi.output_dir, 'screenshots')
+
+
+def test_load_is_idempotent(tmp_path: Path) -> None:
+    """Calling ``load()`` twice is safe — re-loads memmap + paths."""
+    workdir = tmp_path / 'wd'
+    workdir.mkdir()
+    src = copy_fixture_to_tmp(FIXTURE_3D_PATH, workdir)
+    fi = FileInfo(str(src))
+    fi.find_metadata()
+    fi.load_metadata()
+    info = ImInfo(fi)
+    info.load()
+    first_axes = info.axes
+    first_pipeline_paths = dict(info.pipeline_paths)
+    info.load()  # second call should re-load without error
+    assert info.axes == first_axes
+    assert info.pipeline_paths == first_pipeline_paths
+
+
+def test_from_file_info_equivalent_to_explicit_load(tmp_path: Path) -> None:
+    """``ImInfo.from_file_info(fi)`` == ``ImInfo(fi); info.load()``."""
+    workdir = tmp_path / 'wd'
+    workdir.mkdir()
+    src = copy_fixture_to_tmp(FIXTURE_3D_PATH, workdir)
+    fi = FileInfo(str(src))
+    fi.find_metadata()
+    fi.load_metadata()
+
+    via_classmethod = ImInfo.from_file_info(fi)
+    via_explicit = ImInfo(fi)
+    via_explicit.load()
+
+    assert via_classmethod.axes == via_explicit.axes
+    assert via_classmethod.shape == via_explicit.shape
+    assert via_classmethod.dim_res == via_explicit.dim_res
+    assert via_classmethod.no_z == via_explicit.no_z
+    assert via_classmethod.no_t == via_explicit.no_t
+    assert set(via_classmethod.pipeline_paths.keys()) == set(via_explicit.pipeline_paths.keys())
+
+
 # ------ Auto-regen path (verifier.py:765-772) ------
 
 
@@ -206,13 +279,13 @@ def test_construction_skips_regen_when_ome_exists(tmp_path: Path) -> None:
     fi.find_metadata()
     fi.load_metadata()
 
-    info_first = ImInfo(fi)
+    info_first = ImInfo.from_file_info(fi)
     assert info_first.im_path is not None
     mtime_after_first = os.path.getmtime(info_first.im_path)
     # Sleep across the filesystem mtime resolution boundary so a
     # spurious regen would actually shift the mtime.
     time.sleep(1.1)
-    info_second = ImInfo(fi)
+    info_second = ImInfo.from_file_info(fi)
     assert info_second.im_path is not None
     mtime_after_second = os.path.getmtime(info_second.im_path)
     assert mtime_after_second == mtime_after_first
@@ -247,7 +320,7 @@ def test_construction_regens_when_t_axis_missing(tmp_path: Path) -> None:
     # file_info.axes='TZYX' — mismatch should trigger regen.
     assert fi.axes is not None
     assert 'T' in fi.axes
-    info = ImInfo(fi)
+    info = ImInfo.from_file_info(fi)
     assert info.im_path is not None
     mtime_after = os.path.getmtime(info.im_path)
     assert mtime_after > mtime_before
@@ -486,7 +559,7 @@ def test_check_axes_exist_single_timepoint_2d(tmp_path: Path) -> None:
     workdir = tmp_path / 'wd'
     workdir.mkdir()
     fi = _make_minimal_file_info(workdir, source_axes='YX')
-    info = ImInfo(fi)
+    info = ImInfo.from_file_info(fi)
     assert info.axes == 'TYX'
     assert info.shape == (1, 16, 16)
     assert info.no_z is True

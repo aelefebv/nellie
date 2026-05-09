@@ -53,7 +53,7 @@ def main():
     file_info = FileInfo(im_path)
     file_info.find_metadata()
     file_info.load_metadata()
-    im_info = ImInfo(file_info)
+    im_info = ImInfo.from_file_info(file_info)
 
     run_obj = VoxelReassigner(im_info, VoxelReassignerConfig(), num_t=3)
     run_obj.run()

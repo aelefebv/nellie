@@ -65,6 +65,66 @@ def _loaded_file_info(source, workdir) -> FileInfo:
 
 
 # ============================================================
+# A0. Constructor purity + prepare_output_dirs (Slice 3 boundary)
+# ============================================================
+
+
+def test_thin_constructor_does_no_io(tmp_path) -> None:
+    """``FileInfo(filepath)`` is a thin constructor — no filesystem I/O.
+
+    Slice 3 moved ``os.makedirs`` out of ``__init__`` into
+    ``prepare_output_dirs``, called automatically from ``find_metadata``.
+    The bare constructor only stores path-derived strings.
+
+    Pinned so tests can construct ``FileInfo`` to inspect path
+    computations without creating output directories on disk.
+    """
+    workdir = tmp_path / 'wd'
+    workdir.mkdir()
+    src = workdir / 'tiny.tif'
+    src.write_bytes(b'')  # empty placeholder; constructor doesn't read it
+    output_dir = workdir / 'custom_out'
+    fi = FileInfo(str(src), output_dir=str(output_dir))
+    # Constructor stored the path but did NOT create the directory.
+    assert fi.output_dir == str(output_dir)
+    assert not output_dir.exists()
+    assert not (output_dir / 'nellie_necessities').exists()
+
+
+def test_prepare_output_dirs_creates_both_dirs(tmp_path) -> None:
+    """Explicit ``prepare_output_dirs`` creates both output directories."""
+    src = tmp_path / 'tiny.tif'
+    src.write_bytes(b'')
+    output_dir = tmp_path / 'out'
+    fi = FileInfo(str(src), output_dir=str(output_dir))
+    fi.prepare_output_dirs()
+    assert output_dir.exists()
+    assert (output_dir / 'nellie_necessities').exists()
+
+
+def test_prepare_output_dirs_is_idempotent(tmp_path) -> None:
+    """Re-calling ``prepare_output_dirs`` is safe (uses ``exist_ok=True``)."""
+    src = tmp_path / 'tiny.tif'
+    src.write_bytes(b'')
+    fi = FileInfo(str(src), output_dir=str(tmp_path / 'out'))
+    fi.prepare_output_dirs()
+    fi.prepare_output_dirs()  # would raise without exist_ok=True
+    assert (tmp_path / 'out').exists()
+
+
+def test_find_metadata_creates_output_dirs(tmp_path) -> None:
+    """``find_metadata`` calls ``prepare_output_dirs`` before extraction.
+
+    Pins the auto-call wiring so production callers (run.py, napari
+    fileselect) don't need to call prepare_output_dirs explicitly.
+    """
+    fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path / 'fixture_workdir')
+    # _loaded_file_info calls find_metadata; output dirs must exist now.
+    assert os.path.isdir(fi.output_dir)
+    assert os.path.isdir(fi.nellie_necessities_dir)
+
+
+# ============================================================
 # A. Per-format dim_res extraction (metadata_type branches)
 # ============================================================
 

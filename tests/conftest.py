@@ -111,7 +111,7 @@ def _build_iminfo(source: Path, workdir: Path) -> ImInfo:
     file_info = FileInfo(str(dst))
     file_info.find_metadata()
     file_info.load_metadata()
-    return ImInfo(file_info)
+    return ImInfo.from_file_info(file_info)
 
 
 @pytest.fixture(scope="session")

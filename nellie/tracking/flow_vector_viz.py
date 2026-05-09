@@ -130,7 +130,7 @@ if __name__ == "__main__":
     file_info.find_metadata()
     file_info.load_metadata()
 
-    im_info = ImInfo(file_info)
+    im_info = ImInfo.from_file_info(file_info)
 
     tracks, props = load_flow_vectors_as_tracks(im_info, cost_threshold=None, stride=1)
     markers = load_mocap_markers_as_points(im_info, point_stride=1)
