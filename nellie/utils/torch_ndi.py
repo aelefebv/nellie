@@ -32,12 +32,15 @@ See also:
 from __future__ import annotations
 
 import math
-from typing import Sequence
+from typing import Any, Sequence
 
 
-# Cached torch + functional module once an op imports them.
-_TORCH = None
-_F = None
+# Cached torch + functional module once an op imports them. Typed as ``Any``
+# so that ``F.conv2d(...)`` / ``F.pad(...)`` call sites don't trip Pyright's
+# Optional-narrowing — the lazy-import contract guarantees these are non-None
+# by the time any op runs.
+_TORCH: Any = None
+_F: Any = None
 
 
 def _torch():
