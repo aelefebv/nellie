@@ -139,6 +139,10 @@ def _run_voxel_reassign(info: ImInfo, **kwargs) -> VoxelReassigner:
 def voxel_reassign_outputs_3d(make_voxel_reassign_imageinfo_3d_module) -> dict:
     info = make_voxel_reassign_imageinfo_3d_module()
     v = _run_voxel_reassign(info)
+    assert v.reassigned_branch_memmap is not None
+    assert v.reassigned_obj_memmap is not None
+    assert v.branch_label_memmap is not None
+    assert v.obj_label_memmap is not None
     branch_path = Path(info.pipeline_paths["im_branch_label_reassigned"])
     obj_path = Path(info.pipeline_paths["im_obj_label_reassigned"])
     matches_path = Path(info.pipeline_paths["voxel_matches"])
@@ -177,6 +181,8 @@ def voxel_reassign_outputs_3d(make_voxel_reassign_imageinfo_3d_module) -> dict:
 def voxel_reassign_outputs_2d(make_voxel_reassign_imageinfo_2d_module) -> dict:
     info = make_voxel_reassign_imageinfo_2d_module()
     v = _run_voxel_reassign(info)
+    assert v.reassigned_branch_memmap is not None
+    assert v.reassigned_obj_memmap is not None
     branch_path = Path(info.pipeline_paths["im_branch_label_reassigned"])
     obj_path = Path(info.pipeline_paths["im_obj_label_reassigned"])
     branch_arr = np.array(v.reassigned_branch_memmap)
@@ -465,12 +471,16 @@ def test_max_refine_iterations_one_vs_three(
     """
     info_one = make_voxel_reassign_imageinfo_3d()
     v_one = _run_voxel_reassign(info_one, max_refine_iterations=1)
+    assert v_one.reassigned_branch_memmap is not None
+    assert v_one.reassigned_obj_memmap is not None
     branch_one_count = int(np.count_nonzero(v_one.reassigned_branch_memmap[1]))
     obj_one_count = int(np.count_nonzero(v_one.reassigned_obj_memmap[1]))
     _release_voxel_reassigner(v_one)
 
     info_three = make_voxel_reassign_imageinfo_3d()
     v_three = _run_voxel_reassign(info_three, max_refine_iterations=3)
+    assert v_three.reassigned_branch_memmap is not None
+    assert v_three.reassigned_obj_memmap is not None
     branch_three_count = int(np.count_nonzero(v_three.reassigned_branch_memmap[1]))
     obj_three_count = int(np.count_nonzero(v_three.reassigned_obj_memmap[1]))
     _release_voxel_reassigner(v_three)
@@ -628,6 +638,8 @@ def test_empty_master_mask_breaks_loop(
     # memmaps, NOT from the master mask. So t=0 still gets initialized.
     # The loop short-circuits at line 1027-1029 before t=1 writes happen,
     # so t=1 stays all zero.
+    assert v.reassigned_branch_memmap is not None
+    assert v.reassigned_obj_memmap is not None
     assert (v.reassigned_branch_memmap[1] == 0).all(), (
         "branch reassigned t=1 has non-zero entries even though "
         "_get_master_mask returned all-False"
@@ -687,6 +699,7 @@ def test_distance_threshold_drops_above_max_distance(
     v = VoxelReassigner(info, num_t=2, device="cpu")
     # Don't need _allocate_memory for _distance_threshold; it uses
     # flow_interpolator_fw.scaling and .max_distance_um directly.
+    assert v.flow_interpolator_fw is not None
     scaling = np.asarray(v.flow_interpolator_fw.scaling, dtype=np.float32)
     max_um = float(v.flow_interpolator_fw.max_distance_um)
 
@@ -786,7 +799,13 @@ def test_select_best_pairs_returns_one_best_per_target(
     targets = np.tile(target_coord, (3, 1))
     distances = np.array([5.0, 1.0, 3.0], dtype=np.float64)
 
-    best_prev, best_next = v._select_best_pairs(sources, targets, distances)
+    # NOTE: ``_select_best_pairs`` returns a 2-tuple in the populated
+    # branch but a 3-tuple in the empty-input branch (lines 412-417 in
+    # voxel_reassignment.py). The shape divergence is real and pinned
+    # in the empty-input characterization above; here we hit the
+    # populated branch with non-empty inputs.
+    result = v._select_best_pairs(sources, targets, distances)
+    best_prev, best_next = result[0], result[1]
     assert best_prev.shape == (1, 3)
     assert best_next.shape == (1, 3)
     np.testing.assert_array_equal(best_prev[0], sources[1])
