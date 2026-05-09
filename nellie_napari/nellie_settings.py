@@ -930,19 +930,19 @@ class Settings(QWidget):
         )
         return config, num_t
 
-    def get_reassign_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.reassign_num_t_override, self.reassign_num_t
-            ),
-            "store_running_matches": self.reassign_store_running_matches.isChecked(),
-            "max_refine_iterations": self.reassign_max_refine_iterations.value(),
-            "device": self.reassign_device.currentText(),
-            "low_memory": self.reassign_low_memory.isChecked(),
-            "max_query_points": self.reassign_max_query_points.value(),
-            "max_bruteforce_pairs": self.reassign_max_bruteforce_pairs.value(),
-        }
-        return self._prune_none(params)
+    def get_reassign_params(self) -> tuple[VoxelReassignerConfig, int | None]:
+        config = VoxelReassignerConfig(
+            store_running_matches=self.reassign_store_running_matches.isChecked(),
+            max_refine_iterations=self.reassign_max_refine_iterations.value(),
+            device=self.reassign_device.currentText(),
+            low_memory=self.reassign_low_memory.isChecked(),
+            max_query_points=self.reassign_max_query_points.value(),
+            max_bruteforce_pairs=self.reassign_max_bruteforce_pairs.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.reassign_num_t_override, self.reassign_num_t
+        )
+        return config, num_t
 
     def get_feature_params(self) -> dict:
         params = {

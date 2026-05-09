@@ -488,7 +488,7 @@ class NellieProcessor(QWidget):
         self._start_worker(worker, next_step=next_step)
 
     @thread_worker(ignore_errors=True)
-    def _run_reassign(self, im_info_list, step_kwargs):
+    def _run_reassign(self, im_info_list, config: VoxelReassignerConfig, num_t: int | None):
         """
         Run the voxel reassignment step in a separate thread. Reassigns voxel labels based on the tracked motion.
 
@@ -496,21 +496,20 @@ class NellieProcessor(QWidget):
         ----------
         im_info_list : list
             List of ImInfo objects.
-        step_kwargs : dict
-            Keyword arguments for the VoxelReassigner class (excluding im_info/viewer).
+        config : VoxelReassignerConfig
+            Algorithm configuration for the VoxelReassigner stage.
+        num_t : int or None
+            Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            config_kwargs = dict(step_kwargs)
-            num_t = config_kwargs.pop("num_t", None)
-            vox_reassign = VoxelReassigner(
+            VoxelReassigner(
                 im_info=self.current_im_info,
-                config=VoxelReassignerConfig(**config_kwargs),
+                config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            )
-            vox_reassign.run()
+            ).run()
 
     def run_reassign(self):
         """
@@ -519,8 +518,10 @@ class NellieProcessor(QWidget):
         """
         self.status = "voxel reassignment"
         settings = self._get_settings()
-        step_kwargs = settings.get_reassign_params() if settings else {}
-        worker = self._run_reassign(self.im_info_list, step_kwargs)
+        config, num_t = (
+            settings.get_reassign_params() if settings else (VoxelReassignerConfig(), None)
+        )
+        worker = self._run_reassign(self.im_info_list, config, num_t)
         next_step = self.run_feature_export if self.pipeline else None
         self._start_worker(worker, next_step=next_step)
 
