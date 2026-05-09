@@ -502,21 +502,44 @@ class Filter:
         shape = frame_cpu.shape
         chunk_voxels = int(max_chunk_voxels or self.max_chunk_voxels or int(np.prod(shape)))
         halo = self.halo or (0,) * len(shape)
+        # 2D path also fuses a full-frame multi-scale LoG response (matches
+        # `_run_frame`). Per-chunk LoG would require global normalization
+        # across chunks; full-frame LoG sidesteps that and the extra plane
+        # is small relative to the chunked Hessian/eigenvalue working set.
+        fuse_blobness = self.im_info.no_z
 
         while True:
             try:
                 chunk_shape = chunking.compute_chunk_shape(shape, chunk_voxels)
                 vessel_out = np.zeros(shape, dtype=self.work_dtype)
+                mask_out = np.ones(shape, dtype=bool) if fuse_blobness else None
                 for core, ext, core_in_ext in chunking.iter_chunks(shape, chunk_shape, halo):
                     chunk = frame_cpu[ext]
                     chunk_xp = self.xp.asarray(chunk, dtype=self.work_dtype)
                     vessel_chunk, mask_chunk = self._compute_vesselness(
                         chunk_xp, mask=mask
                     )
-                    vessel_chunk = vessel_chunk * mask_chunk
+                    vessel_chunk_masked = vessel_chunk * mask_chunk
                     if self.device_type == "cuda":
-                        vessel_chunk = vessel_chunk.get()
-                    vessel_out[core] = vessel_chunk[core_in_ext]
+                        vessel_chunk_masked = vessel_chunk_masked.get()
+                        if mask_out is not None:
+                            mask_chunk = mask_chunk.get()
+                    vessel_out[core] = vessel_chunk_masked[core_in_ext]
+                    if mask_out is not None:
+                        mask_out[core] = mask_chunk[core_in_ext]
+
+                if fuse_blobness:
+                    frame_xp = self.xp.asarray(frame_cpu, dtype=self.work_dtype)
+                    log_mask = self.xp.asarray(mask_out)
+                    blobness = frangi_math.log_blobness(
+                        frame_xp, self.sigmas, self._get_sigma_vec, log_mask,
+                        self.xp, self.ndi, self.work_dtype,
+                    )
+                    blobness = self.xp.maximum(blobness, 0)
+                    if self.device_type == "cuda":
+                        blobness = blobness.get()
+                    vessel_out = np.maximum(vessel_out, blobness)
+
                 if self.remove_edges:
                     vessel_out = self._remove_edges(vessel_out)
                 return vessel_out

@@ -184,6 +184,41 @@ def test_2d_log_blobness_fusion(make_imageinfo_2d, monkeypatch) -> None:
     )
 
 
+def test_2d_log_blobness_fusion_low_memory(make_imageinfo_2d, monkeypatch) -> None:
+    """LoG fusion must apply in the low-memory chunked path too.
+
+    Pins the fix for a silent divergence: prior to the fix, ``low_memory=True``
+    on a 2D image silently dropped the LoG-blobness backfill that the
+    non-chunked path adds. ``max_chunk_voxels=10_000`` forces the fixture
+    (~53k voxels) to actually chunk, so the per-chunk mask assembly is
+    exercised, not just the single-chunk degenerate case.
+    """
+    from nellie.segmentation import frangi_math
+
+    config_low_mem = FrangiConfig(
+        device="cpu", low_memory=True, max_chunk_voxels=10_000
+    )
+
+    filt_with = Filter(make_imageinfo_2d(), config_low_mem, num_t=2)
+    filt_with.run()
+    nonzero_with = int(np.count_nonzero(np.asarray(filt_with.frangi_memmap)))
+    _release_filter(filt_with)
+
+    def zero_log(image, sigmas, sigma_vec_fn, mask, xp, ndi, work_dtype="float32"):
+        return xp.zeros_like(image)
+
+    monkeypatch.setattr(frangi_math, "log_blobness", zero_log)
+    filt_without = Filter(make_imageinfo_2d(), config_low_mem, num_t=2)
+    filt_without.run()
+    nonzero_without = int(np.count_nonzero(np.asarray(filt_without.frangi_memmap)))
+    _release_filter(filt_without)
+
+    assert nonzero_with > nonzero_without, (
+        f"LoG fusion silently dropped in low-memory chunked path "
+        f"(with={nonzero_with}, without={nonzero_without})"
+    )
+
+
 def test_2d_output_invariants(frangi_2d_output, make_imageinfo_2d) -> None:
     assert frangi_2d_output.dtype == np.float32
     assert frangi_2d_output.min() >= 0

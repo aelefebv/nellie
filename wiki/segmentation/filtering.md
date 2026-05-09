@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-09
 ---
 
 # Filtering
@@ -26,7 +26,7 @@ Tubular organelles (mitochondria, ER tubules) are low-contrast and varied in rad
 - **`gamma` is auto-rescaled by `spacing_geomean ** 2`.** Hessian eigenvalues live in `intensity / spacing²` units while triangle/Otsu thresholds run on raw intensity. Without the rescale the `(1 - exp(-S² / γ²))` term saturates and magnitudes blow up. This is a deliberate fix; do not remove.
 - **Cascaded Gaussian must `copy=True` from the memmap.** In-place writes would corrupt the on-disk OME-TIFF.
 - **Frangi only keeps voxels where `λ₂ ≤ 0`** (and `λ₃ ≤ 0` in 3D). This bakes in a **bright-on-dark assumption** — dark-on-bright structures are silently zeroed.
-- **`remove_edges` zeroes a 15-px border around the bbox per slice.** Tunable but easy to forget.
+- **`remove_edges` zeroes a 15-px border around the bbox per slice.** Originally added for **snouty** (oblique light-sheet) data — deskew warps the boundaries and Frangi latches onto the interpolation artifacts without it. The 15-px margin is tuned for that artifact width; for non-snouty data the side effect is "small structures (bbox height ≤ 30) get fully wiped." Default is `False` so most users never hit this.
 - **`alpha`, `beta`, min/max radius are dataset-sensitive.** No auto-tuning; defaults work for the paper's mitochondrial data.
 
 ## Invariants
