@@ -34,7 +34,10 @@ dev = [
     "pytest",
 ]
 mps = [
-    "torch",
+    # MPS is Apple Silicon only; constrain to Darwin so uv's required-environments
+    # resolution doesn't force a torch wheel for Linux/Windows where the extra
+    # has no useful effect (the cuda path still goes through cupy, not torch).
+    "torch; sys_platform == 'darwin'",
 ]
 
 [build-system]
