@@ -7,6 +7,7 @@ branches, organelles, and images) from segmented and tracked microscopy data.
 """
 import pickle
 import time
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -41,6 +42,31 @@ from nellie.im_info.verifier import ImInfo
 from nellie.tracking.flow_interpolation import FlowInterpolator
 
 
+@dataclass(frozen=True)
+class HierarchyConfig:
+    """Algorithm configuration for ``Hierarchy``.
+
+    Frozen — represents the user's intent at construction time. Hierarchy
+    copies these values into mutable instance attributes that the
+    OOM/availability cascade can update mid-run (``device``,
+    ``low_memory``). Inspect ``Hierarchy.config`` to see the original
+    intent regardless of any cascade-driven runtime fallbacks.
+
+    Note: Hierarchy is asymmetric — it has no ``num_t`` field because
+    the value is always derived from ``im_info.shape[0]`` inside
+    ``__init__``. Per resolved decision #3 of PRD #112, no ``num_t``
+    constructor parameter exists.
+    """
+
+    skip_nodes: bool = True
+    low_memory: bool = False
+    enable_motility: bool = True
+    enable_adjacency: bool = True
+    device: str = "auto"
+    node_chunk_size: int | None = None
+    max_node_mask_elems: int = int(5e7)
+
+
 class Hierarchy:
     """
     Main orchestration class for hierarchical feature extraction.
@@ -49,38 +75,27 @@ class Hierarchy:
     def __init__(
         self,
         im_info: ImInfo,
-        skip_nodes: bool = True,
+        config: HierarchyConfig = HierarchyConfig(),
         viewer=None,
-        low_memory: bool = False,
-        enable_motility: bool = True,
-        enable_adjacency: bool = True,
-        device: str | None = None,
-        node_chunk_size: int | None = None,
-        max_node_mask_elems: int = int(5e7),
     ):
         """
         Parameters
         ----------
         im_info : ImInfo
             Image metadata object.
-        skip_nodes : bool
-            If True, node-level features are skipped.
+        config : HierarchyConfig
+            Algorithm configuration. Defaults to ``HierarchyConfig()``.
         viewer : optional
             Viewer object with `.status` attribute for status updates.
-        low_memory : bool
-            If True, use low-memory (slower) aggregation strategies where possible.
-        enable_motility : bool
-            If False, skip all motion-related features (flow interpolation, velocities, etc.).
-        enable_adjacency : bool
-            If False, skip adjacency map construction.
-        device : {"auto", "cpu", "gpu"}, optional
-            Backend selection for GPU-eligible operations. "auto" uses GPU if available.
-        node_chunk_size : int, optional
-            Target number of voxels per chunk when assigning voxels to nodes.
-        max_node_mask_elems : int, optional
-            Upper bound on the size of the node/voxel mask (num_nodes * chunk_size).
+
+        Notes
+        -----
+        Hierarchy does NOT take a ``num_t`` constructor argument
+        (asymmetric per resolved decision #3 of PRD #112). The value is
+        always derived from ``self.im_info.shape[0]`` below.
         """
         self.im_info = im_info
+        self.config = config
         self.num_t = self.im_info.shape[0]
 
         if self.im_info.no_z:
@@ -92,16 +107,20 @@ class Hierarchy:
                 self.im_info.dim_res["X"],
             )
 
-        self.skip_nodes = skip_nodes
         self.viewer = viewer
 
-        self.low_memory = low_memory
-        self.enable_motility = enable_motility
-        self.enable_adjacency = enable_adjacency
-        self.device = adaptive_run.normalize_device(device or "auto")
+        # Aliases for hot path readability — config remains the source of truth.
+        self.skip_nodes = config.skip_nodes
+        self.enable_motility = config.enable_motility
+        self.enable_adjacency = config.enable_adjacency
+        self.node_chunk_size = config.node_chunk_size
+        self.max_node_mask_elems = int(config.max_node_mask_elems)
+
+        # Cascade-mutable runtime state. Initial values come from config;
+        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
+        self.low_memory = bool(config.low_memory)
+        self.device = adaptive_run.normalize_device(config.device or "auto")
         self.xp, _ndi, self.device_type = adaptive_run.resolve_backend(self.device)
-        self.node_chunk_size = node_chunk_size
-        self.max_node_mask_elems = int(max_node_mask_elems)
 
         # Memory-mapped images
         self.im_obj_reassigned = None
