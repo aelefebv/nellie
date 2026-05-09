@@ -832,7 +832,7 @@ def test_single_frame_motility_all_nan(make_hierarchical_imageinfo_3d) -> None:
 
 
 def _make_synthetic_hierarchy_for_branches(
-    *, im_skel_2d: np.ndarray, im_distance_2d: np.ndarray, no_z: bool = True
+    *, im_skel_2d: np.ndarray, im_distance_2d: np.ndarray
 ):
     """Construct a minimal Hierarchy-like object for ``Branches._compute_branch_lengths_and_degrees``.
 
@@ -1125,7 +1125,7 @@ def test_compute_branch_lengths_per_call_oom_fallback(
 
     # Ensure im_skel is loaded (would normally be done by _allocate_memory).
     h._allocate_memory()
-    lengths, neighbor_counts = branches._compute_branch_lengths_and_degrees(0)
+    lengths = branches._compute_branch_lengths_and_degrees(0)[0]
     # First call: tried GPU (fake_cp) → raised → fell back to np.
     assert state["calls"][0] is _FakeCp
     assert state["calls"][1] is np
@@ -1135,7 +1135,7 @@ def test_compute_branch_lengths_per_call_oom_fallback(
     # NOT have mutated h.use_gpu, so it tries GPU first again.
     state["calls"].clear()
     state["raised"] = True  # don't raise again so we can verify GPU was tried first
-    lengths2, _ = branches._compute_branch_lengths_and_degrees(0)
+    branches._compute_branch_lengths_and_degrees(0)
     assert state["calls"][0] is _FakeCp, (
         f"second call should still try GPU first; got {state['calls'][0]}. "
         f"Per-call fallback must not mutate self.hierarchy.use_gpu."
