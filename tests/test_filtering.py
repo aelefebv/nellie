@@ -197,3 +197,51 @@ def test_2d_output_invariants(frangi_2d_output, make_imageinfo_2d) -> None:
     digest_after = hashlib.sha256(src.read_bytes()).hexdigest()
     _release_filter(filt)
     assert digest_now == digest_after
+
+
+# -------------------------------------------------------------------------
+# FrangiConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_frangi_config_default_constructs() -> None:
+    FrangiConfig()
+
+
+def test_frangi_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        FrangiConfig(device="bogus")
+
+
+def test_frangi_config_accepts_cuda_alias() -> None:
+    FrangiConfig(device="cuda")
+
+
+@pytest.mark.parametrize("field", [
+    "min_radius_um", "max_radius_um", "alpha_sq", "beta_sq",
+    "frob_thresh_division", "max_chunk_voxels", "max_threshold_samples",
+])
+def test_frangi_config_rejects_nonpositive_numeric(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        FrangiConfig(**{field: 0})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=field):
+        FrangiConfig(**{field: -1})  # type: ignore[arg-type]
+
+
+def test_frangi_config_frob_thresh_optional_none_ok() -> None:
+    FrangiConfig(frob_thresh=None)
+
+
+def test_frangi_config_frob_thresh_rejects_nonpositive() -> None:
+    with pytest.raises(ValueError, match="frob_thresh"):
+        FrangiConfig(frob_thresh=0)
+    with pytest.raises(ValueError, match="frob_thresh"):
+        FrangiConfig(frob_thresh=-0.5)
+
+
+def test_frangi_config_rejects_inverted_radius_range() -> None:
+    with pytest.raises(ValueError, match="min_radius_um"):
+        FrangiConfig(min_radius_um=2.0, max_radius_um=1.0)
+
+
+def test_frangi_config_equal_radii_ok() -> None:
+    FrangiConfig(min_radius_um=0.5, max_radius_um=0.5)
