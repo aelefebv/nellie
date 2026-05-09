@@ -644,7 +644,10 @@ def test_save_ome_tiff_creates_output_file(tmp_path) -> None:
 
 
 def test_save_ome_tiff_collapses_channel(tmp_path) -> None:
-    """Synthetic TCYX (T=1,C=3) with ch=1 → C dropped from output axes; data is C=1 plane.
+    """Synthetic TCYX (T=2,C=3) with ch=1 → C dropped from output axes; data is C=1 plane.
+
+    Uses T=2 (not T=1) so the synthetic TIFF doesn't have a singleton T
+    that some tifffile versions strip on readback.
 
     The provenance JSON's ``output_axes`` records the post-collapse
     axes string ('TYX'). tifffile's ``series[0].axes`` may strip
@@ -653,7 +656,7 @@ def test_save_ome_tiff_collapses_channel(tmp_path) -> None:
     axes contract.
     """
     p = tmp_path / "multich.tif"
-    _make_synthetic_tczyx_tiff(p, t=1, c=3, y=16, x=16)
+    _make_synthetic_tczyx_tiff(p, t=2, c=3, y=16, x=16)
     fi = FileInfo(str(p))
     fi.find_metadata()
     fi.load_metadata()

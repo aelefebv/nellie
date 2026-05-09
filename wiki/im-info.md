@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-09
 ---
 
 # Image metadata (`im_info`)
@@ -54,4 +54,12 @@ Post-`ImInfo` init: in-memory array is always `T[Z]YX` with `T` first and Z abse
 
 Provenance (source axes, output axes, channel, t_start/t_end, `dim_res`) is JSON-serialized into the OME image description on save.
 
-Verifier behaviors are **not currently pinned by tests** — the legacy `test_verifier_metadata.py` was wiped during the May 2026 test scaffold rebuild and only filtering coverage has been restored. See [[queue]].
+Verifier behaviors are pinned by `tests/test_verifier_fileinfo.py` (76 tests) + `tests/test_verifier_iminfo.py` (46 tests) as of PRD #119 / PR #120 (2026-05-09). 4 of 5 `metadata_type` branches covered via per-format fixtures (`'ome'`, `'imagej'`, `'imagej_tif_tags'`, `None` × 3 RESUNIT cases); `'nd2'` deferred (see [[queue]]). The 8-slice refactor plan is in [[outputs/dechaos-verifier|`wiki/outputs/dechaos-verifier.md`]] Pass 8.
+
+3 design quirks were confirmed intentional during the dechaos grilling (with git-archaeology citations) and are pinned with explicit "design quirk" comments in the test files:
+
+- **Half-commented `change_axes` length gate** (verifier.py:423–426) — disabled by commit `492edfb` (Aug 2024) for napari fileselect partial-typing UX. The widget pre-validates length at `nellie_fileselect.py:868–874`; the verifier-level gate would crash the GUI on intermediate keystrokes.
+- **`_validate` asymmetric raise** (verifier.py:537–538) — raises only on time errors; axis/dim errors are silently flagged via `good_axes`/`good_dims` for the napari widget to display. Time-range errors are programmer errors (caller passed bad `t_start`/`t_end`); axis/dim are user-input errors.
+- **`_normalize_axes` excludes `C`; `_axis_errors` includes `C`** — layering boundary, not a contract drift. FileInfo accepts multichannel input; `save_ome_tiff` collapses C; ImInfo only ever reads post-collapse OME-TIFFs.
+
+Discovered during test writing (worth flagging for Slice 7 / OME-TIFF writer extraction): **tifffile strips singleton axes on readback** after `save_ome_tiff` writes a `(1, Y, X)` array with `metadata={'axes': 'TYX'}`. The canonical contract for the saved axes is the provenance JSON's `output_axes` field plus OME's `pixels.size_*`, NOT `tifffile.series[0].axes`.
