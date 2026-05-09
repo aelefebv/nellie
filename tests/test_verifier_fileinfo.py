@@ -457,21 +457,25 @@ def test_change_axes_to_valid_string(tmp_path) -> None:
     assert fi.good_axes is True
 
 
-def test_change_axes_bad_length_mutates_axes_and_flags_invalid(tmp_path) -> None:
-    """Pins current intentional behavior: half-commented gate at lines 423-426.
+def test_change_axes_bad_length_raises(tmp_path) -> None:
+    """``change_axes`` raises ``ValueError`` on length mismatch.
 
-    ``self.good_axes = False`` runs unconditionally; ``self.axes``
-    mutates regardless of length validity. ``_validate`` later catches
-    the length mismatch via ``_check_axes``. Net: ``self.axes`` is
-    left in 'bad' state, but the ``good_axes`` flag correctly reflects
-    validity. The gate was disabled in commit 492edfb (Aug 2024) for
-    the napari fileselect widget's partial-typing UX. See dechaos
-    report Pass 2 #5 and Slice 2.
+    Slice 2 restored the length gate (originally added in commit
+    bb2b0b7, disabled by commit 492edfb in Aug 2024). The napari
+    fileselect widget at nellie_fileselect.py:868-879 already
+    pre-validates length before calling change_axes (red error +
+    short-circuit), so the verifier-level gate is redundant for
+    napari but defensive for programmatic callers (run.py, tests,
+    scripted use). On length mismatch, ``self.axes`` is NOT mutated.
     """
     fi = _loaded_file_info(FIXTURE_3D_PATH, tmp_path)
-    fi.change_axes("XY")
-    assert fi.axes == "XY"  # axes mutated even though length mismatch
-    assert fi.good_axes is False  # flag correctly reflects invalid state
+    original_axes = fi.axes
+    with pytest.raises(
+        ValueError, match="New axes must have the same length as the shape of the data"
+    ):
+        fi.change_axes("XY")
+    # axes is preserved on failure; not mutated to bad value
+    assert fi.axes == original_axes
 
 
 def test_change_axes_missing_x_or_y_flags_invalid(tmp_path) -> None:

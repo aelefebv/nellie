@@ -6,6 +6,7 @@ metadata from various microscopy file formats (TIFF, OME-TIFF, ND2).
 """
 import json
 import os
+from typing import TypedDict
 
 import nd2
 import numpy as np
@@ -13,6 +14,19 @@ import ome_types
 from tifffile import tifffile
 
 from nellie.utils.base_logger import logger
+
+
+class DimRes(TypedDict):
+    """Per-axis physical resolution: X/Y/Z in micrometers, T in seconds.
+
+    All four keys are always present; values are ``None`` until populated
+    by ``FileInfo.load_metadata`` (per-format extractor) or until the
+    corresponding axis is determined to be absent from the file.
+    """
+    X: float | None
+    Y: float | None
+    Z: float | None
+    T: float | None
 
 
 class FileInfo:
@@ -119,7 +133,7 @@ class FileInfo:
         self.metadata_type = None
         self.axes = None
         self.shape = None
-        self.dim_res = None
+        self.dim_res: DimRes | None = None
 
         self.input_dir = os.path.dirname(filepath)
         self.basename = os.path.basename(filepath)
@@ -243,7 +257,7 @@ class FileInfo:
         self.dim_res['Z'] = metadata.images[0].pixels.physical_size_z
         self.dim_res['T'] = metadata.images[0].pixels.time_increment
 
-    def _get_tif_tags_metadata(self, metadata):
+    def _get_tif_tags_metadata(self, metadata, axes):
         """
         Extracts dimensional resolution from TIFF tag metadata and stores it in `dim_res`.
 
@@ -251,6 +265,11 @@ class FileInfo:
         ----------
         metadata : dict
             Dictionary of TIFF tags.
+        axes : str
+            Axes string for the file (used to gate Z/T extraction).
+            Pass ``self.axes`` from the caller; this is taken as an
+            explicit parameter rather than read from ``self`` to make
+            the dependency visible in the signature.
         """
         tag_names = {tag_value.name: tag_code for tag_code, tag_value in metadata.items()}
 
@@ -267,10 +286,10 @@ class FileInfo:
             elif metadata[tag_names['ResolutionUnit']].value == tifffile.RESUNIT.INCH:
                 self.dim_res['X'] *= 25400
                 self.dim_res['Y'] *= 25400
-        if 'Z' in self.axes:
+        if 'Z' in axes:
             if 'ZResolution' in tag_names:
                 self.dim_res['Z'] = 1 / metadata[tag_names['ZResolution']].value[0]
-        if 'T' in self.axes:
+        if 'T' in axes:
             if 'FrameRate' in tag_names:
                 self.dim_res['T'] = 1 / metadata[tag_names['FrameRate']].value[0]
 
@@ -340,11 +359,11 @@ class FileInfo:
             self._get_imagej_metadata(self.metadata)
         elif self.metadata_type == 'imagej_tif_tags':
             self._get_imagej_metadata(self.metadata[0])
-            self._get_tif_tags_metadata(self.metadata[1])
+            self._get_tif_tags_metadata(self.metadata[1], self.axes)
         elif self.metadata_type == 'nd2':
             self._get_nd2_metadata(self.metadata)
         elif self.metadata_type is None:
-            self._get_tif_tags_metadata(self.metadata)
+            self._get_tif_tags_metadata(self.metadata, self.axes)
         self._validate()
 
     def _check_axes(self):
@@ -419,11 +438,24 @@ class FileInfo:
         ----------
         new_axes : str
             New axes string to replace the existing one.
+
+        Raises
+        ------
+        ValueError
+            If ``len(new_axes)`` does not match ``len(self.shape)``.
+
+        Preconditions
+        -------------
+        ``find_metadata`` and ``load_metadata`` must have run so that
+        ``self.shape`` is populated. The napari fileselect widget
+        pre-validates length before calling this method; programmatic
+        callers must pass a length-matching axes string or handle the
+        ValueError.
         """
-        # if len(new_axes) != len(self.shape):
-        self.good_axes = False
-            # return
-            # raise ValueError('New axes must have the same length as the shape of the data')
+        if self.shape is None or len(new_axes) != len(self.shape):
+            raise ValueError(
+                'New axes must have the same length as the shape of the data'
+            )
         self.axes = new_axes
         self._validate()
 
@@ -437,12 +469,26 @@ class FileInfo:
             Dimension to modify (e.g., 'X', 'Y', 'Z', 'T').
         new_size : float
             New resolution for the specified dimension.
+
+        Raises
+        ------
+        ValueError
+            If ``dim_res`` is not initialized (call ``load_metadata``
+            first) or ``dim`` is not one of {'X', 'Y', 'Z', 'T'}.
+
+        Preconditions
+        -------------
+        ``find_metadata`` and ``load_metadata`` must have run so that
+        ``self.dim_res`` is initialized to the canonical 4-key dict.
+        Note: the ``dim_res is None`` check fires BEFORE the invalid-dim
+        check, so calling with both conditions raises the
+        "not initialized" message.
         """
         if self.dim_res is None:
             raise ValueError('Dimension resolutions are not initialized')
         if dim not in self.dim_res:
             raise ValueError(f"Invalid dimension '{dim}'")
-        self.dim_res[dim] = new_size
+        self.dim_res[dim] = new_size  # type: ignore[literal-required]
         self._validate()
 
     def change_selected_channel(self, ch):
@@ -462,6 +508,12 @@ class FileInfo:
             If no channel dimension is available.
         IndexError
             If the selected channel index is out of range.
+
+        Preconditions
+        -------------
+        ``find_metadata`` and ``load_metadata`` must have run, AND
+        ``good_axes`` and ``good_dims`` must both be True. The file's
+        axes string must include 'C'.
         """
         if not self.good_dims or not self.good_axes:
             raise ValueError('Must have both valid axes and dimensions to change channel')
@@ -482,6 +534,23 @@ class FileInfo:
             Start index of the temporal range. Defaults to 0.
         end : int, optional
             End index of the temporal range. Defaults to None, which includes all timepoints.
+
+        Raises
+        ------
+        ValueError
+            If axes/shape are not loaded, lengths mismatch, or
+            ``start > end``.
+        KeyError
+            If 'T' is not in the file's axes.
+        IndexError
+            If ``start < 0``, ``end < 0``, or either exceeds ``max_t``.
+
+        Preconditions
+        -------------
+        ``find_metadata`` and ``load_metadata`` must have run. The
+        file's axes string must include 'T'. Distinct error messages
+        for ``start < 0`` ('Start frame must be >= 0') and ``end < 0``
+        ('End frame must be >= 0').
         """
         if self.axes is None or self.shape is None:
             raise ValueError('Axes or shape metadata not loaded')
@@ -775,7 +844,7 @@ class ImInfo:
         self.screenshot_dir = os.path.join(self.file_info.output_dir, 'screenshots')
         self.graph_dir = os.path.join(self.file_info.output_dir, 'graphs')
 
-        self.dim_res = {'X': None, 'Y': None, 'Z': None, 'T': None}
+        self.dim_res: DimRes = {'X': None, 'Y': None, 'Z': None, 'T': None}
         self.axes = None
         self.new_axes = None
         self.shape = None
@@ -796,7 +865,14 @@ class ImInfo:
         Checks the existence of the Z and T dimensions in the image data.
 
         Updates the `no_z` and `no_t` flags based on whether the Z and T axes are present and have more than one slice or timepoint.
+
+        Resets both flags to True at the top so the result reflects the
+        current ``axes`` and ``shape`` (not stale state from a prior
+        call). This makes the method idempotent and safe to re-invoke
+        after axes mutation.
         """
+        self.no_z = True
+        self.no_t = True
         if 'Z' in self.axes and self.shape[self.axes.index('Z')] > 1:
             self.no_z = False
         if 'T' in self.axes and self.shape[self.axes.index('T')] > 1:
@@ -1068,63 +1144,3 @@ class ImInfo:
         tifffile.tiffcomment(output_path, ome_xml)
         if return_memmap:
             return self.get_memmap(output_path, read_mode=read_mode)
-
-
-if __name__ == "__main__":
-    test_dir = '/Users/austin/test_files/nellie_all_tests'
-    all_paths = os.listdir(test_dir)
-    all_paths = [os.path.join(test_dir, path) for path in all_paths if path.endswith('.tiff') or path.endswith('.tif') or path.endswith('.nd2')]
-    # for filepath in all_paths:
-    #     file_info = FileInfo(filepath)
-    #     file_info.find_metadata()
-    #     file_info.load_metadata()
-    #     print(file_info.metadata_type)
-    #     print(file_info.axes)
-    #     print(file_info.shape)
-    #     print(file_info.dim_res)
-    #     print('\n\n')
-
-    test_file = all_paths[1]
-    file_info = FileInfo(test_file)
-    file_info.find_metadata()
-    file_info.load_metadata()
-    print(f'{file_info.metadata_type=}')
-    print(f'{file_info.axes=}')
-    print(f'{file_info.shape=}')
-    print(f'{file_info.dim_res=}')
-    print(f'{file_info.good_axes=}')
-    print(f'{file_info.good_dims=}')
-    print('\n')
-
-    file_info.change_axes('TZYX')
-    print('Axes changed')
-    print(f'{file_info.axes=}')
-    print(f'{file_info.dim_res=}')
-    print(f'{file_info.good_axes=}')
-    print(f'{file_info.good_dims=}')
-    print('\n')
-
-    file_info.change_dim_res('T', 0.5)
-    file_info.change_dim_res('Z', 0.2)
-
-    print('Dimension resolutions changed')
-    print(f'{file_info.axes=}')
-    print(f'{file_info.dim_res=}')
-    print(f'{file_info.good_axes=}')
-    print(f'{file_info.good_dims=}')
-    print('\n')
-
-    # print(f'{file_info.ch=}')
-    # file_info.change_selected_channel(3)
-    # print('Channel changed')
-    # print(f'{file_info.ch=}')
-
-    print(f'{file_info.t_start=}')
-    print(f'{file_info.t_end=}')
-    file_info.select_temporal_range(1, 3)
-    print('Temporal range selected')
-    print(f'{file_info.t_start=}')
-    print(f'{file_info.t_end=}')
-
-    # file_info.save_ome_tiff()
-    im_info = ImInfo(file_info)
