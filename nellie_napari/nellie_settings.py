@@ -89,7 +89,6 @@ class SettingsConfig:
     reassign_max_bruteforce_pairs: int
 
     feature_skip_nodes: Optional[bool]
-    feature_use_gpu: bool
     feature_low_memory: bool
     feature_enable_motility: bool
     feature_enable_adjacency: bool
@@ -318,8 +317,6 @@ class Settings(QWidget):
             self._make_optional_checkbox(self.feature_skip_nodes)
         )
 
-        self.feature_use_gpu = QCheckBox("Use GPU")
-        self.feature_use_gpu.setChecked(True)
         self.feature_low_memory = QCheckBox("Low memory")
         self.feature_low_memory.setChecked(False)
         self.feature_enable_motility = QCheckBox("Enable motility")
@@ -591,7 +588,6 @@ class Settings(QWidget):
 
         form = QFormLayout()
         form.addRow("Skip node-level features", self.feature_skip_nodes_row)
-        form.addRow("Use GPU", self.feature_use_gpu)
         form.addRow("Low memory", self.feature_low_memory)
         form.addRow("Enable motility", self.feature_enable_motility)
         form.addRow("Enable adjacency", self.feature_enable_adjacency)
@@ -722,7 +718,6 @@ class Settings(QWidget):
                 if self.feature_skip_nodes_override.isChecked()
                 else None
             ),
-            feature_use_gpu=self.feature_use_gpu.isChecked(),
             feature_low_memory=self.feature_low_memory.isChecked(),
             feature_enable_motility=self.feature_enable_motility.isChecked(),
             feature_enable_adjacency=self.feature_enable_adjacency.isChecked(),
@@ -831,7 +826,6 @@ class Settings(QWidget):
         self.feature_skip_nodes_override.setChecked(config.feature_skip_nodes is not None)
         if config.feature_skip_nodes is not None:
             self.feature_skip_nodes.setChecked(config.feature_skip_nodes)
-        self.feature_use_gpu.setChecked(config.feature_use_gpu)
         self.feature_low_memory.setChecked(config.feature_low_memory)
         self.feature_enable_motility.setChecked(config.feature_enable_motility)
         self.feature_enable_adjacency.setChecked(config.feature_enable_adjacency)
@@ -943,7 +937,6 @@ class Settings(QWidget):
 
     def get_feature_params(self) -> dict:
         params = {
-            "use_gpu": self.feature_use_gpu.isChecked(),
             "low_memory": self.feature_low_memory.isChecked(),
             "enable_motility": self.feature_enable_motility.isChecked(),
             "enable_adjacency": self.feature_enable_adjacency.isChecked(),

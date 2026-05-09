@@ -60,7 +60,6 @@ class Hierarchy:
         im_info: ImInfo,
         skip_nodes: bool = True,
         viewer=None,
-        use_gpu: bool = True,
         low_memory: bool = False,
         enable_motility: bool = True,
         enable_adjacency: bool = True,
@@ -77,9 +76,6 @@ class Hierarchy:
             If True, node-level features are skipped.
         viewer : optional
             Viewer object with `.status` attribute for status updates.
-        use_gpu : bool
-            If True and CuPy is available, some computations will attempt to use GPU.
-            Ignored when device is set to "cpu" or "gpu".
         low_memory : bool
             If True, use low-memory (slower) aggregation strategies where possible.
         enable_motility : bool
@@ -94,7 +90,6 @@ class Hierarchy:
             Upper bound on the size of the node/voxel mask (num_nodes * chunk_size).
         """
         self.im_info = im_info
-        # This may be overwritten in _get_t, but is a good default
         self.num_t = self.im_info.shape[0]
 
         if self.im_info.no_z:
@@ -113,20 +108,11 @@ class Hierarchy:
         self.enable_motility = enable_motility
         self.enable_adjacency = enable_adjacency
         self.device = (device or "auto").lower()
-        self._prefer_gpu = bool(use_gpu)
-        self.use_gpu = self._resolve_device(self.device, self._prefer_gpu)
+        self.use_gpu = self._resolve_device(self.device)
         self.node_chunk_size = node_chunk_size
         self.max_node_mask_elems = int(max_node_mask_elems)
 
         # Memory-mapped images
-        self.im_raw = None
-        self.im_struct = None
-        self.im_distance = None
-        self.im_skel = None
-        self.im_pixel_class = None
-        self.label_components = None
-        self.label_branches = None
-        self.im_border_mask = None
         self.im_obj_reassigned = None
         self.im_branch_reassigned = None
 
@@ -149,7 +135,7 @@ class Hierarchy:
         except Exception:
             return False
 
-    def _resolve_device(self, device: str, use_gpu: bool) -> bool:
+    def _resolve_device(self, device: str) -> bool:
         if device not in ("auto", "cpu", "gpu", "cuda"):
             raise ValueError(f"Unsupported device '{device}'. Use 'auto', 'cpu', or 'gpu'.")
         if device in ("gpu", "cuda"):
@@ -158,12 +144,12 @@ class Hierarchy:
             return True
         if device == "cpu":
             return False
-        return bool(use_gpu and self._cupy_available())
+        return self._cupy_available()
 
     def _set_backend(self, device: str):
         device = adaptive_run.normalize_device(device)
         self.device = device
-        self.use_gpu = self._resolve_device(device, self._prefer_gpu)
+        self.use_gpu = self._resolve_device(device)
 
     def _set_low_memory(self, low_memory):
         self.low_memory = bool(low_memory)
@@ -178,14 +164,6 @@ class Hierarchy:
         if num_nodes > 0 and num_nodes * base_chunk > max_mask_elems:
             base_chunk = max(1, max_mask_elems // num_nodes)
         return int(max(1, min(base_chunk, num_voxels)))
-
-    def _get_t(self) -> int:
-        """
-        Determine number of time frames.
-        """
-        if self.num_t is None and not self.im_info.no_t:
-            self.num_t = self.im_info.shape[self.im_info.axes.index("T")]
-        return self.num_t
 
     def _allocate_memory(self):
         """
@@ -536,8 +514,6 @@ class Hierarchy:
             pickle.dump(edges, f)
 
     def _run_hierarchy(self):
-        self._get_t()
-
         # Lazily initialize flow interpolators only if needed
         if (
             self.enable_motility
@@ -572,9 +548,7 @@ class Hierarchy:
         gpu_ok = adaptive_run.gpu_available()
         if device == "gpu" and not gpu_ok:
             logger.warning("Hierarchy: GPU requested but not available; falling back to CPU.")
-        if device == "auto" and not self._prefer_gpu:
-            device_order = ["cpu"]
-        elif device == "cpu" or not gpu_ok:
+        if device == "cpu" or not gpu_ok:
             device_order = ["cpu"]
         else:
             device_order = ["gpu", "cpu"]
@@ -623,61 +597,6 @@ def append_to_array(to_append):
             new_array.append(vals)
             new_headers.append(f"{feature}_{stat}")
     return new_array, new_headers
-
-
-def create_feature_array(level, labels=None):
-    """
-    Original non-streaming implementation kept for backwards compatibility.
-    Not used inside Hierarchy anymore (which streams to CSV directly).
-    """
-    full_array = None
-    headers = None
-    all_attr = []
-    attr_dict = []
-
-    if node_attr := getattr(level, "aggregate_node_metrics", None):
-        all_attr.append(node_attr)
-    if voxel_attr := getattr(level, "aggregate_voxel_metrics", None):
-        all_attr.append(voxel_attr)
-    if branch_attr := getattr(level, "aggregate_branch_metrics", None):
-        all_attr.append(branch_attr)
-    if component_attr := getattr(level, "aggregate_component_metrics", None):
-        all_attr.append(component_attr)
-
-    inherent_features = getattr(level, "features_to_save", [])
-    for feature in inherent_features:
-        if feature_vals := getattr(level, feature, None):
-            all_attr.append([{feature: feature_vals[t]} for t in range(len(feature_vals))])
-
-    if not all_attr:
-        return np.zeros((0, 0)), []
-
-    for t in range(len(all_attr[0])):
-        time_dict = {}
-        for attr in all_attr:
-            time_dict.update(attr[t])
-        attr_dict.append(time_dict)
-
-    for t in range(len(attr_dict)):
-        to_append = attr_dict[t]
-        time_array, new_headers = append_to_array(to_append)
-        if labels is None:
-            labels_t = np.array(range(len(time_array[0])), dtype=np.int64)
-        else:
-            labels_t = labels[t]
-        time_array.insert(0, labels_t)
-        time_array.insert(0, np.array([t] * len(time_array[0]), dtype=np.int64))
-        if headers is None:
-            headers = new_headers
-        if full_array is None:
-            full_array = np.array(time_array).T
-        else:
-            time_array = np.array(time_array).T
-            full_array = np.vstack([full_array, time_array])
-
-    headers.insert(0, "label")
-    headers.insert(0, "t")
-    return full_array, headers
 
 
 class Voxels:
@@ -2114,18 +2033,3 @@ class Image:
                     f"Extracting image features. Frame: {t + 1} of {self.hierarchy.num_t}."
                 )
             self._run_frame(t)
-
-
-if __name__ == "__main__":
-    im_path = r"F:\60x_568mito_488phal_dapi_siDRP12_w1iSIM-561_s1 - Stage1 _1_-1.tif"
-    im_info = ImInfo(im_path)
-
-    hierarchy = Hierarchy(
-        im_info,
-        skip_nodes=True,
-        use_gpu=True,
-        low_memory=False,
-        enable_motility=True,
-        enable_adjacency=True,
-    )
-    hierarchy.run()

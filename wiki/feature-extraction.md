@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-08
 ---
 
 # Feature extraction
@@ -42,10 +42,12 @@ Five per-level CSVs (`features_voxels` / `nodes` / `branches` / `organelles` / `
 - **`enable_motility=False` short-circuits all flow-derived voxel features to NaN** (and every `*_vel` / `*_acc` / `rel_*` aggregate above it inherits NaNs). `enable_adjacency=False` skips writing `adjacency_maps.pkl` entirely. Both default `True`; flipping them is the cheap way to skip whole feature families when you only need morphology.
 - **`FlowInterpolator` instances are built lazily** — only when `enable_motility and not no_t and num_t > 1`. Single-frame stacks skip flow loading even when motility is "enabled," and the per-voxel motility helper fills NaN in that branch.
 - **Per-branch reference voxel for `rel_*` motility is the one with minimum-magnitude flow vector in that branch** (`_get_min_euc_dist`). All `rel_linear_vel` / `rel_angular_vel` / `rel_directionality` are measured against that single representative — interpret accordingly.
+- **Backend selection is `device`-only** as of Slice 2 of #105 (PR follow-up to #109). The `use_gpu` constructor parameter was dropped (Option A, mirroring Markers PR #89); pass `device="cpu"` instead. The local `_cupy_available` and `_resolve_device` helpers still wrap `adaptive_run.gpu_available` and friends — they are queued for deletion in Slice 3 of #105 so the constructor + `_set_backend` call `adaptive_run.resolve_backend` directly. Until Slice 3, the `Branches._compute_branch_lengths_and_degrees` per-call OOM fallback still narrowly catches `cp.cuda.memory.OutOfMemoryError`; Slice 3 widens it through `adaptive_run.is_oom_error`.
 
 ## Invariants
 
 - `test_aggregate_stats_low_memory_parity` pins the core guarantee: the fast vectorized path and the low-memory path produce identical mean/std/min/max/sum (NaN-equal) for the same `(child_class, t, list_of_idxs)`, and identical column headers from `append_to_array`.
+- Slice 1 (#106 / PR #109) added `tests/test_hierarchical.py` (~25 characterization tests) pinning the contracts above and below — output schema (5 CSVs + adjacency pickle), aggregation parity, motility short-circuits (`enable_motility=False`, `vec01` at t=0 / `vec12` at t=num_t-1, single-frame stack), branch length tip-radius adjustment + length/thickness swap + tortuosity-from-first-two-tips, reassigned-label fallback to NaN, backend characterization, and per-call GPU OOM fallback on `Branches._compute_branch_lengths_and_degrees`.
 - NaNs in inputs propagate via `nan*` reductions rather than corrupting aggregates.
 - CSV header order is **stable across frames** (set on first frame, reused in append mode).
 - Adjacency edge lists are 0-indexed for level-internal indices but use raw label values for component columns, matching how the CSVs key their `label` field.
