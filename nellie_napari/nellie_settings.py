@@ -16,6 +16,14 @@ from qtpy.QtWidgets import (
     QScrollArea,
 )
 
+from nellie.feature_extraction.hierarchical import HierarchyConfig
+from nellie.segmentation.filtering import FrangiConfig
+from nellie.segmentation.labelling import LabelConfig
+from nellie.segmentation.mocap_marking import MarkersConfig
+from nellie.segmentation.networking import NetworkConfig
+from nellie.tracking.hu_tracking import HuMomentTrackingConfig
+from nellie.tracking.voxel_reassignment import VoxelReassignerConfig
+
 
 @dataclass
 class SettingsConfig:
@@ -835,25 +843,26 @@ class Settings(QWidget):
             self.feature_node_chunk_size.setValue(config.feature_node_chunk_size)
         self.feature_max_node_mask_elems.setValue(config.feature_max_node_mask_elems)
 
-    def get_preprocessing_params(self) -> dict:
-        params = {
-            "num_t": self._optional_spinbox_value(
-                self.preprocessing_num_t_override, self.preprocessing_num_t
-            ),
-            "min_radius_um": self.preprocessing_min_radius_um.value(),
-            "max_radius_um": self.preprocessing_max_radius_um.value(),
-            "alpha_sq": self.preprocessing_alpha_sq.value(),
-            "beta_sq": self.preprocessing_beta_sq.value(),
-            "frob_thresh": self._optional_spinbox_value(
+    def get_preprocessing_params(self) -> tuple[FrangiConfig, int | None]:
+        config = FrangiConfig(
+            remove_edges=self.remove_edges_checkbox.isChecked(),
+            min_radius_um=self.preprocessing_min_radius_um.value(),
+            max_radius_um=self.preprocessing_max_radius_um.value(),
+            alpha_sq=self.preprocessing_alpha_sq.value(),
+            beta_sq=self.preprocessing_beta_sq.value(),
+            frob_thresh=self._optional_spinbox_value(
                 self.preprocessing_frob_thresh_override, self.preprocessing_frob_thresh
             ),
-            "frob_thresh_division": self.preprocessing_frob_thresh_division.value(),
-            "device": self.preprocessing_device.currentText(),
-            "low_memory": self.preprocessing_low_memory.isChecked(),
-            "max_chunk_voxels": self.preprocessing_max_chunk_voxels.value(),
-            "max_threshold_samples": self.preprocessing_max_threshold_samples.value(),
-        }
-        return self._prune_none(params)
+            frob_thresh_division=self.preprocessing_frob_thresh_division.value(),
+            device=self.preprocessing_device.currentText(),
+            low_memory=self.preprocessing_low_memory.isChecked(),
+            max_chunk_voxels=self.preprocessing_max_chunk_voxels.value(),
+            max_threshold_samples=self.preprocessing_max_threshold_samples.value(),
+        )
+        num_t = self._optional_spinbox_value(
+            self.preprocessing_num_t_override, self.preprocessing_num_t
+        )
+        return config, num_t
 
     def get_segmentation_label_params(self) -> dict:
         params = {
