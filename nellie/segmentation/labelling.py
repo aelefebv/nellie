@@ -38,6 +38,22 @@ class LabelConfig:
     low_memory: bool = False
     max_chunk_voxels: int = int(1e6)
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        for name, value in (
+            ("flush_interval", self.flush_interval),
+            ("min_radius_um", self.min_radius_um),
+            ("threshold_sampling_pixels", self.threshold_sampling_pixels),
+            ("histogram_nbins", self.histogram_nbins),
+            ("max_chunk_voxels", self.max_chunk_voxels),
+        ):
+            if value <= 0:
+                raise ValueError(f"LabelConfig.{name} must be > 0, got {value}")
+        if self.chunk_z is not None and self.chunk_z <= 0:
+            raise ValueError(
+                f"LabelConfig.chunk_z must be > 0 if set, got {self.chunk_z}"
+            )
+
 
 class Label:
     """
