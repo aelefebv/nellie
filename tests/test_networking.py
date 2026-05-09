@@ -39,7 +39,7 @@ import pytest
 from scipy import ndimage as ndi_cpu
 
 from nellie.im_info.verifier import ImInfo
-from nellie.segmentation.networking import Network
+from nellie.segmentation.networking import Network, NetworkConfig
 
 
 def _release_network(net: Network) -> None:
@@ -61,7 +61,7 @@ def _release_network(net: Network) -> None:
 def _run_network(info: ImInfo, **kwargs) -> dict[str, np.ndarray]:
     """Run ``Network`` on ``info`` and return copies of the on-disk outputs."""
     kwargs.setdefault("device", "cpu")
-    net = Network(info, num_t=2, **kwargs)
+    net = Network(info, NetworkConfig(**kwargs), num_t=2)
     net.run()
     out = {
         "skel": np.asarray(net.skel_memmap).copy(),
@@ -81,7 +81,7 @@ def _build_cpu_network(info: ImInfo, **kwargs) -> Network:
     Always pinned to CPU for deterministic behavior.
     """
     kwargs.setdefault("device", "cpu")
-    net = Network(info, num_t=2, **kwargs)
+    net = Network(info, NetworkConfig(**kwargs), num_t=2)
     net._set_backend("cpu")
     net._set_low_memory(kwargs.get("low_memory", False))
     net._allocate_memory()

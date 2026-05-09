@@ -76,9 +76,9 @@ import pytest
 
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter, FrangiConfig
-from nellie.segmentation.labelling import Label
-from nellie.segmentation.mocap_marking import Markers
-from nellie.segmentation.networking import Network
+from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.mocap_marking import Markers, MarkersConfig
+from nellie.segmentation.networking import Network, NetworkConfig
 from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 
@@ -257,7 +257,7 @@ def _run_label_to_disk(im_info: ImInfo) -> Path:
     ``im_info``'s pipeline tree (pre-populated by ``_run_filter_to_disk``
     or by copying a session-cached Frangi).
     """
-    lbl = Label(im_info, num_t=2, device="cpu")
+    lbl = Label(im_info, LabelConfig(device="cpu"), num_t=2)
     lbl.run()
     # Drop memmap handles so Windows lets us read/copy the file later.
     lbl.instance_label_memmap = None
@@ -523,7 +523,7 @@ def _run_markers_to_disk(im_info: ImInfo) -> dict[str, Path]:
     (mirrors ``_run_filter_to_disk`` / ``_run_label_to_disk``). ``im_border``
     is intentionally not exposed — HuMomentTracking does not consume it.
     """
-    m = Markers(im_info, num_t=2, device="cpu")
+    m = Markers(im_info, MarkersConfig(device="cpu"), num_t=2)
     m.run()
     m.im_marker_memmap = None
     m.im_distance_memmap = None
@@ -731,7 +731,7 @@ def _run_network_to_disk(im_info: ImInfo) -> dict[str, Path]:
     they need; VoxelReassigner only consumes ``im_skel_relabelled`` while
     Hierarchy consumes all three.
     """
-    net = Network(im_info, num_t=2, device="cpu")
+    net = Network(im_info, NetworkConfig(device="cpu"), num_t=2)
     net.run()
     # Drop memmap handles so Windows lets us read/copy the file later.
     net.skel_relabelled_memmap = None

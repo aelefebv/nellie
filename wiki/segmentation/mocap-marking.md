@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-09
+modified: 2026-05-08
 ---
 
 # Mocap marking
@@ -15,6 +15,7 @@ Detect motion-tracking anchor points (multi-scale LoG peaks) inside each label, 
 
 - Inputs: [[labelling|`im_instance_label`]] + raw intensity (+ [[filtering|Frangi]] if `use_im='frangi'`).
 - Outputs feed [[hu-tracking|Hu-moment tracking]] (markers, distance), [[voxel-reassignment]] (markers indirectly via the flow array), and [[feature-extraction]] (distance, border).
+- Algorithm config is bundled in a `MarkersConfig` frozen dataclass colocated in `mocap_marking.py`. `Markers(im_info, MarkersConfig(use_im=..., ...), viewer=None, num_t=None)` is the construction shape. The cascade may mutate `Markers.device` / `Markers.low_memory` runtime state; `Markers.config` preserves the original intent.
 
 ## Gotchas
 

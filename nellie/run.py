@@ -7,9 +7,9 @@ including filtering, segmentation, tracking, and feature extraction.
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.im_info.verifier import FileInfo, ImInfo
 from nellie.segmentation.filtering import Filter, FrangiConfig
-from nellie.segmentation.labelling import Label
-from nellie.segmentation.mocap_marking import Markers
-from nellie.segmentation.networking import Network
+from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.mocap_marking import Markers, MarkersConfig
+from nellie.segmentation.networking import Network, NetworkConfig
 from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 
@@ -66,10 +66,12 @@ def run(
         start_time = time.perf_counter()
     segmenting = Label(
         im_info,
-        otsu_thresh_intensity=otsu_thresh_intensity,
-        threshold=threshold,
-        device=device,
-        low_memory=low_memory,
+        LabelConfig(
+            threshold=threshold,
+            otsu_thresh_intensity=otsu_thresh_intensity,
+            device=device,
+            low_memory=low_memory,
+        ),
     )
     segmenting.run()
     if timeit:
@@ -78,7 +80,7 @@ def run(
 
     if timeit:
         start_time = time.perf_counter()
-    networking = Network(im_info, device=device)
+    networking = Network(im_info, NetworkConfig(device=device))
     networking.run()
     if timeit:
         end_time = time.perf_counter()
@@ -86,7 +88,7 @@ def run(
 
     if timeit:
         start_time = time.perf_counter()
-    mocap_marking = Markers(im_info, device=device)
+    mocap_marking = Markers(im_info, MarkersConfig(device=device))
     mocap_marking.run()
     if timeit:
         end_time = time.perf_counter()

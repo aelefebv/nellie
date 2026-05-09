@@ -9,9 +9,9 @@ from qtpy.QtCore import Qt, QTimer
 
 from nellie.feature_extraction.hierarchical import Hierarchy
 from nellie.segmentation.filtering import Filter, FrangiConfig
-from nellie.segmentation.labelling import Label
-from nellie.segmentation.mocap_marking import Markers
-from nellie.segmentation.networking import Network
+from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.mocap_marking import Markers, MarkersConfig
+from nellie.segmentation.networking import Network, NetworkConfig
 from nellie.tracking.hu_tracking import HuMomentTracking
 from nellie.tracking.voxel_reassignment import VoxelReassigner
 from napari.qt.threading import thread_worker
@@ -364,17 +364,23 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            label_base_kwargs = {
-                "im_info": self.current_im_info,
-                "viewer": self.viewer,
-            }
-            segmenting = Label(**label_base_kwargs, **label_kwargs)
+            label_config_kwargs = dict(label_kwargs)
+            label_num_t = label_config_kwargs.pop("num_t", None)
+            segmenting = Label(
+                im_info=self.current_im_info,
+                config=LabelConfig(**label_config_kwargs),
+                viewer=self.viewer,
+                num_t=label_num_t,
+            )
             segmenting.run()
-            network_base_kwargs = {
-                "im_info": self.current_im_info,
-                "viewer": self.viewer,
-            }
-            networking = Network(**network_base_kwargs, **network_kwargs)
+            network_config_kwargs = dict(network_kwargs)
+            network_num_t = network_config_kwargs.pop("num_t", None)
+            networking = Network(
+                im_info=self.current_im_info,
+                config=NetworkConfig(**network_config_kwargs),
+                viewer=self.viewer,
+                num_t=network_num_t,
+            )
             networking.run()
 
     def run_segmentation(self):
@@ -405,11 +411,14 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            base_kwargs = {
-                "im_info": self.current_im_info,
-                "viewer": self.viewer,
-            }
-            mocap_marking = Markers(**base_kwargs, **step_kwargs)
+            config_kwargs = dict(step_kwargs)
+            num_t = config_kwargs.pop("num_t", None)
+            mocap_marking = Markers(
+                im_info=self.current_im_info,
+                config=MarkersConfig(**config_kwargs),
+                viewer=self.viewer,
+                num_t=num_t,
+            )
             mocap_marking.run()
 
     def run_mocap(self):

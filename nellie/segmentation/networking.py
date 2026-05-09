@@ -5,6 +5,8 @@ This module provides the Network class for skeletonizing network-like structures
 and analyzing their topology with optimized CPU/GPU processing.
 """
 import itertools
+from dataclasses import dataclass
+
 import numpy as np
 import skimage.morphology as morph
 from scipy import ndimage as ndi_cpu
@@ -12,6 +14,24 @@ from scipy import ndimage as ndi_cpu
 from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
+
+
+@dataclass(frozen=True)
+class NetworkConfig:
+    """Algorithm configuration for ``Network``.
+
+    Frozen — represents the user's intent at construction time. Network
+    copies these values into mutable instance attributes that the
+    OOM/availability cascade can update mid-run (``device``, ``low_memory``).
+    Inspect ``Network.config`` to see the original intent regardless of any
+    cascade-driven runtime fallbacks.
+    """
+
+    min_radius_um: float = 0.20
+    max_radius_um: float = 1
+    device: str = "auto"
+    low_memory: bool = False
+    max_chunk_voxels: int = int(1e6)
 
 
 class Network:
@@ -24,45 +44,38 @@ class Network:
       - More memory-friendly local-max detection.
       - More efficient branch relabeling using distance transforms on per-object crops.
       - Graceful degradation when GPU memory is insufficient (CPU/chunked fallback).
-
-    Parameters
-    ----------
-    im_info : ImInfo
-        Image metadata and paths.
-    num_t : int, optional
-        Number of timepoints to process. Defaults to all timepoints.
-    min_radius_um : float, optional
-        Minimum radius of detected objects in micrometers.
-    max_radius_um : float, optional
-        Maximum radius of detected objects in micrometers.
-    viewer : object or None, optional
-        Viewer object for status reporting.
-    device : {"auto", "cpu", "gpu"}, optional
-        Backend selection for connectivity computations.
-    low_memory : bool, optional
-        If True, use chunked CPU fallbacks for local neighborhood operations.
-    max_chunk_voxels : int, optional
-        Maximum voxels per chunk for low-memory paths.
     """
 
     def __init__(
         self,
         im_info: ImInfo,
-        num_t=None,
-        min_radius_um=0.20,
-        max_radius_um=1,
+        config: NetworkConfig = NetworkConfig(),
         viewer=None,
-        device="auto",
-        low_memory: bool = False,
-        max_chunk_voxels: int = int(1e6),
-    ):
-
+        num_t: int | None = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        im_info : ImInfo
+            Image metadata and paths.
+        config : NetworkConfig
+            Algorithm configuration. Defaults to ``NetworkConfig()``.
+        viewer : object or None, optional
+            Viewer object for status reporting.
+        num_t : int, optional
+            Number of timepoints to process. Defaults to all timepoints.
+        """
         self.im_info = im_info
-        self.device = device
-        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(device)
-        self.force_device = device is not None and device.lower() in ("cpu", "gpu", "cuda")
-        self.low_memory = low_memory
-        self.max_chunk_voxels = int(max_chunk_voxels)
+        self.config = config
+
+        # Cascade-mutable runtime state. Initial values come from config;
+        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
+        self.device = config.device
+        self.low_memory = bool(config.low_memory)
+
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
+        self.force_device = config.device.lower() in ("cpu", "gpu", "cuda")
+        self.max_chunk_voxels = int(config.max_chunk_voxels)
         self.num_t = num_t
         if num_t is None and not self.im_info.no_t:
             self.num_t = im_info.shape[im_info.axes.index('T')]
@@ -71,8 +84,8 @@ class Network:
             self.z_ratio = self.im_info.dim_res['Z'] / self.im_info.dim_res['X']
 
         # either (roughly) diffraction limit, or pixel size, whichever is larger
-        self.min_radius_um = max(min_radius_um, self.im_info.dim_res['X'])
-        self.max_radius_um = max_radius_um
+        self.min_radius_um = max(config.min_radius_um, self.im_info.dim_res['X'])
+        self.max_radius_um = config.max_radius_um
 
         self.min_radius_px = self.min_radius_um / self.im_info.dim_res['X']
         self.max_radius_px = self.max_radius_um / self.im_info.dim_res['X']

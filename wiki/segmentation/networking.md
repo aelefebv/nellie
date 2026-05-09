@@ -28,6 +28,7 @@ Topology — branches, junctions, tips — is what enables network metrics (leng
 - Inputs: [[labelling|`im_instance_label`]], raw, [[filtering|`im_preprocessed`]].
 - Outputs consumed by [[feature-extraction]] (branches/components level), [[voxel-reassignment]] (branch labels), and the [[visualizer|napari visualizer]] (label layers).
 - Plugs into the [[gpu-runtime|adaptive_run cascade]]: `run()` iterates `mode_candidates` over `(device, low_memory)` pairs, retrying the whole pipeline if a stage raises an OOM or GPU-unavailable error.
+- Algorithm config is bundled in a `NetworkConfig` frozen dataclass colocated in `networking.py`. `Network(im_info, NetworkConfig(min_radius_um=..., ...), viewer=None, num_t=None)` is the construction shape. The cascade may mutate `Network.device` / `Network.low_memory` runtime state; `Network.config` preserves the original intent.
 
 ## Gotchas
 

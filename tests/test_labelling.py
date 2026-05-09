@@ -27,7 +27,7 @@ import pytest
 import tifffile
 
 from nellie.im_info.verifier import FileInfo, ImInfo
-from nellie.segmentation.labelling import Label
+from nellie.segmentation.labelling import Label, LabelConfig
 
 
 # Bar-shaped 3D fixture: a 5×5 cross at (Y=6..10, X=6..10) extruded along
@@ -56,7 +56,7 @@ def _release_label(lbl: Label) -> None:
 
 def _run_label(info: ImInfo, **kwargs) -> np.ndarray:
     """Run ``Label`` on ``info`` and return a copy of the on-disk labels."""
-    lbl = Label(info, num_t=2, device="cpu", **kwargs)
+    lbl = Label(info, LabelConfig(device="cpu", **kwargs), num_t=2)
     lbl.run()
     out = np.asarray(lbl.instance_label_memmap).copy()
     _release_label(lbl)
@@ -189,7 +189,7 @@ def test_anisotropic_min_area_pixel_volume(make_label_imageinfo_3d) -> None:
     as isotropic to X (0.0655), the same formula would give ~233 voxels.
     """
     info = make_label_imageinfo_3d()
-    lbl = Label(info, num_t=2, device="cpu", min_radius_um=0.25)
+    lbl = Label(info, LabelConfig(device="cpu", min_radius_um=0.25), num_t=2)
     x_res = info.dim_res["X"]
     y_res = info.dim_res["Y"]
     z_res = info.dim_res["Z"]
@@ -205,7 +205,7 @@ def test_min_radius_um_floored_at_x_res(imageinfo_3d) -> None:
     """``min_radius_um`` smaller than ``x_res`` is silently floored at ``x_res``."""
     x_res = float(imageinfo_3d.dim_res["X"])
     sub_pixel = x_res / 1000.0
-    lbl = Label(imageinfo_3d, num_t=2, device="cpu", min_radius_um=sub_pixel)
+    lbl = Label(imageinfo_3d, LabelConfig(device="cpu", min_radius_um=sub_pixel), num_t=2)
     assert lbl.min_radius_um == pytest.approx(x_res)
 
 
