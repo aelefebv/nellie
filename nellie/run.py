@@ -49,7 +49,7 @@ def run(
     ImInfo
         ImInfo object containing processed image data and paths.
     """
-    im_info = ImInfo(file_info)
+    im_info = ImInfo.from_file_info(file_info)
 
     if timeit:
         start_time = time.perf_counter()

@@ -368,7 +368,7 @@ class NellieFileSelect(QWidget):
         file_infos = self._each_file_info()
         if not file_infos:
             raise RuntimeError("No file(s) selected.")
-        im_infos = [ImInfo(fi) for fi in file_infos]
+        im_infos = [ImInfo.from_file_info(fi) for fi in file_infos]
         return im_infos[0] if len(im_infos) == 1 else im_infos
 
     # -------------------------------------------------------------------------
