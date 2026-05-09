@@ -374,3 +374,45 @@ def test_2d_output_invariants(labels_2d, make_label_imageinfo_2d) -> None:
     _run_label(info)
     assert hashlib.sha256(raw_path.read_bytes()).hexdigest() == raw_before
     assert hashlib.sha256(frangi_path.read_bytes()).hexdigest() == frangi_before
+
+
+# -------------------------------------------------------------------------
+# LabelConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_label_config_default_constructs() -> None:
+    LabelConfig()
+
+
+def test_label_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        LabelConfig(device="bogus")
+
+
+@pytest.mark.parametrize("field", [
+    "flush_interval", "min_radius_um", "threshold_sampling_pixels",
+    "histogram_nbins", "max_chunk_voxels",
+])
+def test_label_config_rejects_nonpositive_numeric(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        LabelConfig(**{field: 0})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=field):
+        LabelConfig(**{field: -1})  # type: ignore[arg-type]
+
+
+def test_label_config_chunk_z_optional_none_ok() -> None:
+    LabelConfig(chunk_z=None)
+
+
+def test_label_config_chunk_z_rejects_nonpositive() -> None:
+    with pytest.raises(ValueError, match="chunk_z"):
+        LabelConfig(chunk_z=0)
+    with pytest.raises(ValueError, match="chunk_z"):
+        LabelConfig(chunk_z=-3)
+
+
+def test_label_config_threshold_negative_ok() -> None:
+    """threshold is an intensity value — negatives are valid for centered/zero-mean inputs."""
+    LabelConfig(threshold=-5.0)
+    LabelConfig(threshold=0.0)
+    LabelConfig(threshold=None)

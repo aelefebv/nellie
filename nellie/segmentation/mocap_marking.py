@@ -39,6 +39,27 @@ class MarkersConfig:
     low_memory: bool = False
     max_chunk_voxels: int = int(1e6)
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        if self.use_im not in ("distance", "frangi"):
+            raise ValueError(
+                f"MarkersConfig.use_im must be 'distance' or 'frangi', got {self.use_im!r}"
+            )
+        for name, value in (
+            ("min_radius_um", self.min_radius_um),
+            ("max_radius_um", self.max_radius_um),
+            ("num_sigma", self.num_sigma),
+            ("peak_min_distance", self.peak_min_distance),
+            ("max_chunk_voxels", self.max_chunk_voxels),
+        ):
+            if value <= 0:
+                raise ValueError(f"MarkersConfig.{name} must be > 0, got {value}")
+        if self.min_radius_um > self.max_radius_um:
+            raise ValueError(
+                f"MarkersConfig.min_radius_um ({self.min_radius_um}) must be <= "
+                f"max_radius_um ({self.max_radius_um})"
+            )
+
 
 class Markers:
     """

@@ -1453,3 +1453,34 @@ def test_append_to_array_with_dict_stat() -> None:
     assert len(arr) == 2
     np.testing.assert_array_equal(arr[0], np.array([1.0, 2.0]))
     np.testing.assert_array_equal(arr[1], np.array([0.5, 1.5]))
+
+
+# -------------------------------------------------------------------------
+# HierarchyConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_hierarchy_config_default_constructs() -> None:
+    HierarchyConfig()
+
+
+def test_hierarchy_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        HierarchyConfig(device="bogus")
+
+
+def test_hierarchy_config_rejects_nonpositive_max_node_mask_elems() -> None:
+    with pytest.raises(ValueError, match="max_node_mask_elems"):
+        HierarchyConfig(max_node_mask_elems=0)
+    with pytest.raises(ValueError, match="max_node_mask_elems"):
+        HierarchyConfig(max_node_mask_elems=-1)
+
+
+def test_hierarchy_config_node_chunk_size_optional_none_ok() -> None:
+    HierarchyConfig(node_chunk_size=None)
+
+
+def test_hierarchy_config_node_chunk_size_rejects_nonpositive() -> None:
+    with pytest.raises(ValueError, match="node_chunk_size"):
+        HierarchyConfig(node_chunk_size=0)
+    with pytest.raises(ValueError, match="node_chunk_size"):
+        HierarchyConfig(node_chunk_size=-3)

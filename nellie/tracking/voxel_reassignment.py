@@ -42,6 +42,22 @@ class VoxelReassignerConfig:
     max_query_points: int = int(1e6)
     max_bruteforce_pairs: int = int(1e7)
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        if self.max_refine_iterations < 0:
+            raise ValueError(
+                f"VoxelReassignerConfig.max_refine_iterations must be >= 0, "
+                f"got {self.max_refine_iterations}"
+            )
+        for name, value in (
+            ("max_query_points", self.max_query_points),
+            ("max_bruteforce_pairs", self.max_bruteforce_pairs),
+        ):
+            if value <= 0:
+                raise ValueError(
+                    f"VoxelReassignerConfig.{name} must be > 0, got {value}"
+                )
+
 
 class VoxelReassigner:
     """

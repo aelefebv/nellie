@@ -39,6 +39,29 @@ class FrangiConfig:
     max_chunk_voxels: int = int(1e6)
     max_threshold_samples: int = int(1e6)
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        for name, value in (
+            ("min_radius_um", self.min_radius_um),
+            ("max_radius_um", self.max_radius_um),
+            ("alpha_sq", self.alpha_sq),
+            ("beta_sq", self.beta_sq),
+            ("frob_thresh_division", self.frob_thresh_division),
+            ("max_chunk_voxels", self.max_chunk_voxels),
+            ("max_threshold_samples", self.max_threshold_samples),
+        ):
+            if value <= 0:
+                raise ValueError(f"FrangiConfig.{name} must be > 0, got {value}")
+        if self.frob_thresh is not None and self.frob_thresh <= 0:
+            raise ValueError(
+                f"FrangiConfig.frob_thresh must be > 0 if set, got {self.frob_thresh}"
+            )
+        if self.min_radius_um > self.max_radius_um:
+            raise ValueError(
+                f"FrangiConfig.min_radius_um ({self.min_radius_um}) must be <= "
+                f"max_radius_um ({self.max_radius_um})"
+            )
+
 
 class Filter:
     """

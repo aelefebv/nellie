@@ -1145,3 +1145,36 @@ def test_query_tree_gpu_non_oom_exception_propagates(
         f"got {v.device_type!r}."
     )
     _release_voxel_reassigner(v)
+
+
+# -------------------------------------------------------------------------
+# VoxelReassignerConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_voxel_reassigner_config_default_constructs() -> None:
+    VoxelReassignerConfig()
+
+
+def test_voxel_reassigner_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        VoxelReassignerConfig(device="bogus")
+
+
+def test_voxel_reassigner_config_max_refine_iterations_zero_ok() -> None:
+    """0 means 'skip refinement loop' — that's a valid choice."""
+    VoxelReassignerConfig(max_refine_iterations=0)
+
+
+def test_voxel_reassigner_config_max_refine_iterations_rejects_negative() -> None:
+    with pytest.raises(ValueError, match="max_refine_iterations"):
+        VoxelReassignerConfig(max_refine_iterations=-1)
+
+
+@pytest.mark.parametrize("field", [
+    "max_query_points", "max_bruteforce_pairs",
+])
+def test_voxel_reassigner_config_rejects_nonpositive_numeric(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        VoxelReassignerConfig(**{field: 0})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=field):
+        VoxelReassignerConfig(**{field: -1})  # type: ignore[arg-type]

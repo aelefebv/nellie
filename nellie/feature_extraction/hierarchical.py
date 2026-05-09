@@ -66,6 +66,19 @@ class HierarchyConfig:
     node_chunk_size: int | None = None
     max_node_mask_elems: int = int(5e7)
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        if self.max_node_mask_elems <= 0:
+            raise ValueError(
+                f"HierarchyConfig.max_node_mask_elems must be > 0, "
+                f"got {self.max_node_mask_elems}"
+            )
+        if self.node_chunk_size is not None and self.node_chunk_size <= 0:
+            raise ValueError(
+                f"HierarchyConfig.node_chunk_size must be > 0 if set, "
+                f"got {self.node_chunk_size}"
+            )
+
 
 class Hierarchy:
     """

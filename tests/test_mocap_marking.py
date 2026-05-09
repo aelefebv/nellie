@@ -630,3 +630,46 @@ def test_2d_output_invariants(
     assert not outside_marker.any(), (
         f"2D marker has {int(outside_marker.sum())} voxels outside any object"
     )
+
+
+# -------------------------------------------------------------------------
+# MarkersConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_markers_config_default_constructs() -> None:
+    MarkersConfig()
+
+
+def test_markers_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        MarkersConfig(device="bogus")
+
+
+def test_markers_config_rejects_bad_use_im() -> None:
+    with pytest.raises(ValueError, match="use_im"):
+        MarkersConfig(use_im="raw")
+
+
+@pytest.mark.parametrize("use_im", ["distance", "frangi"])
+def test_markers_config_accepts_valid_use_im(use_im: str) -> None:
+    MarkersConfig(use_im=use_im)
+
+
+@pytest.mark.parametrize("field", [
+    "min_radius_um", "max_radius_um", "num_sigma",
+    "peak_min_distance", "max_chunk_voxels",
+])
+def test_markers_config_rejects_nonpositive_numeric(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        MarkersConfig(**{field: 0})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=field):
+        MarkersConfig(**{field: -1})  # type: ignore[arg-type]
+
+
+def test_markers_config_rejects_inverted_radius_range() -> None:
+    with pytest.raises(ValueError, match="min_radius_um"):
+        MarkersConfig(min_radius_um=2.0, max_radius_um=1.0)
+
+
+def test_markers_config_equal_radii_ok() -> None:
+    MarkersConfig(min_radius_um=0.5, max_radius_um=0.5)
