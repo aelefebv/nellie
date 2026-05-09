@@ -176,29 +176,18 @@ class Filter:
         )
 
     def _bbox(self, im):
+        # Only ever called from `_remove_edges` on a single Y-X slice;
+        # the 3D path iterates over Z and passes one 2D plane at a time.
+        if len(im.shape) != 2:
+            raise ValueError(f"_bbox expects a 2D image; got shape {im.shape}")
         xp, _ = self._backend_for_array(im)
-        if len(im.shape) == 2:
-            rows = xp.any(im, axis=1)
-            cols = xp.any(im, axis=0)
-            if (not rows.any()) or (not cols.any()):
-                return 0, 0, 0, 0
-            rmin, rmax = xp.where(rows)[0][[0, -1]]
-            cmin, cmax = xp.where(cols)[0][[0, -1]]
-            return int(rmin), int(rmax), int(cmin), int(cmax)
-
-        if len(im.shape) == 3:
-            r = xp.any(im, axis=(1, 2))
-            c = xp.any(im, axis=(0, 2))
-            z = xp.any(im, axis=(0, 1))
-            if (not r.any()) or (not c.any()) or (not z.any()):
-                return 0, 0, 0, 0, 0, 0
-            rmin, rmax = xp.where(r)[0][[0, -1]]
-            cmin, cmax = xp.where(c)[0][[0, -1]]
-            zmin, zmax = xp.where(z)[0][[0, -1]]
-            return int(rmin), int(rmax), int(cmin), int(cmax), int(zmin), int(zmax)
-
-        logger.warning("Image not 2D or 3D... Cannot get bounding box.")
-        return None
+        rows = xp.any(im, axis=1)
+        cols = xp.any(im, axis=0)
+        if (not rows.any()) or (not cols.any()):
+            return 0, 0, 0, 0
+        rmin, rmax = xp.where(rows)[0][[0, -1]]
+        cmin, cmax = xp.where(cols)[0][[0, -1]]
+        return int(rmin), int(rmax), int(cmin), int(cmax)
 
     def _backend_for_array(self, arr):
         try:
@@ -329,39 +318,6 @@ class Filter:
             self.xp,
             force_device_gpu=(self.force_device and self.device_type == "cuda"),
         )
-
-    def _compute_chunkwise_eigenvalues(self, hessian_matrices, chunk_size=1e6):
-        """
-        Backwards-compatible helper: compute eigenvalues of Hessian matrices in chunks.
-
-        Parameters
-        ----------
-        hessian_matrices : xp.ndarray, shape (N, D, D)
-        chunk_size : int
-            Number of voxels per chunk.
-
-        Returns
-        -------
-        eigenvalues_flat : xp.ndarray, shape (N, D)
-        """
-        chunk_size = int(chunk_size) if chunk_size is not None else hessian_matrices.shape[0]
-        total_voxels = int(hessian_matrices.shape[0])
-
-        eigenvalues_list = []
-        if chunk_size <= 0:
-            chunk_size = total_voxels
-
-        for start_idx in range(0, total_voxels, chunk_size):
-            end_idx = min(start_idx + chunk_size, total_voxels)
-            H_chunk = hessian_matrices[start_idx:end_idx]
-            eig_chunk = self._safe_eigvalsh(H_chunk)
-            eigenvalues_list.append(eig_chunk)
-
-        if len(eigenvalues_list) == 1:
-            return eigenvalues_list[0]
-
-        eigenvalues_flat = self.xp.concatenate(eigenvalues_list, axis=0)
-        return eigenvalues_flat
 
     def _compute_vesselness_chunkwise(self, h_components, h_mask, gamma_sq):
         """
