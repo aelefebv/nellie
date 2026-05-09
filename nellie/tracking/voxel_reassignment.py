@@ -182,8 +182,11 @@ class VoxelReassigner:
     def _free_gpu_memory(self):
         if self.device_type != "cuda":
             return
+        pool_fn = getattr(self.xp, "get_default_memory_pool", None)
+        if pool_fn is None:
+            return
         try:
-            self.xp.get_default_memory_pool().free_all_blocks()
+            pool_fn().free_all_blocks()
         except Exception:
             return
 

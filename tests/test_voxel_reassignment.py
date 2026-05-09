@@ -982,16 +982,16 @@ def _simulate_gpu_state(v: VoxelReassigner, *, kdtree_cls=None) -> None:
 
     CI has no cupy, so we simulate the post-resolve GPU state by
     directly assigning the attributes that ``_resolve_backend`` would
-    set on a real GPU run. Using ``np`` for ``self.xp`` / ``self._cp``
-    is fine because the GPU code paths in ``_build_tree`` /
-    ``_query_tree`` only call ``.asarray`` (numpy supports it) before
-    delegating to the rigged tree class / tree.query. The actual
-    ``MemoryError`` is raised by the rigged class/method, so we never
-    hit a real cupy code path.
+    set on a real GPU run. Using ``np`` for ``self.xp`` is fine
+    because the GPU code paths in ``_build_tree`` / ``_query_tree``
+    only call ``.asarray`` (numpy supports it) before delegating to
+    the rigged tree class / tree.query. The actual ``MemoryError`` is
+    raised by the rigged class/method, so we never hit a real cupy
+    code path. (``self._cp`` was dropped in Slice 2 of #98 — the
+    code now reads from ``self.xp`` directly when on GPU.)
     """
     v.device_type = "cuda"
     v.xp = np
-    v._cp = np
     v._gpu_kdtree_cls = kdtree_cls
 
 
