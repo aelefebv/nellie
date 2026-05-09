@@ -876,3 +876,37 @@ def test_cascade_b_dense_match_oom_does_not_mutate_device_type(
         f"backend mutation; the sparse fallback is algorithmic-only on "
         f"the matching axis."
     )
+
+
+# -------------------------------------------------------------------------
+# HuMomentTrackingConfig validation (__post_init__)
+# -------------------------------------------------------------------------
+
+def test_hu_config_default_constructs() -> None:
+    HuMomentTrackingConfig()
+
+
+def test_hu_config_rejects_bad_device() -> None:
+    with pytest.raises(ValueError, match="device"):
+        HuMomentTrackingConfig(device="bogus")
+
+
+def test_hu_config_rejects_bad_mode() -> None:
+    with pytest.raises(ValueError, match="mode"):
+        HuMomentTrackingConfig(mode="hybrid")
+
+
+@pytest.mark.parametrize("mode", ["auto", "dense", "sparse"])
+def test_hu_config_accepts_valid_mode(mode: str) -> None:
+    HuMomentTrackingConfig(mode=mode)
+
+
+@pytest.mark.parametrize("field", [
+    "max_distance_um", "max_dense_pairs",
+    "max_dense_roi_voxels_cpu", "max_dense_roi_voxels_gpu", "cost_cutoff",
+])
+def test_hu_config_rejects_nonpositive_numeric(field: str) -> None:
+    with pytest.raises(ValueError, match=field):
+        HuMomentTrackingConfig(**{field: 0})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=field):
+        HuMomentTrackingConfig(**{field: -1})  # type: ignore[arg-type]

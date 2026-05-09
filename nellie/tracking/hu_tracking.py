@@ -44,6 +44,25 @@ class HuMomentTrackingConfig:
     low_memory: bool = False
     cost_cutoff: float = 1.0
 
+    def __post_init__(self) -> None:
+        adaptive_run.normalize_device(self.device)
+        if self.mode not in ("auto", "dense", "sparse"):
+            raise ValueError(
+                f"HuMomentTrackingConfig.mode must be 'auto', 'dense', or 'sparse', "
+                f"got {self.mode!r}"
+            )
+        for name, value in (
+            ("max_distance_um", self.max_distance_um),
+            ("max_dense_pairs", self.max_dense_pairs),
+            ("max_dense_roi_voxels_cpu", self.max_dense_roi_voxels_cpu),
+            ("max_dense_roi_voxels_gpu", self.max_dense_roi_voxels_gpu),
+            ("cost_cutoff", self.cost_cutoff),
+        ):
+            if value <= 0:
+                raise ValueError(
+                    f"HuMomentTrackingConfig.{name} must be > 0, got {value}"
+                )
+
 
 class HuMomentTracking:
     """
