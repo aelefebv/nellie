@@ -85,6 +85,7 @@ from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
 from nellie.tracking.hu_tracking import (
     HuMomentTracking,
+    HuMomentTrackingConfig,
     _FrameFeatures,
 )
 
@@ -117,7 +118,7 @@ def _run_hu(info: ImInfo, **kwargs) -> HuMomentTracking:
     ``flow_vector_array`` on disk.
     """
     kwargs.setdefault("device", "cpu")
-    h = HuMomentTracking(info, num_t=2, **kwargs)
+    h = HuMomentTracking(info, HuMomentTrackingConfig(**kwargs), num_t=2)
     h.run()
     return h
 
@@ -411,7 +412,7 @@ def test_no_t_axis_early_return(tmp_path: Path) -> None:
     this dataset.
     """
     info = _build_single_frame_iminfo(tmp_path / "single_frame")
-    h = HuMomentTracking(info, num_t=1, device="cpu")
+    h = HuMomentTracking(info, HuMomentTrackingConfig(device="cpu"), num_t=1)
     h.run()  # must not raise
     fva_path = Path(info.pipeline_paths["flow_vector_array"])
     assert not fva_path.exists(), (
@@ -452,7 +453,9 @@ def test_mode_sparse_does_not_mutate_device_type(make_hu_imageinfo_3d) -> None:
     path.
     """
     info = make_hu_imageinfo_3d()
-    h = HuMomentTracking(info, num_t=2, device="cpu", mode="sparse")
+    h = HuMomentTracking(
+        info, HuMomentTrackingConfig(device="cpu", mode="sparse"), num_t=2
+    )
     h.run()
     arr = _load_flow_vector_array(info)
     assert h.device_type == "cpu", (
@@ -472,7 +475,9 @@ def test_mode_auto_switches_on_max_dense_pairs(make_hu_imageinfo_3d) -> None:
     """
     info_sparse = make_hu_imageinfo_3d()
     h_sparse = HuMomentTracking(
-        info_sparse, num_t=2, device="cpu", mode="auto", max_dense_pairs=1
+        info_sparse,
+        HuMomentTrackingConfig(device="cpu", mode="auto", max_dense_pairs=1),
+        num_t=2,
     )
     h_sparse.run()
     arr_sparse = _load_flow_vector_array(info_sparse)
@@ -481,10 +486,10 @@ def test_mode_auto_switches_on_max_dense_pairs(make_hu_imageinfo_3d) -> None:
     info_dense = make_hu_imageinfo_3d()
     h_dense = HuMomentTracking(
         info_dense,
+        HuMomentTrackingConfig(
+            device="cpu", mode="auto", max_dense_pairs=int(1e12)
+        ),
         num_t=2,
-        device="cpu",
-        mode="auto",
-        max_dense_pairs=int(1e12),
     )
     h_dense.run()
     arr_dense = _load_flow_vector_array(info_dense)
@@ -508,7 +513,9 @@ def test_low_memory_forces_streaming_roi(
     production code.
     """
     info = make_hu_imageinfo_3d()
-    h = HuMomentTracking(info, num_t=2, device="cpu", low_memory=True)
+    h = HuMomentTracking(
+        info, HuMomentTrackingConfig(device="cpu", low_memory=True), num_t=2
+    )
 
     calls = {"n": 0}
     real_streaming = HuMomentTracking._compute_features_streaming
@@ -598,6 +605,9 @@ def test_dense_vs_sparse_match_set_equivalence(tmp_path: Path) -> None:
     h.max_dense_roi_voxels_cpu = int(1e12)
     h.max_dense_roi_voxels_gpu = int(1e12)
     h.low_memory = False
+    # Slice 2 of #112 lifted ``_COST_CUTOFF`` to ``self.cost_cutoff``.
+    # ``__new__`` bypasses ``__init__`` so we have to set it explicitly.
+    h.cost_cutoff = HuMomentTrackingConfig().cost_cutoff
 
     # Three markers in pre-frame, three in post-frame; nearly 1:1.
     coords_pre = np.array([[0.0, 0.0], [0.0, 4.0], [4.0, 0.0]], dtype=float)
@@ -782,14 +792,18 @@ def test_viewer_status_callback(make_hu_imageinfo_2d) -> None:
     """
     # No-op arm: viewer=None.
     info_none = make_hu_imageinfo_2d()
-    h_none = HuMomentTracking(info_none, num_t=2, device="cpu", viewer=None)
+    h_none = HuMomentTracking(
+        info_none, HuMomentTrackingConfig(device="cpu"), viewer=None, num_t=2
+    )
     h_none.run()  # must not raise
     _release_hu(h_none)
 
     # Stub-viewer arm: assert per-frame writes.
     info_stub = make_hu_imageinfo_2d()
     stub = _StubViewer()
-    h_stub = HuMomentTracking(info_stub, num_t=2, device="cpu", viewer=stub)
+    h_stub = HuMomentTracking(
+        info_stub, HuMomentTrackingConfig(device="cpu"), viewer=stub, num_t=2
+    )
     h_stub.run()
     assert len(stub.status_writes) == 2, (
         f"Expected viewer.status set once per frame (2 writes); "
@@ -833,7 +847,9 @@ def test_cascade_b_dense_match_oom_does_not_mutate_device_type(
     ``self.xp`` / ``self.ndi`` / ``self.device_type``.
     """
     info = make_hu_imageinfo_3d()
-    h = HuMomentTracking(info, num_t=2, device="cpu", mode="dense")
+    h = HuMomentTracking(
+        info, HuMomentTrackingConfig(device="cpu", mode="dense"), num_t=2
+    )
 
     real_get_cost = HuMomentTracking._get_cost_matrix
     state: dict[str, object] = {"raised": False, "device_type_at_raise": None}

@@ -79,8 +79,8 @@ from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
 from nellie.segmentation.networking import Network, NetworkConfig
-from nellie.tracking.hu_tracking import HuMomentTracking
-from nellie.tracking.voxel_reassignment import VoxelReassigner
+from nellie.tracking.hu_tracking import HuMomentTracking, HuMomentTrackingConfig
+from nellie.tracking.voxel_reassignment import VoxelReassigner, VoxelReassignerConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_3D_PATH = REPO_ROOT / "tests" / "fixtures" / "yeast_3d_t0_to_1.ome.tif"
@@ -817,7 +817,7 @@ def _run_hu_to_disk(im_info: ImInfo) -> Path:
     The upstream Markers/Label/Frangi memmap handles must still be
     released so Windows lets us read/copy them later.
     """
-    h = HuMomentTracking(im_info, num_t=2, device="cpu")
+    h = HuMomentTracking(im_info, HuMomentTrackingConfig(device="cpu"), num_t=2)
     h.run()
     h.label_memmap = None
     h.im_memmap = None
@@ -1053,7 +1053,7 @@ def _run_voxel_reassign_to_disk(im_info: ImInfo) -> dict[str, Path]:
     Drops VoxelReassigner's memmap handles so Windows lets us read/copy
     the files later (mirrors ``_run_filter_to_disk`` / ``_run_label_to_disk``).
     """
-    v = VoxelReassigner(im_info, num_t=2, device="cpu")
+    v = VoxelReassigner(im_info, VoxelReassignerConfig(device="cpu"), num_t=2)
     v.run()
     v.branch_label_memmap = None
     v.obj_label_memmap = None

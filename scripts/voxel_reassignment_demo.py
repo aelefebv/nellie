@@ -9,7 +9,7 @@ import pickle
 import numpy as np
 
 from nellie.im_info.verifier import FileInfo, ImInfo
-from nellie.tracking.voxel_reassignment import VoxelReassigner
+from nellie.tracking.voxel_reassignment import VoxelReassigner, VoxelReassignerConfig
 
 
 def accumulate_pair_counts(src_ids, dst_ids, n_src, n_dst, use_gpu=True):
@@ -55,7 +55,7 @@ def main():
     file_info.load_metadata()
     im_info = ImInfo(file_info)
 
-    run_obj = VoxelReassigner(im_info, num_t=3)
+    run_obj = VoxelReassigner(im_info, VoxelReassignerConfig(), num_t=3)
     run_obj.run()
 
     edges_loaded = pickle.load(open(im_info.pipeline_paths["adjacency_maps"], "rb"))

@@ -15,13 +15,6 @@ from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 
 
-# Single source of truth for the match-acceptance cost cutoff used in BOTH the
-# dense (``_find_best_matches``) and sparse (``_match_frames_sparse``) paths.
-# Pinned by ``test_cost_cutoff_pinned_in_both_paths``; lifting to a constructor
-# arg is deferred to the cross-stage HuMomentTrackingConfig slice.
-_COST_CUTOFF = 1.0
-
-
 @dataclass
 class _FrameFeatures:
     """Internal container for per-frame features."""
@@ -29,6 +22,27 @@ class _FrameFeatures:
     coords_phys: np.ndarray   # (N, 2) or (N, 3) in micrometers
     stats: object             # xp.ndarray, shape (N, F_stats)
     hu: object                # xp.ndarray, shape (N, F_hu)
+
+
+@dataclass(frozen=True)
+class HuMomentTrackingConfig:
+    """Algorithm configuration for ``HuMomentTracking``.
+
+    Frozen — represents the user's intent at construction time.
+    HuMomentTracking copies these values into mutable instance attributes
+    that the OOM/availability cascade can update mid-run (``device``,
+    ``low_memory``). Inspect ``HuMomentTracking.config`` to see the
+    original intent regardless of any cascade-driven runtime fallbacks.
+    """
+
+    max_distance_um: float = 1.0
+    device: str = "auto"
+    mode: str = "auto"
+    max_dense_pairs: int = int(1e7)
+    max_dense_roi_voxels_cpu: int = int(5e7)
+    max_dense_roi_voxels_gpu: int = int(2e7)
+    low_memory: bool = False
+    cost_cutoff: float = 1.0
 
 
 class HuMomentTracking:
@@ -81,16 +95,27 @@ class HuMomentTracking:
         Rough upper bound on total ROI voxels for dense ROI extraction on GPU.
     """
 
-    def __init__(self, im_info: ImInfo, num_t=None,
-                 max_distance_um=1.0,
-                 viewer=None,
-                 device: str = "auto",
-                 mode: str = "auto",
-                 max_dense_pairs: int = int(1e7),
-                 max_dense_roi_voxels_cpu: int = int(5e7),
-                 max_dense_roi_voxels_gpu: int = int(2e7),
-                 low_memory: bool = False):
+    def __init__(
+        self,
+        im_info: ImInfo,
+        config: HuMomentTrackingConfig = HuMomentTrackingConfig(),
+        viewer=None,
+        num_t: int | None = None,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        im_info : ImInfo
+            Image metadata and memory-mapped image data.
+        config : HuMomentTrackingConfig
+            Algorithm configuration. Defaults to ``HuMomentTrackingConfig()``.
+        viewer : object or None, optional
+            Optional GUI viewer with a ``.status`` attribute.
+        num_t : int, optional
+            Number of timepoints to process. If None, inferred from image.
+        """
         self.im_info = im_info
+        self.config = config
 
         # If no time dimension, nothing to do.
         if self.im_info.no_t:
@@ -110,7 +135,7 @@ class HuMomentTracking:
         dt = self.im_info.dim_res.get('T') or 1.0
         if self.im_info.dim_res.get('T') is None:
             logger.warning("Time resolution missing; assuming 1.0s for max_distance_um scaling.")
-        self.max_distance_um = max(max_distance_um * dt, 0.5)
+        self.max_distance_um = max(config.max_distance_um * dt, 0.5)
 
         self.im_memmap = None
         self.im_frangi_memmap = None
@@ -120,17 +145,20 @@ class HuMomentTracking:
 
         self.viewer = viewer
 
+        # Cascade-mutable runtime state. Initial values come from config;
+        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
         # Backend / device info — normalize aliases ("cuda" → "gpu") at the
         # constructor edge so downstream code only sees "auto" | "cpu" | "gpu".
-        self.device = adaptive_run.normalize_device(device)
+        self.device = adaptive_run.normalize_device(config.device)
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
+        self.low_memory = bool(config.low_memory)
 
-        # Matching / ROI mode tuning
-        self.mode = mode  # "auto", "dense", "sparse"
-        self.low_memory = bool(low_memory)
-        self.max_dense_pairs = int(max_dense_pairs)
-        self.max_dense_roi_voxels_cpu = int(max_dense_roi_voxels_cpu)
-        self.max_dense_roi_voxels_gpu = int(max_dense_roi_voxels_gpu)
+        # Aliases for hot path readability — config remains the source of truth.
+        self.mode = config.mode  # "auto", "dense", "sparse"
+        self.max_dense_pairs = int(config.max_dense_pairs)
+        self.max_dense_roi_voxels_cpu = int(config.max_dense_roi_voxels_cpu)
+        self.max_dense_roi_voxels_gpu = int(config.max_dense_roi_voxels_gpu)
+        self.cost_cutoff = float(config.cost_cutoff)
 
     # -------------------------------------------------------------------------
     # Backend helpers
@@ -834,7 +862,7 @@ class HuMomentTracking:
         # Row candidates
         for i, (r_idx, r_val) in enumerate(zip(row_min_idx, row_min_val)):
             val = float(r_val)
-            if val > _COST_CUTOFF:
+            if val > self.cost_cutoff:
                 continue
             row_matches.append(int(i))
             col_matches.append(int(r_idx))
@@ -843,7 +871,7 @@ class HuMomentTracking:
         # Column candidates
         for j, (c_idx, c_val) in enumerate(zip(col_min_idx, col_min_val)):
             val = float(c_val)
-            if val > _COST_CUTOFF:
+            if val > self.cost_cutoff:
                 continue
             row_matches.append(int(c_idx))
             col_matches.append(int(j))
@@ -960,7 +988,7 @@ class HuMomentTracking:
             z_hu = (hu_diff - mean_hu) / std_hu
 
             cost = z_dist + np.mean(z_stats, axis=1) + np.mean(z_hu, axis=1)
-            valid_mask = cost <= _COST_CUTOFF
+            valid_mask = cost <= self.cost_cutoff
             if not np.any(valid_mask):
                 continue
 
@@ -989,14 +1017,14 @@ class HuMomentTracking:
 
         # Row-based candidates
         for i_post, (j_pre, c) in enumerate(zip(row_min_idx, row_min_val)):
-            if j_pre >= 0 and c <= _COST_CUTOFF:
+            if j_pre >= 0 and c <= self.cost_cutoff:
                 row_matches.append(int(i_post))
                 col_matches.append(int(j_pre))
                 costs.append(float(c))
 
         # Column-based candidates
         for j_pre, (i_post, c) in enumerate(zip(col_min_idx, col_min_val)):
-            if i_post >= 0 and c <= _COST_CUTOFF:
+            if i_post >= 0 and c <= self.cost_cutoff:
                 row_matches.append(int(i_post))
                 col_matches.append(int(j_pre))
                 costs.append(float(c))

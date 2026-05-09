@@ -92,7 +92,11 @@ import pytest
 
 import nellie.tracking.voxel_reassignment as vr_module
 from nellie.im_info.verifier import ImInfo
-from nellie.tracking.voxel_reassignment import VoxelReassigner, _TreeHandle
+from nellie.tracking.voxel_reassignment import (
+    VoxelReassigner,
+    VoxelReassignerConfig,
+    _TreeHandle,
+)
 
 
 # -------------------------------------------------------------------------
@@ -124,7 +128,7 @@ def _run_voxel_reassign(info: ImInfo, **kwargs) -> VoxelReassigner:
     inspecting the on-disk outputs.
     """
     kwargs.setdefault("device", "cpu")
-    v = VoxelReassigner(info, num_t=2, **kwargs)
+    v = VoxelReassigner(info, VoxelReassignerConfig(**kwargs), num_t=2)
     v.run()
     return v
 
@@ -367,7 +371,7 @@ def test_match_coord_dtype_synthetic_widens_to_uint32(
     pin without building a multi-GB synthetic fixture.
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     v._allocate_memory()
     v.spatial_shape = (65_537, 8, 8)
     assert v._select_match_coord_dtype() == np.uint32
@@ -518,7 +522,7 @@ def test_build_tree_empty_input_returns_cpu_none_handle(
     the documented empty arrays (lines 271-272 + 275-276).
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     handle = v._build_tree(np.empty((0, 3), dtype=np.float32))
     assert isinstance(handle, _TreeHandle)
     assert handle.backend == "cpu"
@@ -540,7 +544,7 @@ def test_build_tree_default_cpu_path_returns_cpu_with_tree(
 ) -> None:
     """Default CPU path: ``backend="cpu"`` with populated ``tree``; ``_query_tree`` works."""
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     coords = np.array(
         [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], dtype=np.float32
     )
@@ -572,7 +576,7 @@ def test_cpu_bruteforce_fallback_on_ckdtree_memory_error(
     ``_query_bruteforce_cpu`` at line 314-315).
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
 
     real_ckdtree = vr_module.cKDTree
     state = {"raised": False}
@@ -626,7 +630,7 @@ def test_empty_master_mask_breaks_loop(
     before any t=1 writes).
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
 
     def empty_mask(_self, _t):
         return np.zeros(_self.spatial_shape, dtype=bool)
@@ -662,7 +666,7 @@ def test_match_voxels_empty_inputs_returns_empty_pair(
     branch which returns 3. We pin the actual returned shape contract.
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     v._allocate_memory()  # populate spatial_shape
     vox_prev = np.empty((0, 3), dtype=int)
     vox_next = np.array([[1, 2, 3], [4, 5, 6]], dtype=int)
@@ -696,7 +700,7 @@ def test_distance_threshold_drops_above_max_distance(
     ``voxel_reassignment.py:744-745``.
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     # Don't need _allocate_memory for _distance_threshold; it uses
     # flow_interpolator_fw.scaling and .max_distance_um directly.
     assert v.flow_interpolator_fw is not None
@@ -750,7 +754,7 @@ def test_vote_targets_inverse_distance_weighted(
     (lines 429-467).
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     v._allocate_memory()  # populate spatial_shape
 
     # All three sources point at the same target voxel.
@@ -788,7 +792,7 @@ def test_select_best_pairs_returns_one_best_per_target(
     1 (distance 1.0).
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     v._allocate_memory()
 
     sources = np.array(
@@ -829,7 +833,7 @@ def test_no_t_short_circuit(make_voxel_reassign_imageinfo_3d) -> None:
     """
     info = make_voxel_reassign_imageinfo_3d()
     info.no_t = True
-    v = VoxelReassigner(info, num_t=1, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=1)
     v.run()  # must not raise
     branch_path = Path(info.pipeline_paths["im_branch_label_reassigned"])
     obj_path = Path(info.pipeline_paths["im_obj_label_reassigned"])
@@ -921,14 +925,18 @@ def test_viewer_status_callback(make_voxel_reassign_imageinfo_2d) -> None:
     """
     # No-op arm: viewer=None.
     info_none = make_voxel_reassign_imageinfo_2d()
-    v_none = VoxelReassigner(info_none, num_t=2, device="cpu", viewer=None)
+    v_none = VoxelReassigner(
+        info_none, VoxelReassignerConfig(device="cpu"), viewer=None, num_t=2
+    )
     v_none.run()  # must not raise
     _release_voxel_reassigner(v_none)
 
     # Stub-viewer arm: assert per-frame writes.
     info_stub = make_voxel_reassign_imageinfo_2d()
     stub = _StubViewer()
-    v_stub = VoxelReassigner(info_stub, num_t=2, device="cpu", viewer=stub)
+    v_stub = VoxelReassigner(
+        info_stub, VoxelReassignerConfig(device="cpu"), viewer=stub, num_t=2
+    )
     v_stub.run()
     # The loop iterates from t=0 to t < num_t-1, so for num_t=2 there
     # is exactly one iteration. The status string is
@@ -1013,7 +1021,7 @@ def test_build_tree_gpu_oom_does_not_mutate_device_type(
     + ``_warn_gpu_fallback`` block).
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     _simulate_gpu_state(v, kdtree_cls=_FakeGpuKDTreeOOM)
 
     coords = np.array(
@@ -1056,7 +1064,7 @@ def test_query_tree_gpu_oom_does_not_mutate_device_type(
     ``_query_tree`` directly.
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     _simulate_gpu_state(v, kdtree_cls=None)
 
     coords_real = np.array(
@@ -1105,7 +1113,7 @@ def test_query_tree_gpu_non_oom_exception_propagates(
     ``ValueError`` instead of ``MemoryError``.
     """
     info = make_voxel_reassign_imageinfo_3d()
-    v = VoxelReassigner(info, num_t=2, device="cpu")
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
     _simulate_gpu_state(v, kdtree_cls=None)
 
     coords_real = np.array(

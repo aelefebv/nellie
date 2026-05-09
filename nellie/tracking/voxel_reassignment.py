@@ -23,6 +23,26 @@ class _TreeHandle:
     coords_real_scaled: Optional[np.ndarray] = None
 
 
+@dataclass(frozen=True)
+class VoxelReassignerConfig:
+    """Algorithm configuration for ``VoxelReassigner``.
+
+    Frozen — represents the user's intent at construction time.
+    VoxelReassigner copies these values into mutable instance attributes
+    that the OOM/availability cascade can update mid-run (``device``,
+    ``low_memory``, ``max_query_points``, ``max_bruteforce_pairs``).
+    Inspect ``VoxelReassigner.config`` to see the original intent
+    regardless of any cascade-driven runtime fallbacks.
+    """
+
+    store_running_matches: bool = True
+    max_refine_iterations: int = 3
+    device: str = "auto"
+    low_memory: bool = False
+    max_query_points: int = int(1e6)
+    max_bruteforce_pairs: int = int(1e7)
+
+
 class VoxelReassigner:
     """
     A class for voxel reassignment across time points using forward and backward flow interpolation.
@@ -36,50 +56,49 @@ class VoxelReassigner:
       - Assigns labels using weighted votes from forward/backward interpolations.
     """
 
-    def __init__(self, im_info: ImInfo, num_t=None, viewer=None,
-                 store_running_matches: bool = True,
-                 max_refine_iterations: int = 3,
-                 device: str = "auto",
-                 low_memory: bool = False,
-                 max_query_points: int = int(1e6),
-                 max_bruteforce_pairs: int = int(1e7)):
+    def __init__(
+        self,
+        im_info: ImInfo,
+        config: VoxelReassignerConfig = VoxelReassignerConfig(),
+        viewer=None,
+        num_t: int | None = None,
+    ) -> None:
         """
         Parameters
         ----------
         im_info : ImInfo
             Image metadata and memory-mapped data.
-        num_t : int, optional
-            Number of timepoints in the dataset. If None, it is inferred from the image metadata.
+        config : VoxelReassignerConfig
+            Algorithm configuration. Defaults to ``VoxelReassignerConfig()``.
         viewer : Any, optional
             Optional viewer for visualization / status updates.
-        store_running_matches : bool, optional
-            If True, store per-frame voxel matches (may be large for big datasets).
-            Matches are stored as one best source per target voxel.
-        max_refine_iterations : int, optional
-            Maximum number of vote iterations to assign labels at t+1 from t.
-            Set to 1 for a single pass.
-        device : {"auto", "cpu", "gpu"}, optional
-            Backend selection for nearest-neighbor matching.
-        low_memory : bool, optional
-            If True, prefer lower-memory matching strategies at the cost of speed.
-        max_query_points : int, optional
-            Maximum number of points per KDTree query chunk.
-        max_bruteforce_pairs : int, optional
-            Maximum number of pairwise distances to compute in GPU brute-force mode.
+        num_t : int, optional
+            Number of timepoints in the dataset. If None, it is inferred from the image metadata.
         """
         self.im_info = im_info
-        self.device = adaptive_run.normalize_device(device)
-        self._base_max_query_points = max(1, int(max_query_points))
-        self._base_max_bruteforce_pairs = max(1, int(max_bruteforce_pairs))
+        self.config = config
+
+        # Cascade-mutable runtime state. Initial values come from config;
+        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
+        self.device = adaptive_run.normalize_device(config.device)
+        # ``_base_max_*`` shadow attributes preserve the user's intent across
+        # ``_set_low_memory`` recomputes (which clamp ``self.max_*`` based on
+        # ``self.low_memory``).
+        self._base_max_query_points = max(1, int(config.max_query_points))
+        self._base_max_bruteforce_pairs = max(1, int(config.max_bruteforce_pairs))
         self.max_query_points = self._base_max_query_points
         self.max_bruteforce_pairs = self._base_max_bruteforce_pairs
-        self.low_memory = bool(low_memory)
+        self.low_memory = bool(config.low_memory)
         if self.low_memory:
             self.max_query_points = min(self.max_query_points, int(2e5))
             self.max_bruteforce_pairs = min(self.max_bruteforce_pairs, int(2e6))
         self.xp, _ndi, self.device_type = adaptive_run.resolve_backend(self.device)
         self._gpu_kdtree_cls = self._get_gpu_kdtree_cls() if self.device_type == "cuda" else None
         self._warned_gpu_fallback = False
+
+        # Aliases for hot path readability — config remains the source of truth.
+        self.store_running_matches = config.store_running_matches
+        self.max_refine_iterations = config.max_refine_iterations
 
         # handle single-timepoint data early
         if self.im_info.no_t:
@@ -93,8 +112,6 @@ class VoxelReassigner:
             self.reassigned_branch_memmap = None
             self.reassigned_obj_memmap = None
             self.viewer = viewer
-            self.store_running_matches = store_running_matches
-            self.max_refine_iterations = max_refine_iterations
             return
 
         self.num_t = num_t
@@ -115,10 +132,6 @@ class VoxelReassigner:
         self.reassigned_obj_memmap = None
 
         self.viewer = viewer
-
-        # optimization / behavior controls
-        self.store_running_matches = store_running_matches
-        self.max_refine_iterations = max_refine_iterations
 
     # -------------------------------------------------------------------------
     # Backend helpers
