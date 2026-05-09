@@ -43,7 +43,7 @@ _TORCH: Any = None
 _F: Any = None
 
 
-def _torch():
+def _torch() -> Any:
     global _TORCH, _F
     if _TORCH is not None:
         return _TORCH
@@ -60,7 +60,7 @@ def _torch():
     return _TORCH
 
 
-def _functional():
+def _functional() -> Any:
     if _F is None:
         _torch()
     return _F
