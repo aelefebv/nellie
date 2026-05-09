@@ -12,8 +12,8 @@ from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
 from nellie.segmentation.networking import Network, NetworkConfig
-from nellie.tracking.hu_tracking import HuMomentTracking
-from nellie.tracking.voxel_reassignment import VoxelReassigner
+from nellie.tracking.hu_tracking import HuMomentTracking, HuMomentTrackingConfig
+from nellie.tracking.voxel_reassignment import VoxelReassigner, VoxelReassignerConfig
 from napari.qt.threading import thread_worker
 
 
@@ -448,11 +448,14 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            base_kwargs = {
-                "im_info": self.current_im_info,
-                "viewer": self.viewer,
-            }
-            hu_tracking = HuMomentTracking(**base_kwargs, **step_kwargs)
+            config_kwargs = dict(step_kwargs)
+            num_t = config_kwargs.pop("num_t", None)
+            hu_tracking = HuMomentTracking(
+                im_info=self.current_im_info,
+                config=HuMomentTrackingConfig(**config_kwargs),
+                viewer=self.viewer,
+                num_t=num_t,
+            )
             hu_tracking.run()
 
     def run_tracking(self):
@@ -487,11 +490,14 @@ class NellieProcessor(QWidget):
         for im_num, im_info in enumerate(im_info_list):
             show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            base_kwargs = {
-                "im_info": self.current_im_info,
-                "viewer": self.viewer,
-            }
-            vox_reassign = VoxelReassigner(**base_kwargs, **step_kwargs)
+            config_kwargs = dict(step_kwargs)
+            num_t = config_kwargs.pop("num_t", None)
+            vox_reassign = VoxelReassigner(
+                im_info=self.current_im_info,
+                config=VoxelReassignerConfig(**config_kwargs),
+                viewer=self.viewer,
+                num_t=num_t,
+            )
             vox_reassign.run()
 
     def run_reassign(self):

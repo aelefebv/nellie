@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-08
+modified: 2026-05-09
 ---
 
 # Hu-moment tracking
@@ -18,6 +18,7 @@ Match [[mocap-marking|mocap markers]] across consecutive frames and write a `flo
 - Inputs: `im_marker`, `im_instance_label`, `im_distance`, `im_preprocessed`, raw — all [[segmentation/index|segmentation]] outputs.
 - Output: `flow_vector_array` consumed by [[flow-interpolation]] and [[voxel-reassignment]].
 - Backend: [[gpu-runtime|adaptive_run]] cascade.
+- Algorithm config is bundled in a `HuMomentTrackingConfig` frozen dataclass colocated in `hu_tracking.py`. `HuMomentTracking(im_info, HuMomentTrackingConfig(max_distance_um=1.0, ..., cost_cutoff=1.0), viewer=None, num_t=None)` is the construction shape. The cascade may mutate `HuMomentTracking.device` / `HuMomentTracking.low_memory` runtime state; `HuMomentTracking.config` preserves the original intent.
 
 ## Gotchas
 
@@ -30,7 +31,7 @@ Match [[mocap-marking|mocap markers]] across consecutive frames and write a `flo
   - The dense-ROI → streaming-ROI fallback inside `_get_frame_features` survives — it only flips a local `use_dense = False` and never touches `self.*`.
   - All three surviving inner cascades log a warning, free GPU memory, and continue without mutating backend attributes. Only the outer `mode_candidates` cascade ever flips `self.xp` / `self.ndi` / `self.device_type`.
 - **`low_memory` may be auto-enabled** by `adaptive_run.should_use_low_memory(im_info)` based on estimated memory usage — the constructor default is `False` but the actual run may force streaming ROI extraction anyway.
-- **Match-acceptance cost cutoff is a single module constant `_COST_CUTOFF = 1.0`** at the top of `hu_tracking.py`. Both `_find_best_matches` (dense) and `_match_frames_sparse` (sparse) reference the same constant, so the dense/sparse acceptance rates can no longer drift apart. `test_cost_cutoff_pinned_in_both_paths` is the authoritative spec — bumping the constant flips both paths atomically. Lifting to a constructor arg is deferred to the cross-stage `HuMomentTrackingConfig` slice; there is no documented tuning use case today.
+- **Match-acceptance cost cutoff is the single field `HuMomentTrackingConfig.cost_cutoff` (default `1.0`)**, hot-path-aliased onto `self.cost_cutoff`. Both `_find_best_matches` (dense) and `_match_frames_sparse` (sparse) reference the same attribute, so the dense/sparse acceptance rates can no longer drift apart. `test_cost_cutoff_pinned_in_both_paths` is the authoritative spec — bumping the field flips both paths atomically. Lifted to `HuMomentTrackingConfig.cost_cutoff` in PRD #112 Slice 2 (issue #114). The module constant `_COST_CUTOFF` is gone.
 - **`_find_best_matches` returns the union of row-min and col-min candidates** (not Hungarian), so a target can appear in multiple pairs and downstream code sees duplicates.
 - **Hu moment 7 (mirror invariance) is intentionally omitted.**
 - **3D ROIs are reduced via 3-axis max projection then stacked into 18 features** (not a true 3D moment).

@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-08
+modified: 2026-05-09
 ---
 
 # Voxel reassignment
@@ -37,6 +37,7 @@ OOM at any tier triggers `adaptive_run.free_gpu_memory(self.xp)` + a **local-onl
 - Inputs: [[hu-tracking|`flow_vector_array`]] (via `FlowInterpolator`), [[labelling|`im_instance_label`]], [[networking|`im_skel_relabelled`]].
 - Outputs feed [[feature-extraction]] (label identity at the components level via `reassigned_label`) and the [[visualizer|napari visualizer]] (`Reassigned px:` layers).
 - Backend orchestration via [[gpu-runtime|`adaptive_run`]] (`normalize_device`, `gpu_available`, `should_use_low_memory`, `mode_candidates`, `is_oom_error`, `is_gpu_unavailable_error`).
+- Algorithm config is bundled in a `VoxelReassignerConfig` frozen dataclass colocated in `voxel_reassignment.py`. `VoxelReassigner(im_info, VoxelReassignerConfig(store_running_matches=True, ...), viewer=None, num_t=None)` is the construction shape. The cascade may mutate `VoxelReassigner.device` / `VoxelReassigner.low_memory` / `VoxelReassigner.max_query_points` / `VoxelReassigner.max_bruteforce_pairs` runtime state (the `_base_max_*` shadow attributes preserve the user's intent across `_set_low_memory` recomputes); `VoxelReassigner.config` preserves the original intent.
 
 ## Gotchas
 

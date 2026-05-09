@@ -10,8 +10,8 @@ from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.mocap_marking import Markers, MarkersConfig
 from nellie.segmentation.networking import Network, NetworkConfig
-from nellie.tracking.hu_tracking import HuMomentTracking
-from nellie.tracking.voxel_reassignment import VoxelReassigner
+from nellie.tracking.hu_tracking import HuMomentTracking, HuMomentTrackingConfig
+from nellie.tracking.voxel_reassignment import VoxelReassigner, VoxelReassignerConfig
 
 import time
 
@@ -96,7 +96,10 @@ def run(
 
     if timeit:
         start_time = time.perf_counter()
-    hu_tracking = HuMomentTracking(im_info, device=device, low_memory=low_memory)
+    hu_tracking = HuMomentTracking(
+        im_info,
+        HuMomentTrackingConfig(device=device, low_memory=low_memory),
+    )
     hu_tracking.run()
     if timeit:
         end_time = time.perf_counter()
@@ -104,7 +107,7 @@ def run(
 
     if timeit:
         start_time = time.perf_counter()
-    vox_reassign = VoxelReassigner(im_info, device=device)
+    vox_reassign = VoxelReassigner(im_info, VoxelReassignerConfig(device=device))
     vox_reassign.run()
     if timeit:
         end_time = time.perf_counter()
