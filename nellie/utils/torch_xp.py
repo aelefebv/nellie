@@ -560,11 +560,11 @@ def gradient(f, *varargs, axis=None):
 
 
 def _gradient_axis(f, axis: int, h: float, torch_mod):
-    """Central differences along ``axis`` with second-order forward/backward edges.
+    """Central differences along ``axis`` with first-order forward/backward edges.
 
-    Mirrors numpy.gradient's edge-handling (second-order at the boundaries
-    via 3-point one-sided stencils). For len-1 axes we return zeros to
-    match numpy's behavior on that edge case.
+    Mirrors ``numpy.gradient``'s default ``edge_order=1`` behavior: central
+    differences in the interior, simple forward/backward at the boundaries.
+    For len-1 axes we return zeros to match numpy's behavior on that edge case.
     """
     n = f.shape[axis]
     if n < 2:
@@ -578,9 +578,7 @@ def _gradient_axis(f, axis: int, h: float, torch_mod):
 
     out = torch_mod.empty_like(f)
     if n == 2:
-        # numpy uses first-order forward/backward at both ends.
         delta = (f[_idx(1, 2)] - f[_idx(0, 1)]) / h
-        # Both edges share the same value when n == 2.
         out[_idx(0, 1)] = delta
         out[_idx(1, 2)] = delta
         return out
@@ -588,16 +586,10 @@ def _gradient_axis(f, axis: int, h: float, torch_mod):
     # Interior: central difference.
     interior = (f[_idx(2, n)] - f[_idx(0, n - 2)]) / (2.0 * h)
     out[_idx(1, n - 1)] = interior
-    # Left edge (second-order forward): (-3*f0 + 4*f1 - f2) / (2*h)
-    left = (-3.0 * f[_idx(0, 1)] + 4.0 * f[_idx(1, 2)] - f[_idx(2, 3)]) / (2.0 * h)
-    out[_idx(0, 1)] = left
-    # Right edge (second-order backward): (3*fN-1 - 4*fN-2 + fN-3) / (2*h)
-    right = (
-        3.0 * f[_idx(n - 1, n)]
-        - 4.0 * f[_idx(n - 2, n - 1)]
-        + f[_idx(n - 3, n - 2)]
-    ) / (2.0 * h)
-    out[_idx(n - 1, n)] = right
+    # Left edge: first-order forward — (f1 - f0) / h
+    out[_idx(0, 1)] = (f[_idx(1, 2)] - f[_idx(0, 1)]) / h
+    # Right edge: first-order backward — (fN-1 - fN-2) / h
+    out[_idx(n - 1, n)] = (f[_idx(n - 1, n)] - f[_idx(n - 2, n - 1)]) / h
     return out
 
 

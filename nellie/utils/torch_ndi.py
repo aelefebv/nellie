@@ -70,22 +70,66 @@ def _functional() -> Any:
 # Padding mode translation: scipy.ndimage <-> torch.nn.functional.pad
 # -----------------------------------------------------------------------------
 
+# scipy "reflect" is HALF-sample symmetric (boundary value duplicated:
+# `d c b a | a b c d | d c b a`). torch's `pad(mode='reflect')` is FULL-sample
+# symmetric (boundary value appears once: `d c b | a b c d | c b`) — that
+# matches scipy "mirror", NOT scipy "reflect". So we route "reflect" through a
+# custom helper (`_scipy_reflect_pad_along_axis`) and only delegate the other
+# modes to torch's pad.
 _SCIPY_TO_TORCH_PAD = {
     "constant": "constant",
-    "reflect": "reflect",
-    "mirror": "reflect",  # scipy "mirror" matches torch "reflect"
+    "mirror": "reflect",      # scipy "mirror" == torch "reflect"
     "nearest": "replicate",
     "wrap": "circular",
+    # "reflect" intentionally absent — handled by _scipy_reflect_pad_along_axis
 }
+
+_SUPPORTED_MODES = sorted(set(_SCIPY_TO_TORCH_PAD) | {"reflect"})
 
 
 def _pad_mode(mode: str) -> str:
+    if mode == "reflect":
+        # Caller must use _scipy_reflect_pad_* helpers, not torch's F.pad.
+        raise AssertionError(
+            "internal: scipy 'reflect' must use _scipy_reflect_pad_along_axis"
+        )
     if mode not in _SCIPY_TO_TORCH_PAD:
         raise ValueError(
             f"torch_ndi: unsupported boundary mode '{mode}'. "
-            f"Supported: {sorted(_SCIPY_TO_TORCH_PAD)}"
+            f"Supported: {_SUPPORTED_MODES}"
         )
     return _SCIPY_TO_TORCH_PAD[mode]
+
+
+def _scipy_reflect_pad_along_axis(x, axis: int, before: int, after: int):
+    """Apply scipy.ndimage's "reflect" padding along a single axis.
+
+    scipy reflects about the EDGE such that boundary values appear twice
+    (half-sample symmetric). torch's ``F.pad(mode='reflect')`` reflects
+    *between* values (full-sample symmetric — matches scipy "mirror"), so
+    it's not an option here. We synthesize the right behavior with
+    :func:`torch.index_select`.
+
+    For input ``[a, b, c, d]`` with ``before=2, after=2`` the result is
+    ``[b, a, a, b, c, d, d, c]``.
+    """
+    if before == 0 and after == 0:
+        return x
+    torch = _torch()
+    n = x.shape[axis]
+    # Left pad reads positions before-1, before-2, ..., 0 (inclusive).
+    left_idx = list(range(before - 1, -1, -1)) if before > 0 else []
+    middle_idx = list(range(n))
+    # Right pad reads positions n-1, n-2, ..., n-after (inclusive).
+    right_idx = [n - 1 - k for k in range(after)] if after > 0 else []
+    indices = left_idx + middle_idx + right_idx
+    idx_t = torch.tensor(indices, dtype=torch.long, device=x.device)
+    return torch.index_select(x, dim=axis, index=idx_t)
+
+
+def _scipy_reflect_pad_last_dim(x, before: int, after: int):
+    """Convenience: scipy "reflect" pad along the last axis (1-D conv path)."""
+    return _scipy_reflect_pad_along_axis(x, axis=-1, before=before, after=after)
 
 
 def _add_batch_channel(x):
@@ -106,6 +150,19 @@ def _pad_for_kernel(x, kernel_shape: Sequence[int], mode: str, cval: float):
     """
     torch = _torch()
     F = _functional()
+
+    if mode == "reflect":
+        # scipy reflect — apply the per-axis helper. Spatial axes start at 2
+        # (after batch and channel) for the 4-D / 5-D conv tensors.
+        out = x
+        for spatial_axis, ks in enumerate(kernel_shape):
+            before = ks // 2
+            after = ks - 1 - before
+            out = _scipy_reflect_pad_along_axis(
+                out, axis=spatial_axis + 2, before=before, after=after
+            )
+        return out
+
     pad_mode = _pad_mode(mode)
     # F.pad takes the spatial pads in REVERSED axis order, two values per axis.
     pad: list[int] = []
@@ -171,6 +228,25 @@ def _gaussian_kernel_1d(sigma: float, truncate: float = 4.0):
     return kernel
 
 
+def _gaussian_kernel_1d_order2(sigma: float, truncate: float = 4.0):
+    """Second-derivative-of-Gaussian 1-D kernel — matches scipy's ``order=2``.
+
+    Derivation: the normalized Gaussian phi(x) = exp(-x²/(2σ²)) / sum.
+    For order=2, scipy's kernel is q(x) * phi(x) where q(x) = x²/σ⁴ - 1/σ².
+    """
+    torch = _torch()
+    if sigma <= 0:
+        return torch.zeros(1, dtype=torch.float32)
+    radius = int(truncate * sigma + 0.5)
+    if radius < 1:
+        radius = 1
+    x = torch.arange(-radius, radius + 1, dtype=torch.float32)
+    sigma2 = sigma * sigma
+    phi = torch.exp(-(x * x) / (2.0 * sigma2))
+    phi = phi / phi.sum()
+    return (x * x / (sigma2 * sigma2) - 1.0 / sigma2) * phi
+
+
 # -----------------------------------------------------------------------------
 # Convolutional ops
 # -----------------------------------------------------------------------------
@@ -224,11 +300,14 @@ def _gaussian_filter_1d_along_axis(
     flat = x_perm.reshape(-1, 1, n)  # (B, 1, N)
 
     # Pad along the last dim only.
-    pad_mode = _pad_mode(mode)
-    if pad_mode == "constant":
-        padded = F.pad(flat, [radius, radius], mode="constant", value=float(cval))
+    if mode == "reflect":
+        padded = _scipy_reflect_pad_last_dim(flat, radius, radius)
     else:
-        padded = F.pad(flat, [radius, radius], mode=pad_mode)
+        pad_mode = _pad_mode(mode)
+        if pad_mode == "constant":
+            padded = F.pad(flat, [radius, radius], mode="constant", value=float(cval))
+        else:
+            padded = F.pad(flat, [radius, radius], mode=pad_mode)
 
     conv_kernel = kernel_1d.reshape(1, 1, -1)
     out_flat = F.conv1d(padded, conv_kernel)  # (B, 1, N)
@@ -289,11 +368,14 @@ def _conv1d_along_axis(x, axis: int, kernel_1d, mode: str, cval: float):
     flat = x_perm.reshape(-1, 1, n)
 
     radius = (kernel_1d.numel() - 1) // 2
-    pad_mode = _pad_mode(mode)
-    if pad_mode == "constant":
-        padded = F.pad(flat, [radius, radius], mode="constant", value=float(cval))
+    if mode == "reflect":
+        padded = _scipy_reflect_pad_last_dim(flat, radius, radius)
     else:
-        padded = F.pad(flat, [radius, radius], mode=pad_mode)
+        pad_mode = _pad_mode(mode)
+        if pad_mode == "constant":
+            padded = F.pad(flat, [radius, radius], mode="constant", value=float(cval))
+        else:
+            padded = F.pad(flat, [radius, radius], mode=pad_mode)
 
     out_flat = F.conv1d(padded, kernel_1d.reshape(1, 1, -1).to(flat.dtype))
     out_perm = out_flat.reshape(*leading_shape, n)
@@ -363,28 +445,40 @@ def gaussian_laplace(
 ):
     """Laplacian-of-Gaussian, mirroring :func:`scipy.ndimage.gaussian_laplace`.
 
-    Implementation follows scipy: smooth by Gaussian, then sum the
-    second derivatives along each axis.
+    Matches scipy's algorithm exactly: for each axis, convolve along that
+    axis with the second-derivative-of-Gaussian kernel and along every
+    other axis with the smoothing-Gaussian kernel; sum the per-axis
+    results. (The naive "smooth then finite-difference" approach is
+    *mathematically* equivalent in the continuous limit but discretizes
+    differently — see scipy's ``gaussian_laplace`` source for the
+    canonical implementation.)
     """
-    torch = _torch()
     sigmas = _normalize_sigma(sigma, input.ndim)
-    smoothed = gaussian_filter(input, sigmas, mode=mode, cval=cval)
-    # Sum of second derivatives along each axis.
     out = None
-    for axis in range(smoothed.ndim):
-        d2 = _second_derivative_along_axis(smoothed, axis, mode, cval)
+    for axis_with_d2 in range(input.ndim):
+        work = input
+        for axis, s in enumerate(sigmas):
+            order = 2 if axis == axis_with_d2 else 0
+            work = _gaussian_filter_1d_with_order(work, axis, s, order, 4.0, mode, cval)
         if out is None:
-            out = d2
+            out = work
         else:
-            out = out + d2
+            out = out + work
     return out
 
 
-def _second_derivative_along_axis(x, axis: int, mode: str, cval: float):
-    """Second-derivative kernel ``[1, -2, 1]`` along ``axis`` with scipy padding."""
-    torch = _torch()
-    kernel = torch.tensor([1.0, -2.0, 1.0], dtype=torch.float32)
-    return _conv1d_along_axis(x, axis, kernel, mode, cval)
+def _gaussian_filter_1d_with_order(
+    x, axis: int, sigma: float, order: int, truncate: float, mode: str, cval: float
+):
+    """Apply gaussian_filter1d with smoothing (order=0) or 2nd-derivative (order=2)."""
+    if order == 0:
+        return _gaussian_filter_1d_along_axis(x, axis, sigma, truncate, mode, cval)
+    if order == 2:
+        kernel = _gaussian_kernel_1d_order2(sigma, truncate)
+        return _conv1d_along_axis(x, axis, kernel, mode, cval)
+    raise NotImplementedError(
+        f"torch_ndi: gaussian filter order={order} not implemented"
+    )
 
 
 def maximum_filter(
