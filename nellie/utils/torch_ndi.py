@@ -633,3 +633,27 @@ def label(input, structure=None, output=None):  # noqa: A002 - matches scipy API
         output.copy_(labels_out if hasattr(output, "copy_") else labels_np)
         return output, num_features
     return labels_out, num_features
+
+
+def __getattr__(name: str) -> Any:
+    """Trap unknown ``ndi.*`` access with a clear ``NotImplementedError``.
+
+    The shim covers the 9 ``scipy.ndimage`` ops used by the four
+    MPS-onboarded stages (filtering, labelling, networking, hu_tracking).
+    Anything else fires this trap. ``adaptive_run.is_gpu_unavailable_error``
+    recognizes the ``"torch_ndi"`` substring in the message and treats it
+    as "stage not MPS-onboarded yet" so the cascade falls back to CPU
+    rather than crashing.
+
+    Used by Markers (``binary_dilation``, ``distance_transform_edt``),
+    Hierarchy, and VoxelReassigner — none of which are v1-onboarded.
+
+    Only fires for names that aren't already module attributes (Python
+    only consults ``__getattr__`` after the normal lookup fails).
+    """
+    raise NotImplementedError(
+        f"torch_ndi.{name} is not implemented. The MPS shim only covers the "
+        f"9 scipy.ndimage ops used by the four onboarded stages "
+        f"(filtering, labelling, networking, hu_tracking). If you're "
+        f"onboarding a new stage to MPS, add the op here. See PRD #140."
+    )
