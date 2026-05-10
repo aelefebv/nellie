@@ -14,8 +14,19 @@ the pattern in :mod:`tests.test_filtering_perf`,
    without torch+MPS so users on non-Mac hardware (or Macs without
    ``pip install 'nellie[mps]'``) still see green when they run
    ``pytest -m benchmark``.
+3. **Hot-path microbenchmarks** decompose the per-frame matching
+   cost into the dominant kernels surfaced by reading the source:
+   - ``_get_cost_matrix`` end-to-end at N = 100 / 500 / 1000 markers
+     (the dense N×N×F broadcast tensor is the per-frame bottleneck
+     for moderately-large marker counts).
+   - ``_get_difference_matrix`` alone (the broadcast-subtract
+     kernel; also the call site of the float64→float32 silent MPS
+     coercion noted in PRD #140 § Implementation Decisions).
+   - ``_find_best_matches`` decomposed: Python row/col loops vs the
+     underlying ``argmin``/``min`` work — surfaces whether
+     vectorizing the loops would pay off.
 
-The interesting comparison is "MPS time vs CPU time on the same
+The interesting MPS comparison is "MPS time vs CPU time on the same
 fixture"; capturing both as side-by-side ``[perf]`` lines is sufficient
 — we don't gate on the absolute value because hardware varies and
 hu_tracking is the lightest-on-convolutional-ops of the four onboarded
@@ -25,6 +36,12 @@ extraction, dense cost-matrix construction) runs as broadcast
 elementwise ops on the active xp namespace, which on MPS pays the
 torch dispatch overhead per op without much speedup over numpy on
 small fixtures.
+
+The microbenchmarks are **informational** (printed `[perf]` lines, no
+assertions). Filter's three assertions exist because each pinned a
+decision from a real perf pass; here no Hu perf pass has happened
+yet, so assertions would be speculative. The prints scaffold the
+future perf pass.
 """
 
 from __future__ import annotations
@@ -33,6 +50,7 @@ import gc
 import time
 from statistics import median
 
+import numpy as np
 import pytest
 
 from nellie.tracking.hu_tracking import HuMomentTracking, HuMomentTrackingConfig
@@ -169,4 +187,130 @@ def test_hu_tracking_run_baseline_prints_wall_clock_mps(
         print(
             f"\n[perf] HuMomentTracking.run() {dim} (mps) median over 3: "
             f"{elapsed * 1000:.1f} ms"
+        )
+
+
+# -------------------------------------------------------------------------
+# Hot-path microbenchmarks (informational; CPU only)
+# -------------------------------------------------------------------------
+
+# Approximate feature dimensions used by the dense matching path. The
+# absolute values matter less than scaling with N — production hu_tracking
+# uses ~8 stats features per axis and 7 Hu moments (moment 7, the mirror
+# moment, is intentionally omitted per the glossary).
+_F_STATS = 8
+_F_HU = 7
+_NDIM = 3
+
+
+@pytest.fixture
+def hu_tracking_cpu(make_hu_imageinfo_3d):
+    """A HuMomentTracking instance with CPU backend, no run.
+
+    Used to drive the ``_get_cost_matrix`` / ``_get_difference_matrix`` /
+    ``_find_best_matches`` methods with synthetic numpy inputs so the
+    microbenchmarks scale with N without being bound to fixture
+    marker counts.
+    """
+    info = make_hu_imageinfo_3d()
+    h = HuMomentTracking(info, _CPU, num_t=2)
+    yield h
+    _release_hu(h)
+
+
+def _synthesize_match_inputs(
+    n_post: int, n_pre: int, rng: np.random.Generator
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Random ``coords / stats / hu`` arrays at the given pre/post sizes."""
+    coords_post = rng.uniform(0.0, 100.0, size=(n_post, _NDIM)).astype(np.float64)
+    coords_pre = rng.uniform(0.0, 100.0, size=(n_pre, _NDIM)).astype(np.float64)
+    stats_post = rng.normal(0.0, 1.0, size=(n_post, _F_STATS)).astype(np.float32)
+    stats_pre = rng.normal(0.0, 1.0, size=(n_pre, _F_STATS)).astype(np.float32)
+    hu_post = rng.normal(0.0, 1.0, size=(n_post, _F_HU)).astype(np.float32)
+    hu_pre = rng.normal(0.0, 1.0, size=(n_pre, _F_HU)).astype(np.float32)
+    return coords_post, coords_pre, stats_post, stats_pre, hu_post, hu_pre
+
+
+@pytest.mark.parametrize("n", [100, 500, 1000])
+def test_get_cost_matrix_scaling(hu_tracking_cpu, n, capsys) -> None:
+    """`_get_cost_matrix` end-to-end at N = 100, 500, 1000.
+
+    The dense (N_post, N_pre, F) broadcast tensor + the three
+    difference-matrix + z-score paths are the per-frame bottleneck for
+    moderately-large marker counts. Print scaling per N so the
+    quadratic memory + time growth is visible.
+    """
+    h = hu_tracking_cpu
+    rng = np.random.default_rng(11)
+    inputs = _synthesize_match_inputs(n_post=n, n_pre=n, rng=rng)
+
+    # Warm up
+    h._get_cost_matrix(*inputs)
+
+    elapsed = _time_call(lambda: h._get_cost_matrix(*inputs), iters=3)
+
+    with capsys.disabled():
+        print(
+            f"\n[perf] HuMomentTracking._get_cost_matrix N={n} "
+            f"median over 3: {elapsed * 1000:.1f} ms"
+        )
+
+
+@pytest.mark.parametrize("n", [100, 500, 1000])
+def test_get_difference_matrix_scaling(hu_tracking_cpu, n, capsys) -> None:
+    """`_get_difference_matrix` alone — the broadcast-subtract kernel.
+
+    Also the call site of the float64→float32 silent MPS coercion noted
+    in PRD #140 § Implementation Decisions. CPU baseline here; future
+    MPS measurement can compare against it.
+    """
+    h = hu_tracking_cpu
+    rng = np.random.default_rng(13)
+    m1 = rng.normal(0.0, 1.0, size=(n, _F_HU)).astype(np.float32)
+    m2 = rng.normal(0.0, 1.0, size=(n, _F_HU)).astype(np.float32)
+
+    # Warm up
+    h._get_difference_matrix(m1, m2)
+
+    elapsed = _time_call(lambda: h._get_difference_matrix(m1, m2), iters=5)
+
+    with capsys.disabled():
+        print(
+            f"\n[perf] HuMomentTracking._get_difference_matrix N={n} "
+            f"median over 5: {elapsed * 1000:.1f} ms"
+        )
+
+
+@pytest.mark.parametrize("n", [100, 1000])
+def test_find_best_matches_loop_overhead(hu_tracking_cpu, n, capsys) -> None:
+    """Decompose `_find_best_matches`: total + isolated argmin/min vs Python loops.
+
+    The function does row+col argmin (vectorized) followed by two
+    Python loops over N candidates each. Print total + isolated
+    argmin/min cost — the difference is the Python-loop overhead, a
+    candidate for vectorization.
+    """
+    h = hu_tracking_cpu
+    rng = np.random.default_rng(17)
+    cost_matrix = rng.uniform(0.0, 5.0, size=(n, n)).astype(np.float32)
+
+    # Warm up
+    h._find_best_matches(cost_matrix)
+
+    t_total = _time_call(lambda: h._find_best_matches(cost_matrix), iters=5)
+
+    # Isolate the underlying argmin/min that the function calls
+    np.argmin(cost_matrix, axis=1)
+    np.min(cost_matrix, axis=1)
+    t_argmin = _time_call(
+        lambda: (np.argmin(cost_matrix, axis=1), np.min(cost_matrix, axis=1),
+                 np.argmin(cost_matrix, axis=0), np.min(cost_matrix, axis=0)),
+        iters=5,
+    )
+
+    with capsys.disabled():
+        print(
+            f"\n[perf] HuMomentTracking._find_best_matches N={n}: "
+            f"total={t_total * 1000:.2f}ms argmin_min_only={t_argmin * 1000:.2f}ms "
+            f"(loop overhead~{(t_total - t_argmin) * 1000:.2f}ms)"
         )
