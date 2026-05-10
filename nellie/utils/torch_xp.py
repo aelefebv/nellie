@@ -71,7 +71,60 @@ def _torch():
     _TORCH_FLOAT32 = _t.float32
     _TORCH_FLOAT16 = _t.float16
     _TORCH_BOOL = _t.bool
+    _patch_tensor_methods(_t)
     return _TORCH
+
+
+def _patch_tensor_methods(torch_mod) -> None:
+    """Add numpy/cupy-style ``astype`` and ``get`` methods to torch.Tensor.
+
+    Pipeline stages were written against the numpy/cupy contract where
+    ``arr.astype(dtype, copy=...)`` and ``arr.get()`` (cupy-only — moves
+    data to host as a numpy array) are both available as methods. Torch
+    spells the equivalents differently (``arr.to(dtype)`` and
+    ``arr.detach().cpu().numpy()``), so without these patches stages
+    that pass torch tensors through code that calls ``.astype`` or
+    ``.get()`` blow up with ``AttributeError``.
+
+    Patching the Tensor class (rather than wrapping every call site) is
+    the smallest possible diff to onboard existing stages to MPS without
+    touching their internals. The methods only attach if torch.Tensor
+    doesn't already have them — future torch versions could in
+    principle add ``astype`` natively, in which case this becomes a
+    no-op.
+    """
+    Tensor = torch_mod.Tensor
+
+    if not hasattr(Tensor, "astype"):
+        def astype(self, dtype, copy: bool = True):
+            """numpy/cupy-style ``astype``: cast to ``dtype`` with optional copy.
+
+            ``dtype`` accepts torch.dtype, numpy dtype, _LazyDtype proxies,
+            and Python scalar-class strings (``"float32"`` etc.) per
+            :func:`_resolve_dtype`. ``copy=False`` returns ``self`` when
+            the requested dtype already matches; ``copy=True`` (numpy's
+            default) always allocates.
+            """
+            target = _resolve_dtype(dtype)
+            if target is None or self.dtype == target:
+                return self.clone() if copy else self
+            return self.to(target)
+
+        Tensor.astype = astype
+
+    if not hasattr(Tensor, "get"):
+        def get(self):
+            """cupy-style ``get``: copy this tensor's contents to a host numpy array.
+
+            Mirrors :func:`cupy.ndarray.get`. Detaches and moves to CPU
+            first so MPS-resident tensors round-trip cleanly. Existing
+            ``hasattr(arr, "get")`` checks in stage code (originally
+            written for the cupy backend) now also fire on MPS, which
+            is the desired symmetry.
+            """
+            return self.detach().cpu().numpy()
+
+        Tensor.get = get
 
 
 # -----------------------------------------------------------------------------
@@ -88,7 +141,11 @@ class _LazyDtype:
     """Sentinel that resolves to a torch dtype on first attribute access.
 
     Equality and hashing pass through to the underlying torch dtype so
-    callers using ``dtype is xp.float32`` get sensible behavior.
+    callers using ``dtype is xp.float32`` get sensible behavior. Calling
+    the proxy as a constructor (``xp.float32(3.0)``) returns a 0-d
+    tensor of that dtype — mirrors numpy's
+    ``np.float32(3.0)`` scalar-construction idiom that the chunking /
+    closed-form eigenvalue helpers rely on.
     """
 
     __slots__ = ("_name", "_resolve_via")
@@ -115,6 +172,19 @@ class _LazyDtype:
 
     def __hash__(self) -> int:
         return hash(("torch_xp", self._name))
+
+    def __call__(self, value):
+        """Construct a 0-d tensor of this dtype — matches ``np.float32(value)``.
+
+        ``chunking.eigvalsh_3x3_components`` (and any future caller that
+        wants a typed scalar constant) writes ``xp.float32(3.0)`` to
+        keep arithmetic in float32. For numpy this returns a float32
+        scalar; here we return ``torch.tensor(value, dtype=...)`` which
+        is the closest equivalent (torch's elementwise ops accept it as
+        a scalar without upcasting).
+        """
+        torch = _torch()
+        return torch.tensor(value, dtype=self._resolve())
 
 
 float32 = _LazyDtype("float32", "float32")
@@ -350,9 +420,15 @@ def maximum(a, b, *, out=None):
     """numpy-style elementwise max with optional ``out=``.
 
     Supports the ``out=`` write-target convention used in nellie's
-    in-place reductions (see Filter._compute_vesselness loop).
+    in-place reductions (see Filter._compute_vesselness loop) and
+    accepts Python-scalar second-args (numpy lets ``np.maximum(arr, 0)``
+    promote 0 implicitly; torch refuses unless the scalar is wrapped).
     """
     torch = _torch()
+    if not isinstance(a, torch.Tensor):
+        a = torch.as_tensor(a)
+    if not isinstance(b, torch.Tensor):
+        b = torch.as_tensor(b, dtype=a.dtype, device=a.device)
     if out is not None:
         return torch.maximum(a, b, out=out)
     return torch.maximum(a, b)

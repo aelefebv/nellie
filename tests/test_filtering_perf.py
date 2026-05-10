@@ -29,12 +29,26 @@ import scipy.ndimage as scipy_ndi
 
 from nellie.segmentation import frangi_math
 from nellie.segmentation.filtering import Filter, FrangiConfig
-from nellie.utils import chunking
+from nellie.utils import adaptive_run, chunking
 
 
 pytestmark = pytest.mark.benchmark
 
 _CPU = FrangiConfig(device="cpu")
+
+
+def _require_mps() -> None:
+    """Skip the calling MPS benchmark if torch+MPS isn't actually available.
+
+    Used by the ``mps``-marked benchmark variants below. Mirrors the
+    helper in ``test_mps_smoke.py`` so the skip wording is consistent
+    across the test trio.
+    """
+    if not adaptive_run.mps_available():
+        pytest.skip(
+            "torch+MPS not available — install with `pip install 'nellie[mps]'` "
+            "and run on Apple Silicon."
+        )
 
 
 def _release_filter(filt: Filter) -> None:
@@ -265,3 +279,47 @@ def test_closed_form_3d_eigvalsh_beats_lapack(make_imageinfo_3d, capsys) -> None
         f"1.5x faster than LAPACK ({t_lapack * 1000:.1f}ms) — the swap "
         f"may not be worth the added math-stability surface"
     )
+
+
+# -------------------------------------------------------------------------
+# MPS variants of the end-to-end Filter baseline
+#
+# Doubly-marked (``benchmark`` + ``mps``) so they run with either marker
+# explicitly opted in. Skip cleanly when MPS isn't available so users on
+# non-Mac hardware (or Macs without ``pip install 'nellie[mps]'``) still
+# see green when they run ``pytest -m benchmark``.
+# -------------------------------------------------------------------------
+
+@pytest.mark.mps
+@pytest.mark.parametrize("dim", ["2d", "3d"])
+def test_filter_run_baseline_prints_wall_clock_mps(
+    dim, make_imageinfo_2d, make_imageinfo_3d, capsys
+) -> None:
+    """Print a Filter wall-clock baseline on MPS. No assertion — read the output.
+
+    Mirror of :func:`test_filter_run_baseline_prints_wall_clock`. The
+    interesting comparison is "MPS time vs CPU time on the same fixture";
+    capturing both as side-by-side ``[perf]`` lines is sufficient — we
+    don't gate on the absolute value because hardware varies wildly
+    across Mac models.
+    """
+    _require_mps()
+    factory = make_imageinfo_2d if dim == "2d" else make_imageinfo_3d
+    config_mps = FrangiConfig(device="mps")
+
+    def _one_run() -> None:
+        info = factory()
+        filt = Filter(info, config_mps, num_t=2)
+        filt.run()
+        _release_filter(filt)
+
+    # Warm up: first run pays one-time costs (memmap setup, MPS kernel
+    # caches, torch import-time work).
+    _one_run()
+    elapsed = _time_call(_one_run, iters=3)
+
+    with capsys.disabled():
+        print(
+            f"\n[perf] Filter.run() {dim} (mps) median over 3: "
+            f"{elapsed * 1000:.1f} ms"
+        )

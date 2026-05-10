@@ -154,7 +154,10 @@ def compute_hessian(
 
     max_abs = 0.0
     for comp in h_components.values():
-        if comp.size > 0:
+        # ``.size`` is a method on torch.Tensor (returns shape) but an
+        # int attribute on numpy/cupy arrays. Reduce via ``.shape`` so
+        # the empty-component check works on all three backends.
+        if int(np.prod(comp.shape)) > 0:
             max_abs = max(max_abs, float(xp.max(xp.abs(comp))))
     if max_abs <= 0:
         max_abs = 1.0
@@ -212,7 +215,8 @@ def calculate_gamma(
     own the subsampling logic.
     """
     positive = subsample_fn(gauss_volume)
-    if positive.size == 0:
+    # See note in ``compute_hessian`` on ``.size`` cross-backend gotcha.
+    if int(np.prod(positive.shape)) == 0:
         return float(np.finfo(np.float32).eps)
 
     gamma_tri = triangle_threshold(positive, xp=xp)

@@ -94,6 +94,89 @@ def test_zeros_with_explicit_float64_dtype_returns_float32(caplog) -> None:
     assert out.dtype == torch.float32
 
 
+def test_lazy_dtype_call_constructs_typed_scalar() -> None:
+    """``xp.float32(3.0)`` should return a 0-d float32 tensor.
+
+    Mirrors numpy's ``np.float32(3.0)`` — used by
+    ``chunking.eigvalsh_3x3_components`` (and any future caller that
+    needs a typed scalar constant) to keep arithmetic in float32. If
+    this regresses, the closed-form 3x3 eigenvalue path on MPS will
+    crash with "_LazyDtype is not callable".
+    """
+    out = torch_xp.float32(3.0)
+    assert isinstance(out, torch.Tensor)
+    assert out.dtype == torch.float32
+    assert out.ndim == 0
+    assert float(out) == pytest.approx(3.0)
+
+
+def test_lazy_dtype_call_float64_coerces_silently(caplog) -> None:
+    """``xp.float64(3.0)`` should also coerce to float32 (with the log notice)."""
+    torch_xp._FLOAT64_NOTICE_EMITTED = False
+    with caplog.at_level(logging.INFO, logger="nellie.utils.torch_xp"):
+        out = torch_xp.float64(3.0)
+    assert out.dtype == torch.float32
+
+
+def test_tensor_astype_method_added() -> None:
+    """torch.Tensor should expose an ``astype(dtype, copy=...)`` method.
+
+    Patched by ``torch_xp._patch_tensor_methods`` on first ``_torch()``
+    call. Stage code (Filter, frangi_math) was originally written
+    against numpy/cupy where ``arr.astype`` is the canonical cast; the
+    patch extends that contract to torch tensors so MPS goes through
+    the same code paths without per-call wrapping.
+
+    The patch routes the dtype through ``_resolve_dtype``, so a
+    ``float64`` request silently coerces to ``float32`` (with the
+    one-time log notice) — matching the rest of the shim's float64
+    contract.
+    """
+    # Touch the shim so the patch fires.
+    torch_xp._torch()
+    t = torch.zeros(3, dtype=torch.float32)
+    out = t.astype(torch.int64)
+    assert out.dtype == torch.int64
+    # Per numpy semantics, copy=True is the default — even when the
+    # target dtype matches, we should get a fresh tensor.
+    same_dtype = t.astype(torch.float32, copy=True)
+    assert same_dtype.dtype == torch.float32
+    assert same_dtype is not t
+    # copy=False short-circuits when dtype already matches.
+    no_copy = t.astype(torch.float32, copy=False)
+    assert no_copy is t
+
+
+def test_tensor_astype_silently_coerces_float64() -> None:
+    """``tensor.astype(torch.float64)`` should silently downgrade to float32.
+
+    Matches the rest of the shim's float64 contract — MPS doesn't
+    support double precision, so the patched ``astype`` runs the
+    requested dtype through ``_resolve_dtype`` (which emits the
+    one-time log notice and returns float32 for float64 requests).
+    """
+    torch_xp._torch()
+    t = torch.zeros(3, dtype=torch.float32)
+    out = t.astype(torch.float64)
+    assert out.dtype == torch.float32
+
+
+def test_tensor_get_method_added() -> None:
+    """torch.Tensor should expose a ``get()`` method (cupy-compat).
+
+    cupy's ``.get()`` returns a host numpy copy. The patch makes the
+    same idiom work for torch tensors — ``hasattr(arr, "get")``
+    duck-type checks in stage code (e.g. Filter._run_filter line 691)
+    fire on MPS too, so the result moves back to host before being
+    written into the on-disk memmap.
+    """
+    torch_xp._torch()
+    t = torch.tensor([1.0, 2.0, 3.0])
+    out = t.get()
+    assert isinstance(out, np.ndarray)
+    np.testing.assert_array_equal(out, [1.0, 2.0, 3.0])
+
+
 # -----------------------------------------------------------------------------
 # Construction ops
 # -----------------------------------------------------------------------------
