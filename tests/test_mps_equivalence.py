@@ -32,6 +32,7 @@ import numpy as np
 import pytest
 
 from nellie.segmentation.filtering import Filter, FrangiConfig
+from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.utils import adaptive_run
 
 
@@ -63,6 +64,18 @@ def _release_filter(filt: Filter) -> None:
     """
     filt.frangi_memmap = None
     filt.im_memmap = None
+    gc.collect()
+
+
+def _release_label(lbl: Label) -> None:
+    """Drop a Label's memmap references and force gc.
+
+    Mirrors :func:`_release_filter` — same Windows file-lock concern,
+    extra ``instance_label_memmap`` handle to release.
+    """
+    lbl.instance_label_memmap = None
+    lbl.frangi_memmap = None
+    lbl.im_memmap = None
     gc.collect()
 
 
@@ -186,4 +199,155 @@ def test_filter_equivalence_cpu_vs_mps_2d(make_imageinfo_2d, capsys) -> None:
         f"2D vesselness per-voxel max abs diff "
         f"({stats['max_abs_diff']:.3e}) exceeds the float32 tolerance "
         f"of 1e-4 used as the slice acceptance bar."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Label equivalence
+# ---------------------------------------------------------------------------
+
+
+def _run_label(im_info, *, device: str) -> np.ndarray:
+    """Run Label end-to-end on ``device`` and return a numpy copy of the labels."""
+    lbl = Label(im_info, LabelConfig(device=device), num_t=2)
+    lbl.run()
+    out = np.asarray(lbl.instance_label_memmap).copy()
+    _release_label(lbl)
+    return out
+
+
+def _label_iou_max_match(cpu: np.ndarray, mps: np.ndarray) -> float:
+    """Return the mean IoU after matching each MPS label to its best CPU overlap.
+
+    For each foreground id in the MPS frame, find the CPU id with the
+    largest spatial overlap, then compute IoU = |A ∩ B| / |A ∪ B|. Return
+    the mean across MPS ids (background id 0 excluded). MPS ids that
+    don't overlap any CPU foreground voxel score 0.0.
+
+    The PRD #140 § Testing Decisions bar for labelling is "label IoU >
+    0.95". Empirically on this fixture the labels are byte-identical
+    (the structural ``ndi.label`` round-trips to scipy on CPU in both
+    backends; only the upstream ``uniform_filter`` mask thresholding
+    can drift), so this score sits at exactly 1.0 — the > 0.95 bar
+    leaves slack for any future drift introduced by float32 rounding
+    cascading through the mask threshold.
+    """
+    cpu_ids = np.unique(cpu)
+    cpu_ids = cpu_ids[cpu_ids != 0]
+    mps_ids = np.unique(mps)
+    mps_ids = mps_ids[mps_ids != 0]
+    if mps_ids.size == 0:
+        # No foreground in MPS output: return 1.0 if CPU also has no
+        # foreground (perfect agreement on empty), else 0.0.
+        return 1.0 if cpu_ids.size == 0 else 0.0
+
+    ious: list[float] = []
+    for mid in mps_ids:
+        m_mask = mps == int(mid)
+        # Pick the CPU id with the largest overlap with this MPS id.
+        overlaps_with_cpu_ids = cpu[m_mask]
+        overlaps_with_cpu_ids = overlaps_with_cpu_ids[overlaps_with_cpu_ids != 0]
+        if overlaps_with_cpu_ids.size == 0:
+            ious.append(0.0)
+            continue
+        best_cpu = int(np.bincount(overlaps_with_cpu_ids).argmax())
+        c_mask = cpu == best_cpu
+        intersection = int((m_mask & c_mask).sum())
+        union = int((m_mask | c_mask).sum())
+        ious.append(intersection / union if union > 0 else 0.0)
+    return float(np.mean(ious))
+
+
+def _label_diagnostics(cpu: np.ndarray, mps: np.ndarray) -> dict[str, float]:
+    """Summary stats for diagnosing CPU vs MPS Label drift.
+
+    Returned keys:
+        cpu_count / mps_count — total foreground component count
+        cpu_voxels / mps_voxels — total foreground voxel count
+        mean_iou — mean per-MPS-label IoU vs best CPU match
+    """
+    cpu_ids = np.unique(cpu)
+    mps_ids = np.unique(mps)
+    return {
+        "cpu_count": float((cpu_ids != 0).sum()),
+        "mps_count": float((mps_ids != 0).sum()),
+        "cpu_voxels": float((cpu != 0).sum()),
+        "mps_voxels": float((mps != 0).sum()),
+        "mean_iou": _label_iou_max_match(cpu, mps),
+    }
+
+
+def test_label_equivalence_cpu_vs_mps_3d(make_label_imageinfo_3d, capsys) -> None:
+    """``Label.run()`` on the 3D yeast fixture: CPU vs MPS within IoU tolerance.
+
+    Tolerances:
+      - ``mean_iou >= 0.95`` — PRD #140 § Testing Decisions bar.
+
+    Note on tightness: the structural ``ndi.label`` and
+    ``binary_fill_holes`` ops round-trip to scipy on CPU in both
+    backends, so the only source of CPU/MPS drift is the convolutional
+    ``uniform_filter`` (and the upstream Frangi memmap they share —
+    which is precomputed once on CPU by the conftest cache, so it's
+    byte-identical here). Empirically labels come out byte-identical on
+    this hardware (mean_iou = 1.0); the > 0.95 bar leaves headroom for
+    any future drift that float32 ``uniform_filter`` rounding might
+    cascade through the mask threshold.
+    """
+    _require_mps()
+
+    cpu_out = _run_label(make_label_imageinfo_3d(), device="cpu")
+    mps_out = _run_label(make_label_imageinfo_3d(), device="mps")
+
+    assert mps_out.shape == cpu_out.shape
+    assert mps_out.dtype == cpu_out.dtype == np.int32
+
+    stats = _label_diagnostics(cpu_out, mps_out)
+
+    with capsys.disabled():
+        print(
+            f"\n[mps eq label 3D] cpu_count={int(stats['cpu_count'])} "
+            f"mps_count={int(stats['mps_count'])} "
+            f"cpu_voxels={int(stats['cpu_voxels'])} "
+            f"mps_voxels={int(stats['mps_voxels'])} "
+            f"mean_iou={stats['mean_iou']:.4f}"
+        )
+
+    assert stats["mean_iou"] >= 0.95, (
+        f"3D Label mean IoU between CPU and MPS dropped to "
+        f"{stats['mean_iou']:.3f}; expected >= 0.95 per PRD #140 "
+        f"§ Testing Decisions."
+    )
+
+
+def test_label_equivalence_cpu_vs_mps_2d(make_label_imageinfo_2d, capsys) -> None:
+    """``Label.run()`` on the 2D yeast fixture: CPU vs MPS within IoU tolerance.
+
+    Same > 0.95 bar as the 3D test. The 2D path skips
+    ``binary_fill_holes`` (only 3D fills holes — see
+    ``Label._get_labels``) so the op surface exercised here is even
+    smaller; expect equally tight or tighter agreement.
+    """
+    _require_mps()
+
+    cpu_out = _run_label(make_label_imageinfo_2d(), device="cpu")
+    mps_out = _run_label(make_label_imageinfo_2d(), device="mps")
+
+    assert mps_out.shape == cpu_out.shape
+    assert mps_out.dtype == cpu_out.dtype == np.int32
+
+    stats = _label_diagnostics(cpu_out, mps_out)
+
+    with capsys.disabled():
+        print(
+            f"\n[mps eq label 2D] cpu_count={int(stats['cpu_count'])} "
+            f"mps_count={int(stats['mps_count'])} "
+            f"cpu_voxels={int(stats['cpu_voxels'])} "
+            f"mps_voxels={int(stats['mps_voxels'])} "
+            f"mean_iou={stats['mean_iou']:.4f}"
+        )
+
+    assert stats["mean_iou"] >= 0.95, (
+        f"2D Label mean IoU between CPU and MPS dropped to "
+        f"{stats['mean_iou']:.3f}; expected >= 0.95 per PRD #140 "
+        f"§ Testing Decisions."
     )

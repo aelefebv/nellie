@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from nellie.segmentation.filtering import Filter, FrangiConfig
+from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.utils import adaptive_run
 
 
@@ -51,6 +52,18 @@ def _release_filter(filt: Filter) -> None:
     """
     filt.frangi_memmap = None
     filt.im_memmap = None
+    gc.collect()
+
+
+def _release_label(lbl: Label) -> None:
+    """Drop a Label's memmap references and force gc.
+
+    Mirrors :func:`_release_filter` — same Windows file-lock concern,
+    extra ``instance_label_memmap`` handle to release.
+    """
+    lbl.instance_label_memmap = None
+    lbl.frangi_memmap = None
+    lbl.im_memmap = None
     gc.collect()
 
 
@@ -161,3 +174,66 @@ def test_filter_smoke_synthetic_3d(tmp_path) -> None:
     assert out.dtype == np.float32
     assert np.isfinite(out).all()
     assert out.min() >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Label smoke
+# ---------------------------------------------------------------------------
+
+
+def _run_label(im_info, *, device: str) -> np.ndarray:
+    """Run Label end-to-end on ``device`` and return a numpy copy of the labels.
+
+    The factory fixtures (``make_label_imageinfo_*``) pre-populate the
+    Frangi memmap from a session cache, so this only pays the Label
+    cost — not Filter on top.
+    """
+    lbl = Label(im_info, LabelConfig(device=device), num_t=2)
+    lbl.run()
+    out = np.asarray(lbl.instance_label_memmap).copy()
+    _release_label(lbl)
+    return out
+
+
+def test_label_smoke_3d(make_label_imageinfo_3d) -> None:
+    """``Label.run()`` end-to-end on MPS — 3D path doesn't crash, shape/dtype match CPU.
+
+    Exercises the convolutional ``uniform_filter`` call inside
+    ``_get_labels`` on the MPS shim, alongside the structural
+    ``binary_fill_holes`` and ``label`` round-trips back to scipy on
+    CPU. Per PRD #140 § Implementation Decisions, labelling is a
+    *partial-acceleration* story: only ``uniform_filter`` runs on MPS.
+
+    The CPU baseline is rerun in-process so the parity check is robust
+    to fixture-resolution drift across machines / torch versions.
+    """
+    _require_mps()
+
+    cpu_out = _run_label(make_label_imageinfo_3d(), device="cpu")
+    mps_out = _run_label(make_label_imageinfo_3d(), device="mps")
+
+    assert mps_out.shape == cpu_out.shape, (
+        f"MPS labels shape {mps_out.shape} != CPU shape {cpu_out.shape}"
+    )
+    assert mps_out.dtype == cpu_out.dtype == np.int32
+    # Labels are non-negative integer IDs — background is 0, foreground IDs > 0.
+    assert mps_out.min() == 0
+    assert (mps_out == 0).any(), "Expected at least some background voxels"
+
+
+def test_label_smoke_2d(make_label_imageinfo_2d) -> None:
+    """``Label.run()`` end-to-end on MPS — 2D path.
+
+    The 2D path skips ``binary_fill_holes`` (only 3D fills holes —
+    see ``Label._get_labels``) so it exercises a slightly smaller op
+    surface than the 3D smoke. Same shape/dtype contract.
+    """
+    _require_mps()
+
+    cpu_out = _run_label(make_label_imageinfo_2d(), device="cpu")
+    mps_out = _run_label(make_label_imageinfo_2d(), device="mps")
+
+    assert mps_out.shape == cpu_out.shape
+    assert mps_out.dtype == cpu_out.dtype == np.int32
+    assert mps_out.min() == 0
+    assert (mps_out == 0).any()

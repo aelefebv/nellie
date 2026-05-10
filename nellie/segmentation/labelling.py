@@ -16,6 +16,34 @@ from nellie.utils.gpu_functions import otsu_threshold, triangle_threshold
 _UNSET = object()
 
 
+def _probe_torch_backend():
+    """Resolve the torch+MPS backend tuple once at import time.
+
+    Returns ``(torch_xp, torch_ndi, torch.Tensor)`` or ``None`` when
+    torch is unavailable. Mirrors the cupy probe used elsewhere in the
+    pipeline (see :func:`nellie.segmentation.filtering._probe_torch_backend`)
+    so :func:`Label._xp_for_array` can dispatch torch tensors back to
+    the ``torch_xp`` / ``torch_ndi`` shim instead of falling through to
+    numpy. Without this, helpers like
+    :func:`Label._compute_frangi_threshold` would call ``np.log10`` on a
+    torch tensor (and worse, hand the tensor to ``otsu_threshold`` /
+    ``triangle_threshold`` with the wrong ``xp=`` namespace), losing the
+    GPU residency.
+    """
+    try:
+        import torch
+
+        from nellie.utils import torch_ndi as _torch_ndi
+        from nellie.utils import torch_xp as _torch_xp
+
+        return (_torch_xp, _torch_ndi, torch.Tensor)
+    except Exception:
+        return None
+
+
+_TORCH_BACKEND = _probe_torch_backend()
+
+
 @dataclass(frozen=True)
 class LabelConfig:
     """Algorithm configuration for ``Label``.
@@ -266,6 +294,13 @@ class Label:
         return max(1, chunk_z)
 
     def _xp_for_array(self, arr):
+        # Check torch first since the per-call cupy import is more
+        # expensive than the cached ``isinstance`` test. Both arms use
+        # the module-load-time probes (see ``_TORCH_BACKEND``); per-call
+        # ``import cupy`` was the prior shape and is preserved as the
+        # fallback for legacy CuPy installs that the probe might miss.
+        if _TORCH_BACKEND is not None and isinstance(arr, _TORCH_BACKEND[2]):
+            return _TORCH_BACKEND[0]
         try:
             import cupy
             if isinstance(arr, cupy.ndarray):
@@ -305,7 +340,10 @@ class Label:
         sampled values only to avoid allocating a full-size mask.
         """
         flat = frame.reshape(-1)
-        if flat.size == 0:
+        # ``.size`` is an int on numpy/cupy but a method on torch.Tensor;
+        # reduce via ``.shape`` for backend-agnostic element-count checks
+        # (mirrors the pattern in :mod:`nellie.segmentation.filtering`).
+        if int(np.prod(flat.shape)) == 0:
             return flat
 
         mask_flat = None
@@ -318,7 +356,7 @@ class Label:
             mask_mode = "thresh"
 
         max_samples = max(1, int(self.threshold_sampling_pixels))
-        step = max(int(flat.size) // max_samples, 1)
+        step = max(int(np.prod(flat.shape)) // max_samples, 1)
         offsets = (0, step // 2) if step > 1 and step // 2 > 0 else (0,)
 
         values = flat[:0]
@@ -333,7 +371,7 @@ class Label:
             else:
                 values = sample[sample > 0]
 
-            if values.size > 0 or step == 1:
+            if int(np.prod(values.shape)) > 0 or step == 1:
                 return values
 
         try:
@@ -356,7 +394,8 @@ class Label:
         Compute a combined triangle/Otsu threshold for a given frame (Frangi).
         """
         values = self._sample_nonzero(frame, mask_frame=mask_frame, mask_thresh=mask_thresh)
-        if values.size == 0:
+        # Backend-agnostic element-count check — see ``.size`` note above.
+        if int(np.prod(values.shape)) == 0:
             return None
 
         # work in log10 domain to match original logic
@@ -373,7 +412,8 @@ class Label:
         Compute Otsu threshold on the original intensity frame using sampling.
         """
         values = self._sample_nonzero(frame)
-        if values.size == 0:
+        # Backend-agnostic element-count check — see ``.size`` note above.
+        if int(np.prod(values.shape)) == 0:
             return None
         thresh, _ = otsu_threshold(values, nbins=self.histogram_nbins)
         return thresh
@@ -398,12 +438,14 @@ class Label:
         # Connected component labeling
         labels, _ = self.ndi.label(mask, structure=self.footprint)
 
-        # Remove very small objects using bincount + lookup table
-        if labels.size == 0:
+        # Remove very small objects using bincount + lookup table.
+        # ``.size`` is a method on torch.Tensor (an int on numpy/cupy);
+        # reduce via ``.shape`` for backend-agnostic count semantics.
+        if int(np.prod(labels.shape)) == 0:
             return mask, labels
 
         areas = self.xp.bincount(labels.ravel())
-        if areas.size <= 1:
+        if int(np.prod(areas.shape)) <= 1:
             return mask, labels
 
         areas[0] = 0  # ignore background
@@ -465,12 +507,16 @@ class Label:
             _, labels = self._get_labels(frangi_in_mem, frangi_thresh=frangi_thresh)
             return labels
         except Exception as exc:
-            if adaptive_run.is_oom_error(exc) and self.device_type == "cuda":
+            # Inner cascade fires for any GPU backend (cupy on CUDA, torch on
+            # MPS) — both can OOM on the full-volume Frangi load and benefit
+            # from the chunked-Z fallback / CPU switch below.
+            if adaptive_run.is_oom_error(exc) and self.device_type in ("cuda", "mps"):
                 adaptive_run.free_gpu_memory(self.xp)
                 if not self.im_info.no_z:
                     logger.warning(
-                        "CUDA OOM during full-volume labeling; "
-                        "falling back to chunked Z processing."
+                        "%s OOM during full-volume labeling; "
+                        "falling back to chunked Z processing.",
+                        self.device_type.upper(),
                     )
                     self._run_frame_chunked_z(
                         t,
@@ -481,7 +527,10 @@ class Label:
                         initial_chunk=frangi_view.shape[0],
                     )
                     return None
-                logger.warning("CUDA OOM during full-volume labeling; switching to CPU.")
+                logger.warning(
+                    "%s OOM during full-volume labeling; switching to CPU.",
+                    self.device_type.upper(),
+                )
                 self._set_backend("cpu")
                 return self._run_frame_full_volume(
                     t,
@@ -503,7 +552,12 @@ class Label:
             # No Z dimension: fall back to full-volume 2D processing
             labels = self._run_frame_full_volume(t, original_view, frangi_view, intensity_thresh, frangi_thresh)
             if labels is not None:
-                if self.device_type == 'cuda':
+                # Duck-type the GPU round-trip: ``hasattr(arr, "get")``
+                # fires on cupy.ndarray natively and on torch.Tensor via
+                # the shim's ``_patch_tensor_methods``. Brings the cuda
+                # and mps paths into sync — same idiom slice 2 used in
+                # ``filtering.py`` ``_run_frame_chunked``.
+                if hasattr(labels, "get"):
                     labels = labels.get()
                 self.instance_label_memmap[t, ...] = labels
             return
@@ -543,8 +597,10 @@ class Label:
                 # Labeling on Frangi chunk
                 _, labels_chunk = self._get_labels(frangi_chunk, frangi_thresh=frangi_thresh)
 
-                # Offset labels to make them unique within the frame
-                if labels_chunk.size > 0:
+                # Offset labels to make them unique within the frame.
+                # ``.size`` is a method on torch.Tensor — count via shape
+                # for backend-agnostic semantics.
+                if int(np.prod(labels_chunk.shape)) > 0:
                     max_label_chunk = int(labels_chunk.max())
                 else:
                     max_label_chunk = 0
@@ -554,8 +610,11 @@ class Label:
                     labels_chunk[labels_chunk > 0] += frame_label_offset
                     frame_label_offset += max_label_chunk
 
-                # Move to host if on CUDA and write to memmap
-                if self.device_type == 'cuda':
+                # Move to host on any GPU backend (cupy on CUDA, torch
+                # on MPS via shim) so the union-find boundary stitching
+                # below operates on numpy. Same duck-type idiom slice 2
+                # used in ``filtering.py``.
+                if hasattr(labels_chunk, "get"):
                     labels_chunk = labels_chunk.get()
 
                 if prev_boundary is not None and labels_chunk.size > 0:
@@ -589,7 +648,10 @@ class Label:
                             f'reducing chunk_z to {current_chunk}.'
                         )
                         continue
-                    if self.device_type == "cuda":
+                    # Both GPU backends (cupy on CUDA, torch on MPS)
+                    # benefit from the chunk_z=1 → CPU escape hatch; the
+                    # cuda-only narrowing predates the MPS onboard.
+                    if self.device_type in ("cuda", "mps"):
                         logger.warning('OOM even with chunk_z=1; switching to CPU.')
                         self._set_backend("cpu")
                         continue
@@ -635,7 +697,9 @@ class Label:
                     frangi_thresh,
                 )
                 if labels is not None:
-                    if self.device_type == 'cuda':
+                    # Duck-type GPU round-trip — cupy.ndarray.get() and
+                    # torch.Tensor.get() (via shim) both return numpy.
+                    if hasattr(labels, "get"):
                         labels = labels.get()
                     self.instance_label_memmap[t, ...] = labels
 
