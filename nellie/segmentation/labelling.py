@@ -199,10 +199,21 @@ class Label:
         return max(1, int(np.ceil(volume_px)))
 
     def _uf_find(self, parent, x):
-        root = parent.get(x, x)
-        if root != x:
-            root = self._uf_find(parent, root)
+        # Iterative two-pass path compression. The recursive form
+        # (one call per chain link) overflows ``sys.recursion_limit``
+        # on pathological cross-chunk merge chains — see
+        # ``test_uf_find_handles_pathological_chain``.
+        root = x
+        while True:
+            nxt = parent.get(root, root)
+            if nxt == root:
+                break
+            root = nxt
+        # Compress: point every node on the walked path directly at root.
+        while x != root:
+            nxt = parent[x]
             parent[x] = root
+            x = nxt
         return root
 
     def _uf_union(self, parent, rank, a, b):
@@ -494,12 +505,16 @@ class Label:
         logger.info(f'Running semantic segmentation, volume {t}/{self.num_t - 1}')
 
         try:
-            # Load full timepoint volume into xp array
-            original_in_mem = self.xp.asarray(original_view)
+            # Load full timepoint volume into xp array. ``original_view``
+            # is only consumed for the optional intensity mask, so skip
+            # the host→device copy when no intensity threshold was set
+            # (the common case unless ``otsu_thresh_intensity`` or an
+            # explicit ``threshold`` was given).
             frangi_in_mem = self.xp.asarray(frangi_view)
 
             # Optional intensity-based masking (read-only)
             if intensity_thresh is not None:
+                original_in_mem = self.xp.asarray(original_view)
                 mask = original_in_mem > intensity_thresh
                 frangi_in_mem = frangi_in_mem * mask
 
@@ -581,16 +596,20 @@ class Label:
         while z_start < z_dim:
             z_end = min(z_start + current_chunk, z_dim)
 
-            # Extract CPU chunks from memmap
-            original_chunk_cpu = original_view[z_start:z_end, ...]
+            # Extract CPU chunks from memmap. ``original_view`` is only
+            # consumed for the optional intensity mask, so skip the
+            # host→device copy of the original chunk when no intensity
+            # threshold was set (mirrors the guard in
+            # ``_run_frame_full_volume``).
             frangi_chunk_cpu = frangi_view[z_start:z_end, ...]
 
             try:
-                original_chunk = self.xp.asarray(original_chunk_cpu)
                 frangi_chunk = self.xp.asarray(frangi_chunk_cpu)
 
                 # Optional intensity-based masking per chunk (read-only)
                 if intensity_thresh is not None:
+                    original_chunk_cpu = original_view[z_start:z_end, ...]
+                    original_chunk = self.xp.asarray(original_chunk_cpu)
                     mask = original_chunk > intensity_thresh
                     frangi_chunk = frangi_chunk * mask
 

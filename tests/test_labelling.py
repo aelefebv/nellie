@@ -309,6 +309,31 @@ def test_otsu_thresh_intensity_changes_output(make_label_imageinfo_3d) -> None:
     )
 
 
+def test_chunked_z_with_intensity_mask_matches_full_volume(make_label_imageinfo_3d) -> None:
+    """Chunked-Z + ``otsu_thresh_intensity=True`` produces the same per-frame
+    component count as the full-volume path with the same intensity mask.
+
+    Pins the chunked intensity-mask path: ``_run_frame_chunked_z`` applies
+    the per-chunk intensity mask exactly as ``_run_frame_full_volume``
+    applies it whole-volume. A regression here would mean the chunked
+    path drifted from the full-volume path under intensity masking — which
+    is the exact code area I'm about to refactor (the
+    ``frangi = frangi * mask`` allocation skip can only be safe if the
+    masking semantics survive both paths).
+    """
+    full = _run_label(make_label_imageinfo_3d(), otsu_thresh_intensity=True)
+    chunked = _run_label(
+        make_label_imageinfo_3d(), otsu_thresh_intensity=True, chunk_z=4
+    )
+
+    full_counts = _label_count_per_frame(full)
+    chunked_counts = _label_count_per_frame(chunked)
+    assert full_counts == chunked_counts, (
+        f"Chunked-Z + intensity-mask diverged from full-volume "
+        f"(full={full_counts}, chunked={chunked_counts})"
+    )
+
+
 def test_explicit_threshold_parameter_honored(make_label_imageinfo_3d) -> None:
     """An explicit ``threshold`` engages the intensity-mask path with a
     fixed value (instead of computing it via Otsu). Output therefore
@@ -416,3 +441,42 @@ def test_label_config_threshold_negative_ok() -> None:
     LabelConfig(threshold=-5.0)
     LabelConfig(threshold=0.0)
     LabelConfig(threshold=None)
+
+
+# -------------------------------------------------------------------------
+# Union-find primitives (used by the chunked-Z stitching pass)
+# -------------------------------------------------------------------------
+
+def test_uf_find_handles_pathological_chain(imageinfo_3d) -> None:
+    """``_uf_find`` returns the root for a chain longer than Python's recursion limit.
+
+    The yeast fixture's union-find chains stay short (a handful of
+    cross-chunk merges per frame), and ``_uf_union``'s rank balancing +
+    path compression keeps real-world trees shallow. To actually pin the
+    recursion-vs-iteration distinction we build a worst-case parent
+    dict manually: a 2000-deep chain that requires the same number of
+    walk steps to resolve. Python's default ``sys.recursion_limit`` is
+    1000, so a recursive ``_uf_find`` would raise ``RecursionError`` on
+    this input.
+
+    Doubles as the regression guard against any future revert to the
+    recursive implementation, and against introducing
+    cross-frame-state leaks (we explicitly skip ``_uf_union`` to
+    construct the worst-case input shape that the algorithm must
+    nonetheless handle).
+    """
+    import sys
+
+    lbl = Label(imageinfo_3d, LabelConfig(device="cpu"), num_t=2)
+    n = sys.getrecursionlimit() + 500
+    # parent[i] = i+1 for i in [1, n); n is its own root. Walking from
+    # 1 requires n-1 dereferences before hitting the self-loop.
+    parent = {i: i + 1 for i in range(1, n)}
+    parent[n] = n
+
+    root = lbl._uf_find(parent, 1)
+    assert root == n
+    # After the first call, path compression should have flattened the
+    # chain so subsequent finds are cheap and consistent.
+    assert lbl._uf_find(parent, n // 2) == n
+    assert lbl._uf_find(parent, n - 1) == n
