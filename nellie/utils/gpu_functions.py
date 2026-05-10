@@ -39,8 +39,12 @@ def otsu_threshold(matrix, nbins=256, xp=None):
     weight1 = xp.cumsum(counts)
     mean1 = xp.cumsum(counts * bin_centers) / weight1
 
-    weight2 = xp.cumsum(counts[::-1])[::-1]
-    mean2 = (xp.cumsum((counts * bin_centers)[::-1]) / weight2[::-1])[::-1]
+    # Negative-step slicing isn't supported on torch tensors — use the
+    # backend's ``flip`` (works on numpy/cupy/torch alike) instead.
+    counts_rev = xp.flip(counts, axis=0)
+    weight2 = xp.flip(xp.cumsum(counts_rev), axis=0)
+    cb_rev = xp.flip(counts * bin_centers, axis=0)
+    mean2 = xp.flip(xp.cumsum(cb_rev) / xp.flip(weight2, axis=0), axis=0)
 
     variance12 = weight1[:-1] * weight2[1:] * (mean1[:-1] - mean2[1:]) ** 2
 

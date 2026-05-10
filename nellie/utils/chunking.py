@@ -250,6 +250,17 @@ def _downsample(arr: np.ndarray, strides: tuple[int, ...]) -> np.ndarray:
     return arr[slices]
 
 
+def _size(arr: Any) -> int:
+    """Return total element count of an array-like, backend-agnostic.
+
+    numpy/cupy expose ``.size`` as an integer attribute. torch.Tensor
+    exposes ``.size()`` as a method (returns the shape tuple), so the
+    plain ``arr.size`` access blows up under MPS. Reduce via
+    ``arr.shape`` instead — supported by every backend.
+    """
+    return int(np.prod(arr.shape))
+
+
 def subsample_for_thresholds(
     arr: np.ndarray,
     max_samples: int,
@@ -264,14 +275,15 @@ def subsample_for_thresholds(
     ``xp`` is currently unused but reserved for future backend-aware
     optimizations (e.g., GPU-side fancy indexing variants).
     """
-    if arr.size == 0:
+    if _size(arr) == 0:
         return arr
     strides = _sample_strides(arr.shape, max_samples)
     arr = _downsample(arr, strides)
     arr = arr[arr > 0]
-    if arr.size == 0:
+    n = _size(arr)
+    if n == 0:
         return arr
-    if arr.size > max_samples:
-        stride = max(1, arr.size // max_samples)
+    if n > max_samples:
+        stride = max(1, n // max_samples)
         arr = arr[::stride]
     return arr

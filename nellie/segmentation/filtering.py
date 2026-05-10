@@ -33,7 +33,27 @@ def _probe_cupy_backend():
         return None
 
 
+def _probe_torch_backend():
+    """Resolve the torch+MPS backend tuple once at import time.
+
+    Returns ``(torch_xp, torch_ndi, torch.Tensor)`` or ``None`` when
+    torch is unavailable. Mirrors :func:`_probe_cupy_backend` so
+    ``_backend_for_array`` can dispatch torch tensors through the
+    correct shim instead of (incorrectly) falling through to numpy.
+    """
+    try:
+        import torch
+
+        from nellie.utils import torch_ndi as _torch_ndi
+        from nellie.utils import torch_xp as _torch_xp
+
+        return (_torch_xp, _torch_ndi, torch.Tensor)
+    except Exception:
+        return None
+
+
 _CUPY_BACKEND = _probe_cupy_backend()
+_TORCH_BACKEND = _probe_torch_backend()
 
 
 @dataclass(frozen=True)
@@ -210,12 +230,18 @@ class Filter:
         return int(rmin), int(rmax), int(cmin), int(cmax)
 
     def _backend_for_array(self, arr):
-        # `_CUPY_BACKEND` is probed once at module import; this dispatcher
-        # is hot (called per frame in `_run_filter`, per call in
-        # `_mask_volume` / `_bbox`), so the per-call try/except + import
-        # the original did was pure overhead on CuPy-less installs.
+        # `_CUPY_BACKEND` / `_TORCH_BACKEND` are probed once at module
+        # import; this dispatcher is hot (called per frame in
+        # `_run_filter`, per call in `_mask_volume` / `_bbox`), so the
+        # per-call try/except + import the original did was pure
+        # overhead on CuPy-less installs. The torch arm makes Filter
+        # treat ``device="mps"`` the same way: a torch tensor flowing
+        # through ``_mask_volume`` / ``_bbox`` / ``_run_filter`` gets
+        # the torch_xp / torch_ndi shim back, not numpy + scipy.
         if _CUPY_BACKEND is not None and isinstance(arr, _CUPY_BACKEND[2]):
             return _CUPY_BACKEND[0], _CUPY_BACKEND[1]
+        if _TORCH_BACKEND is not None and isinstance(arr, _TORCH_BACKEND[2]):
+            return _TORCH_BACKEND[0], _TORCH_BACKEND[1]
         return np, scipy_ndi
 
     def _get_spacing(self, ndim):
@@ -319,7 +345,9 @@ class Filter:
                 frobenius_norm[~inf_mask] if has_infs else frobenius_norm
             )
             positive = self._subsample_for_thresholds(threshold_input)
-            if positive.size == 0:
+            # ``.size`` is a method on torch.Tensor, an int on numpy/cupy
+            # arrays. Reduce via ``.shape`` for backend-agnostic count.
+            if int(np.prod(positive.shape)) == 0:
                 frobenius_threshold = 0.0
             else:
                 frob_triangle_thresh = triangle_threshold(positive, xp=self.xp)
@@ -389,7 +417,8 @@ class Filter:
         will be zeroed anyway.
         """
         coords = self.xp.where(h_mask)
-        total_voxels = int(coords[0].size)
+        # Torch's ``.size`` is a method, not an attribute — reduce via shape.
+        total_voxels = int(np.prod(coords[0].shape))
         template = next(iter(h_components.values()))
         if total_voxels == 0:
             return self.xp.zeros_like(template, dtype=self.work_dtype)
@@ -423,7 +452,7 @@ class Filter:
         """
         template = next(iter(h_components.values()))
         shape = template.shape
-        total = template.size
+        total = int(np.prod(shape))
         if total == 0:
             return self.xp.zeros_like(template, dtype=self.work_dtype)
 
@@ -535,7 +564,11 @@ class Filter:
                         chunk_xp, mask=mask
                     )
                     vessel_chunk *= mask_chunk
-                    if self.device_type == "cuda":
+                    # ``hasattr(arr, "get")`` is the canonical "is this on a
+                    # GPU backend?" duck-type check — cupy.ndarray has it
+                    # natively, and ``torch_xp._patch_tensor_methods`` adds
+                    # it to torch.Tensor so MPS goes through the same path.
+                    if hasattr(vessel_chunk, "get"):
                         vessel_chunk = vessel_chunk.get()
                         if mask_out is not None:
                             mask_chunk = mask_chunk.get()
@@ -557,7 +590,9 @@ class Filter:
                         self.xp, self.ndi, self.work_dtype,
                     )
                     blobness = self.xp.maximum(blobness, 0)
-                    if self.device_type == "cuda":
+                    # Same hasattr-driven duck-type as the chunked vessel
+                    # path above — covers cupy and torch+MPS uniformly.
+                    if hasattr(blobness, "get"):
                         blobness = blobness.get()
                     np.maximum(vessel_out, blobness, out=vessel_out)
 
@@ -624,7 +659,8 @@ class Filter:
         """
         xp, ndi = self._backend_for_array(frangi_frame)
         positive = self._subsample_for_thresholds(frangi_frame)
-        if positive.size == 0:
+        # Backend-agnostic empty check — see ``.size`` cross-backend note.
+        if int(np.prod(positive.shape)) == 0:
             return frangi_frame
 
         # Use a low percentile to keep faint vessels
@@ -640,8 +676,9 @@ class Filter:
         around the bounding box.
         """
         if self.im_info.no_z:
-            # 2D case
-            if frangi_frame.size == 0:
+            # 2D case. ``.size`` is a method on torch.Tensor and an int
+            # on numpy/cupy — reduce via shape for backend-agnostic count.
+            if int(np.prod(frangi_frame.shape)) == 0:
                 return frangi_frame
             rmin, rmax, cmin, cmax = self._bbox(frangi_frame)
             height = max(0, rmax - rmin + 1)
@@ -656,7 +693,7 @@ class Filter:
             margin = 15
             for z_idx in range(num_z):
                 slice_im = frangi_frame[z_idx, ...]
-                if slice_im.size == 0:
+                if int(np.prod(slice_im.shape)) == 0:
                     continue
                 rmin, rmax, cmin, cmax = self._bbox(slice_im)
                 height = max(0, rmax - rmin + 1)
