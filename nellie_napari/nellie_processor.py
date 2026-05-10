@@ -323,14 +323,18 @@ class NellieProcessor(QWidget):
             Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
-            show_info(f"Nellie is running: Preprocessing file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            Filter(
+            stage = Filter(
                 im_info=self.current_im_info,
                 config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            ).run()
+            )
+            show_info(
+                f"Nellie is running: Preprocessing file {im_num + 1}/{len(im_info_list)} "
+                f"on {stage.device_type.upper()}"
+            )
+            stage.run()
 
     def run_preprocessing(self):
         """
@@ -372,20 +376,26 @@ class NellieProcessor(QWidget):
             Optional per-step override for Network's number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
-            show_info(f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            Label(
+            label_stage = Label(
                 im_info=self.current_im_info,
                 config=label_config,
                 viewer=self.viewer,
                 num_t=label_num_t,
-            ).run()
-            Network(
+            )
+            network_stage = Network(
                 im_info=self.current_im_info,
                 config=network_config,
                 viewer=self.viewer,
                 num_t=network_num_t,
-            ).run()
+            )
+            show_info(
+                f"Nellie is running: Segmentation file {im_num + 1}/{len(im_info_list)} "
+                f"on {label_stage.device_type.upper()} (label) + "
+                f"{network_stage.device_type.upper()} (network)"
+            )
+            label_stage.run()
+            network_stage.run()
 
     def run_segmentation(self):
         """
@@ -421,14 +431,18 @@ class NellieProcessor(QWidget):
             Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
-            show_info(f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            Markers(
+            stage = Markers(
                 im_info=self.current_im_info,
                 config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            ).run()
+            )
+            show_info(
+                f"Nellie is running: Mocap Marking file {im_num + 1}/{len(im_info_list)} "
+                f"on {stage.device_type.upper()}"
+            )
+            stage.run()
 
     def run_mocap(self):
         """
@@ -459,14 +473,18 @@ class NellieProcessor(QWidget):
             Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
-            show_info(f"Nellie is running: Tracking file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            HuMomentTracking(
+            stage = HuMomentTracking(
                 im_info=self.current_im_info,
                 config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            ).run()
+            )
+            show_info(
+                f"Nellie is running: Tracking file {im_num + 1}/{len(im_info_list)} "
+                f"on {stage.device_type.upper()}"
+            )
+            stage.run()
 
     def run_tracking(self):
         """
@@ -502,14 +520,18 @@ class NellieProcessor(QWidget):
             Optional per-step override for number of timepoints.
         """
         for im_num, im_info in enumerate(im_info_list):
-            show_info(f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            VoxelReassigner(
+            stage = VoxelReassigner(
                 im_info=self.current_im_info,
                 config=config,
                 viewer=self.viewer,
                 num_t=num_t,
-            ).run()
+            )
+            show_info(
+                f"Nellie is running: Voxel Reassignment file {im_num + 1}/{len(im_info_list)} "
+                f"on {stage.device_type.upper()}"
+            )
+            stage.run()
 
     def run_reassign(self):
         """
@@ -545,13 +567,17 @@ class NellieProcessor(QWidget):
             Whether to remove intermediate files after each Hierarchy run.
         """
         for im_num, im_info in enumerate(im_info_list):
-            show_info(f"Nellie is running: Feature export file {im_num + 1}/{len(im_info_list)}")
             self.current_im_info = im_info
-            Hierarchy(
+            stage = Hierarchy(
                 im_info=self.current_im_info,
                 config=config,
                 viewer=self.viewer,
-            ).run()
+            )
+            show_info(
+                f"Nellie is running: Feature export file {im_num + 1}/{len(im_info_list)} "
+                f"on {stage.device_type.upper()}"
+            )
+            stage.run()
             if remove_intermediates_checked:
                 try:
                     self.current_im_info.remove_intermediates()
