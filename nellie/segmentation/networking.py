@@ -159,11 +159,16 @@ class Network:
         """
         Convert an array to the backend array type (xp).
         """
-        # xp is numpy when running on CPU and cupy when on GPU.
+        # xp is numpy on CPU, cupy on CUDA, and the torch_xp shim on MPS.
         try:
             return self.xp.asarray(arr)
         except Exception as e:
-            if self.device_type == "cuda":
+            # Both GPU backends (cupy on CUDA, torch on MPS) are explicit
+            # device pins by the time control reaches here — silently
+            # falling back to numpy would lose GPU residency on a recoverable
+            # failure (e.g. a transient dtype mismatch). Re-raise on either
+            # GPU backend so the cascade in ``run`` can decide.
+            if self.device_type in ("cuda", "mps"):
                 raise
             logger.warning(f"xp.asarray failed; falling back to numpy. Error: {e}")
             return np.asarray(arr)
@@ -172,7 +177,12 @@ class Network:
         """
         Convert xp array to a numpy array. If already numpy, return as-is.
         """
-        if self.device_type == "cuda" and hasattr(arr, "get"):
+        # Duck-type the GPU round-trip: ``hasattr(arr, "get")`` fires on
+        # cupy.ndarray natively and on torch.Tensor via the shim's
+        # ``_patch_tensor_methods``. Brings the cuda and mps paths into sync —
+        # same idiom slice 2 used in ``filtering.py`` and slice 3 used in
+        # ``labelling.py``.
+        if hasattr(arr, "get"):
             return arr.get()
         return np.asarray(arr)
 
@@ -657,9 +667,16 @@ class Network:
         try:
             return self._run_frame_backend(t)
         except Exception as exc:
-            if self.device_type != "cuda" or not adaptive_run.is_oom_error(exc):
+            # Both GPU backends benefit from the per-frame CPU fallback on
+            # OOM: cupy on CUDA can run out of VRAM, torch on MPS shares
+            # the system RAM headroom and can hit the same wall. The
+            # cuda-only narrowing predates the MPS onboard.
+            if self.device_type not in ("cuda", "mps") or not adaptive_run.is_oom_error(exc):
                 raise
-            logger.warning("GPU OOM in networking; falling back to CPU for this frame.")
+            logger.warning(
+                "%s OOM in networking; falling back to CPU for this frame.",
+                self.device_type.upper(),
+            )
             adaptive_run.free_gpu_memory(self.xp)
             self._set_backend("cpu")
             return self._run_frame_backend(t)
@@ -677,7 +694,13 @@ class Network:
 
         skel_pre_cpu = (skel_clean > 0) * label_frame_cpu
 
-        if self.device_type == "cuda" and not self.low_memory:
+        # Both GPU backends route through the convolution-based pixel-class
+        # path: cupy on CUDA dispatches to its own ndimage; torch on MPS
+        # dispatches to ``torch.nn.functional.conv*`` via the shim. The
+        # structural ``ndi.label`` round-trips to scipy on both backends —
+        # see PRD #140 § Implementation Decisions for the
+        # convolutional-vs-structural split.
+        if self.device_type in ("cuda", "mps") and not self.low_memory:
             skel_pre = self._to_xp(skel_pre_cpu)
             pixel_class = self._get_pixel_class(skel_pre)
             branch_skel_labels = self._get_branch_skel_labels(pixel_class)
@@ -702,26 +725,24 @@ class Network:
 
             skel, pixel_class, skel_relabelled = self._run_frame(t)
 
+            # Duck-type the GPU round-trip: ``hasattr(arr, "get")`` fires on
+            # cupy.ndarray natively and on torch.Tensor via the shim's
+            # ``_patch_tensor_methods``. Avoids the cuda-only narrowing
+            # that was hiding ``skel`` / ``pixel_class`` torch tensors
+            # behind a numpy fast-path; see ``_to_cpu`` for the same idiom.
+            def _host(arr):
+                return arr.get() if hasattr(arr, "get") else arr
+
             if self.im_info.no_t or self.num_t == 1:
                 # Single frame or static image
-                if self.device_type == "cuda":
-                    self.skel_memmap[:] = self._to_cpu(skel)
-                    self.pixel_class_memmap[:] = self._to_cpu(pixel_class)
-                    self.skel_relabelled_memmap[:] = self._to_cpu(skel_relabelled)
-                else:
-                    self.skel_memmap[:] = skel
-                    self.pixel_class_memmap[:] = pixel_class
-                    self.skel_relabelled_memmap[:] = skel_relabelled
+                self.skel_memmap[:] = _host(skel)
+                self.pixel_class_memmap[:] = _host(pixel_class)
+                self.skel_relabelled_memmap[:] = _host(skel_relabelled)
             else:
                 # Time series
-                if self.device_type == "cuda":
-                    self.skel_memmap[t] = self._to_cpu(skel)
-                    self.pixel_class_memmap[t] = self._to_cpu(pixel_class)
-                    self.skel_relabelled_memmap[t] = self._to_cpu(skel_relabelled)
-                else:
-                    self.skel_memmap[t] = skel
-                    self.pixel_class_memmap[t] = pixel_class
-                    self.skel_relabelled_memmap[t] = skel_relabelled
+                self.skel_memmap[t] = _host(skel)
+                self.pixel_class_memmap[t] = _host(pixel_class)
+                self.skel_relabelled_memmap[t] = _host(skel_relabelled)
 
     # -------------------------------------------------------------------------
     # Public entry point
