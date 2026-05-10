@@ -126,6 +126,20 @@ def _patch_tensor_methods(torch_mod) -> None:
 
         Tensor.get = get
 
+    if not hasattr(Tensor, "copy"):
+        def copy(self):
+            """numpy-style ``copy``: return a clone of this tensor.
+
+            Mirrors ``np.ndarray.copy()`` / ``cupy.ndarray.copy()``.
+            ``hu_tracking._get_frame_features`` calls ``.copy()`` on the
+            Frangi and distance frames before mutating them in place;
+            torch's native equivalent is ``.clone()``, so this method
+            forwards. Same patching pattern as ``astype`` / ``get``.
+            """
+            return self.clone()
+
+        Tensor.copy = copy
+
 
 # -----------------------------------------------------------------------------
 # Dtype attributes

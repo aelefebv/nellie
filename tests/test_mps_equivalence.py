@@ -34,6 +34,7 @@ import pytest
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.networking import Network, NetworkConfig
+from nellie.tracking.hu_tracking import HuMomentTracking, HuMomentTrackingConfig
 from nellie.utils import adaptive_run
 
 
@@ -92,6 +93,22 @@ def _release_network(net: Network) -> None:
     net.label_memmap = None
     net.im_memmap = None
     net.im_frangi_memmap = None
+    gc.collect()
+
+
+def _release_hu(h: HuMomentTracking) -> None:
+    """Drop a HuMomentTracking's memmap references and force gc.
+
+    Mirrors :func:`_release_network` — five memmap handles to release
+    (all five inputs that ``HuMomentTracking._allocate_memory`` opens).
+    The ``flow_vector_array`` output is a regular ``.npy`` written via
+    ``np.save``, not a memmap, so it doesn't need releasing.
+    """
+    h.label_memmap = None
+    h.im_memmap = None
+    h.im_frangi_memmap = None
+    h.im_marker_memmap = None
+    h.im_distance_memmap = None
     gc.collect()
 
 
@@ -545,4 +562,215 @@ def test_network_equivalence_cpu_vs_mps_2d(make_network_imageinfo_2d, capsys) ->
         f"({int(stats['junctions_cpu'])}) and MPS "
         f"({int(stats['junctions_mps'])}); PRD #140 asks for exact "
         f"match on junction count for typical inputs."
+    )
+
+
+# ---------------------------------------------------------------------------
+# HuMomentTracking equivalence
+# ---------------------------------------------------------------------------
+
+
+def _run_hu(im_info, *, device: str) -> np.ndarray:
+    """Run HuMomentTracking end-to-end on ``device``, return the saved flow array.
+
+    The factory fixtures (``make_hu_imageinfo_*``) pre-populate Frangi /
+    Label / Marker / Distance memmaps from a session cache, so this only
+    pays the HuMomentTracking cost — not the four upstream stages.
+    """
+    h = HuMomentTracking(im_info, HuMomentTrackingConfig(device=device), num_t=2)
+    h.run()
+    flow = np.load(h.flow_vector_array_path)
+    _release_hu(h)
+    return flow
+
+
+def _flow_assignments(flow: np.ndarray) -> set[tuple[int, ...]]:
+    """Build the set of ``(t, src..., dst...)`` integer-index tuples per row.
+
+    The flow array's row order is not deterministic across backends —
+    different reduction orders in ``_find_best_matches`` can shuffle
+    rows even when the underlying matching set is identical. Quotienting
+    out row order via ``set`` lets a Jaccard comparison capture the true
+    "did we make the same matches?" notion of equivalence.
+
+    Schema (see :mod:`tests.test_hu_tracking`):
+      - 3D ``(N, 8)``: ``[t, z, y, x, dz, dy, dx, cost]``
+      - 2D ``(N, 6)``: ``[t, y, x, dy, dx, cost]``
+
+    The cost column is dropped from the assignment key — it's only used
+    to gate matches via ``cost_cutoff``, not to identify the assignment
+    itself. Source and destination indices are added together in voxel
+    space so a row reads as a directed edge "from (src) to (dst)" at
+    time ``t``.
+    """
+    if flow.shape[0] == 0:
+        return set()
+    n_cols = flow.shape[1]
+    if n_cols == 8:
+        # 3D
+        t = flow[:, 0].astype(np.int64)
+        z = flow[:, 1].astype(np.int64)
+        y = flow[:, 2].astype(np.int64)
+        x = flow[:, 3].astype(np.int64)
+        zd = z + flow[:, 4].astype(np.int64)
+        yd = y + flow[:, 5].astype(np.int64)
+        xd = x + flow[:, 6].astype(np.int64)
+        return set(zip(
+            t.tolist(), z.tolist(), y.tolist(), x.tolist(),
+            zd.tolist(), yd.tolist(), xd.tolist(),
+        ))
+    # 2D
+    t = flow[:, 0].astype(np.int64)
+    y = flow[:, 1].astype(np.int64)
+    x = flow[:, 2].astype(np.int64)
+    yd = y + flow[:, 3].astype(np.int64)
+    xd = x + flow[:, 4].astype(np.int64)
+    return set(zip(
+        t.tolist(), y.tolist(), x.tolist(),
+        yd.tolist(), xd.tolist(),
+    ))
+
+
+def _hu_diagnostics(cpu: np.ndarray, mps: np.ndarray) -> dict[str, float]:
+    """Summary stats for diagnosing CPU vs MPS HuMomentTracking drift.
+
+    Returned keys:
+        cpu_rows / mps_rows — total flow-vector row count
+        asg_cpu / asg_mps — distinct assignment count after dropping
+            duplicate rows (row order is not deterministic across
+            backends; ``_find_best_matches`` emits both row- and
+            column-minimum matches so a single match can appear twice).
+        intersection / union — set ops on the assignment sets
+        jaccard — assignment-Jaccard, ``intersection / union`` (or 1.0
+            when both sets are empty). Acceptance bar; PRD #140
+            § Testing Decisions calls for "tracking assignment Jaccard
+            > 0.9".
+        cost_mean_cpu / cost_mean_mps — per-row mean of the cost column.
+            Costs are sums of z-scored components and can be very
+            negative for excellent matches; comparing means catches
+            wholesale precision drift in the cost-matrix machinery.
+    """
+    asg_cpu = _flow_assignments(cpu)
+    asg_mps = _flow_assignments(mps)
+    inter = len(asg_cpu & asg_mps)
+    union = len(asg_cpu | asg_mps)
+    jaccard = inter / union if union else 1.0
+
+    cost_cpu = float(cpu[:, -1].mean()) if cpu.shape[0] else 0.0
+    cost_mps = float(mps[:, -1].mean()) if mps.shape[0] else 0.0
+
+    return {
+        "cpu_rows": float(cpu.shape[0]),
+        "mps_rows": float(mps.shape[0]),
+        "asg_cpu": float(len(asg_cpu)),
+        "asg_mps": float(len(asg_mps)),
+        "intersection": float(inter),
+        "union": float(union),
+        "jaccard": jaccard,
+        "cost_mean_cpu": cost_cpu,
+        "cost_mean_mps": cost_mps,
+    }
+
+
+def test_hu_tracking_equivalence_cpu_vs_mps_3d(make_hu_imageinfo_3d, capsys) -> None:
+    """``HuMomentTracking.run()`` on the 3D yeast fixture: CPU vs MPS within tolerance.
+
+    Tolerances:
+      - ``jaccard >= 0.9`` — PRD #140 § Testing Decisions bar for
+        tracking-assignment Jaccard. The bar is intentionally looser
+        than the labelling (>= 0.95) and filtering / network bars (1e-4
+        max abs diff / >= 0.95 Jaccard) because of the **stacked
+        precision losses** specific to hu_tracking on MPS.
+
+    On the precision cascade:
+
+      1. ``_get_difference_matrix`` casts the moment-distance matrix to
+         ``xp.float64``. Per PRD #140 § Implementation Decisions, the
+         MPS shim silently coerces ``xp.float64`` to ``torch.float32``
+         (MPS does not support double precision). This is the *first*
+         precision loss vs the CPU baseline.
+
+      2. ``_get_cost_matrix`` then casts each z-scored component plus
+         the final cost matrix to ``xp.float16``. This is a deliberate
+         memory-management step (the cost matrix can be huge) but it
+         also caps the precision of every match decision at half-float
+         resolution. This is the *second* precision loss, and it
+         applies on both CPU and MPS — but combined with the float64
+         coercion above, the cumulative drift on MPS is materially
+         more than on the other onboarded stages.
+
+    Empirically on this fixture the assignments come out
+    byte-identical (Jaccard = 1.0) — the > 0.9 bar leaves headroom for
+    any future drift introduced by torch's MPS reduction order picking
+    a different accumulation path on borderline z-scored values.
+    """
+    _require_mps()
+
+    cpu_flow = _run_hu(make_hu_imageinfo_3d(), device="cpu")
+    mps_flow = _run_hu(make_hu_imageinfo_3d(), device="mps")
+
+    # Schema parity (per :mod:`tests.test_hu_tracking`):
+    # 3D = (N, 8) — columns ``[t, z, y, x, dz, dy, dx, cost]``.
+    assert mps_flow.ndim == cpu_flow.ndim == 2
+    assert mps_flow.shape[1] == cpu_flow.shape[1] == 8
+
+    stats = _hu_diagnostics(cpu_flow, mps_flow)
+
+    with capsys.disabled():
+        print(
+            f"\n[mps eq hu 3D] cpu_rows={int(stats['cpu_rows'])} "
+            f"mps_rows={int(stats['mps_rows'])} "
+            f"asg_cpu={int(stats['asg_cpu'])} asg_mps={int(stats['asg_mps'])} "
+            f"inter={int(stats['intersection'])} union={int(stats['union'])} "
+            f"jaccard={stats['jaccard']:.4f} "
+            f"cost_mean_cpu={stats['cost_mean_cpu']:.4f} "
+            f"cost_mean_mps={stats['cost_mean_mps']:.4f}"
+        )
+
+    assert stats["jaccard"] >= 0.9, (
+        f"3D HuMomentTracking assignment Jaccard between CPU and MPS "
+        f"dropped to {stats['jaccard']:.3f}; expected >= 0.9 per PRD "
+        f"#140 § Testing Decisions (bar is looser than other stages "
+        f"because of the stacked float64 → float32 → float16 precision "
+        f"loss documented in this test's docstring)."
+    )
+
+
+def test_hu_tracking_equivalence_cpu_vs_mps_2d(make_hu_imageinfo_2d, capsys) -> None:
+    """``HuMomentTracking.run()`` on the 2D yeast fixture: CPU vs MPS within tolerance.
+
+    Same > 0.9 bar as the 3D test. The 2D path computes 6 Hu moments
+    per marker (vs 18 in 3D — no orthogonal projections) and uses a
+    (3, 3) ``maximum_filter`` footprint instead of (3, 3, 3), but the
+    moment-distance and cost-matrix machinery is identical so the same
+    float64 → float32 → float16 precision cascade applies.
+    Empirically the assignments come out byte-identical on this
+    hardware (Jaccard = 1.0).
+    """
+    _require_mps()
+
+    cpu_flow = _run_hu(make_hu_imageinfo_2d(), device="cpu")
+    mps_flow = _run_hu(make_hu_imageinfo_2d(), device="mps")
+
+    # 2D = (N, 6) — columns ``[t, y, x, dy, dx, cost]``.
+    assert mps_flow.ndim == cpu_flow.ndim == 2
+    assert mps_flow.shape[1] == cpu_flow.shape[1] == 6
+
+    stats = _hu_diagnostics(cpu_flow, mps_flow)
+
+    with capsys.disabled():
+        print(
+            f"\n[mps eq hu 2D] cpu_rows={int(stats['cpu_rows'])} "
+            f"mps_rows={int(stats['mps_rows'])} "
+            f"asg_cpu={int(stats['asg_cpu'])} asg_mps={int(stats['asg_mps'])} "
+            f"inter={int(stats['intersection'])} union={int(stats['union'])} "
+            f"jaccard={stats['jaccard']:.4f} "
+            f"cost_mean_cpu={stats['cost_mean_cpu']:.4f} "
+            f"cost_mean_mps={stats['cost_mean_mps']:.4f}"
+        )
+
+    assert stats["jaccard"] >= 0.9, (
+        f"2D HuMomentTracking assignment Jaccard between CPU and MPS "
+        f"dropped to {stats['jaccard']:.3f}; expected >= 0.9 per PRD "
+        f"#140 § Testing Decisions."
     )

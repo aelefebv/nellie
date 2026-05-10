@@ -192,11 +192,11 @@ class HuMomentTracking:
         self.low_memory = bool(low_memory)
 
     def _to_cpu(self, arr):
-        if isinstance(arr, np.ndarray):
-            return arr
-        if hasattr(arr, "get"):
-            return arr.get()
-        return np.asarray(arr)
+        # Backend-agnostic host transfer. Delegates to
+        # :func:`adaptive_run.to_numpy` which handles cupy, torch+MPS, and
+        # numpy uniformly (cupy via ``.get()``; torch via
+        # ``.detach().cpu().numpy()``; numpy as identity).
+        return adaptive_run.to_numpy(arr)
 
     # -------------------------------------------------------------------------
     # Moment and feature computations
@@ -296,7 +296,9 @@ class HuMomentTracking:
     def _log_hu(self, hu):
         """Stable log-Hu transform that avoids NaNs/inf for zero moments."""
         xp = self.xp
-        if hu.size == 0:
+        # torch.Tensor.size is a method; use the shape product instead so
+        # this branch fires the same on numpy / cupy / torch.
+        if int(np.prod(hu.shape)) == 0:
             return hu
         abs_hu = xp.abs(hu)
         eps = xp.finfo(hu.dtype).tiny
@@ -307,7 +309,9 @@ class HuMomentTracking:
 
     def _normalize_features(self, pre, post, xp_mod):
         """Normalize features jointly for pre/post frames using mean/std."""
-        if pre.size == 0 or post.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # zero-element guard fires the same on numpy / cupy / torch.
+        if int(np.prod(pre.shape)) == 0 or int(np.prod(post.shape)) == 0:
             return pre, post
         combined = xp_mod.concatenate((pre, post), axis=0)
         mean = xp_mod.nanmean(combined, axis=0)
@@ -333,7 +337,9 @@ class HuMomentTracking:
             Array containing [mean, variance] for each image, shape (N, 2).
         """
         xp = self.xp
-        if images.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # zero-element guard fires the same on numpy / cupy / torch.
+        if int(np.prod(images.shape)) == 0:
             return xp.zeros((0, 2), dtype=xp.float32)
 
         num_images = images.shape[0]
@@ -348,8 +354,19 @@ class HuMomentTracking:
         count_nonzero = xp.sum(mask, axis=axis)
         count_nonzero_safe = xp.where(count_nonzero == 0, 1, count_nonzero)
 
-        sum_nonzero = xp.sum(images * mask, axis=axis)
-        sumsq_nonzero = xp.sum((images * mask) ** 2, axis=axis)
+        # Promote intensities to float32 before the bool multiplication.
+        # numpy/cupy silently promote uint16 * bool → uint16; torch+MPS
+        # rejects uint16 promotion outright (``Promotion for uint16,
+        # uint32, uint64 types is not supported``). Float32 is the
+        # downstream feature dtype anyway, so the cast is free of
+        # information loss in the surrounding computation. ``astype``
+        # with ``copy=False`` short-circuits when the dtype already
+        # matches, so this is a no-op when ``images`` came in as float32
+        # (e.g. the Frangi sub-volumes path).
+        images_f = images.astype(xp.float32, copy=False)
+
+        sum_nonzero = xp.sum(images_f * mask, axis=axis)
+        sumsq_nonzero = xp.sum((images_f * mask) ** 2, axis=axis)
 
         mean = sum_nonzero / count_nonzero_safe
         variance = (sumsq_nonzero - (sum_nonzero ** 2) / count_nonzero_safe) / count_nonzero_safe
@@ -540,8 +557,16 @@ class HuMomentTracking:
         xp = self.xp
         ndi = self.ndi
 
-        # Load frames into xp arrays
-        intensity_frame = xp.asarray(self.im_memmap[t])
+        # Load frames into xp arrays. The raw intensity image is loaded
+        # as float32 instead of its on-disk integer dtype: torch+MPS
+        # rejects uint16 promotion / reductions outright (``"max_cpu"
+        # not implemented for 'UInt16'``, ``Promotion for uint16 ...
+        # types is not supported``), and float32 is the dtype every
+        # downstream consumer (mean/variance, orthogonal projections,
+        # moment math) ends up casting to anyway. numpy / cupy already
+        # absorbed the cast cost via implicit promotion; making it
+        # explicit here keeps the three backends behaviorally identical.
+        intensity_frame = xp.asarray(self.im_memmap[t]).astype(xp.float32, copy=False)
         frangi_frame = xp.asarray(self.im_frangi_memmap[t]).copy()
         distance_frame = xp.asarray(self.im_distance_memmap[t])
 
@@ -563,7 +588,10 @@ class HuMomentTracking:
         marker_frame = xp.asarray(self.im_marker_memmap[t]) > 0
         marker_indices_xp = xp.argwhere(marker_frame)
 
-        if marker_indices_xp.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # "no markers in this frame" guard fires the same on numpy /
+        # cupy / torch.
+        if int(np.prod(marker_indices_xp.shape)) == 0:
             dims = 2 if self.im_info.no_z else 3
             empty_coords_voxel = np.zeros((0, dims), dtype=int)
             empty_coords_phys = np.zeros((0, dims), dtype=float)
@@ -571,11 +599,10 @@ class HuMomentTracking:
             empty_hu = xp.zeros((0, 0), dtype=xp.float32)
             return _FrameFeatures(empty_coords_voxel, empty_coords_phys, empty_stats, empty_hu)
 
-        # Convert indices to numpy for physical coordinates and later matching
-        if hasattr(marker_indices_xp, "get"):
-            marker_indices_np = marker_indices_xp.get()
-        else:
-            marker_indices_np = np.asarray(marker_indices_xp)
+        # Convert indices to numpy for physical coordinates and later matching.
+        # ``to_numpy`` handles cupy (``.get()``), torch+MPS
+        # (``.detach().cpu().numpy()``), and numpy (identity) uniformly.
+        marker_indices_np = adaptive_run.to_numpy(marker_indices_xp)
         scaling = np.asarray(self.scaling, dtype=float)
         coords_phys = marker_indices_np * scaling  # (N, dim)
 
@@ -590,9 +617,12 @@ class HuMomentTracking:
         dim = 2 if self.im_info.no_z else 3
         voxels_per_roi = max_radius ** dim
         total_voxels = int(num_markers * voxels_per_roi)
+        # Both GPU backends (CUDA via cupy, MPS via torch) get the GPU
+        # voxel limit; CPU uses the larger CPU limit. Slice 5 widening
+        # mirrors slices 2-4 for the per-frame ROI extraction budget.
         dense_limit = (
             self.max_dense_roi_voxels_gpu
-            if self.device_type == "cuda"
+            if self.device_type in ("cuda", "mps")
             else self.max_dense_roi_voxels_cpu
         )
         use_dense = total_voxels <= dense_limit
@@ -626,7 +656,11 @@ class HuMomentTracking:
             except Exception as exc:
                 if not adaptive_run.is_oom_error(exc):
                     raise
-                if self.device_type == "cuda":
+                # Free both GPU memory pools (cupy + torch+MPS) on OOM
+                # before falling back to streaming. ``free_gpu_memory``
+                # detects the active backend by duck-typing and is a
+                # no-op on numpy.
+                if self.device_type in ("cuda", "mps"):
                     adaptive_run.free_gpu_memory(self.xp)
                 logger.warning(
                     f"Frame {t}: dense ROI extraction OOM; falling back to streaming ROI extraction."
@@ -686,7 +720,9 @@ class HuMomentTracking:
                 intensity_roi = intensity_frame[zl:zh, yl:yh, xl:xh]
                 frangi_roi = frangi_frame[zl:zh, yl:yh, xl:xh]
 
-            if intensity_roi.size == 0 or frangi_roi.size == 0:
+            # torch.Tensor.size is a method; use the shape product so this
+            # zero-volume ROI skip fires the same on numpy / cupy / torch.
+            if int(np.prod(intensity_roi.shape)) == 0 or int(np.prod(frangi_roi.shape)) == 0:
                 continue
 
             intensity_roi_b = intensity_roi[xp.newaxis, ...]
@@ -730,7 +766,12 @@ class HuMomentTracking:
         if coords_post_phys.size == 0 or coords_pre_phys.size == 0:
             return xp.zeros((0, 0), dtype=xp.float32), xp.zeros((0, 0), dtype=bool)
 
-        if self.device_type == "cuda":
+        # Both GPU backends compute the pairwise distance matrix on-device
+        # via broadcasting; CPU defers to scipy's ``cdist`` and lifts the
+        # result into the active xp namespace. Slice 5 widens this branch
+        # to MPS so the matrix math stays on-GPU rather than round-tripping
+        # to numpy when ``device="mps"`` is in effect.
+        if self.device_type in ("cuda", "mps"):
             A = xp.asarray(coords_post_phys)
             B = xp.asarray(coords_pre_phys)
             diff = A[:, None, :] - B[None, :, :]
@@ -758,9 +799,16 @@ class HuMomentTracking:
             Difference matrix, shape (N_post, N_pre, F).
         """
         xp = self.xp
-        if m1.size == 0 or m2.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # zero-element guard fires the same on numpy / cupy / torch.
+        if int(np.prod(m1.shape)) == 0 or int(np.prod(m2.shape)) == 0:
             return xp.zeros((0, 0, 0), dtype=xp.float64)
 
+        # NOTE: ``xp.float64`` silently coerces to ``float32`` on the MPS
+        # shim (MPS does not support double precision). The coercion is
+        # part of the documented hu_tracking determinism risk per PRD #140
+        # § Implementation Decisions — the moment-distance matrix
+        # computation here is the call site that pays the precision loss.
         m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float64)
         m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float64)
         difference_matrix = xp.abs(m1_reshaped - m2_reshaped)
@@ -781,7 +829,9 @@ class HuMomentTracking:
             Z-score normalized matrix with masked entries set to +inf.
         """
         xp = self.xp
-        if m.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # zero-element guard fires the same on numpy / cupy / torch.
+        if int(np.prod(m.shape)) == 0:
             return m
 
         mask_exp = mask[..., None]
@@ -821,7 +871,14 @@ class HuMomentTracking:
             Cost matrix, shape (N_post, N_pre).
         """
         xp = self.xp
-        if stats_vecs.size == 0 or pre_stats_vecs.size == 0 or hu_vecs.size == 0 or pre_hu_vecs.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # zero-element guard fires the same on numpy / cupy / torch.
+        if (
+            int(np.prod(stats_vecs.shape)) == 0
+            or int(np.prod(pre_stats_vecs.shape)) == 0
+            or int(np.prod(hu_vecs.shape)) == 0
+            or int(np.prod(pre_hu_vecs.shape)) == 0
+        ):
             return xp.zeros((0, 0), dtype=xp.float16)
 
         distance_matrix, distance_mask = self._get_distance_mask(coords_post_phys, coords_pre_phys)
@@ -863,7 +920,9 @@ class HuMomentTracking:
         (row_matches, col_matches, costs) : list[int], list[int], list[float]
         """
         xp = self.xp
-        if cost_matrix.size == 0:
+        # torch.Tensor.size is a method; use the shape product so this
+        # zero-element guard fires the same on numpy / cupy / torch.
+        if int(np.prod(cost_matrix.shape)) == 0:
             return [], [], []
 
         # Row-wise minima
@@ -1059,7 +1118,12 @@ class HuMomentTracking:
         hu_vecs = frame_t.hu
         pre_hu_vecs = frame_prev.hu
 
-        if self.device_type == "cuda":
+        # On either GPU backend, lift inputs into the active xp namespace
+        # so the dense cost-matrix math stays on-device. On CPU, drop to
+        # numpy via the duck-typed host helper. Slice 5 widens the GPU
+        # branch to MPS so torch tensors don't get force-detached to
+        # numpy and lose GPU residency on the matching step.
+        if self.device_type in ("cuda", "mps"):
             stats_vecs = self.xp.asarray(stats_vecs)
             pre_stats_vecs = self.xp.asarray(pre_stats_vecs)
             hu_vecs = self.xp.asarray(hu_vecs)

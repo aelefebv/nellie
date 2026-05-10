@@ -368,6 +368,77 @@ def test_free_gpu_memory_noop_on_numpy() -> None:
 
 
 # -----------------------------------------------------------------------------
+# to_numpy: backend-agnostic host transfer
+# -----------------------------------------------------------------------------
+
+
+def test_to_numpy_numpy_is_identity() -> None:
+    """``to_numpy`` returns the same numpy array unchanged (no copy).
+
+    Identity for numpy is the load-bearing contract for hot paths that
+    call ``to_numpy`` defensively — paying a copy on the common backend
+    would be a regression vs the previous duck-typed
+    ``isinstance(arr, np.ndarray)`` short-circuit.
+    """
+    import numpy as np
+
+    arr = np.arange(6).reshape(2, 3)
+    out = adaptive_run.to_numpy(arr)
+    assert out is arr
+
+
+def test_to_numpy_torch_tensor_returns_numpy_view() -> None:
+    """``to_numpy(torch.Tensor)`` returns a numpy array with the same values.
+
+    Goes through ``arr.detach().cpu().numpy()`` — uses torch's native
+    API rather than relying on the ``.get()`` patch so the helper
+    remains valid even if the patch is ever reverted (the patch is the
+    legacy duck-typing path; ``to_numpy`` is the explicit-helper path
+    per PRD #140).
+    """
+    pytest.importorskip("torch")
+    import numpy as np
+    import torch
+
+    t = torch.arange(6, dtype=torch.float32).reshape(2, 3)
+    out = adaptive_run.to_numpy(t)
+    assert isinstance(out, np.ndarray)
+    np.testing.assert_array_equal(out, np.arange(6, dtype=np.float32).reshape(2, 3))
+
+
+def test_to_numpy_falls_back_via_get_for_unknown_xp() -> None:
+    """Anything else with a callable ``.get()`` (cupy, ducks) is dispatched via ``.get()``.
+
+    Mirrors the cupy host-transfer path without importing cupy. Using
+    a duck-typed object lets the always-on test cover the cupy arm
+    without requiring CUDA hardware. The torch-tensor arm gets its own
+    test above.
+    """
+    import numpy as np
+
+    class FakeCupyArray:
+        def __init__(self, value):
+            self._value = value
+
+        def get(self):
+            return np.asarray(self._value, dtype=np.float32)
+
+    duck = FakeCupyArray([1, 2, 3])
+    out = adaptive_run.to_numpy(duck)
+    assert isinstance(out, np.ndarray)
+    np.testing.assert_array_equal(out, [1.0, 2.0, 3.0])
+
+
+def test_to_numpy_falls_back_to_asarray_for_python_list() -> None:
+    """Plain Python sequences (no ``.get()``, not torch) flow through ``np.asarray``."""
+    import numpy as np
+
+    out = adaptive_run.to_numpy([1, 2, 3])
+    assert isinstance(out, np.ndarray)
+    np.testing.assert_array_equal(out, [1, 2, 3])
+
+
+# -----------------------------------------------------------------------------
 # Cascade-caller refactor: stages handle device="mps" gracefully
 # -----------------------------------------------------------------------------
 

@@ -183,6 +183,54 @@ def free_gpu_memory(xp: Any) -> None:
             pass
 
 
+def to_numpy(arr: Any) -> Any:
+    """Convert a backend array to a host numpy array.
+
+    Backend-agnostic helper for the common "I have an ``xp.ndarray`` and
+    I need a ``np.ndarray`` for downstream scipy / sklearn / pure-Python
+    code" idiom. Handles all three backends uniformly:
+
+    - **numpy**: identity (no copy).
+    - **cupy**: ``arr.get()`` (cupy's cupy→numpy host transfer).
+    - **torch**: ``arr.detach().cpu().numpy()`` (detach autograd graph,
+      move from MPS/CUDA to CPU, view as numpy).
+
+    Anything else (Python sequence, scalar, ...) falls through to
+    ``np.asarray(arr)``.
+
+    The slice 1 shim added a duck-typed ``arr.get()`` to ``torch.Tensor``
+    so existing cupy-style ``.get()`` call sites would keep working, but
+    per PRD #140 § Implementation Decisions polluting torch tensors with
+    a cupy idiom is hostile to torch users — call sites that need a host
+    numpy array should use this helper explicitly so the intent is
+    discoverable. (The ``.get()`` patch on ``torch.Tensor`` remains for
+    other backends-not-fully-onboarded paths; this helper is the
+    preferred way for new code.)
+    """
+    import numpy as np
+
+    if isinstance(arr, np.ndarray):
+        return arr
+
+    # Cupy + torch both expose ``.get`` (cupy natively; torch via the
+    # slice 1 shim patch). Torch additionally needs detach + cpu before
+    # ``.numpy()``; using its native API path avoids any reliance on the
+    # ``.get`` patch staying in place.
+    try:
+        import torch
+
+        if isinstance(arr, torch.Tensor):
+            return arr.detach().cpu().numpy()
+    except ModuleNotFoundError:
+        pass
+
+    get = getattr(arr, "get", None)
+    if callable(get):
+        return get()
+
+    return np.asarray(arr)
+
+
 def normalize_device(device: str | None) -> str:
     """Normalize a user-supplied device string to a canonical form.
 
