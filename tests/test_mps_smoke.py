@@ -23,6 +23,7 @@ import pytest
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
 from nellie.segmentation.networking import Network, NetworkConfig
+from nellie.tracking.hu_tracking import HuMomentTracking, HuMomentTrackingConfig
 from nellie.utils import adaptive_run
 
 
@@ -81,6 +82,23 @@ def _release_network(net: Network) -> None:
     net.label_memmap = None
     net.im_memmap = None
     net.im_frangi_memmap = None
+    gc.collect()
+
+
+def _release_hu(h: HuMomentTracking) -> None:
+    """Drop a HuMomentTracking's memmap references and force gc.
+
+    Mirrors :func:`_release_network` — same Windows file-lock concern,
+    five memmap handles to release (all five inputs that
+    ``HuMomentTracking._allocate_memory`` opens as read-only). The
+    ``flow_vector_array`` output is a regular ``.npy`` written via
+    ``np.save``, not a memmap, so it doesn't need releasing.
+    """
+    h.label_memmap = None
+    h.im_memmap = None
+    h.im_frangi_memmap = None
+    h.im_marker_memmap = None
+    h.im_distance_memmap = None
     gc.collect()
 
 
@@ -348,3 +366,92 @@ def test_network_smoke_2d(make_network_imageinfo_2d) -> None:
     assert relab_mps.shape == relab_cpu.shape
     assert relab_mps.dtype == relab_cpu.dtype == np.uint32
     assert relab_mps.min() == 0
+
+
+# ---------------------------------------------------------------------------
+# HuMomentTracking smoke
+# ---------------------------------------------------------------------------
+
+
+def _run_hu(im_info, *, device: str) -> np.ndarray:
+    """Run HuMomentTracking end-to-end on ``device`` and return the saved flow array.
+
+    The factory fixtures (``make_hu_imageinfo_*``) pre-populate Frangi /
+    Label / Marker / Distance memmaps from a session cache, so this only
+    pays the HuMomentTracking cost — not the four upstream stages.
+
+    Returns the contents of the flow vector ``.npy`` written by
+    ``HuMomentTracking._run_hu_tracking``. Shape is ``(N, 6)`` for 2D
+    fixtures and ``(N, 8)`` for 3D fixtures (see
+    :mod:`tests.test_hu_tracking` for the schema characterization).
+    """
+    h = HuMomentTracking(im_info, HuMomentTrackingConfig(device=device), num_t=2)
+    h.run()
+    flow = np.load(h.flow_vector_array_path)
+    _release_hu(h)
+    return flow
+
+
+def test_hu_tracking_smoke_3d(make_hu_imageinfo_3d) -> None:
+    """``HuMomentTracking.run()`` end-to-end on MPS — 3D path doesn't crash, schema matches CPU.
+
+    Exercises the convolutional ``ndi.maximum_filter`` call inside
+    ``_get_frame_features`` (distance dilation) on the MPS shim,
+    alongside the per-frame moment / Hu / cost-matrix math which runs
+    on the active xp namespace. Per PRD #140 § Implementation
+    Decisions, hu_tracking is the lightest of the four onboarded stages
+    on the convolutional axis but exercises the most ``xp`` ops in the
+    matching pipeline (moment math, distance broadcasting, z-score
+    normalization, dense cost-matrix construction).
+
+    Schema parity (column count + integer-vs-float column dtype) is the
+    contract this smoke pins; numerical equivalence is owned by
+    :mod:`tests.test_mps_equivalence`.
+
+    Note on the float64 → float32 → float16 precision cascade specific to
+    this stage: the moment-distance matrix in ``_get_difference_matrix``
+    casts to ``xp.float64`` (which silently coerces to ``float32`` on
+    MPS), then the cost matrix accumulates in ``xp.float16``. This is a
+    documented determinism risk for hu_tracking on MPS — see
+    :mod:`tests.test_mps_equivalence` for the calibrated tolerances.
+    """
+    _require_mps()
+
+    cpu_flow = _run_hu(make_hu_imageinfo_3d(), device="cpu")
+    mps_flow = _run_hu(make_hu_imageinfo_3d(), device="mps")
+
+    # Shape contract: 3D = (N, 8) — columns ``[t, z, y, x, dz, dy, dx, cost]``.
+    # ``N`` may differ between CPU and MPS by a few rows on borderline
+    # cost-cutoff matches (the float64→float32→float16 stack drifts
+    # marginal scores), so assert the column count, not the row count.
+    assert mps_flow.ndim == cpu_flow.ndim == 2
+    assert mps_flow.shape[1] == cpu_flow.shape[1] == 8
+    # Empty-vs-populated dtype contract is part of the wiki schema for
+    # this module — populated arrays come out float64 (np.column_stack
+    # upcast from int64 + float32 mix); empty arrays come out float32
+    # (the fallback path in ``_run_hu_tracking``).
+    if mps_flow.shape[0] > 0:
+        assert mps_flow.dtype == np.float64
+    else:
+        assert mps_flow.dtype == np.float32
+
+
+def test_hu_tracking_smoke_2d(make_hu_imageinfo_2d) -> None:
+    """``HuMomentTracking.run()`` end-to-end on MPS — 2D path doesn't crash, schema matches CPU.
+
+    The 2D path uses a (3, 3) ``maximum_filter`` footprint instead of
+    (3, 3, 3) and computes 6 Hu moments per marker instead of 18 (no
+    orthogonal projections needed). Same shape / dtype contract as the
+    3D path with one column fewer (``(N, 6)``: ``[t, y, x, dy, dx, cost]``).
+    """
+    _require_mps()
+
+    cpu_flow = _run_hu(make_hu_imageinfo_2d(), device="cpu")
+    mps_flow = _run_hu(make_hu_imageinfo_2d(), device="mps")
+
+    assert mps_flow.ndim == cpu_flow.ndim == 2
+    assert mps_flow.shape[1] == cpu_flow.shape[1] == 6
+    if mps_flow.shape[0] > 0:
+        assert mps_flow.dtype == np.float64
+    else:
+        assert mps_flow.dtype == np.float32
