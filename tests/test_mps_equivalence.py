@@ -33,6 +33,7 @@ import pytest
 
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.networking import Network, NetworkConfig
 from nellie.utils import adaptive_run
 
 
@@ -76,6 +77,21 @@ def _release_label(lbl: Label) -> None:
     lbl.instance_label_memmap = None
     lbl.frangi_memmap = None
     lbl.im_memmap = None
+    gc.collect()
+
+
+def _release_network(net: Network) -> None:
+    """Drop a Network's memmap references and force gc.
+
+    Mirrors :func:`_release_label` — same Windows file-lock concern,
+    six memmap handles to release (three inputs, three outputs).
+    """
+    net.skel_memmap = None
+    net.pixel_class_memmap = None
+    net.skel_relabelled_memmap = None
+    net.label_memmap = None
+    net.im_memmap = None
+    net.im_frangi_memmap = None
     gc.collect()
 
 
@@ -350,4 +366,183 @@ def test_label_equivalence_cpu_vs_mps_2d(make_label_imageinfo_2d, capsys) -> Non
         f"2D Label mean IoU between CPU and MPS dropped to "
         f"{stats['mean_iou']:.3f}; expected >= 0.95 per PRD #140 "
         f"§ Testing Decisions."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Network equivalence
+# ---------------------------------------------------------------------------
+
+
+def _run_network(im_info, *, device: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Run Network end-to-end on ``device``, return ``(skel, pixel_class, skel_relabelled)`` numpy copies.
+
+    The factory fixtures (``make_network_imageinfo_*``) pre-populate the
+    Frangi and Label memmaps from a session cache, so this only pays the
+    Network cost — not Filter + Label on top.
+    """
+    net = Network(im_info, NetworkConfig(device=device), num_t=2)
+    net.run()
+    skel = np.asarray(net.skel_memmap).copy()
+    pc = np.asarray(net.pixel_class_memmap).copy()
+    relab = np.asarray(net.skel_relabelled_memmap).copy()
+    _release_network(net)
+    return skel, pc, relab
+
+
+def _network_diagnostics(
+    cpu: tuple[np.ndarray, np.ndarray, np.ndarray],
+    mps: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> dict[str, float]:
+    """Summary stats for diagnosing CPU vs MPS Network drift.
+
+    Inputs are ``(skel, pixel_class, skel_relabelled)`` triples.
+
+    Returned keys:
+        skel_jaccard — Jaccard of the binary skeleton mask
+            (``skel > 0``). Acceptance bar; PRD #140 § Testing Decisions
+            calls for "Jaccard > 0.95".
+        junctions_cpu / junctions_mps — count of pixel_class == 4 (junction)
+            voxels. Acceptance bar; PRD asks for exact match on junction
+            count for typical inputs.
+        skel_array_equal — whether the int32 skeleton labels match
+            byte-for-byte. Empirically True on the yeast fixtures (the
+            structural ``ndi.label`` round-trips to scipy on CPU on both
+            backends).
+        pc_array_equal — whether the uint8 pixel-class image matches
+            byte-for-byte. Empirically True on the yeast fixtures.
+        relab_jaccard — Jaccard of the relabelled skeleton mask. Same
+            byte-identical empirical result on the yeast fixtures.
+    """
+    skel_cpu, pc_cpu, relab_cpu = cpu
+    skel_mps, pc_mps, relab_mps = mps
+
+    cpu_mask = skel_cpu > 0
+    mps_mask = skel_mps > 0
+    inter = int((cpu_mask & mps_mask).sum())
+    union = int((cpu_mask | mps_mask).sum())
+    skel_jacc = inter / union if union else 1.0
+
+    relab_cpu_mask = relab_cpu > 0
+    relab_mps_mask = relab_mps > 0
+    relab_inter = int((relab_cpu_mask & relab_mps_mask).sum())
+    relab_union = int((relab_cpu_mask | relab_mps_mask).sum())
+    relab_jacc = relab_inter / relab_union if relab_union else 1.0
+
+    return {
+        "skel_jaccard": skel_jacc,
+        "junctions_cpu": float(int((pc_cpu == 4).sum())),
+        "junctions_mps": float(int((pc_mps == 4).sum())),
+        "skel_array_equal": float(np.array_equal(skel_cpu, skel_mps)),
+        "pc_array_equal": float(np.array_equal(pc_cpu, pc_mps)),
+        "relab_jaccard": relab_jacc,
+    }
+
+
+def test_network_equivalence_cpu_vs_mps_3d(make_network_imageinfo_3d, capsys) -> None:
+    """``Network.run()`` on the 3D yeast fixture: CPU vs MPS within tolerance.
+
+    Tolerances:
+      - ``skel_jaccard >= 0.95`` — PRD #140 § Testing Decisions bar for
+        the binary skeleton mask.
+      - ``junctions_cpu == junctions_mps`` — PRD asks for exact match on
+        junction count for typical inputs.
+
+    Note on tightness: the only convolutional op in Network is
+    ``ndi.convolve`` inside ``_get_pixel_class_impl`` (a 3×3×3 kernel of
+    ones over a uint8 binary mask). That's integer arithmetic over a
+    small kernel, so the float32-rounding-cascade story that surfaces
+    in Filter doesn't apply here. The skeletonization, structural
+    ``ndi.label``, and per-object distance transforms all force-CPU.
+    Empirically the entire ``(skel, pixel_class, skel_relabelled)``
+    triple is byte-identical to CPU on this hardware (skel_jaccard =
+    1.0, byte-equal labels); the > 0.95 bar leaves headroom for any
+    future drift introduced by torch's MPS conv path picking a different
+    accumulation order on borderline values.
+    """
+    _require_mps()
+
+    cpu_outs = _run_network(make_network_imageinfo_3d(), device="cpu")
+    mps_outs = _run_network(make_network_imageinfo_3d(), device="mps")
+
+    skel_cpu, pc_cpu, relab_cpu = cpu_outs
+    skel_mps, pc_mps, relab_mps = mps_outs
+    assert skel_mps.shape == skel_cpu.shape
+    assert pc_mps.shape == pc_cpu.shape
+    assert relab_mps.shape == relab_cpu.shape
+    assert skel_mps.dtype == skel_cpu.dtype == np.int32
+    assert pc_mps.dtype == pc_cpu.dtype == np.uint8
+    assert relab_mps.dtype == relab_cpu.dtype == np.uint32
+
+    stats = _network_diagnostics(cpu_outs, mps_outs)
+
+    with capsys.disabled():
+        print(
+            f"\n[mps eq net 3D] skel_jaccard={stats['skel_jaccard']:.4f} "
+            f"junctions_cpu={int(stats['junctions_cpu'])} "
+            f"junctions_mps={int(stats['junctions_mps'])} "
+            f"skel_array_equal={bool(stats['skel_array_equal'])} "
+            f"pc_array_equal={bool(stats['pc_array_equal'])} "
+            f"relab_jaccard={stats['relab_jaccard']:.4f}"
+        )
+
+    assert stats["skel_jaccard"] >= 0.95, (
+        f"3D Network skeleton mask Jaccard between CPU and MPS dropped "
+        f"to {stats['skel_jaccard']:.3f}; expected >= 0.95 per PRD "
+        f"#140 § Testing Decisions."
+    )
+    assert stats["junctions_cpu"] == stats["junctions_mps"], (
+        f"3D Network junction count differs between CPU "
+        f"({int(stats['junctions_cpu'])}) and MPS "
+        f"({int(stats['junctions_mps'])}); PRD #140 asks for exact "
+        f"match on junction count for typical inputs."
+    )
+
+
+def test_network_equivalence_cpu_vs_mps_2d(make_network_imageinfo_2d, capsys) -> None:
+    """``Network.run()`` on the 2D yeast fixture: CPU vs MPS within tolerance.
+
+    Same > 0.95 / exact-junction bar as the 3D test. The 2D path uses a
+    (3, 3) convolution kernel instead of (3, 3, 3) — different shim
+    dispatch (``conv2d`` vs ``conv3d``) but same arithmetic story.
+    Empirically the 2D yeast fixture has zero junctions on both
+    backends, which is itself an exact match (the > 0.95 skeleton
+    Jaccard bar still applies).
+    """
+    _require_mps()
+
+    cpu_outs = _run_network(make_network_imageinfo_2d(), device="cpu")
+    mps_outs = _run_network(make_network_imageinfo_2d(), device="mps")
+
+    skel_cpu, pc_cpu, relab_cpu = cpu_outs
+    skel_mps, pc_mps, relab_mps = mps_outs
+    assert skel_mps.shape == skel_cpu.shape
+    assert pc_mps.shape == pc_cpu.shape
+    assert relab_mps.shape == relab_cpu.shape
+    assert skel_mps.dtype == skel_cpu.dtype == np.int32
+    assert pc_mps.dtype == pc_cpu.dtype == np.uint8
+    assert relab_mps.dtype == relab_cpu.dtype == np.uint32
+
+    stats = _network_diagnostics(cpu_outs, mps_outs)
+
+    with capsys.disabled():
+        print(
+            f"\n[mps eq net 2D] skel_jaccard={stats['skel_jaccard']:.4f} "
+            f"junctions_cpu={int(stats['junctions_cpu'])} "
+            f"junctions_mps={int(stats['junctions_mps'])} "
+            f"skel_array_equal={bool(stats['skel_array_equal'])} "
+            f"pc_array_equal={bool(stats['pc_array_equal'])} "
+            f"relab_jaccard={stats['relab_jaccard']:.4f}"
+        )
+
+    assert stats["skel_jaccard"] >= 0.95, (
+        f"2D Network skeleton mask Jaccard between CPU and MPS dropped "
+        f"to {stats['skel_jaccard']:.3f}; expected >= 0.95 per PRD "
+        f"#140 § Testing Decisions."
+    )
+    assert stats["junctions_cpu"] == stats["junctions_mps"], (
+        f"2D Network junction count differs between CPU "
+        f"({int(stats['junctions_cpu'])}) and MPS "
+        f"({int(stats['junctions_mps'])}); PRD #140 asks for exact "
+        f"match on junction count for typical inputs."
     )

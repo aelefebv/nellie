@@ -22,6 +22,7 @@ import pytest
 
 from nellie.segmentation.filtering import Filter, FrangiConfig
 from nellie.segmentation.labelling import Label, LabelConfig
+from nellie.segmentation.networking import Network, NetworkConfig
 from nellie.utils import adaptive_run
 
 
@@ -64,6 +65,22 @@ def _release_label(lbl: Label) -> None:
     lbl.instance_label_memmap = None
     lbl.frangi_memmap = None
     lbl.im_memmap = None
+    gc.collect()
+
+
+def _release_network(net: Network) -> None:
+    """Drop a Network's memmap references and force gc.
+
+    Mirrors :func:`_release_label` — same Windows file-lock concern, six
+    memmap handles to release (three inputs that ``Network._allocate_memory``
+    opens as read-only and three outputs).
+    """
+    net.skel_memmap = None
+    net.pixel_class_memmap = None
+    net.skel_relabelled_memmap = None
+    net.label_memmap = None
+    net.im_memmap = None
+    net.im_frangi_memmap = None
     gc.collect()
 
 
@@ -237,3 +254,97 @@ def test_label_smoke_2d(make_label_imageinfo_2d) -> None:
     assert mps_out.dtype == cpu_out.dtype == np.int32
     assert mps_out.min() == 0
     assert (mps_out == 0).any()
+
+
+# ---------------------------------------------------------------------------
+# Network smoke
+# ---------------------------------------------------------------------------
+
+
+def _run_network(im_info, *, device: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Run Network end-to-end on ``device`` and return numpy copies of the three outputs.
+
+    Returns ``(skel, pixel_class, skel_relabelled)``. The factory
+    fixtures (``make_network_imageinfo_*``) pre-populate the Frangi and
+    Label memmaps from a session cache, so this only pays the Network
+    cost — not Filter + Label on top.
+    """
+    net = Network(im_info, NetworkConfig(device=device), num_t=2)
+    net.run()
+    skel = np.asarray(net.skel_memmap).copy()
+    pc = np.asarray(net.pixel_class_memmap).copy()
+    relab = np.asarray(net.skel_relabelled_memmap).copy()
+    _release_network(net)
+    return skel, pc, relab
+
+
+def test_network_smoke_3d(make_network_imageinfo_3d) -> None:
+    """``Network.run()`` end-to-end on MPS — 3D path doesn't crash, shape/dtype match CPU.
+
+    Exercises the convolutional ``ndi.convolve`` call inside
+    ``_get_pixel_class_impl`` on the MPS shim, alongside the structural
+    ``ndi.label`` call inside ``_get_branch_skel_labels`` (which
+    round-trips to scipy on CPU via the shim). Per PRD #140 §
+    Implementation Decisions, networking is a *partial-acceleration*
+    story: only the convolutional ops run on MPS; the structural
+    ``label``, ``binary_fill_holes``, and skeletonization round-trip to
+    scipy on CPU.
+
+    The CPU baseline is rerun in-process so the parity check is robust
+    to fixture-resolution drift across machines / torch versions.
+    """
+    _require_mps()
+
+    skel_cpu, pc_cpu, relab_cpu = _run_network(
+        make_network_imageinfo_3d(), device="cpu"
+    )
+    skel_mps, pc_mps, relab_mps = _run_network(
+        make_network_imageinfo_3d(), device="mps"
+    )
+
+    # Skeleton image: int32 labels, background = 0.
+    assert skel_mps.shape == skel_cpu.shape, (
+        f"MPS skel shape {skel_mps.shape} != CPU shape {skel_cpu.shape}"
+    )
+    assert skel_mps.dtype == skel_cpu.dtype == np.int32
+
+    # Pixel-class image: uint8 with values in {0, 1, 2, 3, 4}
+    # (background, isolated, tip, edge, junction-clipped).
+    assert pc_mps.shape == pc_cpu.shape
+    assert pc_mps.dtype == pc_cpu.dtype == np.uint8
+    assert pc_mps.min() == 0
+    assert pc_mps.max() <= 4
+
+    # Skeleton relabelled image: uint32, background = 0.
+    assert relab_mps.shape == relab_cpu.shape
+    assert relab_mps.dtype == relab_cpu.dtype == np.uint32
+    assert relab_mps.min() == 0
+
+
+def test_network_smoke_2d(make_network_imageinfo_2d) -> None:
+    """``Network.run()`` end-to-end on MPS — 2D path.
+
+    The 2D path uses a (3, 3) convolution kernel instead of (3, 3, 3),
+    so it exercises a slightly different shim dispatch (``conv2d`` vs
+    ``conv3d``). Same shape/dtype contract.
+    """
+    _require_mps()
+
+    skel_cpu, pc_cpu, relab_cpu = _run_network(
+        make_network_imageinfo_2d(), device="cpu"
+    )
+    skel_mps, pc_mps, relab_mps = _run_network(
+        make_network_imageinfo_2d(), device="mps"
+    )
+
+    assert skel_mps.shape == skel_cpu.shape
+    assert skel_mps.dtype == skel_cpu.dtype == np.int32
+
+    assert pc_mps.shape == pc_cpu.shape
+    assert pc_mps.dtype == pc_cpu.dtype == np.uint8
+    assert pc_mps.min() == 0
+    assert pc_mps.max() <= 4
+
+    assert relab_mps.shape == relab_cpu.shape
+    assert relab_mps.dtype == relab_cpu.dtype == np.uint32
+    assert relab_mps.min() == 0
