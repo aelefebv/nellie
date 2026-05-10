@@ -177,6 +177,31 @@ def test_tensor_get_method_added() -> None:
     np.testing.assert_array_equal(out, [1.0, 2.0, 3.0])
 
 
+def test_tensor_copy_method_added() -> None:
+    """torch.Tensor should expose a ``copy()`` method (numpy-compat).
+
+    numpy's ``.copy()`` returns an independent allocation; cupy
+    matches. Patched onto ``torch.Tensor`` by
+    ``torch_xp._patch_tensor_methods`` so stage code that calls
+    ``arr.copy()`` (e.g. ``hu_tracking._get_frame_features`` lines
+    562 and 575) flows torch tensors through unchanged. Torch's
+    native equivalent is ``.clone()``, which the patch forwards to.
+
+    Verifies independence (mutation of the source after the copy
+    leaves the copy unchanged) — that's the load-bearing guarantee
+    callers rely on for in-place dilation / log10 / arithmetic.
+    """
+    torch_xp._torch()
+    t = torch.tensor([1.0, 2.0, 3.0])
+    c = t.copy()
+    assert isinstance(c, torch.Tensor)
+    np.testing.assert_array_equal(c.numpy(), [1.0, 2.0, 3.0])
+
+    # Mutating the source must not affect the copy.
+    t[0] = 99.0
+    np.testing.assert_array_equal(c.numpy(), [1.0, 2.0, 3.0])
+
+
 # -----------------------------------------------------------------------------
 # Construction ops
 # -----------------------------------------------------------------------------
