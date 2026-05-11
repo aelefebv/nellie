@@ -1043,6 +1043,140 @@ def test_get_cost_matrix_all_masked_returns_inf() -> None:
     assert (cost > 0).all(), f"Expected `+inf` (positive); got negative inf in {cost}"
 
 
+def _broadcast_cost_matrix_reference(
+    h: HuMomentTracking,
+    coords_post_phys,
+    coords_pre_phys,
+    stats_vecs,
+    pre_stats_vecs,
+    hu_vecs,
+    pre_hu_vecs,
+) -> np.ndarray:
+    """Reference broadcast implementation of `_get_cost_matrix`.
+
+    Verbatim copy of the pre-PRD #196 logic: float64 promotion + (N, N, F)
+    tensors via the (now-deleted) ``_get_difference_matrix`` +
+    ``_zscore_normalize`` + nansum + float16 cast. Lives inline in the
+    test file so the equivalence pin in
+    :func:`test_get_cost_matrix_streaming_matches_broadcast_3d` survives
+    after Slice 2 (#198) drops the helpers.
+    """
+    xp = h.xp
+    if (
+        int(np.prod(stats_vecs.shape)) == 0
+        or int(np.prod(pre_stats_vecs.shape)) == 0
+        or int(np.prod(hu_vecs.shape)) == 0
+        or int(np.prod(pre_hu_vecs.shape)) == 0
+    ):
+        return xp.zeros((0, 0), dtype=xp.float16)
+
+    distance_matrix, distance_mask = h._get_distance_mask(coords_post_phys, coords_pre_phys)
+
+    def _diff_matrix(m1: np.ndarray, m2: np.ndarray) -> np.ndarray:
+        m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float64)
+        m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float64)
+        return xp.abs(m1_reshaped - m2_reshaped)
+
+    def _zscore(m: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        if int(np.prod(m.shape)) == 0:
+            return m
+        mask_exp = mask[..., None]
+        sum_mask = xp.sum(mask_exp)
+        if float(sum_mask) == 0.0:
+            return xp.full_like(m, xp.inf)
+        mean_vals = xp.sum(m * mask_exp, axis=(0, 1)) / sum_mask
+        var_vals = xp.sum((m - mean_vals) ** 2 * mask_exp, axis=(0, 1)) / sum_mask
+        std_vals = xp.sqrt(var_vals) + 1e-8
+        m = (m - mean_vals) / std_vals
+        m = xp.where(mask_exp, m, xp.inf)
+        return m
+
+    z_score_distance = _zscore(distance_matrix[..., xp.newaxis], distance_mask).astype(xp.float16)
+
+    stats_diff = _diff_matrix(stats_vecs, pre_stats_vecs)
+    z_stats = _zscore(stats_diff, distance_mask)
+    z_stats = (z_stats / stats_diff.shape[2]).astype(xp.float16)
+
+    hu_diff = _diff_matrix(hu_vecs, pre_hu_vecs)
+    z_hu = _zscore(hu_diff, distance_mask)
+    z_hu = (z_hu / hu_diff.shape[2]).astype(xp.float16)
+
+    z_score_matrix = xp.concatenate((z_score_distance, z_stats, z_hu), axis=2).astype(xp.float16)
+    cost_matrix = xp.nansum(z_score_matrix, axis=2).astype(xp.float16)
+    return cost_matrix.astype(xp.float32)
+
+
+def test_get_cost_matrix_streaming_matches_broadcast_3d(make_hu_imageinfo_3d) -> None:
+    """Streaming `_get_cost_matrix` ≈ broadcast reference on yeast 3D fixture.
+
+    Drives the production matching pipeline through:
+      1. The new per-feature streaming implementation (production code)
+      2. The inline broadcast-reference reimplementation
+        (`_broadcast_cost_matrix_reference`)
+
+    Asserts approx-equal at ``rtol=1e-3, atol=1e-3`` per ADR 0009. Both paths
+    run in the same process so ``scipy.spatial.distance.cdist`` is constant
+    (no cross-platform variance to confound the assertion).
+
+    `+inf` entries (masked-out pairs) are checked separately — ``np.isclose``
+    returns False for ``inf`` vs ``inf`` by default. Both paths must produce
+    `+inf` at the same positions.
+    """
+    info = make_hu_imageinfo_3d()
+    h = HuMomentTracking(info, HuMomentTrackingConfig(device="cpu"), num_t=2)
+    h._allocate_memory()
+
+    feat_t0 = h._get_frame_features(0)
+    feat_t1 = h._get_frame_features(1)
+
+    if feat_t0.coords_phys.shape[0] == 0 or feat_t1.coords_phys.shape[0] == 0:
+        _release_hu(h)
+        pytest.skip(
+            "3D fixture frame 0 or 1 has no markers; equivalence test needs realistic input."
+        )
+
+    cost_streaming = h._get_cost_matrix(
+        feat_t1.coords_phys, feat_t0.coords_phys,
+        feat_t1.stats, feat_t0.stats,
+        feat_t1.hu, feat_t0.hu,
+    )
+
+    cost_broadcast = _broadcast_cost_matrix_reference(
+        h,
+        feat_t1.coords_phys, feat_t0.coords_phys,
+        feat_t1.stats, feat_t0.stats,
+        feat_t1.hu, feat_t0.hu,
+    )
+
+    assert cost_streaming.shape == cost_broadcast.shape, (
+        f"Shape mismatch: {cost_streaming.shape} vs {cost_broadcast.shape}"
+    )
+
+    # `+inf` mask must match exactly — both paths short-circuit identically.
+    inf_streaming = np.isinf(cost_streaming)
+    inf_broadcast = np.isinf(cost_broadcast)
+    np.testing.assert_array_equal(
+        inf_streaming,
+        inf_broadcast,
+        err_msg="`+inf` mask differs between streaming and broadcast cost matrices",
+    )
+
+    finite_mask = ~inf_streaming
+    if finite_mask.any():
+        np.testing.assert_allclose(
+            cost_streaming[finite_mask].astype(np.float32),
+            cost_broadcast[finite_mask].astype(np.float32),
+            rtol=1e-3,
+            atol=1e-3,
+            err_msg=(
+                "Streaming/broadcast cost values disagree beyond rtol=1e-3, atol=1e-3 "
+                "(see ADR 0009 for the test-bar rationale)"
+            ),
+        )
+
+    _release_hu(h)
+
+
 def test_get_cost_matrix_single_matchable_pair_finite_elsewhere_inf() -> None:
     """Exactly one (post, pre) pair within max_distance_um → finite there, +inf elsewhere.
 

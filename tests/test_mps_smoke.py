@@ -408,11 +408,13 @@ def test_hu_tracking_smoke_3d(make_hu_imageinfo_3d) -> None:
     contract this smoke pins; numerical equivalence is owned by
     :mod:`tests.test_mps_equivalence`.
 
-    Note on the float64 → float32 → float16 precision cascade specific to
-    this stage: the moment-distance matrix in ``_get_difference_matrix``
-    casts to ``xp.float64`` (which silently coerces to ``float32`` on
-    MPS), then the cost matrix accumulates in ``xp.float16``. This is a
-    documented determinism risk for hu_tracking on MPS — see
+    Note on the float32 → float16 precision cascade specific to this
+    stage: per PRD #196 / ADR 0009, the cost matrix path now runs at
+    explicit ``xp.float32`` throughout (the previous
+    ``_get_difference_matrix`` ``xp.float64`` cast that silently
+    coerced to float32 on MPS is gone). The remaining precision loss
+    is the final ``xp.float16`` accumulation in ``_get_cost_matrix``,
+    which applies on both CPU and MPS. See
     :mod:`tests.test_mps_equivalence` for the calibrated tolerances.
     """
     _require_mps()

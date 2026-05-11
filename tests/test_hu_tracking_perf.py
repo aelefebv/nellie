@@ -17,11 +17,11 @@ the pattern in :mod:`tests.test_filtering_perf`,
 3. **Hot-path microbenchmarks** decompose the per-frame matching
    cost into the dominant kernels surfaced by reading the source:
    - ``_get_cost_matrix`` end-to-end at N = 100 / 500 / 1000 markers
-     (the dense N×N×F broadcast tensor is the per-frame bottleneck
-     for moderately-large marker counts).
-   - ``_get_difference_matrix`` alone (the broadcast-subtract
-     kernel; also the call site of the float64→float32 silent MPS
-     coercion noted in PRD #140 § Implementation Decisions).
+     (the per-frame matching bottleneck — now per-feature streaming
+     after PRD #196 / Slice 2 (#198); previously the dense (N, N, F)
+     broadcast tensor).
+   - ``_calculate_normalized_moments`` and ``_get_hu_moments`` 3D
+     scaling — the per-frame moment-math bottleneck (see PRD #191).
    - ``_find_best_matches`` decomposed: Python row/col loops vs the
      underlying ``argmin``/``min`` work — surfaces whether
      vectorizing the loops would pay off.
@@ -161,12 +161,12 @@ def test_hu_tracking_run_baseline_prints_wall_clock_mps(
     torch dispatch overhead per op without much speedup over numpy on
     small fixtures.
 
-    Per PRD #140 § Implementation Decisions, the moment-distance
-    matrix in ``_get_difference_matrix`` casts to ``xp.float64`` which
-    silently coerces to ``float32`` on MPS — the cost-matrix path is
-    where the bulk of the wall-clock time goes for fixtures with many
-    markers, and the float32-instead-of-float64 reduction can shave
-    cycles vs the CPU baseline (or add some — measure both ways).
+    Per PRD #196 / ADR 0009, the cost-matrix path now runs at explicit
+    float32 throughout (the previous ``_get_difference_matrix``
+    ``xp.float64`` cast that silently coerced on MPS is gone — the
+    streaming refactor pinned float32 across all backends, eliminating
+    the precision-divergence risk that PRD #140 § Implementation
+    Decisions had flagged for hu_tracking).
     """
     _require_mps()
     factory = make_hu_imageinfo_2d if dim == "2d" else make_hu_imageinfo_3d
@@ -253,31 +253,6 @@ def test_get_cost_matrix_scaling(hu_tracking_cpu, n, capsys) -> None:
         print(
             f"\n[perf] HuMomentTracking._get_cost_matrix N={n} "
             f"median over 3: {elapsed * 1000:.1f} ms"
-        )
-
-
-@pytest.mark.parametrize("n", [100, 500, 1000])
-def test_get_difference_matrix_scaling(hu_tracking_cpu, n, capsys) -> None:
-    """`_get_difference_matrix` alone — the broadcast-subtract kernel.
-
-    Also the call site of the float64→float32 silent MPS coercion noted
-    in PRD #140 § Implementation Decisions. CPU baseline here; future
-    MPS measurement can compare against it.
-    """
-    h = hu_tracking_cpu
-    rng = np.random.default_rng(13)
-    m1 = rng.normal(0.0, 1.0, size=(n, _F_HU)).astype(np.float32)
-    m2 = rng.normal(0.0, 1.0, size=(n, _F_HU)).astype(np.float32)
-
-    # Warm up
-    h._get_difference_matrix(m1, m2)
-
-    elapsed = _time_call(lambda: h._get_difference_matrix(m1, m2), iters=5)
-
-    with capsys.disabled():
-        print(
-            f"\n[perf] HuMomentTracking._get_difference_matrix N={n} "
-            f"median over 5: {elapsed * 1000:.1f} ms"
         )
 
 
