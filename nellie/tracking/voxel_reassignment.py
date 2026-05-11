@@ -400,8 +400,7 @@ class VoxelReassigner:
         if vox_prev.size == 0 or vox_next.size == 0:
             dim = vox_prev.shape[1] if vox_prev.ndim == 2 else 3
             return (np.empty((0, dim), dtype=np.int64),
-                    np.empty((0, dim), dtype=np.int64),
-                    np.empty((0,), dtype=np.float64))
+                    np.empty((0, dim), dtype=np.int64))
         if self.spatial_shape is None:
             raise RuntimeError("spatial_shape is not set; call _allocate_memory() before matching.")
 
@@ -869,17 +868,14 @@ class VoxelReassigner:
 
         Currently defined as the union of non-zero branch and object labels.
         """
-        mask = None
+        parts = []
         if self.branch_label_memmap is not None:
-            mask_b = self.branch_label_memmap[t] > 0
-            mask = mask_b if mask is None else (mask | mask_b)
+            parts.append(self.branch_label_memmap[t] > 0)
         if self.obj_label_memmap is not None:
-            mask_o = self.obj_label_memmap[t] > 0
-            mask = mask_o if mask is None else (mask | mask_o)
-        if mask is None:
-            # no labels present; return empty mask with correct shape
-            mask = np.zeros(self.spatial_shape, dtype=bool)
-        return mask
+            parts.append(self.obj_label_memmap[t] > 0)
+        if not parts:
+            return np.zeros(self.spatial_shape, dtype=bool)
+        return parts[0] if len(parts) == 1 else (parts[0] | parts[1])
 
     def _vote_assign_labels_for_frame(
         self,
@@ -987,18 +983,21 @@ class VoxelReassigner:
         # clear any existing matches
         self.running_matches = []
 
-        # stream over timepoints, computing matches once and applying to both label types
+        # Stream over timepoints, computing matches once and applying to both label types.
+        # vox_next of frame t is byte-identical to vox_prev of frame t+1 (same union of label
+        # memmaps at the same index), so cache and rotate to avoid re-reading both label
+        # memmaps and re-running argwhere every frame.
+        if self.num_t < 2:
+            return
+        vox_prev = np.argwhere(self._get_master_mask(0))
+
         for t in range(self.num_t - 1):
             if self.viewer is not None:
                 self.viewer.status = f'Reassigning voxels. Frame: {t + 1} of {self.num_t}.'
 
             logger.info(f'Reassigning pixels between frames {t} and {t + 1}')
 
-            master_mask_prev = self._get_master_mask(t)
-            master_mask_next = self._get_master_mask(t + 1)
-
-            vox_prev = np.argwhere(master_mask_prev)
-            vox_next = np.argwhere(master_mask_next)
+            vox_next = np.argwhere(self._get_master_mask(t + 1))
 
             if len(vox_prev) == 0 or len(vox_next) == 0:
                 logger.info(f'No voxels to match between frames {t} and {t + 1}; stopping.')
@@ -1032,6 +1031,8 @@ class VoxelReassigner:
                     candidate_prev, candidate_next, candidate_dist,
                     self.obj_label_memmap, self.reassigned_obj_memmap, t
                 )
+
+            vox_prev = vox_next
 
         # save running matches to npy if requested
         if self.store_running_matches and self.voxel_matches_path is not None:
