@@ -1262,6 +1262,248 @@ def test_select_best_pairs_empty_input_returns_2tuple_post_fix(
     _release_voxel_reassigner(v)
 
 
+# -------------------------------------------------------------------------
+# PRD #222 Slice 1 — characterize current `_assign_unique_matches` Python
+# greedy semantics so Slice 2's round-based vectorized rewrite can be
+# verified for set-equivalence on a known suite of corner cases.
+#
+# These tests pin BEHAVIOR (which kept-row SET emerges from each
+# input), not IMPLEMENTATION ordering — the round-based rewrite returns
+# kept indices in input-row order while the pre-rewrite returns them in
+# distance-ascending order. Both are deterministic but distinct
+# orderings; the function's contract is set-of-pairs, not a sequence.
+# See ADR 0011.
+# -------------------------------------------------------------------------
+
+
+def _make_voxel_reassigner_for_assign_unique(
+    info_factory, spatial_shape: tuple[int, ...] = (32, 32, 32)
+) -> VoxelReassigner:
+    """Bare VoxelReassigner with `spatial_shape` set, suitable for direct
+    `_assign_unique_matches` calls without the full memmap allocation.
+    """
+    info = info_factory()
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
+    v.spatial_shape = spatial_shape
+    return v
+
+
+def _kept_pair_set(prev_arr: np.ndarray, next_arr: np.ndarray) -> set:
+    """(prev, next) pair set for set-equality comparison."""
+    return {
+        (tuple(int(x) for x in p), tuple(int(x) for x in n))
+        for p, n in zip(prev_arr, next_arr)
+    }
+
+
+def test_assign_unique_matches_empty_input_returns_2tuple(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Empty input → 2-tuple of `(0, D)` int64 arrays.
+
+    The function's empty-input contract is documented in the wiki
+    gotcha (`_allocate_memory()` must run first or this raises). With
+    `spatial_shape` set but distances empty, we expect the early-return
+    path at lines 666-669: 2-tuple of `(0, D)` int64 arrays.
+    """
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    empty_prev = np.empty((0, 3), dtype=np.int64)
+    empty_next = np.empty((0, 3), dtype=np.int64)
+    empty_dist = np.empty((0,), dtype=np.float64)
+
+    result = v._assign_unique_matches(empty_prev, empty_next, empty_dist)
+    assert len(result) == 2
+    out_prev, out_next = result
+    assert out_prev.shape == (0, 3)
+    assert out_next.shape == (0, 3)
+    assert out_prev.dtype == np.int64
+    assert out_next.dtype == np.int64
+    _release_voxel_reassigner(v)
+
+
+def test_assign_unique_matches_single_match_kept_verbatim(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Single (prev, next) pair → kept verbatim."""
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    vox_prev = np.array([[1, 2, 3]], dtype=np.int64)
+    vox_next = np.array([[4, 5, 6]], dtype=np.int64)
+    distances = np.array([1.5], dtype=np.float64)
+
+    out_prev, out_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+    np.testing.assert_array_equal(out_prev, vox_prev)
+    np.testing.assert_array_equal(out_next, vox_next)
+    _release_voxel_reassigner(v)
+
+
+def test_assign_unique_matches_no_contention_keeps_all(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Three pairs with disjoint prev_ids and disjoint next_ids → all kept."""
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    vox_prev = np.array(
+        [[1, 1, 1], [2, 2, 2], [3, 3, 3]], dtype=np.int64
+    )
+    vox_next = np.array(
+        [[10, 10, 10], [20, 20, 20], [30, 30, 30]], dtype=np.int64
+    )
+    distances = np.array([1.0, 2.0, 3.0], dtype=np.float64)
+
+    out_prev, out_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+    expected = _kept_pair_set(vox_prev, vox_next)
+    actual = _kept_pair_set(out_prev, out_next)
+    assert actual == expected, (
+        f"All 3 disjoint pairs should be kept; got {actual} (expected "
+        f"{expected})"
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_assign_unique_matches_prev_contention_keeps_lowest_distance(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Two pairs share prev_id; only the lowest-distance row is kept.
+
+    Pair A (prev P, next N1, d=1.0) competes with pair B (prev P,
+    next N2, d=2.0). Greedy keeps pair A (lower distance) and drops
+    pair B (P is used).
+    """
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    p = [5, 5, 5]
+    vox_prev = np.array([p, p], dtype=np.int64)
+    vox_next = np.array([[10, 10, 10], [20, 20, 20]], dtype=np.int64)
+    distances = np.array([1.0, 2.0], dtype=np.float64)
+
+    out_prev, out_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+    expected = {(tuple(p), (10, 10, 10))}
+    actual = _kept_pair_set(out_prev, out_next)
+    assert actual == expected, (
+        f"Lower-distance pair (d=1.0) should be kept; got {actual}"
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_assign_unique_matches_next_contention_keeps_lowest_distance(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Two pairs share next_id; only the lowest-distance row is kept.
+
+    Pair A (prev P1, next N, d=1.0) competes with pair B (prev P2,
+    next N, d=2.0). Greedy keeps pair A and drops pair B (N is used).
+    """
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    n = [10, 10, 10]
+    vox_prev = np.array([[1, 1, 1], [2, 2, 2]], dtype=np.int64)
+    vox_next = np.array([n, n], dtype=np.int64)
+    distances = np.array([1.0, 2.0], dtype=np.float64)
+
+    out_prev, out_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+    expected = {((1, 1, 1), tuple(n))}
+    actual = _kept_pair_set(out_prev, out_next)
+    assert actual == expected, (
+        f"Lower-distance pair (d=1.0) should be kept; got {actual}"
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_assign_unique_matches_chain_contention_multi_round(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Chain contention exercises multi-round convergence.
+
+    Rows: (P1,N1,d=1), (P1,N2,d=2), (P2,N2,d=3), (P2,N3,d=4),
+    (P3,N3,d=5). Greedy:
+      - Take (P1,N1): keep, used={P1, N1}
+      - (P1,N2): P1 used, skip
+      - (P2,N2): keep, used={P1, P2, N1, N2}
+      - (P2,N3): P2 used, skip
+      - (P3,N3): N3 NOT used → keep, used={P1, P2, P3, N1, N2, N3}
+    Expected kept set: {(P1,N1), (P2,N2), (P3,N3)}.
+
+    Round-based version would converge in 3 rounds:
+      - R1: keep (P1,N1) only — only row that's argmin for both prev
+        and next.
+      - R2: active = {(P2,N2), (P2,N3), (P3,N3)}; keep (P2,N2).
+      - R3: active = {(P3,N3)}; keep.
+    Same kept set.
+    """
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    P1, P2, P3 = (1, 1, 1), (2, 2, 2), (3, 3, 3)
+    N1, N2, N3 = (10, 10, 10), (20, 20, 20), (30, 30, 30)
+
+    vox_prev = np.array([P1, P1, P2, P2, P3], dtype=np.int64)
+    vox_next = np.array([N1, N2, N2, N3, N3], dtype=np.int64)
+    distances = np.array([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float64)
+
+    out_prev, out_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+    expected = {(P1, N1), (P2, N2), (P3, N3)}
+    actual = _kept_pair_set(out_prev, out_next)
+    assert actual == expected, (
+        f"Chain contention should keep {expected}; got {actual}"
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_assign_unique_matches_tied_distances_pick_one(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """Tied distances on contention: exactly one of the tied rows is kept.
+
+    Two rows share prev_id with identical distance. The greedy loop
+    iterates in `np.argsort(distances)` order (default 'quicksort',
+    stable enough on tied keys for argsort to fall back to insertion
+    sort behavior at small N). Both rows can't be kept (prev_id
+    conflict); exactly one survives. The choice between the two ties
+    is implementation-defined; both pre-rewrite (greedy by argsort
+    order) and post-rewrite (round-based by lexsort tie-break) would
+    pick deterministically but possibly differently.
+
+    The TEST asserts only the cardinality + uniqueness invariants:
+      - Exactly 1 pair kept.
+      - Kept pair is one of the two input pairs.
+      - prev_id of the kept pair is the shared prev_id.
+    """
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d
+    )
+
+    p = [7, 7, 7]
+    vox_prev = np.array([p, p], dtype=np.int64)
+    vox_next = np.array([[15, 15, 15], [25, 25, 25]], dtype=np.int64)
+    distances = np.array([1.0, 1.0], dtype=np.float64)
+
+    out_prev, out_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+    assert len(out_prev) == 1
+    actual = _kept_pair_set(out_prev, out_next)
+    expected_options = {
+        (tuple(p), (15, 15, 15)),
+        (tuple(p), (25, 25, 25)),
+    }
+    assert actual.issubset(expected_options) and len(actual) == 1, (
+        f"Tied-distance contention should keep exactly 1 of the two "
+        f"input pairs; got {actual} (options: {expected_options})"
+    )
+    _release_voxel_reassigner(v)
+
+
 def test_run_reassignment_3d_snapshot_post_rewrite_matches_pre_rewrite_reference(
     make_voxel_reassign_imageinfo_3d,
 ) -> None:

@@ -1,6 +1,6 @@
 ---
 created: 2026-05-09
-modified: 2026-05-12
+modified: 2026-05-11
 ---
 
 
@@ -20,3 +20,4 @@ Decisions worth recording per [[CLAUDE|wiki conventions]] — hard to reverse, s
 - [[decisions/0008-hu-moment-matmul-rewrite]] — `HuMomentTracking._calculate_normalized_moments` switches from broadcast `(N, H, W, 4, 4)` to two-step batched matmul; `@` over `einsum` for backend-uniform BLAS dispatch; approx-equivalence (`rtol=1e-5`) test bar (preventive, ahead of PRD #191 Slice 2 rewrite)
 - [[decisions/0009-hu-cost-matrix-streaming]] — `HuMomentTracking._get_cost_matrix` switches from broadcast `(N, N, F)` float64 tensors to per-feature streaming float32; `_get_difference_matrix` + `_zscore_normalize` deleted; approx-equivalence (`rtol=1e-3`) test bar — looser than 0008 due to float64→float32 drop (preventive, ahead of PRD #196 Slice 2 rewrite)
 - [[decisions/0010-flow-nearby-coords-single-query]] — `FlowInterpolator._get_nearby_coords` switches from double `query_ball_point` + `query(k=max_k)` traversal to single `query_ball_point` + per-coord `linalg.norm`; bundled with NaN-alignment bug fix (`for pos, i in enumerate(good_coords)`); bit-identical for no-NaN, corrected for NaN (preventive, ahead of PRD #204 Slice 2 rewrite)
+- [[decisions/0011-voxel-assign-unique-matches-round-based]] — `VoxelReassigner._assign_unique_matches` switches from Python greedy loop to round-based per-prev/per-next argmin intersection; rejected first-occurrence-of-both heuristic as not equivalent to greedy; set-equality (not ordered-equality) test bar (preventive, ahead of PRD #222 Slice 2 rewrite)
