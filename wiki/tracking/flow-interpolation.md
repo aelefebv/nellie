@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-12
 ---
 
 # Flow interpolation
@@ -23,7 +23,7 @@ Hu tracking only matches markers; voxel reassignment and label trajectories need
 - **Returns NaN rows for queries with no neighbors within `max_distance_um`.** Callers must handle NaN explicitly.
 - **NaN is terminal in `interpolate_all_forward/backward`.** Once a coord's interpolated vector is all-NaN, the driver overwrites the coord with NaN and never revives it on later frames — tracks die silently mid-sequence rather than skipping a gap.
 - **`max_distance_um` is scaled by `dim_res['T']` at construction**, with a 0.5 μm floor. The constructor argument is effectively μm-per-frame, so the search radius grows with frame interval. Passing `0.5` does not give a 0.5 μm radius unless `dt == 1`.
-- **The `__main__` block has a `self.im_info` typo bug** (uses `self` outside a class). Don't run the script standalone.
+- **`flow_vector_array` is pre-bucketed by `t` at `_allocate_memory`**: `self._t_to_rows = {t: row_indices}` is built once. Per-frame `interpolate_coord` lookups are O(1) dict reads; the pre-cleanup O(total_markers) `np.where(flow_vector_array[:, 0] == t)` scan is gone (PR #214).
 
 ## Invariants
 

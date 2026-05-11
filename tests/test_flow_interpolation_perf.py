@@ -148,6 +148,18 @@ def _make_bare_flow_for_interpolate(
     f.check_coords = None
     f.current_tree = None
     f.max_distance_um = float(max_distance_um)
+    # Mirror `_allocate_memory`'s pre-bucketing — required by the
+    # post-cleanup `interpolate_coord` lookup (#214).
+    if f.flow_vector_array.size:
+        t_col = f.flow_vector_array[:, 0]
+        unique_t, inverse = np.unique(t_col, return_inverse=True)
+        order = np.argsort(inverse, kind='stable')
+        sorted_inverse = inverse[order]
+        split_at = np.searchsorted(sorted_inverse, np.arange(1, len(unique_t)))
+        grouped = np.split(order, split_at)
+        f._t_to_rows = {int(t_val): rows for t_val, rows in zip(unique_t, grouped)}
+    else:
+        f._t_to_rows = {}
 
     class _StubImInfo:
         pass

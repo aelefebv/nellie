@@ -1,8 +1,8 @@
 """
 Flow vector interpolation for temporal tracking in microscopy images.
 
-This module provides interpolation of optical flow vectors between timepoints with
-optimizations for large datasets and optional GPU acceleration.
+This module provides interpolation of optical flow vectors between timepoints
+via distance-weighted KDTree lookup over a precomputed `flow_vector_array`.
 """
 import numpy as np
 from scipy.spatial import cKDTree
@@ -91,8 +91,7 @@ class FlowInterpolator:
         else:
             self.scaling = (im_info.dim_res['Z'], im_info.dim_res['Y'], im_info.dim_res['X'])
 
-        self.max_distance_um = max_distance_um * im_info.dim_res['T']
-        self.max_distance_um = np.max(np.array([self.max_distance_um, 0.5]))
+        self.max_distance_um = max(max_distance_um * im_info.dim_res['T'], 0.5)
 
         self.forward = forward
 
@@ -123,6 +122,22 @@ class FlowInterpolator:
 
         flow_vector_array_path = self.im_info.pipeline_paths['flow_vector_array']
         self.flow_vector_array = np.load(flow_vector_array_path)
+        # Pre-bucket the flow_vector_array by t so per-frame `interpolate_coord`
+        # lookups are O(1) dict reads instead of O(total_markers) `np.where`
+        # scans. The forward path indexes by t directly; the backward path
+        # indexes by t-1 (looks up markers from the previous frame). Storing
+        # the index arrays (not the row slices) keeps memory minimal — the
+        # full `flow_vector_array` is the source of truth.
+        if self.flow_vector_array.size:
+            t_col = self.flow_vector_array[:, 0]
+            unique_t, inverse = np.unique(t_col, return_inverse=True)
+            order = np.argsort(inverse, kind='stable')
+            sorted_inverse = inverse[order]
+            split_at = np.searchsorted(sorted_inverse, np.arange(1, len(unique_t)))
+            grouped = np.split(order, split_at)
+            self._t_to_rows = {int(t_val): rows for t_val, rows in zip(unique_t, grouped)}
+        else:
+            self._t_to_rows = {}
 
     def _get_t(self):
         """
@@ -299,17 +314,23 @@ class FlowInterpolator:
         # For forward, simply find nearby LMPs, interpolate based on distance-weighted vectors
         # For backward, get coords from t-1 + vector, then find nearby coords from that, and interpolate based on distance-weighted vectors
         if self.current_t != t:
+            # O(1) dict lookup over the pre-bucketed `_t_to_rows` index built
+            # in `_allocate_memory` — replaces the per-frame
+            # `np.where(self.flow_vector_array[:, 0] == t)` scan.
+            lookup_t = t if self.forward else t - 1
+            row_indices = self._t_to_rows.get(int(lookup_t))
+            if row_indices is None or len(row_indices) == 0:
+                self.check_rows = self.flow_vector_array[:0]
+            else:
+                self.check_rows = self.flow_vector_array[row_indices, :]
             if self.forward:
-                # check_rows will be all rows where the self.flow_vector_array's 0th column is equal to t
-                self.check_rows = self.flow_vector_array[np.where(self.flow_vector_array[:, 0] == t)[0], :]
                 if self.im_info.no_z:
                     self.check_coords = self.check_rows[:, 1:3]
                 else:
                     self.check_coords = self.check_rows[:, 1:4]
             else:
-                # check_rows will be all rows where the self.flow_vector_array's 0th columns is equal to t-1
-                self.check_rows = self.flow_vector_array[np.where(self.flow_vector_array[:, 0] == t - 1)[0], :]
-                # check coords will be the coords + vector
+                # Backward: check coords are pre-coord + forward vector
+                # (the marker's destination at t).
                 if self.im_info.no_z:
                     self.check_coords = self.check_rows[:, 1:3] + self.check_rows[:, 3:5]
                 else:
@@ -317,9 +338,6 @@ class FlowInterpolator:
 
         nearby_idxs, distances_all = self._get_nearby_coords(t, coords)
         self.current_t = t
-
-        if nearby_idxs is None:
-            return None
 
         weights_all = self._get_vector_weights(nearby_idxs, distances_all)
         final_vectors = self._get_final_vector(nearby_idxs, weights_all)
@@ -486,29 +504,3 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, m
         coords, start_t, end_t, im_info, min_track_num, max_distance_um, forward=False,
     )
 
-
-if __name__ == "__main__":
-    im_path = r"D:\test_files\nelly_smorgasbord\deskewed-iono_pre.ome.tif"
-    im_info = ImInfo(im_path)
-    label_memmap = self.im_info.get_memmap(im_info.pipeline_paths['im_instance_label'])
-    im_memmap = self.im_info.get_memmap(im_info.im_path)
-
-    import napari
-    viewer = napari.Viewer()
-    start_frame = 0
-    # going backwards
-    coords = np.argwhere(label_memmap[0] > 0).astype(float)
-    # get 100 random coords
-    # np.random.seed(0)
-    # coords = coords[np.random.choice(coords.shape[0], 10000, replace=False), :].astype(float)
-    # x in range 450-650
-    # y in range 600-750
-    new_coords = []
-    for coord in coords:
-        if 450 < coord[-1] < 650 and 600 < coord[-2] < 750:
-            new_coords.append(coord)
-    coords = np.array(new_coords[::1])
-    tracks, track_properties = interpolate_all_forward(coords, start_frame, 3, im_info)
-
-    viewer.add_image(im_memmap)
-    viewer.add_tracks(tracks, properties=track_properties, name='tracks')

@@ -898,6 +898,124 @@ def test_interpolate_all_forward_2d_emits_4_column_rows(tmp_path) -> None:
         assert len(row) == 4, f"Expected (id, frame, y, x) row in 2D, got {row}"
 
 
+# -------------------------------------------------------------------------
+# PR C cleanups (#214) regression tests
+# -------------------------------------------------------------------------
+
+
+def test_allocate_memory_pre_buckets_flow_array_by_t(tmp_path) -> None:
+    """`_allocate_memory` builds `_t_to_rows` index over the flow_vector_array.
+
+    Pin the pre-bucketing contract introduced by issue #214: per-frame
+    `interpolate_coord` lookups should be O(1) dict reads instead of
+    O(total_markers) `np.where` scans. The dict must contain one entry
+    per unique `t` value; each entry's row indices must select the
+    same rows as the equivalent `np.where(flow[:, 0] == t)` scan.
+    """
+    from nellie.tracking.flow_interpolation import FlowInterpolator
+
+    rng = np.random.default_rng(214)
+    n_per_t = 100
+    blocks = []
+    for t in range(5):
+        blocks.append(np.column_stack([
+            np.full(n_per_t, t, dtype=np.float64),
+            rng.uniform(0.0, 100.0, size=n_per_t),
+            rng.uniform(0.0, 100.0, size=n_per_t),
+            rng.uniform(0.0, 100.0, size=n_per_t),
+            rng.uniform(-1.0, 1.0, size=n_per_t),
+            rng.uniform(-1.0, 1.0, size=n_per_t),
+            rng.uniform(-1.0, 1.0, size=n_per_t),
+            rng.uniform(0.0, 0.5, size=n_per_t),
+        ]))
+    flow_array = np.concatenate(blocks, axis=0)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    f = FlowInterpolator(info, forward=True, max_distance_um=1.0)
+
+    # Each unique t in [0, 4] should map to a distinct row-index array.
+    assert hasattr(f, "_t_to_rows"), "Cleanup must add _t_to_rows index"
+    assert set(f._t_to_rows.keys()) == set(range(5))
+
+    # Per-t row indices select the same rows as np.where would.
+    for t in range(5):
+        expected = np.where(flow_array[:, 0] == t)[0]
+        actual = f._t_to_rows[t]
+        np.testing.assert_array_equal(np.sort(actual), np.sort(expected))
+
+
+def test_interpolate_coord_uses_t_bucketed_lookup_post_cleanup(tmp_path) -> None:
+    """`interpolate_coord` for forward and backward returns the same `check_rows` as the pre-cleanup scan.
+
+    Pin behavior-preservation of the t-bucketing change: the rows
+    selected per frame should be identical to what the pre-cleanup
+    `np.where(flow_vector_array[:, 0] == t)` scan returned.
+    """
+    from nellie.tracking.flow_interpolation import FlowInterpolator
+
+    rng = np.random.default_rng(2140)
+    n_per_t = 50
+    blocks = []
+    for t in range(3):
+        blocks.append(np.column_stack([
+            np.full(n_per_t, t, dtype=np.float64),
+            rng.uniform(0.0, 100.0, size=n_per_t),
+            rng.uniform(0.0, 100.0, size=n_per_t),
+            rng.uniform(0.0, 100.0, size=n_per_t),
+            rng.uniform(-1.0, 1.0, size=n_per_t),
+            rng.uniform(-1.0, 1.0, size=n_per_t),
+            rng.uniform(-1.0, 1.0, size=n_per_t),
+            rng.uniform(0.0, 0.5, size=n_per_t),
+        ]))
+    flow_array = np.concatenate(blocks, axis=0)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    coords = rng.uniform(0.0, 100.0, size=(10, 3))
+
+    # Forward at t=2.
+    f_fw = FlowInterpolator(info, forward=True, max_distance_um=2.0)
+    f_fw.interpolate_coord(coords, t=2)
+    expected_fw_rows = flow_array[np.where(flow_array[:, 0] == 2)[0], :]
+    np.testing.assert_array_equal(f_fw.check_rows, expected_fw_rows)
+
+    # Backward at t=2 (looks up markers from t=1).
+    f_bw = FlowInterpolator(info, forward=False, max_distance_um=2.0)
+    f_bw.interpolate_coord(coords, t=2)
+    expected_bw_rows = flow_array[np.where(flow_array[:, 0] == 1)[0], :]
+    np.testing.assert_array_equal(f_bw.check_rows, expected_bw_rows)
+
+
+def test_max_distance_um_floor_unchanged_post_cleanup(tmp_path) -> None:
+    """`max_distance_um` floor at 0.5 preserved when caller passes < 0.5 / dt.
+
+    Pin the wiki-documented floor invariant: per
+    `wiki/tracking/flow-interpolation.md`, the constructor scales
+    `max_distance_um` by `dim_res['T']` and floors at 0.5. Pre-cleanup:
+    `np.max(np.array([um*dt, 0.5]))`. Post-cleanup: `max(um*dt, 0.5)`.
+    Equivalent for any reasonable input.
+    """
+    from nellie.tracking.flow_interpolation import FlowInterpolator
+
+    flow_array = np.array(
+        [[0.0, 50.0, 50.0, 50.0, 0.5, 0.5, 0.5, 0.0]], dtype=np.float64
+    )
+    # dim_res T=1.0, caller passes 0.1 → 0.1 * 1.0 = 0.1, below the 0.5 floor.
+    info = _make_stub_iminfo(
+        tmp_path, flow_array, no_z=False,
+        dim_res={"T": 1.0, "Z": 0.5, "Y": 0.1, "X": 0.1},
+    )
+    f = FlowInterpolator(info, max_distance_um=0.1)
+    assert f.max_distance_um == 0.5
+
+    # dim_res T=2.0, caller passes 0.4 → 0.4 * 2.0 = 0.8, above the 0.5 floor.
+    info2 = _make_stub_iminfo(
+        tmp_path, flow_array, no_z=False,
+        dim_res={"T": 2.0, "Z": 0.5, "Y": 0.1, "X": 0.1},
+    )
+    f2 = FlowInterpolator(info2, max_distance_um=0.4)
+    assert f2.max_distance_um == 0.8
+
+
 def test_get_nearby_coords_post_rewrite_distances_sorted_ascending() -> None:
     """Post-rewrite distances need not be sorted (pre-rewrite was via cKDTree.query).
 
