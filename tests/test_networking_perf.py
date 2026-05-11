@@ -251,13 +251,18 @@ def test_remove_connected_label_pixels_wall_clock(network_setup, capsys) -> None
 
 
 def test_relabel_objects_decomposed_wall_clock(network_setup, capsys) -> None:
-    """`_relabel_objects` per-frame: total + find_objects vs sum-of-EDT.
+    """`_relabel_objects` per-frame: serial vs threaded + find_objects + sum-of-EDT.
 
-    The per-object EDT loop is the suspected many-small-objects
-    pathology. Print total + find_objects setup cost + sum of
-    per-object distance_transform_edt cost so the loop's contribution
-    is visible.
+    The per-object EDT loop is the parallelism target — scipy's
+    ``distance_transform_edt`` releases the GIL, so the per-object loop
+    threads cleanly via ``ThreadPoolExecutor`` (see ADR 0005). This test
+    times both the serial path (forced via ``low_memory=True``) and the
+    threaded path (default), prints the speedup, and keeps the
+    ``find_objects`` decomposition print line so the per-frame setup cost
+    stays visible.
     """
+    import os
+
     net, label_frame, _frangi, dim = network_setup
     skel = net._skeletonize(label_frame)
     skel_clean = net._remove_connected_label_pixels(skel)
@@ -265,10 +270,21 @@ def test_relabel_objects_decomposed_wall_clock(network_setup, capsys) -> None:
     pixel_class = net._get_pixel_class(skel_pre, force_cpu=True)
     branch_skel_labels = net._get_branch_skel_labels(pixel_class, force_cpu=True)
 
-    # Warm up
+    # Warm up (threaded path)
+    net.low_memory = False
     net._relabel_objects(branch_skel_labels, label_frame)
 
-    t_total = _time_call(
+    # Threaded path (default)
+    net.low_memory = False
+    t_threaded = _time_call(
+        lambda: net._relabel_objects(branch_skel_labels, label_frame),
+        iters=3,
+    )
+
+    # Serial path (forced via low_memory=True)
+    net.low_memory = True
+    net._relabel_objects(branch_skel_labels, label_frame)  # warm up
+    t_serial = _time_call(
         lambda: net._relabel_objects(branch_skel_labels, label_frame),
         iters=3,
     )
@@ -310,10 +326,25 @@ def test_relabel_objects_decomposed_wall_clock(network_setup, capsys) -> None:
     _sum_edts()
     t_edt_sum = _time_call(_sum_edts, iters=3)
 
+    # Mirror the worker-cap logic from _relabel_objects so the print line
+    # reports the actual worker count used (min(cpu_count, len(work), 8)).
+    work_len = sum(
+        1
+        for lab in range(1, max_label + 1)
+        if lab - 1 < len(slices) and slices[lab - 1] is not None
+    )
+    workers = min(os.cpu_count() or 1, max(work_len, 1), 8)
+    speedup = t_serial / max(t_threaded, 1e-9)
+
     with capsys.disabled():
         print(
             f"\n[perf] Network._relabel_objects {dim} ({max_label} labels) "
-            f"total={t_total * 1000:.1f}ms; "
+            f"serial={t_serial * 1000:.1f}ms "
+            f"threaded({workers}workers)={t_threaded * 1000:.1f}ms "
+            f"speedup={speedup:.2f}x"
+        )
+        print(
+            f"[perf] Network._relabel_objects {dim} decomposition: "
             f"find_objects={t_find * 1000:.1f}ms "
             f"sum_per_object_edt={t_edt_sum * 1000:.1f}ms"
         )
