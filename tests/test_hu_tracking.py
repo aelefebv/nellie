@@ -821,6 +821,101 @@ def test_calculate_normalized_moments_single_pixel_analytical() -> None:
     np.testing.assert_allclose(out, expected, rtol=1e-5, atol=1e-7)
 
 
+def _broadcast_normalized_moments_reference(images: np.ndarray) -> np.ndarray:
+    """Reference broadcast implementation of `_calculate_normalized_moments`.
+
+    Verbatim copy of the pre-PRD #191 body (the (N, H, W, 4, 4) broadcast
+    formulation). Lives inline in the test file so the equivalence pin in
+    :func:`test_calculate_normalized_moments_matmul_matches_broadcast_3d`
+    survives even after the production code drops the broadcast version.
+    Pure numpy — independent of HuMomentTracking instance state.
+    """
+    extended_images = images[:, :, :, None, None]
+    height, width = images.shape[1], images.shape[2]
+    x, y = np.meshgrid(np.arange(width), np.arange(height))
+    x = x[None, :, :, None, None]
+    y = y[None, :, :, None, None]
+    powers = np.arange(4)
+    powers_x = powers[None, None, None, :, None]
+    powers_y = powers[None, None, None, None, :]
+    M = np.sum(extended_images * (x ** powers_x) * (y ** powers_y), axis=(1, 2))
+    x_bar = (M[:, 1, 0] / (M[:, 0, 0] + 1e-12))[:, None, None, None, None]
+    y_bar = (M[:, 0, 1] / (M[:, 0, 0] + 1e-12))[:, None, None, None, None]
+    mu = np.sum(
+        extended_images
+        * (x - x_bar) ** powers_x
+        * (y - y_bar) ** powers_y,
+        axis=(1, 2),
+    )
+    i_plus_j = np.arange(4)[:, None] + np.arange(4)[None, :]
+    denom = (M[:, 0, 0][:, None, None] ** ((i_plus_j[None, :, :] + 2) / 2.0)) + 1e-12
+    return mu / denom
+
+
+def test_calculate_normalized_moments_matmul_matches_broadcast_3d(make_hu_imageinfo_3d) -> None:
+    """Matmul output ≈ broadcast reference on realistic 3D orthogonal projections.
+
+    Drives the **realistic** input the production code sees: build a
+    HuMomentTracking against the yeast 3D fixture, capture
+    ``intensity_sub_volumes`` for ``t=0`` post-``_get_sub_volumes``, run
+    ``_get_orthogonal_projections`` to get the three (N, H, W) projections,
+    then assert the matmul implementation matches the inline broadcast
+    reference at ``rtol=1e-5, atol=1e-7`` for each projection.
+
+    Per ADR 0008, BLAS reorders the spatial-axis reduction so the matmul
+    output is not bit-equal to the broadcast version. ``rtol=1e-5`` is the
+    bound on the relative drift at float32 precision on realistic Hu
+    moment magnitudes — same intra-platform precedent as the equivalence
+    tests in PRDs #173 / #184. Both paths run in the same process so the
+    BLAS implementation is constant (no cross-platform variance to
+    confound the assertion).
+    """
+    info = make_hu_imageinfo_3d()
+    h = HuMomentTracking(info, HuMomentTrackingConfig(device="cpu"), num_t=2)
+    h._allocate_memory()
+
+    # Drive the per-frame ROI extraction to obtain realistic sub-volumes.
+    # `_get_frame_features` does the dense ROI extraction internally; we
+    # peek at the same intermediates by replaying the relevant fragment
+    # of `_get_frame_features` for t=0.
+    t = 0
+    intensity_frame = np.asarray(h.im_memmap[t]).astype(np.float32, copy=False)
+    distance_frame = np.asarray(h.im_distance_memmap[t])
+    distance_max_frame = distance_frame.copy()
+    h.ndi.maximum_filter(distance_max_frame, size=3, output=distance_max_frame)
+    distance_max_frame *= 2
+
+    marker_frame = np.asarray(h.im_marker_memmap[t]) > 0
+    marker_indices = np.argwhere(marker_frame)
+
+    # Skip the test gracefully if the fixture happens to have no markers
+    # in the first frame. (The synthetic suite already pins the
+    # zero-marker behavior; this test depends on having realistic data.)
+    if marker_indices.shape[0] == 0:
+        _release_hu(h)
+        pytest.skip("3D fixture frame 0 has no markers; equivalence test needs realistic input.")
+
+    region_bounds = h._get_im_bounds(marker_indices, distance_max_frame)
+    marker_mask = marker_frame
+    max_radius = int(np.ceil(np.max(distance_max_frame[marker_mask])).item()) * 2 + 1
+    intensity_sub_volumes = h._get_sub_volumes(intensity_frame, region_bounds, max_radius)
+
+    z_proj, y_proj, x_proj = h._get_orthogonal_projections(intensity_sub_volumes)
+
+    for label, projection in (("z", z_proj), ("y", y_proj), ("x", x_proj)):
+        out_matmul = h._calculate_normalized_moments(projection)
+        out_ref = _broadcast_normalized_moments_reference(projection)
+        np.testing.assert_allclose(
+            out_matmul,
+            out_ref,
+            rtol=1e-5,
+            atol=1e-7,
+            err_msg=f"matmul/broadcast disagreement on {label}-projection (rtol=1e-5)",
+        )
+
+    _release_hu(h)
+
+
 def test_calculate_normalized_moments_translation_invariance() -> None:
     """eta is translation-invariant: shifting a blob preserves eta.
 

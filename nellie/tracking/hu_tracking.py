@@ -215,38 +215,51 @@ class HuMomentTracking:
         xp.ndarray
             Normalized moments eta for each image, shape (N, 4, 4).
         """
+        # Two-step batched matmul (per ADR 0008): the broadcast formulation
+        # ``(N, H, W, 4, 4)`` materializes ~28 MB intermediates at typical
+        # N=1000 / H=W=21 and runs 3× per 3D frame via the orthogonal-
+        # projection path. matmul contracts the spatial axes via BLAS and
+        # caps the peak intermediate at ~336 KB.
         xp = self.xp
-        # Broadcasting-heavy implementation for speed.
-        num_images, height, width = images.shape
-        extended_images = images[:, :, :, None, None]  # (N, H, W, 1, 1)
-
-        # pre-compute meshgrid
-        x, y = xp.meshgrid(xp.arange(width), xp.arange(height))
-        x = x[None, :, :, None, None]
-        y = y[None, :, :, None, None]
-
+        _, height, width = images.shape
+        dtype = images.dtype
         powers = xp.arange(4)
-        powers_x = powers[None, None, None, :, None]
-        powers_y = powers[None, None, None, None, :]
 
-        # raw moments M_{pq}
-        M = xp.sum(extended_images * (x ** powers_x) * (y ** powers_y), axis=(1, 2))  # (N, 4, 4)
+        # Raw-moment power tables: x_powers[w, p] = w^p, y_powers[h, q] = h^q.
+        # Cast the coordinate grids to the image dtype so the matmul stays in
+        # the input's precision (float32 → float32; matches the broadcast
+        # formulation's effective output precision modulo BLAS reduction
+        # ordering, which is the source of the rtol=1e-5 drift documented in
+        # ADR 0008).
+        x_arr = xp.arange(width, dtype=dtype)
+        y_arr = xp.arange(height, dtype=dtype)
+        x_powers = x_arr[:, None] ** powers[None, :]   # (W, 4)
+        y_powers = y_arr[:, None] ** powers[None, :]   # (H, 4)
 
-        # centroids
-        x_bar = M[:, 1, 0] / (M[:, 0, 0] + 1e-12)
-        y_bar = M[:, 0, 1] / (M[:, 0, 0] + 1e-12)
-        x_bar = x_bar[:, None, None, None, None]
-        y_bar = y_bar[:, None, None, None, None]
+        # Raw moments M[n, p, q] = sum_{h, w} I[n, h, w] * w^p * h^q via
+        # 2-step BLAS contraction. Broadcasting matmul handles the leading
+        # batch dim uniformly across numpy / cupy / torch.
+        M_inter = images @ x_powers                    # (N, H, 4)
+        M = M_inter.transpose(0, 2, 1) @ y_powers      # (N, 4, 4)
 
-        # central moments mu_{pq}
-        mu = xp.sum(
-            extended_images *
-            (x - x_bar) ** powers_x *
-            (y - y_bar) ** powers_y,
-            axis=(1, 2)
-        )  # (N, 4, 4)
+        # Centroids
+        x_bar = M[:, 1, 0] / (M[:, 0, 0] + 1e-12)      # (N,)
+        y_bar = M[:, 0, 1] / (M[:, 0, 0] + 1e-12)      # (N,)
 
-        # normalized moments eta_{pq}
+        # Centered coordinate power tables: per-N, since x_bar/y_bar vary.
+        # x_centered[n, w] = w - x_bar[n]; raised to integer powers ∈ {0..3}.
+        x_centered = x_arr[None, :] - x_bar[:, None]   # (N, W)
+        y_centered = y_arr[None, :] - y_bar[:, None]   # (N, H)
+        x_centered_powers = x_centered[..., None] ** powers   # (N, W, 4)
+        y_centered_powers = y_centered[..., None] ** powers   # (N, H, 4)
+
+        # Central moments mu[n, p, q] via batched matmul along the n axis.
+        # `(N, H, W) @ (N, W, 4) → (N, H, 4)` and so on — the broadcasting
+        # rule for matmul treats the leading dims as batch.
+        mu_inter = images @ x_centered_powers                    # (N, H, 4)
+        mu = mu_inter.transpose(0, 2, 1) @ y_centered_powers     # (N, 4, 4)
+
+        # Normalized moments eta_{pq} = mu_{pq} / M_{0,0}^((p+q+2)/2)
         i_plus_j = xp.arange(4)[:, None] + xp.arange(4)[None, :]
         denom = (M[:, 0, 0][:, None, None] ** ((i_plus_j[None, :, :] + 2) / 2.0)) + 1e-12
         eta = mu / denom
