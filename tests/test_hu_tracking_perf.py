@@ -281,6 +281,74 @@ def test_get_difference_matrix_scaling(hu_tracking_cpu, n, capsys) -> None:
         )
 
 
+@pytest.mark.parametrize("n", [100, 500, 1000])
+def test_calculate_normalized_moments_scaling(hu_tracking_cpu, n, capsys) -> None:
+    """`_calculate_normalized_moments` scaling at N = 100/500/1000, H=W=21.
+
+    The (N, H, W, 4, 4) broadcast tensor materialized inside the
+    function is the biggest known memory blowup in hu_tracking.py per
+    the 2026-05-11 audit. For typical N=1000 markers with H=W=21 (the
+    yeast 3D fixture's max_radius), each broadcast tensor is ~28 MB
+    and is allocated twice per call (raw + central moments).
+
+    Backfilled here as the before/after measurement vehicle for the
+    matmul rewrite in PRD #191 / Slice 2 (#193). The 2D path calls
+    this function once per frame; the 3D path calls it 3× per frame
+    (once per orthogonal projection — see
+    :func:`test_get_hu_moments_3d_scaling` below).
+    """
+    h = hu_tracking_cpu
+    rng = np.random.default_rng(19)
+    H = W = 21  # typical max_radius for the yeast 3D fixture
+    images = rng.uniform(0.0, 1.0, size=(n, H, W)).astype(np.float32)
+
+    # Warm up
+    h._calculate_normalized_moments(images)
+
+    elapsed = _time_call(lambda: h._calculate_normalized_moments(images), iters=5)
+
+    with capsys.disabled():
+        print(
+            f"\n[perf] HuMomentTracking._calculate_normalized_moments "
+            f"N={n} H=W={H} median over 5: {elapsed * 1000:.1f} ms"
+        )
+
+
+@pytest.mark.parametrize("n", [100, 500, 1000])
+def test_get_hu_moments_3d_scaling(hu_tracking_cpu, n, capsys) -> None:
+    """`_get_hu_moments` 3D path scaling at N = 100/500/1000.
+
+    The 3D path triggers ``_get_orthogonal_projections`` (3× ``xp.max``
+    over the volume) followed by 3× ``_calculate_normalized_moments``
+    (one per projection), then ``_calculate_hu_moments`` 3× and a
+    final concatenate. This is the per-3D-frame moment-math hot loop.
+
+    Backfilled as the before/after vehicle for PRD #191 / Slice 2 —
+    the matmul rewrite's win compounds 3× on the 3D path vs 1× on the
+    2D path, so the 3D scaling number is the more impactful
+    measurement for production workloads.
+
+    The fixture is bound to the 3D yeast image (``no_z = False``), so
+    ``_get_hu_moments`` takes the 3D branch even though the synthetic
+    sub_volumes are constructed directly here.
+    """
+    h = hu_tracking_cpu
+    rng = np.random.default_rng(23)
+    H = W = Z = 21
+    sub_volumes = rng.uniform(0.0, 1.0, size=(n, Z, H, W)).astype(np.float32)
+
+    # Warm up
+    h._get_hu_moments(sub_volumes)
+
+    elapsed = _time_call(lambda: h._get_hu_moments(sub_volumes), iters=5)
+
+    with capsys.disabled():
+        print(
+            f"\n[perf] HuMomentTracking._get_hu_moments 3D "
+            f"N={n} Z=H=W={Z} median over 5: {elapsed * 1000:.1f} ms"
+        )
+
+
 @pytest.mark.parametrize("n", [100, 1000])
 def test_find_best_matches_loop_overhead(hu_tracking_cpu, n, capsys) -> None:
     """Decompose `_find_best_matches`: total + isolated argmin/min vs Python loops.
