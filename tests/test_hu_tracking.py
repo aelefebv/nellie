@@ -712,6 +712,149 @@ def test_log_hu_finite_on_zero_input() -> None:
 
 
 # -------------------------------------------------------------------------
+# Direct synthetic tests for `_calculate_normalized_moments`
+#
+# Pin the contract of the moment math kernel (the most arithmetic-heavy
+# function in the per-frame Hu pipeline). PRD #191 / Slice 2 (#193) will
+# rewrite this body from a (N, H, W, 4, 4) broadcast to a two-step
+# batched matmul; these tests are the regression bar (count / shape /
+# allclose-with-tolerance / analytical-value), platform-stable in shape
+# and tolerant of float32 precision drift per ADR 0008.
+# -------------------------------------------------------------------------
+
+
+def _make_bare_hu_for_moments() -> HuMomentTracking:
+    """Build a HuMomentTracking instance bypassing __init__ for moment-math tests.
+
+    `_calculate_normalized_moments` only reads `self.xp`. The
+    `__new__` + manual attribute pattern mirrors
+    `test_log_hu_finite_on_zero_input` above and avoids the full
+    constructor's ImInfo / memmap setup.
+    """
+    h = HuMomentTracking.__new__(HuMomentTracking)
+    h.xp = np
+    return h
+
+
+def test_calculate_normalized_moments_shape() -> None:
+    """`(N, H, W)` input returns ``(N, 4, 4)`` of a float dtype.
+
+    Pins the (N, 4, 4) eta shape contract that downstream
+    ``_calculate_hu_moments`` consumes. Doesn't pin the exact float
+    dtype (float32 vs float64): numpy's promotion rules between
+    ``int64`` (from ``arange`` in the broadcast formulation) and
+    ``float32`` differ across numpy 1.x and 2.x; the matmul rewrite
+    in Slice 2 (#193) keeps the input dtype throughout. As long as
+    the kind is float, downstream is happy.
+    """
+    h = _make_bare_hu_for_moments()
+    rng = np.random.default_rng(7)
+    images = rng.uniform(0.0, 1.0, size=(3, 7, 9)).astype(np.float32)
+    out = h._calculate_normalized_moments(images)
+    assert out.shape == (3, 4, 4)
+    assert out.dtype.kind == "f", f"Expected float dtype, got {out.dtype}"
+
+
+def test_calculate_normalized_moments_empty_input() -> None:
+    """Empty ``(0, H, W)`` input returns ``(0, 4, 4)`` cleanly.
+
+    Pins the boundary behavior on zero-marker frames — the per-frame
+    early-out at ``hu_tracking.py:584`` already guards
+    ``_calculate_normalized_moments`` from being called on (0, H, W),
+    but the kernel itself must not crash if the guard is ever bypassed
+    (defense in depth + the matmul reformulation in Slice 2 (#193)
+    needs to handle empty leading dims uniformly).
+    """
+    h = _make_bare_hu_for_moments()
+    images = np.zeros((0, 7, 9), dtype=np.float32)
+    out = h._calculate_normalized_moments(images)
+    assert out.shape == (0, 4, 4)
+
+
+def test_calculate_normalized_moments_all_zeros_finite() -> None:
+    """All-zero image input returns finite eta (no NaN/inf).
+
+    Pins the divide-by-zero guards: the ``+ 1e-12`` floor in both the
+    centroid division (``M[:, 0, 0] + 1e-12``) and the denom
+    calculation. Slice 2 (#193) keeps the same epsilon-floor pattern;
+    this test ensures the rewrite preserves the no-NaN contract.
+    """
+    h = _make_bare_hu_for_moments()
+    images = np.zeros((4, 7, 9), dtype=np.float32)
+    out = h._calculate_normalized_moments(images)
+    assert out.shape == (4, 4, 4)
+    assert np.isfinite(out).all(), "All-zero input produced non-finite eta"
+
+
+def test_calculate_normalized_moments_single_pixel_analytical() -> None:
+    """Single non-zero pixel: eta_{0,0} = 1, all other eta = 0.
+
+    For an image with a single mass m at position (h0, w0):
+
+        M_{p,q}    = sum_{h,w} I[h,w] * w^p * h^q = m * w0^p * h0^q
+        x_bar      = M_{1,0} / M_{0,0} = w0
+        y_bar      = M_{0,1} / M_{0,0} = h0
+        mu_{p,q}   = m * (w0 - x_bar)^p * (h0 - y_bar)^q
+                   = m * 0^p * 0^q
+                   = m  if (p, q) == (0, 0) else 0
+        denom_{p,q} = M_{0,0}^((p+q+2)/2) = m^((p+q+2)/2)
+        eta_{p,q}  = mu_{p,q} / denom_{p,q}
+                   = m / m^1   if (p, q) == (0, 0)  → 1
+                   = 0 / m^k   else                  → 0
+
+    Pinning this analytical result locks the centroid math
+    (M_{1,0}/M_{0,0} and M_{0,1}/M_{0,0}) AND the denom exponent
+    formula ``(p+q+2)/2`` together. If the matmul rewrite (Slice 2
+    #193) accidentally swaps p/q axes or drops the +2 in the denom,
+    this test fails immediately.
+    """
+    h = _make_bare_hu_for_moments()
+    images = np.zeros((1, 7, 9), dtype=np.float32)
+    h0, w0 = 3, 4
+    mass = 5.0
+    images[0, h0, w0] = mass
+
+    out = h._calculate_normalized_moments(images)
+
+    expected = np.zeros((1, 4, 4), dtype=out.dtype)
+    expected[0, 0, 0] = 1.0
+    np.testing.assert_allclose(out, expected, rtol=1e-5, atol=1e-7)
+
+
+def test_calculate_normalized_moments_translation_invariance() -> None:
+    """eta is translation-invariant: shifting a blob preserves eta.
+
+    Central moments mu_{p,q} are translation-invariant by construction
+    (the centroid x_bar, y_bar shifts with the blob). Normalized
+    moments eta = mu / M_{0,0}^k inherit this — same blob at different
+    positions in the same-sized image must yield the same eta.
+
+    This is the strongest mathematical pin on the centroid+central-
+    moment computation: if the rewrite's centered coordinate tables
+    (``x_centered = x_arr - x_bar``) get the broadcasting shape wrong,
+    or if the centroids are computed against the wrong axis, this
+    test fails.
+    """
+    h = _make_bare_hu_for_moments()
+    blob = np.array(
+        [
+            [0.0, 1.0, 0.0],
+            [1.0, 2.0, 1.0],
+            [0.0, 1.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    images_a = np.zeros((1, 11, 11), dtype=np.float32)
+    images_b = np.zeros((1, 11, 11), dtype=np.float32)
+    images_a[0, 1:4, 1:4] = blob
+    images_b[0, 6:9, 6:9] = blob
+
+    out_a = h._calculate_normalized_moments(images_a)
+    out_b = h._calculate_normalized_moments(images_b)
+    np.testing.assert_allclose(out_a, out_b, rtol=1e-5, atol=1e-7)
+
+
+# -------------------------------------------------------------------------
 # Input mutation: hash-before / hash-after
 # -------------------------------------------------------------------------
 
