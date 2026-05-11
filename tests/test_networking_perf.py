@@ -21,7 +21,7 @@ the pattern in :mod:`tests.test_filtering_perf` and
    - ``_relabel_objects`` per-frame: total + ``find_objects`` setup
      vs sum-of-per-object EDT — surfaces the many-small-objects
      pathology.
-   - ``_remove_connected_label_pixels_impl`` max/min-filter
+   - ``_remove_connected_label_pixels`` sparse coordinate-scan
      wall-clock — known CPU-only baseline.
 
 The interesting MPS comparison is "MPS time vs CPU time on the same
@@ -225,27 +225,27 @@ def test_skeletonize_bulk_vs_per_object(network_setup, capsys) -> None:
 
 
 def test_remove_connected_label_pixels_wall_clock(network_setup, capsys) -> None:
-    """`_remove_connected_label_pixels_impl` max/min-filter wall-clock.
+    """`_remove_connected_label_pixels` sparse coordinate-scan wall-clock.
 
-    Two 3×3(×3) neighborhood filters + boolean reductions. CPU-only
-    by design (the GPU branch was never worth exercising per the
-    source comment).
+    Sparse skeleton-coordinate scan with one OR over 8 (2D) or 26 (3D)
+    neighbor offsets. CPU-only by design; ``low_memory`` is a no-op
+    for this codepath.
     """
     net, label_frame, _frangi, dim = network_setup
     skel = net._skeletonize(label_frame)
     skel_pre = (skel > 0) * label_frame
 
     # Warm up
-    net._remove_connected_label_pixels_impl(skel_pre, np, scipy_ndi)
+    net._remove_connected_label_pixels(skel_pre)
 
     elapsed = _time_call(
-        lambda: net._remove_connected_label_pixels_impl(skel_pre, np, scipy_ndi),
+        lambda: net._remove_connected_label_pixels(skel_pre),
         iters=5,
     )
 
     with capsys.disabled():
         print(
-            f"\n[perf] Network._remove_connected_label_pixels_impl {dim} "
+            f"\n[perf] Network._remove_connected_label_pixels {dim} "
             f"median over 5: {elapsed * 1000:.1f} ms"
         )
 

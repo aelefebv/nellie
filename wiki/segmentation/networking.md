@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-08
+modified: 2026-05-11
 ---
 
 
@@ -17,7 +17,7 @@ Topology — branches, junctions, tips — is what enables network metrics (leng
 `_run_frame_backend` runs six stages in order:
 
 1. **Skeletonize** (`_skeletonize`) — `skimage.morphology.skeletonize` on each label, with a per-object fallback (`_skeletonize_per_object`) when memory is tight.
-2. **Clean ambiguous voxels** (`_remove_connected_label_pixels`) — drop skel voxels that touch ≥2 different object labels via vectorized 3×3(×3) min/max neighborhood filters.
+2. **Clean ambiguous voxels** (`_remove_connected_label_pixels`) — drop skel voxels that touch ≥2 different object labels via a sparse skeleton-coordinate scan over the 8/26 neighbor offsets.
 3. **Patch missing** (`_add_missing_skeleton_labels`) — for any label whose skeleton vanished, plant one seed at the Frangi-maximum voxel inside that label.
 4. **Classify** (`_get_pixel_class`) — 3×3(×3) convolution counts neighbors per skel voxel; clipped at 4.
 5. **Identify branches** (`_get_branch_skel_labels`) — connected components on non-junction skel voxels.
@@ -35,8 +35,8 @@ Topology — branches, junctions, tips — is what enables network metrics (leng
 - **Skeletonization runs on CPU only** (skimage). The GPU path is only for neighborhood / CC ops. Don't expect end-to-end GPU here.
 - **Per-stage device choreography is uneven.** Stages 1–3 (skeletonize, clean, patch) and stage 6 (per-object EDT) are forced CPU. Only stages 4–5 (`_get_pixel_class`, `_get_branch_skel_labels`) take the GPU path, and only when `device_type == "cuda" and not low_memory`. Setting `device="gpu"` does not move the heavy stages off CPU.
 - **Frame-level OOM fallback is separate from `run()`'s cascade.** `_run_frame` catches GPU OOM mid-pipeline, calls `self._set_backend("cpu")`, and retries that frame. After this fires, all subsequent frames run on CPU for the rest of the call — there's no switch back.
-- **Low-memory mode swaps in chunked variants** (`_remove_connected_label_pixels_chunked`, `_get_pixel_class_chunked`) that tile via `_iter_chunks` with a 1-voxel halo, then trim. Chunking is per-stage, not pipeline-wide.
-- **`_remove_connected_label_pixels` deletes skel voxels touching multiple object IDs** (vectorized via min/max filters). Boundary voxels are intentionally preserved.
+- **Low-memory mode swaps in a chunked `_get_pixel_class_chunked`** variant that tiles via `_iter_chunks` with a 1-voxel halo, then trims. Chunking is per-stage, not pipeline-wide. `_remove_connected_label_pixels` is `O(N_skel)` regardless of mode (see next bullet) — `low_memory` is a no-op for that codepath; other functions still honor it.
+- **`_remove_connected_label_pixels` deletes skel voxels touching multiple object IDs.** Sparse coord scan: gather `np.where(labels > 0)`, exclude boundary voxels up front, then OR `(neigh > 0) & (neigh != center)` over the 8/26 neighbor offsets. `O(N_skel)` in both time and memory. Boundary voxels are preserved by construction (filtered out of the coord array before the scan, never visited) — see [[decisions/0004-skel-boundary-preservation|ADR 0004]].
 - **`_add_missing_skeleton_labels` guarantees every label has ≥1 skel voxel.** Without this, small/thin objects vanish from the skeleton; the fallback plants one voxel at the Frangi maximum within the label.
 - **Pixel class uses 3×3(×3) convolution count, clipped at 4** — so "junction" means "≥ 4 neighbors", not specifically "exactly 4".
 - **Per-object EDT uses anisotropic `sampling=self.scaling`**; the [[mocap-marking|marker-stage EDT]] does **not**. Different design choices in the two stages — be aware when comparing distance values.

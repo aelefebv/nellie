@@ -1,11 +1,11 @@
-"""One-shot capture of the dense ``_remove_connected_label_pixels_impl`` golden pair.
+"""One-shot capture of the ``_remove_connected_label_pixels`` golden pair.
 
-Captures both the input (post-skeletonization label frame) and the dense
-``_impl`` output golden, so tests can run ``_impl`` against a fixed input
-regardless of upstream platform drift.
+Captures both the input (post-skeletonization label frame) and the cleanup
+output golden, so tests can run ``_remove_connected_label_pixels`` against
+a fixed input regardless of upstream platform drift.
 
 Rerun if the input fixture (``tests/fixtures/yeast_3d_t0_to_1.ome.tif``) or
-the dense impl in ``nellie/segmentation/networking.py`` changes; the
+the cleanup impl in ``nellie/segmentation/networking.py`` changes; the
 ``.npy`` files are committed for regression-test consumption by
 ``test_remove_connected_label_pixels_matches_golden_3d`` (in
 ``tests/test_networking.py``).
@@ -18,17 +18,23 @@ Mirrors the pipeline's per-frame setup: runs Filter then Label on yeast 3D
 frame 0 to produce ``im_instance_label``, builds a CPU ``Network``
 (via the same ``_build_cpu_network`` helper used in
 ``tests/test_networking.py``), skeletonizes frame 0 the same way
-``_run_frame_backend`` does, then calls the dense ``_impl`` directly with
-``np`` and ``scipy.ndimage`` as the ``xp`` / ``ndi`` args. Both the
-skeletonized input and the cleaned output are saved.
+``_run_frame_backend`` does, then calls ``_remove_connected_label_pixels``
+directly. Both the skeletonized input and the cleaned output are saved.
+
+History: the original Slice 1 capture invoked ``_impl(skel_frame, np,
+ndi_cpu)`` against the dense max/min-filter implementation. Slice 2
+(#170) collapsed ``_impl`` and ``_chunked`` into the top-level sparse
+rewrite; the call site here was retargeted to the new entry point. The
+committed golden remains unchanged — bit-for-bit equality with the dense
+``_impl`` output is the regression bar Slice 2 preserves.
 
 The upstream Filter+Label pipeline includes Frangi vesselness (floating-
 point SIMD-sensitive) and connected-component labeling, which produce
 slightly different intermediate outputs across platforms even for byte-
 identical TIFF input. By caching the input alongside the golden, the
-snapshot test exercises only the platform-deterministic dense ``_impl``
-algorithm (integer min/max filters on int32 labels), avoiding upstream
-noise from Linux/Windows/macOS Frangi divergence.
+snapshot test exercises only the platform-deterministic cleanup
+algorithm (integer-only neighborhood scan on int32 labels), avoiding
+upstream noise from Linux/Windows/macOS Frangi divergence.
 """
 
 from __future__ import annotations
@@ -38,7 +44,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-from scipy import ndimage as ndi_cpu
 
 from nellie.im_info import load_image
 from nellie.segmentation.filtering import Filter, FrangiConfig
@@ -87,7 +92,7 @@ def main() -> None:
         label_frame = np.asarray(net.label_memmap[0]).copy()
         skel_frame = net._skeletonize(label_frame)
 
-        cleaned = net._remove_connected_label_pixels_impl(skel_frame, np, ndi_cpu)
+        cleaned = net._remove_connected_label_pixels(skel_frame)
 
         # Drop memmap handles before tmp_dir cleanup (Windows-safe; harmless
         # elsewhere).
