@@ -668,39 +668,66 @@ class VoxelReassigner:
             return (np.empty((0, dim), dtype=np.int64),
                     np.empty((0, dim), dtype=np.int64))
 
-        # flatten voxel coordinates to scalar ids for efficient uniqueness checks
         if self.spatial_shape is None:
             raise RuntimeError("spatial_shape is not set; call _allocate_memory() before matching.")
 
+        # Round-based per-prev/per-next argmin intersection. Equivalent to the
+        # sequential greedy "process by ascending distance, skip if either id is
+        # claimed" — see ADR 0011 for the proof. Sort once globally by distance;
+        # per round, the per-id argmin distance over the still-active rows is
+        # the FIRST sorted-row that has that id (because rows are in distance
+        # order). A row is kept iff it is simultaneously the per-prev_id argmin
+        # AND the per-next_id argmin. Deactivate kept rows + rows whose prev or
+        # next id was claimed; repeat. Convergence is O(min(unique_prev,
+        # unique_next)) rounds in the pathological chain-contention case,
+        # O(log N) in expectation.
         prev_flat = np.ravel_multi_index(vox_prev_matches.T, self.spatial_shape)
         next_flat = np.ravel_multi_index(vox_next_matches.T, self.spatial_shape)
+        distances = np.asarray(distances)
 
-        order = np.argsort(distances)
-        prev_flat_sorted = prev_flat[order]
-        next_flat_sorted = next_flat[order]
+        order = np.argsort(distances, kind='stable')
+        sorted_prev = prev_flat[order]
+        sorted_next = next_flat[order]
+        n = len(order)
 
-        _, prev_inv = np.unique(prev_flat_sorted, return_inverse=True)
-        _, next_inv = np.unique(next_flat_sorted, return_inverse=True)
+        active = np.ones(n, dtype=bool)
+        keep_sorted = np.zeros(n, dtype=bool)
 
-        used_prev = np.zeros(prev_inv.max() + 1, dtype=bool)
-        used_next = np.zeros(next_inv.max() + 1, dtype=bool)
-        keep_indices = []
+        while True:
+            active_idx = np.flatnonzero(active)
+            if len(active_idx) == 0:
+                break
+            a_prev = sorted_prev[active_idx]
+            a_next = sorted_next[active_idx]
 
-        for idx_sorted in range(len(order)):
-            p_idx = prev_inv[idx_sorted]
-            n_idx = next_inv[idx_sorted]
-            if used_prev[p_idx] or used_next[n_idx]:
-                continue
-            used_prev[p_idx] = True
-            used_next[n_idx] = True
-            keep_indices.append(order[idx_sorted])
+            # active_idx is ascending in sorted-by-distance order, so the FIRST
+            # occurrence of each prev_id (or next_id) in a_prev (or a_next) IS
+            # the smallest-distance row for that id. ``np.unique`` returns first
+            # occurrences in the input's order — exactly what we need.
+            _, prev_first = np.unique(a_prev, return_index=True)
+            _, next_first = np.unique(a_next, return_index=True)
+            is_prev_min = np.zeros(len(active_idx), dtype=bool)
+            is_prev_min[prev_first] = True
+            is_next_min = np.zeros(len(active_idx), dtype=bool)
+            is_next_min[next_first] = True
 
-        if not keep_indices:
+            kept_local = is_prev_min & is_next_min
+            kept_in_sorted = active_idx[kept_local]
+            if len(kept_in_sorted) == 0:
+                break
+            keep_sorted[kept_in_sorted] = True
+
+            used_prev_ids = sorted_prev[kept_in_sorted]
+            used_next_ids = sorted_next[kept_in_sorted]
+            active &= ~(np.isin(sorted_prev, used_prev_ids) | np.isin(sorted_next, used_next_ids))
+
+        if not np.any(keep_sorted):
             dim = vox_prev_matches.shape[1]
             return (np.empty((0, dim), dtype=np.int64),
                     np.empty((0, dim), dtype=np.int64))
 
-        keep_indices = np.asarray(keep_indices, dtype=np.int64)
+        # Map sorted-order kept rows back to original-order indices.
+        keep_indices = order[keep_sorted]
         return vox_prev_matches[keep_indices], vox_next_matches[keep_indices]
 
     def _distance_threshold(self, vox_prev_matched, vox_next_matched):

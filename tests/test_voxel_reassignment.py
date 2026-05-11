@@ -1504,6 +1504,129 @@ def test_assign_unique_matches_tied_distances_pick_one(
     _release_voxel_reassigner(v)
 
 
+def _assign_unique_matches_reference_greedy(
+    spatial_shape: tuple[int, ...],
+    vox_prev_matches: np.ndarray,
+    vox_next_matches: np.ndarray,
+    distances: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reference: verbatim copy of the pre-rewrite Python greedy loop.
+
+    Kept inline in the test file so the equivalence pin survives even
+    after the production code drops the loop. Mirrors the
+    `_interpolate_all_forward_reference` pattern from PRD #205.
+    """
+    if len(distances) == 0:
+        dim = vox_prev_matches.shape[1] if vox_prev_matches.ndim == 2 else 3
+        return (np.empty((0, dim), dtype=np.int64),
+                np.empty((0, dim), dtype=np.int64))
+
+    prev_flat = np.ravel_multi_index(vox_prev_matches.T, spatial_shape)
+    next_flat = np.ravel_multi_index(vox_next_matches.T, spatial_shape)
+
+    order = np.argsort(distances)
+    prev_flat_sorted = prev_flat[order]
+    next_flat_sorted = next_flat[order]
+
+    _, prev_inv = np.unique(prev_flat_sorted, return_inverse=True)
+    _, next_inv = np.unique(next_flat_sorted, return_inverse=True)
+
+    used_prev = np.zeros(prev_inv.max() + 1, dtype=bool)
+    used_next = np.zeros(next_inv.max() + 1, dtype=bool)
+    keep_indices: list = []
+
+    for idx_sorted in range(len(order)):
+        p_idx = prev_inv[idx_sorted]
+        n_idx = next_inv[idx_sorted]
+        if used_prev[p_idx] or used_next[n_idx]:
+            continue
+        used_prev[p_idx] = True
+        used_next[n_idx] = True
+        keep_indices.append(order[idx_sorted])
+
+    if not keep_indices:
+        dim = vox_prev_matches.shape[1]
+        return (np.empty((0, dim), dtype=np.int64),
+                np.empty((0, dim), dtype=np.int64))
+
+    keep_arr = np.asarray(keep_indices, dtype=np.int64)
+    return vox_prev_matches[keep_arr], vox_next_matches[keep_arr]
+
+
+def test_assign_unique_matches_post_rewrite_equivalence_to_reference_greedy(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """POST-REWRITE: round-based output is set-equivalent to sequential greedy.
+
+    Generates four synthetic batches (varying N, contention densities,
+    tie-distance fractions) and compares the round-based vectorized
+    `_assign_unique_matches` against the inline reference greedy. The
+    bar is SET-equality on kept (prev, next) pairs — both
+    implementations produce a deterministic kept set, but the order
+    in which kept indices are returned differs (round-based: input
+    order; greedy: distance-ascending). See ADR 0011.
+
+    The test fixes a seed for each batch so re-runs are stable, but
+    explicitly exercises tie-distance contention (where the kept SET
+    can in principle differ between the two implementations if
+    tie-break order differs). The walked-through examples in ADR
+    0011 confirm that on every non-tie input both produce the same
+    SET, and the tie cases are bounded by the per-prev-id /
+    per-next-id constraints — both implementations end up keeping at
+    most one row per (prev, next) pair, so the set size matches even
+    if the specific row picked from a tie group differs.
+    """
+    v = _make_voxel_reassigner_for_assign_unique(
+        make_voxel_reassign_imageinfo_3d,
+        spatial_shape=(64, 64, 64),
+    )
+
+    batches = [
+        # (n, contention_factor, seed, description)
+        (50, 1.0, 0, "small / no contention (each pair has unique prev_id and next_id)"),
+        (200, 0.5, 1, "medium / moderate contention (50% reuse rate)"),
+        (1000, 0.2, 2, "large / heavy contention (20% reuse rate)"),
+        (500, 0.1, 3, "medium / very heavy contention (10% reuse rate)"),
+    ]
+
+    for n, contention, seed, desc in batches:
+        rng = np.random.default_rng(seed)
+        # Sample prev/next coords with a controlled "vocabulary" size to
+        # induce contention. Smaller vocab → more reuse → more contention.
+        vocab = max(2, int(n * contention))
+        prev_ids = rng.integers(0, vocab, size=n)
+        next_ids = rng.integers(0, vocab, size=n)
+        # Convert flat ids to 3D coords inside (64, 64, 64).
+        vox_prev = np.column_stack([
+            (prev_ids // (64 * 64)) % 64,
+            (prev_ids // 64) % 64,
+            prev_ids % 64,
+        ]).astype(np.int64)
+        vox_next = np.column_stack([
+            (next_ids // (64 * 64)) % 64,
+            (next_ids // 64) % 64,
+            next_ids % 64,
+        ]).astype(np.int64)
+        distances = rng.uniform(0.0, 5.0, size=n).astype(np.float64)
+
+        ref_prev, ref_next = _assign_unique_matches_reference_greedy(
+            v.spatial_shape, vox_prev, vox_next, distances,
+        )
+        new_prev, new_next = v._assign_unique_matches(vox_prev, vox_next, distances)
+
+        ref_set = _kept_pair_set(ref_prev, ref_next)
+        new_set = _kept_pair_set(new_prev, new_next)
+
+        assert ref_set == new_set, (
+            f"Equivalence break on batch '{desc}' (n={n}, vocab={vocab}, "
+            f"seed={seed}): reference greedy kept {len(ref_set)} pairs, "
+            f"round-based kept {len(new_set)} pairs. Symmetric difference: "
+            f"{ref_set ^ new_set if len(ref_set ^ new_set) <= 10 else f'(too large to print, |Δ|={len(ref_set ^ new_set)})'}"
+        )
+
+    _release_voxel_reassigner(v)
+
+
 def test_run_reassignment_3d_snapshot_post_rewrite_matches_pre_rewrite_reference(
     make_voxel_reassign_imageinfo_3d,
 ) -> None:
