@@ -78,14 +78,16 @@ ahead of the threading rewrite in Slice 2 (#175).
   non-overlapping bboxes, sparse label IDs, object-with-no-seeds) pin
   the rest of the contract that Slice 2 (#175) will preserve byte-for-
   byte.
-- The committed snapshot at `tests/fixtures/relabel_objects_3d_*.npy`
-  (~10.8 MB total, three .npy files: input + branch + golden) is the
-  cross-platform regression bar. All three are cached because the
-  upstream Filter+Label+skeleton+pixel-class chain is platform-sensitive
-  (Frangi vesselness is floating-point SIMD-sensitive); caching the
-  inputs lets the snapshot test exercise only the platform-deterministic
-  `_relabel_objects` algorithm. PRD #168 Slice 1 hit this exact lesson
-  by caching only the output and watching CI fail on Linux + Windows.
+- **No realistic-data snapshot test.** A yeast-3D snapshot would not be
+  cross-platform-deterministic: `scipy.ndimage.distance_transform_edt`
+  with `return_indices=True` has implementation-dependent tie-breaking
+  when multiple seeds are equidistant, and different platforms'
+  SIMD/scipy builds pick different "nearest" seeds for ties. The
+  byte-for-byte regression bar for Slice 2 is therefore the synthetic
+  suite (above, hand-derived and platform-stable) plus the explicit
+  serial-vs-threaded equivalence test added by Slice 2 itself (run both
+  paths on the same machine, assert `np.array_equal` — intra-platform
+  deterministic by construction).
 - Future maintainers should not parallelize the writeback. If a real
   perf measurement on a future workload shows the serialized writeback
   is meaningful overhead, that is a separate PRD that must address the
@@ -101,7 +103,9 @@ ahead of the threading rewrite in Slice 2 (#175).
 ## References
 
 - PRD #173 — thread `_relabel_objects` per-object EDTs
-- Slice 1 #174 — pin current behavior with snapshot + 6 synthetic tests
-  + this ADR (no production code changes)
+- Slice 1 #174 — pin current behavior with 6 synthetic tests + this ADR
+  (no production code changes; cross-platform snapshot rejected because
+  EDT tie-breaking is platform-implementation-dependent — see
+  Consequences)
 - Slice 2 #175 — threading rewrite that preserves the serialized
   writeback and `low_memory` gating

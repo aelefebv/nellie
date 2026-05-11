@@ -380,15 +380,6 @@ INPUT_REMOVE_CONNECTED_LABELS_3D = (
 GOLDEN_REMOVE_CONNECTED_LABELS_3D = (
     Path(__file__).parent / "fixtures" / "remove_connected_labels_3d_golden.npy"
 )
-INPUT_RELABEL_OBJECTS_3D = (
-    Path(__file__).parent / "fixtures" / "relabel_objects_3d_input.npy"
-)
-BRANCH_RELABEL_OBJECTS_3D = (
-    Path(__file__).parent / "fixtures" / "relabel_objects_3d_branch.npy"
-)
-GOLDEN_RELABEL_OBJECTS_3D = (
-    Path(__file__).parent / "fixtures" / "relabel_objects_3d_golden.npy"
-)
 
 
 def test_remove_connected_label_pixels_matches_golden_3d(
@@ -618,52 +609,20 @@ def test_relabel_objects_uses_anisotropic_sampling_3d(
 
 
 # -------------------------------------------------------------------------
-# _relabel_objects: snapshot + 3D synthetic edge cases.
+# _relabel_objects: 3D synthetic edge cases.
 #
 # Pins the contract that Slice 2 of PRD #173 will preserve byte-for-byte
 # when it threads the per-object EDT loop. See
 # ``wiki/decisions/0005-relabel-objects-serialized-writeback.md`` for the
-# serialized-writeback ADR exercised by Test 4 below (overlapping bboxes,
-# the race-condition pin).
+# serialized-writeback ADR exercised by the overlapping-bboxes test below
+# (the race-condition pin). No realistic-data snapshot test: scipy's EDT
+# tie-breaking with ``return_indices=True`` is platform-implementation-
+# dependent (cross-platform-different "nearest" seed for equidistant
+# ties), so a yeast-3D snapshot is not cross-platform-deterministic. The
+# byte-for-byte regression bar for Slice 2 is the synthetic suite plus
+# the explicit serial-vs-threaded equivalence test added by Slice 2
+# itself (intra-platform deterministic).
 # -------------------------------------------------------------------------
-
-
-def test_relabel_objects_matches_golden_3d(
-    make_network_imageinfo_3d,
-) -> None:
-    """Snapshot regression: serial ``_relabel_objects`` output on the cached input + branch matches the committed golden.
-
-    Loads pre-captured ``label_frame`` and ``branch_skel_labels`` fixtures
-    (saved by ``tests/_capture_relabel_objects_golden.py`` from yeast 3D
-    frame 0) and feeds them directly into ``_relabel_objects``. The
-    Network instance is only needed for the unbound method call (it
-    consumes ``self.scaling`` and ``self._to_cpu``), not to regenerate
-    the inputs. Slice 1 (#174) captures the golden against the current
-    serial impl; Slice 2 (#175) retargets this assertion to the threaded
-    rewrite — bit-for-bit equality is the regression bar.
-
-    All three fixtures (input, branch, golden) are cached because the
-    upstream Filter+Label+skeleton+pixel-class chain produces slightly
-    different intermediate outputs across platforms (macOS / Linux /
-    Windows) for byte-identical TIFF input — Frangi vesselness is
-    floating-point SIMD-sensitive. ``_relabel_objects`` itself is
-    platform-deterministic on a fixed integer/scaling input, so caching
-    inputs lets this test exercise only the function under test.
-    """
-    info = make_network_imageinfo_3d()
-    net = _build_cpu_network(info, low_memory=False)
-
-    label_input = np.load(INPUT_RELABEL_OBJECTS_3D)
-    branch_input = np.load(BRANCH_RELABEL_OBJECTS_3D)
-    cleaned = net._relabel_objects(branch_input, label_input)
-    _release_network(net)
-
-    golden = np.load(GOLDEN_RELABEL_OBJECTS_3D)
-    assert np.array_equal(cleaned, golden), (
-        "Serial _relabel_objects output drifted from the committed golden "
-        "snapshot. If this drift is intentional, rerun "
-        "tests/_capture_relabel_objects_golden.py and review the diff."
-    )
 
 
 def test_relabel_objects_empty_3d(
