@@ -984,3 +984,36 @@ def test_local_max_peak_detects_isolated_blob(ndim: int) -> None:
     assert result.shape[0] >= 1, (
         "Expected at least one peak for a clean Gaussian blob; got none"
     )
+
+
+def test_local_max_peak_serial_vs_threaded_3d(make_markers_imageinfo_3d) -> None:
+    """Serial and threaded `_local_max_peak` produce byte-identical output.
+
+    Intra-platform deterministic by construction — runs both paths on
+    the same machine; no cross-platform Frangi/labeling drift concerns.
+    The threaded version's combination via ``as_completed`` is provably
+    order-independent (ADR 0007); this test pins that property
+    end-to-end on the yeast 3D fixture.
+    """
+    info = make_markers_imageinfo_3d()
+    m = Markers(info, MarkersConfig(device="cpu"), num_t=1)
+    m._allocate_memory()
+    m._set_default_sigmas()
+
+    assert m.im_memmap is not None and m.label_memmap is not None
+    intensity = np.asarray(m.im_memmap[0])
+    mask = np.asarray(m.label_memmap[0] > 0)
+    distance, _ = m._distance_im(mask)
+
+    # `_local_max_peak` thread-dispatches when `len(sigmas) >= 2`; the
+    # default fixture has 5 sigmas, so this exercises the threaded path.
+    threaded = m._local_max_peak(distance, mask, distance, low_memory=False)
+    serial = m._local_max_peak_serial(distance, mask, distance)
+
+    assert np.array_equal(threaded, serial), (
+        "Threaded and serial `_local_max_peak` produced different "
+        f"outputs ({threaded.shape[0]} vs {serial.shape[0]} peaks). "
+        "ADR 0007's order-independence proof may be violated."
+    )
+
+    _release_markers(m)

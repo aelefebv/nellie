@@ -10,6 +10,8 @@ Notes
 - The border mask is the outside shell, computed as dilation(mask) XOR mask.
 """
 import itertools
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import numpy as np
@@ -382,6 +384,10 @@ class Markers:
         - Streams over scales (sigmas), no 4D (scale, z, y, x) arrays.
         - For each scale, computes LoG response, local maxima, and updates a global peak mask
           where the current scale response is better than previous scales.
+        - Threads the per-sigma loop with ``ThreadPoolExecutor`` when
+          ``low_memory`` is False and ``len(self.sigmas) > 1``;
+          combination uses ``as_completed`` because the per-sigma
+          reduction is order-independent (see ADR 0007).
 
         Parameters
         ----------
@@ -401,39 +407,71 @@ class Markers:
             return self._local_max_peak_chunked(use_im, mask, distance_im, chunk_voxels)
 
         xp_mod = self.xp
-        ndi_mod = self.ndi
-
-        # Valid pixels: inside the object mask and with positive distance
         valid_mask = mask & (distance_im > 0)
-
-        # Initialize best response and a peak mask
         best_resp = xp_mod.zeros_like(use_im, dtype=xp_mod.float32)
         peak_mask = xp_mod.zeros_like(use_im, dtype=bool)
 
+        sigmas = list(self.sigmas)
+        if len(sigmas) < 2:
+            for s in sigmas:
+                local_max, log_resp = self._compute_per_sigma(use_im, valid_mask, s)
+                self._reduce_per_sigma(peak_mask, best_resp, local_max, log_resp)
+        else:
+            max_workers = min(os.cpu_count() or 1, len(sigmas), 8)
+            with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                futures = [
+                    ex.submit(self._compute_per_sigma, use_im, valid_mask, s)
+                    for s in sigmas
+                ]
+                # Reduction is order-independent — see ADR 0007.
+                for fut in as_completed(futures):
+                    local_max, log_resp = fut.result()
+                    self._reduce_per_sigma(peak_mask, best_resp, local_max, log_resp)
+
+        return xp_mod.argwhere(peak_mask)
+
+    def _local_max_peak_serial(self, use_im, mask, distance_im):
+        """Serial per-sigma loop (no threading), exposed for the
+        serial-vs-threaded equivalence test. Production callers should
+        use ``_local_max_peak`` which auto-dispatches.
+        """
+        xp_mod = self.xp
+        valid_mask = mask & (distance_im > 0)
+        best_resp = xp_mod.zeros_like(use_im, dtype=xp_mod.float32)
+        peak_mask = xp_mod.zeros_like(use_im, dtype=bool)
         for s in self.sigmas:
-            sigma_val = float(s)
-            sigma_vec = self._get_sigma_vec(sigma_val)
+            local_max, log_resp = self._compute_per_sigma(use_im, valid_mask, s)
+            self._reduce_per_sigma(peak_mask, best_resp, local_max, log_resp)
+        return xp_mod.argwhere(peak_mask)
 
-            # LoG response with scale normalization (s^2)
-            log_resp = -ndi_mod.gaussian_laplace(use_im, sigma_vec)
-            log_resp = (log_resp * (sigma_val ** 2)).astype(xp_mod.float32, copy=False)
+    def _compute_per_sigma(self, use_im, valid_mask, sigma):
+        """Per-sigma worker: compute ``(local_max, log_resp)`` for one scale.
 
-            # Clamp negative values
-            log_resp[log_resp < 0] = 0
+        Pure: returns no shared state. Safe to call from a
+        ``ThreadPoolExecutor`` worker — scipy ndimage releases the GIL
+        on ``gaussian_laplace`` and ``maximum_filter``.
+        """
+        xp_mod = self.xp
+        ndi_mod = self.ndi
+        sigma_val = float(sigma)
+        sigma_vec = self._get_sigma_vec(sigma_val)
+        log_resp = -ndi_mod.gaussian_laplace(use_im, sigma_vec)
+        log_resp = (log_resp * (sigma_val ** 2)).astype(xp_mod.float32, copy=False)
+        log_resp[log_resp < 0] = 0
+        local_max = log_resp == ndi_mod.maximum_filter(log_resp, size=3, mode='nearest')
+        local_max &= valid_mask
+        return local_max, log_resp
 
-            # Local maxima in image space (no scale dimension)
-            local_max = log_resp == ndi_mod.maximum_filter(log_resp, size=3, mode='nearest')
+    def _reduce_per_sigma(self, peak_mask, best_resp, local_max, log_resp):
+        """Combine one sigma's result into the running peak_mask + best_resp.
 
-            # Restrict to valid pixels (inside objects and away from border)
-            local_max &= valid_mask
-
-            # Non-max suppression across scales (keep best response)
-            better = local_max & (log_resp > best_resp)
-            peak_mask[better] = True
-            best_resp[better] = log_resp[better]
-
-        coords_idx = xp_mod.argwhere(peak_mask)
-        return coords_idx
+        Called from the main thread after each future completes. The
+        strict ``>`` comparison makes the reduction order-independent
+        (see ADR 0007 for the proof).
+        """
+        better = local_max & (log_resp > best_resp)
+        peak_mask[better] = True
+        best_resp[better] = log_resp[better]
 
     def _local_max_peak_chunked(self, use_im, mask, distance_im, chunk_voxels):
         xp_mod = self.xp
