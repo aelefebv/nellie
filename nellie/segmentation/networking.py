@@ -18,6 +18,19 @@ from nellie.utils.base_logger import logger
 from nellie.im_info.verifier import ImInfo
 
 
+def _to_host(arr):
+    """Bring a backend array (cupy.ndarray or torch.Tensor) to a numpy host array.
+
+    Duck-types via ``.get()`` — fires on cupy.ndarray natively and on
+    torch.Tensor via the shim's ``_patch_tensor_methods``. Returns the
+    array as-is if no ``.get()`` (already numpy). Avoids the cuda-only
+    narrowing that previously hid torch tensors behind a numpy fast-path.
+    See ``Network._to_cpu`` for the in-class variant that also coerces
+    via ``np.asarray`` for non-backend inputs.
+    """
+    return arr.get() if hasattr(arr, "get") else arr
+
+
 @dataclass(frozen=True)
 class NetworkConfig:
     """Algorithm configuration for ``Network``.
@@ -263,12 +276,16 @@ class Network:
     def _add_missing_skeleton_labels(self, skel_frame, label_frame, frangi_frame):
         """
         Adds missing labels to the skeleton where the intensity is highest within a labeled region.
+
+        ``frangi_frame`` may be an ndarray or a no-arg callable that
+        returns one. The callable form lets the caller defer the I/O
+        until we know there are missing labels (typical case: zero, so
+        the frangi load is skipped entirely).
         """
         logger.debug("Adding missing skeleton labels.")
 
         labels_np = np.asarray(label_frame)
         skel_np = np.asarray(skel_frame)
-        frangi_np = np.asarray(frangi_frame)
 
         def _normalize_pos(pos, ndim):
             if pos is None:
@@ -287,15 +304,21 @@ class Network:
                     return tuple(int(p) for p in inner_arr.tolist())
             return None
 
-        unique_labels = np.unique(labels_np)
+        # Skeleton is sparse (typically <1% of voxels) and labels are
+        # mostly background — sort only the nonzero subset.
+        unique_labels = np.unique(labels_np[labels_np > 0])
         if unique_labels.size == 0:
             return skel_np
-        unique_skel_labels = np.unique(skel_np)
+        unique_skel_labels = np.unique(skel_np[skel_np > 0])
 
         missing_labels = np.setdiff1d(unique_labels, unique_skel_labels)
-        missing_labels = missing_labels[missing_labels != 0]
         if missing_labels.size == 0:
             return skel_np
+
+        # Resolve frangi lazily — only this branch needs the frangi data.
+        if callable(frangi_frame):
+            frangi_frame = frangi_frame()
+        frangi_np = np.asarray(frangi_frame)
 
         try:
             positions = ndi_cpu.maximum_position(
@@ -550,7 +573,7 @@ class Network:
             weights = xp.ones((3, 3, 3))
 
         skel_mask_sum = ndi.convolve(skel_mask, weights=weights, mode="constant", cval=0) * skel_mask
-        skel_mask_sum[skel_mask_sum > 4] = 4
+        xp.minimum(skel_mask_sum, 4, out=skel_mask_sum)
 
         return skel_mask_sum
 
@@ -572,7 +595,7 @@ class Network:
             chunk = skel_mask[ext]
             chunk_sum = ndi_cpu.convolve(chunk, weights=weights, mode="constant", cval=0)
             core_sum = chunk_sum[core_in_ext] * chunk[core_in_ext]
-            core_sum[core_sum > 4] = 4
+            np.minimum(core_sum, 4, out=core_sum)
             out[core] = core_sum.astype(np.uint8, copy=False)
 
         return out
@@ -697,12 +720,15 @@ class Network:
     def _run_frame_backend(self, t):
         label_frame = self.label_memmap[t]
         label_frame_cpu = np.asarray(label_frame)
-        frangi_frame_cpu = np.asarray(self.im_frangi_memmap[t])
 
         skel_frame = self._skeletonize(label_frame_cpu)
         skel_clean = self._remove_connected_label_pixels(skel_frame)
+        # Frangi load is deferred via callable — the typical frame has no
+        # missing labels and the load is skipped entirely.
         skel_clean = self._add_missing_skeleton_labels(
-            skel_clean, label_frame_cpu, frangi_frame_cpu
+            skel_clean,
+            label_frame_cpu,
+            lambda: np.asarray(self.im_frangi_memmap[t]),
         )
 
         skel_pre_cpu = (skel_clean > 0) * label_frame_cpu
@@ -738,24 +764,16 @@ class Network:
 
             skel, pixel_class, skel_relabelled = self._run_frame(t)
 
-            # Duck-type the GPU round-trip: ``hasattr(arr, "get")`` fires on
-            # cupy.ndarray natively and on torch.Tensor via the shim's
-            # ``_patch_tensor_methods``. Avoids the cuda-only narrowing
-            # that was hiding ``skel`` / ``pixel_class`` torch tensors
-            # behind a numpy fast-path; see ``_to_cpu`` for the same idiom.
-            def _host(arr):
-                return arr.get() if hasattr(arr, "get") else arr
-
             if self.im_info.no_t or self.num_t == 1:
                 # Single frame or static image
-                self.skel_memmap[:] = _host(skel)
-                self.pixel_class_memmap[:] = _host(pixel_class)
-                self.skel_relabelled_memmap[:] = _host(skel_relabelled)
+                self.skel_memmap[:] = _to_host(skel)
+                self.pixel_class_memmap[:] = _to_host(pixel_class)
+                self.skel_relabelled_memmap[:] = _to_host(skel_relabelled)
             else:
                 # Time series
-                self.skel_memmap[t] = _host(skel)
-                self.pixel_class_memmap[t] = _host(pixel_class)
-                self.skel_relabelled_memmap[t] = _host(skel_relabelled)
+                self.skel_memmap[t] = _to_host(skel)
+                self.pixel_class_memmap[t] = _to_host(pixel_class)
+                self.skel_relabelled_memmap[t] = _to_host(skel_relabelled)
 
     # -------------------------------------------------------------------------
     # Public entry point
