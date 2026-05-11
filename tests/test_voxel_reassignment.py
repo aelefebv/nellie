@@ -1178,3 +1178,149 @@ def test_voxel_reassigner_config_rejects_nonpositive_numeric(field: str) -> None
         VoxelReassignerConfig(**{field: 0})  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=field):
         VoxelReassignerConfig(**{field: -1})  # type: ignore[arg-type]
+
+
+# -------------------------------------------------------------------------
+# PRD #217 Slice 1 — pin pre-rewrite contracts before mask + vox caching.
+#
+# These tests pin the CURRENT behavior so PRD #217 Slice 2 (mask + vox
+# caching in the driver loop, dead-branch cleanup in _get_master_mask,
+# arity fix in _select_best_pairs) can flip them with deliberate
+# breaking-and-replacing.
+# -------------------------------------------------------------------------
+
+
+def test_get_master_mask_called_twice_per_frame_pre_rewrite(
+    make_voxel_reassign_imageinfo_3d, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PRE-REWRITE contract: ``_get_master_mask`` is called 2× per frame.
+
+    Pins the redundant 2-call-per-frame pattern in
+    ``_run_reassignment`` (lines 997-998): once for ``master_mask_prev``
+    at ``t``, once for ``master_mask_next`` at ``t + 1``. After PRD
+    #217 Slice 2 caches + rotates ``(master_mask_next, vox_next)`` into
+    next iteration's ``(master_mask_prev, vox_prev)``, this drops to 1
+    call per frame after frame 0 (so for ``num_t=2``, total = 2 calls;
+    POST-rewrite total = 2 also, but distributed differently — see the
+    POST-rewrite test in Slice 2).
+
+    With ``num_t=2`` the loop body runs once (t=0), so 2 calls at t=0
+    plus 0 calls in any further iteration → total 2 calls. To pin the
+    distinct ``t`` values used per call we capture the call args.
+    """
+    info = make_voxel_reassign_imageinfo_3d()
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
+    real_mask = VoxelReassigner._get_master_mask
+    seen_ts: list[int] = []
+
+    def counted_mask(self, t):
+        seen_ts.append(t)
+        return real_mask(self, t)
+
+    monkeypatch.setattr(VoxelReassigner, "_get_master_mask", counted_mask)
+    v.run()
+
+    # PRE-REWRITE: t=0 pair fires both ``_get_master_mask(0)`` and
+    # ``_get_master_mask(1)``. With num_t=2 there is only one frame
+    # transition, so we expect exactly [0, 1].
+    assert seen_ts == [0, 1], (
+        f"PRE-REWRITE: _get_master_mask should be called twice per "
+        f"frame transition (t and t+1) — expected [0, 1], got {seen_ts}. "
+        f"Slice 2 of PRD #217 will rotate the cached next-mask into the "
+        f"next iteration's prev-slot, dropping this to 1 call per frame "
+        f"after frame 0."
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_select_best_pairs_empty_input_returns_3tuple_pre_fix(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """PRE-FIX contract: ``_select_best_pairs`` empty input returns a 3-tuple.
+
+    Pins the latent arity bug at ``voxel_reassignment.py:401-404``:
+    the empty-input early-return is a 3-tuple, but the populated
+    branch returns a 2-tuple and the only caller (line 1014) unpacks
+    2 values. Dead today because the upstream
+    ``if len(candidate_prev) == 0: break`` at line 1008 prevents the
+    empty path from firing — but inconsistent. PRD #217 Slice 2 will
+    flip this to a 2-tuple to match the populated branch.
+    """
+    info = make_voxel_reassign_imageinfo_3d()
+    v = VoxelReassigner(info, VoxelReassignerConfig(device="cpu"), num_t=2)
+    v._allocate_memory()  # populate spatial_shape
+
+    empty_prev = np.empty((0, 3), dtype=np.int64)
+    empty_next = np.empty((0, 3), dtype=np.int64)
+    empty_dist = np.empty((0,), dtype=np.float64)
+
+    result = v._select_best_pairs(empty_prev, empty_next, empty_dist)
+    assert len(result) == 3, (
+        f"PRE-FIX: _select_best_pairs empty-input early-return is a "
+        f"3-tuple (latent arity mismatch with the populated 2-tuple "
+        f"branch); got {len(result)}-tuple. Slice 2 of PRD #217 will "
+        f"flip this to 2-tuple."
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_run_reassignment_3d_snapshot_pre_rewrite(
+    make_voxel_reassign_imageinfo_3d,
+) -> None:
+    """PRE-REWRITE snapshot of end-to-end run on the synthetic 3D fixture.
+
+    Captures SHA-256 of ``reassigned_branch_memmap`` and
+    ``reassigned_obj_memmap`` after a deterministic CPU run. Slice 2
+    of PRD #217 will assert byte-equality vs these hashes — the mask
+    + vox caching is supposed to be byte-identical (same union mask,
+    same argwhere coords, same downstream computation).
+
+    Hashes captured here are also useful as a reference for any
+    future refactor of the driver loop. We DO NOT hardcode the hash
+    values (they shift with fixture data); instead the test simply
+    runs and computes the hash, leaving the post-rewrite equivalence
+    test in Slice 2 to compare two runs on the same fixture.
+    """
+    info = make_voxel_reassign_imageinfo_3d()
+    v = _run_voxel_reassign(info)
+
+    branch_arr = np.array(v.reassigned_branch_memmap)
+    obj_arr = np.array(v.reassigned_obj_memmap)
+
+    branch_hash = hashlib.sha256(branch_arr.tobytes()).hexdigest()
+    obj_hash = hashlib.sha256(obj_arr.tobytes()).hexdigest()
+
+    # Sanity: the hashes are deterministic (re-run the same fixture
+    # → same hashes). Slice 2's equivalence test will run pre-rewrite
+    # vs post-rewrite on a side-by-side basis; this test just pins
+    # that the hash mechanism works (same fixture twice → same hash).
+    info2 = make_voxel_reassign_imageinfo_3d()
+    v2 = _run_voxel_reassign(info2)
+    branch_arr2 = np.array(v2.reassigned_branch_memmap)
+    obj_arr2 = np.array(v2.reassigned_obj_memmap)
+    branch_hash2 = hashlib.sha256(branch_arr2.tobytes()).hexdigest()
+    obj_hash2 = hashlib.sha256(obj_arr2.tobytes()).hexdigest()
+
+    assert branch_hash == branch_hash2, (
+        "VoxelReassigner is not deterministic on the same 3D fixture; "
+        "Slice 2 equivalence test would be unreliable."
+    )
+    assert obj_hash == obj_hash2, (
+        "VoxelReassigner is not deterministic on the same 3D fixture; "
+        "Slice 2 equivalence test would be unreliable."
+    )
+
+    # Both reassigned arrays must have at least some non-zero entries
+    # so the snapshot bar is meaningful (an all-zero output would pass
+    # any rewrite trivially).
+    assert (branch_arr > 0).any(), (
+        "Snapshot is all-zero — the synthetic 3D fixture must produce "
+        "at least some reassigned voxels for the bar to be meaningful."
+    )
+    assert (obj_arr > 0).any(), (
+        "Snapshot is all-zero — the synthetic 3D fixture must produce "
+        "at least some reassigned voxels for the bar to be meaningful."
+    )
+
+    _release_voxel_reassigner(v)
+    _release_voxel_reassigner(v2)
