@@ -477,6 +477,308 @@ def test_get_nearby_coords_all_nan_coords_returns_empty() -> None:
     assert nearby_idxs == [] and distances == []
 
 
+# -------------------------------------------------------------------------
+# interpolate_all_forward / interpolate_all_backward characterization
+# (PRD #205 / Slice 1 #210 / Slice 2 #211)
+# -------------------------------------------------------------------------
+#
+# Driver-level tests for the per-frame trajectory builders. These pin the
+# behavior the Slice 2 vectorization must preserve: track-row order
+# (interleaved init/post per coord at `t == frame_range[0]`),
+# track-row schema (id, frame, *coord), terminal NaN propagation, and
+# the forward/backward arithmetic (vector-add forward; vector-subtract
+# backward).
+#
+# Uses a stub ImInfo to avoid the disk-backed `flow_vector_array.npy`
+# loading in `FlowInterpolator.__init__` — a synthetic flow_vector_array
+# is written to a tmp file per test and the stub points at it.
+
+
+def _make_stub_iminfo(tmp_path, flow_vector_array, no_z, dim_res=None):
+    """Build a stub ImInfo for `interpolate_all_*` driver tests.
+
+    `FlowInterpolator.__init__` reads from im_info: `no_t`, `no_z`,
+    `shape`, `axes`, `dim_res`, `im_path`, `pipeline_paths`, and calls
+    `get_memmap`. The stub satisfies these with synthetic-but-plausible
+    values; the synthetic flow_vector_array is written to
+    `tmp_path/flow_vector_array.npy`.
+    """
+    if dim_res is None:
+        dim_res = {"T": 1.0, "Z": 0.5, "Y": 0.1, "X": 0.1}
+    flow_path = tmp_path / "flow_vector_array.npy"
+    np.save(flow_path, flow_vector_array)
+    im_path = tmp_path / "stub_im.npy"
+    if no_z:
+        shape = (3, 100, 100)
+        axes = "TYX"
+        memmap_shape = shape
+    else:
+        shape = (3, 50, 100, 100)
+        axes = "TZYX"
+        memmap_shape = shape
+    np.save(im_path, np.zeros(memmap_shape, dtype=np.float32))
+
+    class _StubImInfo:
+        def __init__(self):
+            self.no_t = False
+            self.no_z = no_z
+            self.shape = shape
+            self.axes = axes
+            self.dim_res = dim_res
+            self.im_path = str(im_path)
+            self.pipeline_paths = {"flow_vector_array": str(flow_path)}
+
+        def get_memmap(self, _path):
+            return np.zeros(memmap_shape, dtype=np.float32)
+
+    return _StubImInfo()
+
+
+def _make_synthetic_flow_3d(rng, n_markers, frames, max_pos=100.0, vector_scale=1.0):
+    """Synthetic 3D flow_vector_array spanning ``frames`` timepoints.
+
+    Schema: ``[t, z, y, x, dz, dy, dx, cost]`` per row.
+    """
+    blocks = []
+    for t in range(frames):
+        blocks.append(np.column_stack([
+            np.full(n_markers, t, dtype=np.float64),
+            rng.uniform(0.0, max_pos, size=n_markers),
+            rng.uniform(0.0, max_pos, size=n_markers),
+            rng.uniform(0.0, max_pos, size=n_markers),
+            rng.uniform(-vector_scale, vector_scale, size=n_markers),
+            rng.uniform(-vector_scale, vector_scale, size=n_markers),
+            rng.uniform(-vector_scale, vector_scale, size=n_markers),
+            rng.uniform(0.0, 0.5, size=n_markers),
+        ]))
+    return np.concatenate(blocks, axis=0)
+
+
+def test_interpolate_all_forward_returns_tracks_and_frame_num(tmp_path) -> None:
+    """Returns ``(tracks, track_properties)`` with parallel index correspondence.
+
+    Pin the schema contract: ``tracks`` is a list of lists, each inner
+    list is ``[id, frame, *coord]``; ``track_properties['frame_num']``
+    is a list of frame numbers; both lists have the same length and
+    ``frame_num[i]`` matches ``tracks[i][1]``.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    rng = np.random.default_rng(100)
+    flow_array = _make_synthetic_flow_3d(rng, n_markers=200, frames=2)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    coords = rng.uniform(0.0, 100.0, size=(20, 3))
+    tracks, track_properties = interpolate_all_forward(coords, 0, 2, info)
+
+    assert isinstance(tracks, list)
+    assert isinstance(track_properties, dict)
+    assert "frame_num" in track_properties
+    assert isinstance(track_properties["frame_num"], list)
+    assert len(tracks) == len(track_properties["frame_num"])
+
+    # Every track row is [id, frame, z, y, x] for 3D.
+    for i, row in enumerate(tracks):
+        assert len(row) == 5, f"Expected (id, frame, z, y, x) row, got {row}"
+        assert row[1] == track_properties["frame_num"][i], (
+            f"Row {i}: track frame {row[1]} != frame_num {track_properties['frame_num'][i]}"
+        )
+
+
+def test_interpolate_all_forward_initial_frame_double_row(tmp_path) -> None:
+    """At ``t == frame_range[0]``, each valid coord contributes 2 rows; later frames contribute 1.
+
+    Pin the per-coord interleaved init/post pattern: at the first frame
+    in the range, the loop appends BOTH the initial-position row AND
+    the post-vector row per valid coord. Subsequent frames append only
+    the post-vector row. This is the bit-identical row-count contract
+    the Slice 2 vectorization must preserve.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    rng = np.random.default_rng(101)
+    flow_array = _make_synthetic_flow_3d(rng, n_markers=500, frames=3)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    # Use enough query coords positioned to find neighbors so all are valid.
+    # Sampling from the same distribution as flow markers ensures most have
+    # neighbors within the radius.
+    coords = rng.uniform(0.0, 100.0, size=(10, 3))
+    tracks, _ = interpolate_all_forward(coords, 0, 3, info, max_distance_um=5.0)
+
+    # At least some tracks should be produced (sanity).
+    assert len(tracks) > 0
+
+    # Frame numbers in the output: frame_range[0]=0 (initial-rows),
+    # 1 (post-rows for t=0), 2 (post-rows for t=1), 3 (post-rows for t=2).
+    # The exact frame_num distribution depends on which coords find
+    # neighbors at each frame.
+    frame_nums_present = sorted(set(int(row[1]) for row in tracks))
+    # If any coord was valid at t=0, we should see frame_num 0 (initial) and 1 (post).
+    # If any coord was valid at t=1, we should see frame_num 2 (post).
+    # The minimum frame_num must be >= 0; max <= 3 (post-vector for t=2).
+    assert min(frame_nums_present) >= 0
+    assert max(frame_nums_present) <= 3
+
+
+def test_interpolate_all_forward_initial_block_vs_post_arithmetic(tmp_path) -> None:
+    """Initial-frame init-row records the PRE-update coord; post-row records POST-update.
+
+    Pin the in-place update timing: the per-coord loop captures
+    ``coord = coords[coord_num]`` BEFORE the update, appends the init
+    row using that captured value at ``frame_range[0]``, then updates
+    ``coords[coord_num] += final_vector[coord_num]``, then appends the
+    post row using the (now-updated) coord value.
+
+    Setup: a single coord at a known position, with a deterministic
+    flow array that places exactly one nearby marker with a known
+    vector. Initial row should record the input position; post row
+    should record input + vector.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    # Single marker at exactly the query position so cost is irrelevant.
+    flow_array = np.array([[0.0, 50.0, 50.0, 50.0, 1.0, 2.0, 3.0, 0.0]], dtype=np.float64)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    coords = np.array([[50.0, 50.0, 50.0]], dtype=np.float64)
+    tracks, _ = interpolate_all_forward(coords, 0, 1, info, max_distance_um=10.0)
+
+    # Two rows: initial at frame 0, post at frame 1.
+    assert len(tracks) == 2
+
+    # Find the init row (frame 0) and post row (frame 1).
+    rows_by_frame = {int(row[1]): row for row in tracks}
+    assert 0 in rows_by_frame, f"Initial frame 0 row missing; tracks: {tracks}"
+    assert 1 in rows_by_frame, f"Post-update frame 1 row missing; tracks: {tracks}"
+
+    init_row = rows_by_frame[0]
+    post_row = rows_by_frame[1]
+
+    # Init row records the pre-update position (50, 50, 50).
+    np.testing.assert_allclose(init_row[2:5], [50.0, 50.0, 50.0], rtol=1e-9)
+    # Post row records the updated position (50+1, 50+2, 50+3) = (51, 52, 53).
+    np.testing.assert_allclose(post_row[2:5], [51.0, 52.0, 53.0], rtol=1e-9)
+
+
+def test_interpolate_all_forward_terminal_nan_propagation(tmp_path) -> None:
+    """Once a coord goes all-NaN in `final_vector`, it stops appearing in subsequent frames.
+
+    Pin the terminal NaN propagation contract documented in
+    `wiki/tracking/flow-interpolation.md`. A coord far from any marker
+    will get an all-NaN final_vector, causing the driver to overwrite
+    `coords[coord_num]` with NaN. On the next frame, that coord is
+    NaN-input → its slot in `final_vector` will also be all-NaN → it
+    is skipped (continue). It does not contribute any tracks beyond
+    the frame where it died.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    # Coord 0 is right at a marker; coord 1 is far away (no nearby marker
+    # at any frame → its final_vector will be all-NaN from frame 0).
+    flow_array = np.array([
+        [0.0, 50.0, 50.0, 50.0, 0.5, 0.5, 0.5, 0.0],
+        [1.0, 50.5, 50.5, 50.5, 0.5, 0.5, 0.5, 0.0],
+    ], dtype=np.float64)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    coords = np.array([
+        [50.0, 50.0, 50.0],     # near a marker
+        [9999.0, 9999.0, 9999.0],  # far from every marker
+    ], dtype=np.float64)
+    tracks, _ = interpolate_all_forward(coords, 0, 2, info, max_distance_um=5.0)
+
+    # All track rows must have id == 0 (coord 1 dies immediately because
+    # its final_vector is NaN). Coord 1 should produce no tracks at all.
+    track_ids = sorted(set(int(row[0]) for row in tracks))
+    assert 0 in track_ids
+    assert 1 not in track_ids, (
+        f"Coord 1 had no in-radius marker; should produce no tracks. "
+        f"Got track_ids={track_ids}, tracks={tracks}"
+    )
+
+
+def test_interpolate_all_backward_subtracts_vector(tmp_path) -> None:
+    """Backward direction subtracts the flow vector from the coord.
+
+    Pin the backward arithmetic: at each frame, the new coord is
+    ``old_coord - final_vector`` (vs forward's ``+``). Frame numbers
+    decrement (`t - 1`) instead of increment.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_backward
+
+    # Marker at (51, 52, 53) with vector (1, 2, 3) — the "forward" vector
+    # from (50, 50, 50). Backward starts at the destination (51, 52, 53)
+    # and should walk back to (50, 50, 50).
+    flow_array = np.array([[0.0, 50.0, 50.0, 50.0, 1.0, 2.0, 3.0, 0.0]], dtype=np.float64)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    # Backward query: position the coord at the "destination" of the marker's vector.
+    # Backward convention: start_t > end_t; frame_range = list(arange(end_t, start_t+1))[::-1].
+    # With start_t=1, end_t=0: frame_range = [1, 0]. At t=1, look at markers from t=0.
+    coords = np.array([[51.0, 52.0, 53.0]], dtype=np.float64)
+    tracks, _ = interpolate_all_backward(coords, 1, 0, info, max_distance_um=10.0)
+
+    # Backward path: (51, 52, 53) at frame 1, then walk back to (50, 50, 50) at frame 0.
+    rows_by_frame = {int(row[1]): row for row in tracks}
+    assert 1 in rows_by_frame, f"Initial backward frame 1 row missing; tracks: {tracks}"
+    assert 0 in rows_by_frame, f"Backward-stepped frame 0 row missing; tracks: {tracks}"
+
+    init_row = rows_by_frame[1]
+    back_row = rows_by_frame[0]
+
+    np.testing.assert_allclose(init_row[2:5], [51.0, 52.0, 53.0], rtol=1e-9)
+    np.testing.assert_allclose(back_row[2:5], [50.0, 50.0, 50.0], rtol=1e-9)
+
+
+def test_interpolate_all_forward_id_uses_min_track_num_offset(tmp_path) -> None:
+    """Track id = ``coord_num + min_track_num``.
+
+    Pin the id offset: the driver supports a ``min_track_num`` parameter
+    (used by `LabelTracks` to namespace track ids across labels) that
+    shifts the per-coord id. Output rows record ``coord_num + min_track_num``
+    in column 0.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    flow_array = np.array([
+        [0.0, 50.0, 50.0, 50.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 60.0, 60.0, 60.0, 0.0, 0.0, 0.0, 0.0],
+    ], dtype=np.float64)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    coords = np.array([
+        [50.0, 50.0, 50.0],
+        [60.0, 60.0, 60.0],
+    ], dtype=np.float64)
+    tracks, _ = interpolate_all_forward(coords, 0, 1, info, min_track_num=1000, max_distance_um=5.0)
+
+    # IDs in the output should be 1000 (coord 0) and 1001 (coord 1).
+    track_ids = sorted(set(int(row[0]) for row in tracks))
+    assert track_ids == [1000, 1001], f"Expected ids [1000, 1001], got {track_ids}"
+
+
+def test_interpolate_all_forward_2d_emits_4_column_rows(tmp_path) -> None:
+    """2D path emits ``[id, frame, y, x]`` rows (no z column).
+
+    Pin the 2D schema contract: when ``im_info.no_z`` is True, track
+    rows have 4 columns instead of 5. The flow_vector_array is also
+    2D-shaped: ``[t, y, x, dy, dx, cost]`` per row.
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    # 2D flow_vector_array schema: [t, y, x, dy, dx, cost].
+    flow_array = np.array([[0.0, 50.0, 50.0, 1.0, 2.0, 0.0]], dtype=np.float64)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=True)
+
+    coords = np.array([[50.0, 50.0]], dtype=np.float64)
+    tracks, _ = interpolate_all_forward(coords, 0, 1, info, max_distance_um=10.0)
+
+    assert len(tracks) > 0
+    for row in tracks:
+        assert len(row) == 4, f"Expected (id, frame, y, x) row in 2D, got {row}"
+
+
 def test_get_nearby_coords_post_rewrite_distances_sorted_ascending() -> None:
     """Post-rewrite distances need not be sorted (pre-rewrite was via cKDTree.query).
 
