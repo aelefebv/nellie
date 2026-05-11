@@ -363,8 +363,10 @@ class Markers:
         xp_mod = self.xp
         ndi_mod = self.ndi
 
-        # Border mask: outside shell from one-pixel dilation minus original mask
-        border_mask = ndi_mod.binary_dilation(mask, iterations=1) ^ mask
+        # Border mask: outside shell from one-pixel dilation XOR mask. The
+        # `^=` is in-place on the dilation result, saving one full-volume alloc.
+        border_mask = ndi_mod.binary_dilation(mask, iterations=1)
+        border_mask ^= mask
 
         # Distance transform: distance from foreground to nearest background.
         # Use pixel units (no anisotropic sampling) to match original KD-tree behaviour.
@@ -455,9 +457,10 @@ class Markers:
         ndi_mod = self.ndi
         sigma_val = float(sigma)
         sigma_vec = self._get_sigma_vec(sigma_val)
-        log_resp = -ndi_mod.gaussian_laplace(use_im, sigma_vec)
-        log_resp = (log_resp * (sigma_val ** 2)).astype(xp_mod.float32, copy=False)
-        log_resp[log_resp < 0] = 0
+        log_resp = xp_mod.empty_like(use_im, dtype=xp_mod.float32)
+        ndi_mod.gaussian_laplace(use_im, sigma_vec, output=log_resp)
+        log_resp *= -(sigma_val ** 2)
+        xp_mod.maximum(log_resp, 0, out=log_resp)
         local_max = log_resp == ndi_mod.maximum_filter(log_resp, size=3, mode='nearest')
         local_max &= valid_mask
         return local_max, log_resp
@@ -497,9 +500,10 @@ class Markers:
                 sigma_val = float(s)
                 sigma_vec = self._get_sigma_vec(sigma_val)
 
-                log_resp = -ndi_mod.gaussian_laplace(use_chunk, sigma_vec)
-                log_resp = (log_resp * (sigma_val ** 2)).astype(xp_mod.float32, copy=False)
-                log_resp[log_resp < 0] = 0
+                log_resp = xp_mod.empty_like(use_chunk, dtype=xp_mod.float32)
+                ndi_mod.gaussian_laplace(use_chunk, sigma_vec, output=log_resp)
+                log_resp *= -(sigma_val ** 2)
+                xp_mod.maximum(log_resp, 0, out=log_resp)
 
                 local_max = log_resp == ndi_mod.maximum_filter(log_resp, size=3, mode='nearest')
                 local_max &= valid_mask
@@ -607,10 +611,10 @@ class Markers:
         chunk_voxels = self.max_chunk_voxels if low_memory else None
         logger.info(f'Running motion capture marking, volume {t}/{self.num_t - 1}')
 
-        # Load intensity and mask for this frame into the current backend
+        # Load intensity and mask for this frame into the current backend.
+        # `label_memmap[t] > 0` is already bool, so no astype cast needed.
         intensity_frame = xp_mod.asarray(self.im_memmap[t])
         mask_frame = xp_mod.asarray(self.label_memmap[t] > 0)
-        mask_frame = mask_frame.astype(bool, copy=False)
 
         # Fast path: empty mask -> no markers, zero distance and borders
         if not xp_mod.any(mask_frame).item():
