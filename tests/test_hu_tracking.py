@@ -1205,6 +1205,91 @@ def test_get_cost_matrix_single_matchable_pair_finite_elsewhere_inf() -> None:
 
 
 # -------------------------------------------------------------------------
+# Direct synthetic tests for `_find_best_matches`
+#
+# Issue #201 (bundled cleanups) vectorizes the Python row/col loop with
+# `np.flatnonzero` + boolean mask + `.tolist()`. These tests pin the
+# observable contract: row+col concatenation order, the `<= cost_cutoff`
+# inclusive boundary, and the empty-matrix short-circuit. No fixture —
+# bare `HuMomentTracking` with `xp` and `cost_cutoff` only.
+# -------------------------------------------------------------------------
+
+
+def _make_bare_hu_for_find_best_matches(cost_cutoff: float = 1.0) -> HuMomentTracking:
+    h = HuMomentTracking.__new__(HuMomentTracking)
+    h.xp = np
+    h.cost_cutoff = cost_cutoff
+    return h
+
+
+def test_find_best_matches_empty_cost_matrix() -> None:
+    """`(0, 0)` cost matrix returns `([], [], [])` short-circuit."""
+    h = _make_bare_hu_for_find_best_matches()
+    cost = np.zeros((0, 0), dtype=np.float32)
+    row_matches, col_matches, costs = h._find_best_matches(cost)
+    assert row_matches == []
+    assert col_matches == []
+    assert costs == []
+
+
+def test_find_best_matches_all_above_cutoff_skipped() -> None:
+    """Every row/col min above `cost_cutoff` → no matches returned.
+
+    Pins the strict `>` skip semantics: values strictly above
+    cost_cutoff are skipped; values equal to cost_cutoff are kept
+    (covered separately by
+    :func:`test_find_best_matches_cutoff_boundary_inclusive`).
+    """
+    h = _make_bare_hu_for_find_best_matches(cost_cutoff=1.0)
+    cost = np.array([[2.0, 3.0], [4.0, 5.0]], dtype=np.float32)
+    row_matches, col_matches, costs = h._find_best_matches(cost)
+    assert row_matches == []
+    assert col_matches == []
+    assert costs == []
+
+
+def test_find_best_matches_basic_concatenated_row_col() -> None:
+    """Row candidates come first, then column candidates — concatenation order pinned.
+
+    On a small (2, 2) cost matrix where all entries pass the cutoff,
+    the function returns four candidate triples: two row-based plus
+    two column-based. The pre-vectorization Python loop appends row
+    candidates first (in row-index order), then column candidates
+    (in col-index order); the vectorized refactor must preserve this
+    exact ordering or downstream `_run_hu_tracking`'s
+    `frame_vector_array` row order changes silently.
+    """
+    h = _make_bare_hu_for_find_best_matches(cost_cutoff=1.0)
+    cost = np.array([[0.5, 0.9], [0.8, 0.3]], dtype=np.float32)
+    row_matches, col_matches, costs = h._find_best_matches(cost)
+    # Row candidates: row 0 best is j=0 (val 0.5); row 1 best is j=1 (val 0.3)
+    # Col candidates: col 0 best is i=0 (val 0.5); col 1 best is i=1 (val 0.3)
+    assert row_matches == [0, 1, 0, 1]
+    assert col_matches == [0, 1, 0, 1]
+    np.testing.assert_allclose(costs, [0.5, 0.3, 0.5, 0.3], rtol=1e-6)
+
+
+def test_find_best_matches_cutoff_boundary_inclusive() -> None:
+    """Value exactly equal to `cost_cutoff` is kept (`>` skip, not `>=`).
+
+    The check at the original :func:`_find_best_matches` is
+    ``if val > self.cost_cutoff: continue`` — strict `>`. Pinning
+    the inclusive boundary so the vectorized refactor doesn't
+    silently flip to `>=` (which would drop matches at the cutoff
+    edge — a real-world regression class).
+    """
+    h = _make_bare_hu_for_find_best_matches(cost_cutoff=1.0)
+    # Row 0 min is 0.5 (j=0); row 1 min is 1.0 (j=1, exactly at cutoff)
+    # Col 0 min is 0.5 (i=0); col 1 min is 1.0 (i=1, exactly at cutoff)
+    cost = np.array([[0.5, 1.5], [2.0, 1.0]], dtype=np.float32)
+    row_matches, col_matches, costs = h._find_best_matches(cost)
+    # All four candidates pass the inclusive cutoff
+    assert row_matches == [0, 1, 0, 1]
+    assert col_matches == [0, 1, 0, 1]
+    np.testing.assert_allclose(costs, [0.5, 1.0, 0.5, 1.0], rtol=1e-6)
+
+
+# -------------------------------------------------------------------------
 # Input mutation: hash-before / hash-after
 # -------------------------------------------------------------------------
 
