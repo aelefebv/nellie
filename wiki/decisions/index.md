@@ -3,6 +3,7 @@ created: 2026-05-09
 modified: 2026-05-11
 ---
 
+
 # Architecture Decision Records
 
 Decisions worth recording per [[CLAUDE|wiki conventions]] — hard to reverse, surprising without context, the result of a real trade-off. See `repo-wiki/DECISIONS_FORMAT.md` for the format.
@@ -14,3 +15,4 @@ Decisions worth recording per [[CLAUDE|wiki conventions]] — hard to reverse, s
 - [[decisions/0003-device-gpu-platform-aware]] — `device="gpu"` becomes platform-aware (MPS on Darwin, CUDA elsewhere)
 - [[decisions/0004-skel-boundary-preservation]] — boundary voxels in `Network._remove_connected_label_pixels` are exempt from ambiguity cleanup (root cause unknown; pinned by test)
 - [[decisions/0005-relabel-objects-serialized-writeback]] — `Network._relabel_objects` writeback is intentionally serialized; threading is gated on `low_memory` (preventive, ahead of PRD #173 Slice 2 threading rewrite)
+- [[decisions/0006-mocap-marking-sparse-nms]] — `Markers._remove_close_peaks` switches from morphological max-filter to sparse `cKDTree` with Chebyshev metric; chunked variant + `_nms_halo` are dropped (preventive, ahead of PRD #179 Slice 2 rewrite)
