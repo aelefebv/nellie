@@ -5,6 +5,8 @@ This module provides the Network class for skeletonizing network-like structures
 and analyzing their topology with optimized CPU/GPU processing.
 """
 import itertools
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import numpy as np
@@ -397,17 +399,24 @@ class Network:
     # Branch relabeling using per-object distance transforms
     # -------------------------------------------------------------------------
     def _relabel_objects(self, branch_skel_labels, label_frame):
-        """
-        Relabels skeleton pixels by propagating labels to nearby unlabeled pixels.
+        """Relabel skeleton pixels by propagating branch labels via per-object EDT.
 
-        This implementation operates per object instance to reduce memory usage.
-        For each object label in `label_frame`, it:
+        For each object label in ``label_frame``, runs a distance transform on
+        its bounding-box crop to find the nearest skeleton-branch seed for
+        every object voxel. Per-object EDTs run in parallel via
+        :class:`~concurrent.futures.ThreadPoolExecutor` (scipy's
+        ``distance_transform_edt`` releases the GIL); writeback to the shared
+        output array is serialized via ``as_completed`` to handle the race
+        surface on overlapping bounding boxes (one object's bbox can contain
+        another object's voxels even when their masks are disjoint).
 
-          1. Extracts a bounding-box crop containing that object.
-          2. Uses the skeleton branch labels inside the crop as seeds.
-          3. Runs a distance transform in the crop to find the nearest seed for
-             each voxel of the object.
-          4. Assigns branch labels to all voxels of the object accordingly.
+        ``self.low_memory=True`` forces the serial path (no executor). Worker
+        count is capped at ``min(cpu_count, len(work), 8)`` — EDT scaling is
+        memory-bandwidth-bound past 4-8 threads on typical hardware.
+
+        See ``wiki/decisions/0005-relabel-objects-serialized-writeback.md``
+        for the writeback-serialization, ``low_memory`` gating, and worker-cap
+        rationale.
 
         Parameters
         ----------
@@ -419,7 +428,7 @@ class Network:
         Returns
         -------
         numpy.ndarray
-            Relabeled skeleton for the entire frame.
+            Relabeled skeleton for the entire frame (uint32).
         """
         # Work on CPU for distance transforms; SciPy's EDT is very efficient.
         labels_np = self._to_cpu(label_frame).astype(np.int32, copy=False)
@@ -436,57 +445,61 @@ class Network:
         if slices is None:
             return relabelled_np
 
-        for lab in range(1, max_label + 1):
-            idx = lab - 1
-            if idx >= len(slices):
-                break
-            sl = slices[idx]
-            if sl is None:
-                continue
+        work = [
+            (lab, slices[lab - 1])
+            for lab in range(1, max_label + 1)
+            if lab - 1 < len(slices) and slices[lab - 1] is not None
+        ]
 
+        def _worker(item):
+            lab, sl = item
             sub_labels = labels_np[sl]
-            sub_branch = branch_np[sl]
-
-            obj_mask = (sub_labels == lab)
+            obj_mask = sub_labels == lab
             if not obj_mask.any():
-                continue
-
-            # Seeds are branch labels (>0) inside this object crop
+                return None
+            sub_branch = branch_np[sl]
+            # Seeds are branch labels (>0) inside this object crop.
             seed_mask = (sub_branch > 0) & obj_mask
-            if not (seed_mask & obj_mask).any():
-                # No skeleton seeds for this object; leave unlabeled
-                continue
-
-            # For EDT, zeros are considered seeds. We invert the seed mask:
-            # seed_mask True -> 0, False -> 1
-            edt_input = np.logical_not(seed_mask)
-
-            # Distance transform with indices: returns coordinates of nearest seed voxel.
-            # We do not need distances, only indices.
+            if not seed_mask.any():
+                # No skeleton seeds for this object; leave unlabeled.
+                return None
             try:
                 indices = ndi_cpu.distance_transform_edt(
-                    edt_input,
+                    np.logical_not(seed_mask),
                     sampling=self.scaling,
                     return_distances=False,
                     return_indices=True,
                 )
-            except Exception as e:
+            except Exception as exc:
                 logger.warning(
                     f"Distance transform failed for label {lab}. "
-                    f"Leaving object unlabeled. Error: {e}"
+                    f"Leaving object unlabeled. Error: {exc}"
                 )
-                continue
+                return None
+            nearest = sub_branch[tuple(indices)]
+            return (sl, obj_mask, nearest[obj_mask].astype(np.uint32, copy=False))
 
-            # indices has shape (ndim, ...) and points into sub_branch
-            nearest_labels = sub_branch[tuple(indices)]
+        # low_memory forces serial; single-item work has no parallelism upside.
+        if self.low_memory or len(work) <= 1:
+            for item in work:
+                result = _worker(item)
+                if result is None:
+                    continue
+                sl, obj_mask, values = result
+                relabelled_np[sl][obj_mask] = values
+            return relabelled_np
 
-            # Restrict to the object mask: outside the object remains zero
-            nearest_labels[~obj_mask] = 0
-
-            # Merge into global relabelled array.
-            relabelled_sub = relabelled_np[sl]
-            relabelled_sub[obj_mask] = nearest_labels[obj_mask].astype(np.uint32, copy=False)
-            relabelled_np[sl] = relabelled_sub
+        max_workers = min(os.cpu_count() or 1, len(work), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [ex.submit(_worker, item) for item in work]
+            for fut in as_completed(futures):
+                result = fut.result()
+                if result is None:
+                    continue
+                sl, obj_mask, values = result
+                # Serialized writeback on the main thread — required for
+                # correctness on overlapping bboxes (see ADR 0005).
+                relabelled_np[sl][obj_mask] = values
 
         return relabelled_np
 

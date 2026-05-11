@@ -3,7 +3,6 @@ created: 2026-05-06
 modified: 2026-05-11
 ---
 
-
 # Networking
 
 Skeletonize each instance, classify each skeleton voxel (background / isolated / tip / edge / junction), label branches, and propagate branch IDs back to fill each object's volume. Outputs: `im_skel` (int32, branch ID at non-junction skel voxels; 0 at junction voxels and off-skeleton), `im_pixel_class` (uint8 ∈ {0,1,2,3,4}), `im_skel_relabelled` (uint32, every voxel of an object gets a branch ID).
@@ -21,7 +20,7 @@ Topology — branches, junctions, tips — is what enables network metrics (leng
 3. **Patch missing** (`_add_missing_skeleton_labels`) — for any label whose skeleton vanished, plant one seed at the Frangi-maximum voxel inside that label.
 4. **Classify** (`_get_pixel_class`) — 3×3(×3) convolution counts neighbors per skel voxel; clipped at 4.
 5. **Identify branches** (`_get_branch_skel_labels`) — connected components on non-junction skel voxels.
-6. **Project to volume** (`_relabel_objects`) — per-object EDT (anisotropic, on a bounding-box crop) assigns every object voxel the label of its nearest branch seed.
+6. **Project to volume** (`_relabel_objects`) — per-object EDT (anisotropic, on a bounding-box crop) assigns every object voxel the label of its nearest branch seed. Per-object EDTs run in parallel via `ThreadPoolExecutor` (scipy's EDT releases the GIL); writeback is serialized via `as_completed` to handle overlapping bboxes safely. `low_memory=True` forces the serial path; otherwise `min(cpu_count, len(work), 8)` workers. See [[decisions/0005-relabel-objects-serialized-writeback|ADR 0005]] for the writeback-serialization, `low_memory` gating, and worker-cap rationale.
 
 ## Interactions
 

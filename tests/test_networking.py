@@ -808,6 +808,55 @@ def test_relabel_objects_object_with_no_seeds_3d(
     )
 
 
+def test_relabel_objects_serial_vs_threaded_equivalence_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Threading must not perturb output: serial and threaded paths produce byte-identical results.
+
+    Runs the upstream pipeline on the test machine to get realistic
+    ``(label_frame, branch_skel_labels)`` inputs, then calls
+    ``_relabel_objects`` twice — once with ``low_memory=True`` (forces
+    serial), once with ``low_memory=False`` (uses ``ThreadPoolExecutor``
+    when ``len(work) > 1``). Asserts ``np.array_equal`` between the two
+    outputs.
+
+    Intra-platform deterministic by construction: both calls run on the
+    same machine with the same scipy build, so any EDT tie-break
+    non-determinism affects both equally. This is the regression bar
+    that no cross-platform snapshot can be (see
+    ``wiki/decisions/0005-relabel-objects-serialized-writeback.md``
+    Consequences).
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+    assert net.label_memmap is not None
+    assert net.im_frangi_memmap is not None
+
+    # Run the upstream pipeline mirror of _run_frame_backend to get realistic input.
+    label_frame = np.asarray(net.label_memmap[0]).copy()
+    frangi_frame = np.asarray(net.im_frangi_memmap[0])
+    skel = net._skeletonize(label_frame)
+    skel = net._remove_connected_label_pixels(skel)
+    skel = net._add_missing_skeleton_labels(skel, label_frame, frangi_frame)
+    skel_pre_cpu = (skel > 0) * label_frame
+    pixel_class = net._get_pixel_class(skel_pre_cpu, force_cpu=True)
+    branch_skel_labels = net._get_branch_skel_labels(pixel_class, force_cpu=True)
+
+    # Run both paths on the same machine.
+    net.low_memory = True
+    serial_output = net._relabel_objects(branch_skel_labels, label_frame)
+    net.low_memory = False
+    threaded_output = net._relabel_objects(branch_skel_labels, label_frame)
+    _release_network(net)
+
+    assert np.array_equal(serial_output, threaded_output), (
+        "Threaded _relabel_objects output diverged from serial output. "
+        "This indicates the threading rewrite perturbed observable behavior — "
+        "verify that the writeback is still serialized through as_completed "
+        "(see wiki/decisions/0005-relabel-objects-serialized-writeback.md)."
+    )
+
+
 # -------------------------------------------------------------------------
 # 2D path
 # -------------------------------------------------------------------------
