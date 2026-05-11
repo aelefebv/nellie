@@ -609,6 +609,206 @@ def test_relabel_objects_uses_anisotropic_sampling_3d(
 
 
 # -------------------------------------------------------------------------
+# _relabel_objects: 3D synthetic edge cases.
+#
+# Pins the contract that Slice 2 of PRD #173 will preserve byte-for-byte
+# when it threads the per-object EDT loop. See
+# ``wiki/decisions/0005-relabel-objects-serialized-writeback.md`` for the
+# serialized-writeback ADR exercised by the overlapping-bboxes test below
+# (the race-condition pin). No realistic-data snapshot test: scipy's EDT
+# tie-breaking with ``return_indices=True`` is platform-implementation-
+# dependent (cross-platform-different "nearest" seed for equidistant
+# ties), so a yeast-3D snapshot is not cross-platform-deterministic. The
+# byte-for-byte regression bar for Slice 2 is the synthetic suite plus
+# the explicit serial-vs-threaded equivalence test added by Slice 2
+# itself (intra-platform deterministic).
+# -------------------------------------------------------------------------
+
+
+def test_relabel_objects_empty_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """All-zeros input: no labels, no seeds, output is all-zero uint32."""
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    labels = np.zeros((3, 3, 3), dtype=np.int32)
+    branch = np.zeros((3, 3, 3), dtype=np.int32)
+    expected = np.zeros((3, 3, 3), dtype=np.uint32)
+
+    relabelled = net._relabel_objects(branch, labels)
+    _release_network(net)
+
+    assert np.array_equal(relabelled, expected), (
+        f"Empty input should produce all-zero output; got\n{relabelled}"
+    )
+    assert relabelled.dtype == np.uint32, (
+        f"Output dtype should be uint32; got {relabelled.dtype}"
+    )
+
+
+def test_relabel_objects_single_object_one_seed_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Single object, single seed: every voxel of the object gets the seed's branch ID."""
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    labels = np.zeros((5, 5, 5), dtype=np.int32)
+    labels[1:4, 1:4, 1:4] = 1  # 3x3x3 cube of label 1
+
+    branch = np.zeros((5, 5, 5), dtype=np.int32)
+    branch[2, 2, 2] = 7  # one seed at the center of the object
+
+    expected = np.zeros((5, 5, 5), dtype=np.uint32)
+    expected[1:4, 1:4, 1:4] = 7  # every label-1 voxel gets branch 7
+
+    relabelled = net._relabel_objects(branch, labels)
+    _release_network(net)
+
+    assert np.array_equal(relabelled, expected), (
+        f"Single-seed propagation wrong; got\n{relabelled}\nexpected\n{expected}"
+    )
+
+
+def test_relabel_objects_two_non_overlapping_bboxes_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Two objects with non-overlapping bboxes: each object's voxels get its seed's branch ID."""
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    labels = np.zeros((7, 7, 7), dtype=np.int32)
+    labels[0:3, 0:3, 0:3] = 1
+    labels[4:7, 4:7, 4:7] = 2
+
+    branch = np.zeros((7, 7, 7), dtype=np.int32)
+    branch[1, 1, 1] = 4  # seed for object 1
+    branch[5, 5, 5] = 9  # seed for object 2
+
+    expected = np.zeros((7, 7, 7), dtype=np.uint32)
+    expected[0:3, 0:3, 0:3] = 4
+    expected[4:7, 4:7, 4:7] = 9
+
+    relabelled = net._relabel_objects(branch, labels)
+    _release_network(net)
+
+    assert np.array_equal(relabelled, expected), (
+        f"Two-object propagation wrong; got\n{relabelled}\nexpected\n{expected}"
+    )
+
+
+def test_relabel_objects_two_overlapping_bboxes_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Pins that overlapping bboxes don't cause cross-contamination — label 1's bbox contains label 2's voxels but label 2's mask excludes them. Critical for the eventual threading rewrite.
+
+    6×6×6. Label 1 fills the **outer shell** (every voxel where any
+    coordinate is 0 or 5), so ``find_objects`` returns its bbox as the
+    whole volume ``[0:6, 0:6, 0:6]``. Label 2 is a small interior cluster
+    at ``[2:4, 2:4, 2:4]``; its bbox is ``[2:4, 2:4, 2:4]``. Label 1's
+    bbox **contains** label 2's voxels, but the masks don't overlap (each
+    voxel has exactly one label). Branch seeds at (0,0,0)=4 (inside label
+    1's mask) and (3,3,3)=9 (inside label 2's mask). Expected: every
+    shell voxel gets 4; every interior-cluster voxel gets 9; background
+    stays 0. A future maintainer who parallelizes the writeback would
+    break this test silently if they assumed bbox non-overlap.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    labels = np.zeros((6, 6, 6), dtype=np.int32)
+    # Shell: label 1 wherever any coordinate is on the volume boundary.
+    shell_mask = np.zeros((6, 6, 6), dtype=bool)
+    shell_mask[0, :, :] = True
+    shell_mask[5, :, :] = True
+    shell_mask[:, 0, :] = True
+    shell_mask[:, 5, :] = True
+    shell_mask[:, :, 0] = True
+    shell_mask[:, :, 5] = True
+    labels[shell_mask] = 1
+    # Interior cluster: label 2 at [2:4, 2:4, 2:4] (all 8 voxels are
+    # interior, so they're disjoint from the shell).
+    labels[2:4, 2:4, 2:4] = 2
+
+    branch = np.zeros((6, 6, 6), dtype=np.int32)
+    branch[0, 0, 0] = 4  # seed for label 1 (a shell voxel)
+    branch[3, 3, 3] = 9  # seed for label 2 (an interior-cluster voxel)
+
+    expected = np.zeros((6, 6, 6), dtype=np.uint32)
+    expected[shell_mask] = 4
+    expected[2:4, 2:4, 2:4] = 9
+
+    relabelled = net._relabel_objects(branch, labels)
+    _release_network(net)
+
+    assert np.array_equal(relabelled, expected), (
+        f"Overlapping-bbox propagation wrong; got\n{relabelled}\nexpected\n{expected}"
+    )
+
+
+def test_relabel_objects_sparse_label_ids_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Pins find_objects sparse-IDs handling (None entries for missing labels).
+
+    6×6×6 with labels 1, 5, 17 only — gaps at 2-4 and 6-16.
+    ``find_objects`` returns ``len == 17`` with ``None`` at indices for
+    missing labels. The function must skip those without erroring.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    labels = np.zeros((6, 6, 6), dtype=np.int32)
+    labels[0:2, 0:2, 0:2] = 1
+    labels[2:4, 2:4, 2:4] = 5
+    labels[4:6, 4:6, 4:6] = 17
+
+    branch = np.zeros((6, 6, 6), dtype=np.int32)
+    branch[0, 0, 0] = 11  # seed for label 1
+    branch[3, 3, 3] = 22  # seed for label 5
+    branch[5, 5, 5] = 33  # seed for label 17
+
+    expected = np.zeros((6, 6, 6), dtype=np.uint32)
+    expected[0:2, 0:2, 0:2] = 11
+    expected[2:4, 2:4, 2:4] = 22
+    expected[4:6, 4:6, 4:6] = 33
+
+    relabelled = net._relabel_objects(branch, labels)
+    _release_network(net)
+
+    assert np.array_equal(relabelled, expected), (
+        f"Sparse-IDs propagation wrong; got\n{relabelled}\nexpected\n{expected}"
+    )
+
+
+def test_relabel_objects_object_with_no_seeds_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Pins the no-seeds-in-object branch — output stays 0 for that label.
+
+    Label 1 has voxels but ``branch_skel_labels`` is all zeros, so
+    ``seed_mask.any()`` is False and the function ``continue``s without
+    writing anything for that label.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    labels = np.zeros((5, 5, 5), dtype=np.int32)
+    labels[1:4, 1:4, 1:4] = 1
+
+    branch = np.zeros((5, 5, 5), dtype=np.int32)  # no seeds anywhere
+    expected = np.zeros((5, 5, 5), dtype=np.uint32)  # nothing gets written
+
+    relabelled = net._relabel_objects(branch, labels)
+    _release_network(net)
+
+    assert np.array_equal(relabelled, expected), (
+        f"No-seeds object should leave output zero; got\n{relabelled}"
+    )
+
+
+# -------------------------------------------------------------------------
 # 2D path
 # -------------------------------------------------------------------------
 
