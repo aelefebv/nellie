@@ -673,3 +673,166 @@ def test_markers_config_rejects_inverted_radius_range() -> None:
 
 def test_markers_config_equal_radii_ok() -> None:
     MarkersConfig(min_radius_um=0.5, max_radius_um=0.5)
+
+
+# -------------------------------------------------------------------------
+# Synthetic NMS tests for _remove_close_peaks (Slice 1 of #179)
+#
+# Pin the behavior of `Markers._remove_close_peaks` against the current
+# morphological max-filter implementation so PRD #179 Slice 2 can rewrite
+# it byte-identically with `scipy.spatial.cKDTree`. Inputs are
+# constructed directly (no fixture / no upstream pipeline), so each test
+# is platform-stable and isolates the NMS contract from `_local_max_peak`'s
+# SIMD-sensitive `gaussian_laplace`. See [[decisions/0006-mocap-marking-sparse-nms|ADR 0006]].
+# -------------------------------------------------------------------------
+
+import scipy.ndimage as scipy_ndi
+
+
+def _make_bare_markers(peak_min_distance: int = 2) -> Markers:
+    """Bare Markers stub for unit-testing `_remove_close_peaks` only.
+
+    The method only depends on `self.peak_min_distance`, `self.xp`, and
+    `self.ndi` (and indirectly `self.max_chunk_voxels` if the chunked
+    branch fires; we never set `low_memory=True` in these tests so it
+    never does).
+    """
+    m = Markers.__new__(Markers)
+    m.peak_min_distance = peak_min_distance
+    m.xp = np
+    m.ndi = scipy_ndi
+    m.low_memory = False
+    m.max_chunk_voxels = int(1e6)
+    return m
+
+
+def _coords_set(arr: np.ndarray) -> set:
+    """Return coords as a set of tuples (order-agnostic comparison)."""
+    return {tuple(int(x) for x in row) for row in arr.tolist()}
+
+
+def _intensity_at(shape: tuple, coord_to_intensity: dict) -> np.ndarray:
+    """Build a float32 intensity volume with given values at given coords."""
+    im = np.zeros(shape, dtype=np.float32)
+    for coord, val in coord_to_intensity.items():
+        im[coord] = val
+    return im
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_empty_input(ndim: int) -> None:
+    """`coords.shape[0] == 0` → empty output (no error)."""
+    m = _make_bare_markers()
+    shape = (20,) * ndim
+    coords = np.zeros((0, ndim), dtype=int)
+    intensity = np.zeros(shape, dtype=np.float32)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert result.shape[0] == 0
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_single_peak(ndim: int) -> None:
+    """A single peak survives unchanged."""
+    m = _make_bare_markers()
+    shape = (20,) * ndim
+    coord = (10,) * ndim
+    coords = np.array([coord], dtype=int)
+    intensity = _intensity_at(shape, {coord: 5.0})
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {coord}
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_two_peaks_far_apart(ndim: int) -> None:
+    """Chebyshev distance > peak_min_distance → both survive."""
+    m = _make_bare_markers(peak_min_distance=2)
+    shape = (30,) * ndim
+    c1 = (5,) * ndim
+    c2 = (15,) * ndim  # Chebyshev = 10 along every axis
+    intensity = _intensity_at(shape, {c1: 5.0, c2: 7.0})
+    coords = np.array([c1, c2], dtype=int)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {c1, c2}
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_two_close_different_intensity(ndim: int) -> None:
+    """Chebyshev ≤ peak_min_distance, different intensities → higher wins."""
+    m = _make_bare_markers(peak_min_distance=2)
+    shape = (20,) * ndim
+    c1 = (10,) * ndim
+    # Offset along axis 0 only: Chebyshev = 1
+    c2 = tuple(10 + 1 if i == 0 else 10 for i in range(ndim))
+    intensity = _intensity_at(shape, {c1: 10.0, c2: 5.0})
+    coords = np.array([c1, c2], dtype=int)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {c1}
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_two_close_equal_intensity(ndim: int) -> None:
+    """Chebyshev ≤ peak_min_distance, identical intensities → both survive.
+
+    Morphological NMS keeps both peaks in this case (both equal the local
+    max in their respective windows). The sparse cKDTree rewrite must
+    preserve this — only suppress when strictly less.
+    """
+    m = _make_bare_markers(peak_min_distance=2)
+    shape = (20,) * ndim
+    c1 = (10,) * ndim
+    c2 = tuple(10 + 1 if i == 0 else 10 for i in range(ndim))
+    intensity = _intensity_at(shape, {c1: 10.0, c2: 10.0})
+    coords = np.array([c1, c2], dtype=int)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {c1, c2}
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_chebyshev_corner(ndim: int) -> None:
+    """Peak at offset (peak_min_distance, ..., peak_min_distance) — Chebyshev = peak_min_distance, in window.
+
+    Both peaks at this offset are in each other's morphological window
+    (size = 2*peak_min_distance + 1 = 5; the offset-2 corner is the
+    last cell of the centered 5-wide window). Lower-intensity is
+    suppressed.
+    """
+    m = _make_bare_markers(peak_min_distance=2)
+    shape = (20,) * ndim
+    c1 = (10,) * ndim
+    c2 = tuple(10 + 2 for _ in range(ndim))  # Chebyshev = 2
+    intensity = _intensity_at(shape, {c1: 10.0, c2: 5.0})
+    coords = np.array([c1, c2], dtype=int)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {c1}
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_chebyshev_just_outside(ndim: int) -> None:
+    """Peak at offset (peak_min_distance + 1, 0, ...) — Chebyshev > peak_min_distance, both survive."""
+    m = _make_bare_markers(peak_min_distance=2)
+    shape = (30,) * ndim
+    c1 = (10,) * ndim
+    c2 = tuple(10 + 3 if i == 0 else 10 for i in range(ndim))  # Chebyshev = 3
+    intensity = _intensity_at(shape, {c1: 10.0, c2: 5.0})
+    coords = np.array([c1, c2], dtype=int)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {c1, c2}
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_remove_close_peaks_three_peak_chain(ndim: int) -> None:
+    """A-B-C chain along axis 0 with spacing 1 — all within Chebyshev ≤ peak_min_distance.
+
+    Chebyshev distances: A↔B = 1, B↔C = 1, A↔C = 2 (all ≤ 2). All three
+    pairs compete in the morphological window. The highest-intensity
+    peak (B) is the only survivor.
+    """
+    m = _make_bare_markers(peak_min_distance=2)
+    shape = (30,) * ndim
+    a = (10,) * ndim
+    b = tuple(10 + 1 if i == 0 else 10 for i in range(ndim))
+    c = tuple(10 + 2 if i == 0 else 10 for i in range(ndim))
+    intensity = _intensity_at(shape, {a: 5.0, b: 10.0, c: 7.0})
+    coords = np.array([a, b, c], dtype=int)
+    result = m._remove_close_peaks(coords, intensity, low_memory=False)
+    assert _coords_set(result) == {b}
