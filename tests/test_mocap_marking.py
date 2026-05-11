@@ -837,3 +837,150 @@ def test_remove_close_peaks_three_peak_chain(ndim: int) -> None:
     coords = np.array([a, b, c], dtype=int)
     result = m._remove_close_peaks(coords, intensity, low_memory=False)
     assert _coords_set(result) == {b}
+
+
+# -------------------------------------------------------------------------
+# Synthetic LoG-peak tests for _local_max_peak (Slice 1 of #184)
+#
+# Pin the high-level contracts of `Markers._local_max_peak` against the
+# current serial implementation so PRD #184 Slice 2 can rewrite the
+# per-sigma loop with `concurrent.futures.ThreadPoolExecutor` while
+# preserving observable behavior. Inputs are constructed directly (no
+# fixture / no upstream pipeline). Assertions are on **count** and
+# **membership** (peak is inside mask, peak has positive distance), not
+# on exact LoG response values — those are SIMD-sensitive across
+# platforms (same root cause that forced ADR 0005 to skip a snapshot
+# test). See [[decisions/0007-mocap-log-peak-threading|ADR 0007]].
+# -------------------------------------------------------------------------
+
+
+def _make_bare_markers_for_logpeak(*, ndim: int, sigmas: list | None = None) -> Markers:
+    """Bare Markers stub for unit-testing `_local_max_peak`.
+
+    `_local_max_peak` accesses `self.xp`, `self.ndi`, `self.sigmas`,
+    `self.z_ratio`, and `self.im_info.no_z` (via `_get_sigma_vec`),
+    plus `self.low_memory` (checked at entry). All other state is
+    irrelevant to the unchunked path.
+    """
+    m = Markers.__new__(Markers)
+    m.xp = np
+    m.ndi = scipy_ndi
+    m.sigmas = sigmas if sigmas is not None else [1.0, 2.0]
+    m.z_ratio = 1.0
+    m.low_memory = False
+    m.max_chunk_voxels = int(1e6)
+    m.peak_min_distance = 2
+    m.truncate = 4.0
+
+    class _StubImInfo:
+        pass
+
+    m.im_info = _StubImInfo()
+    m.im_info.no_z = (ndim == 2)
+    return m
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_local_max_peak_empty_mask(ndim: int) -> None:
+    """Empty mask → `valid_mask = mask & (distance > 0)` is all False → no peaks."""
+    m = _make_bare_markers_for_logpeak(ndim=ndim)
+    shape = (40,) * ndim
+    use_im = np.ones(shape, dtype=np.float32)
+    mask = np.zeros(shape, dtype=bool)
+    distance = np.zeros(shape, dtype=np.float32)
+    result = m._local_max_peak(use_im, mask, distance, low_memory=False)
+    assert result.shape[0] == 0
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_local_max_peak_zero_distance(ndim: int) -> None:
+    """Mask True everywhere but distance all zero → `valid_mask` all False → no peaks."""
+    m = _make_bare_markers_for_logpeak(ndim=ndim)
+    shape = (40,) * ndim
+    use_im = np.ones(shape, dtype=np.float32)
+    mask = np.ones(shape, dtype=bool)
+    distance = np.zeros(shape, dtype=np.float32)
+    result = m._local_max_peak(use_im, mask, distance, low_memory=False)
+    assert result.shape[0] == 0
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_local_max_peak_peaks_restricted_to_mask(ndim: int) -> None:
+    """Detected peaks must all lie inside `mask`.
+
+    Place bright voxels both inside and outside `mask`. Whatever peaks
+    the LoG pipeline detects, they must all be inside the mask region.
+    """
+    m = _make_bare_markers_for_logpeak(ndim=ndim, sigmas=[1.0, 2.0])
+    shape = (40,) * ndim
+    use_im = np.zeros(shape, dtype=np.float32)
+    in_mask_pt = (12,) * ndim
+    out_mask_pt = (30,) * ndim
+    use_im[in_mask_pt] = 100.0
+    use_im[out_mask_pt] = 100.0  # outside mask region
+
+    mask = np.zeros(shape, dtype=bool)
+    mask_slice = (slice(10, 15),) * ndim
+    mask[mask_slice] = True
+
+    distance = np.zeros(shape, dtype=np.float32)
+    distance[mask_slice] = 5.0
+
+    result = m._local_max_peak(use_im, mask, distance, low_memory=False)
+    for c in result:
+        assert mask[tuple(c)], f"Peak at {tuple(c)} is outside mask"
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_local_max_peak_peaks_gated_by_distance(ndim: int) -> None:
+    """Detected peaks must have `distance_im[peak] > 0`.
+
+    Mask is True everywhere; distance is 0 outside a small region.
+    Bright voxels at zero-distance positions must NOT be detected.
+    """
+    m = _make_bare_markers_for_logpeak(ndim=ndim, sigmas=[1.0, 2.0])
+    shape = (40,) * ndim
+    use_im = np.zeros(shape, dtype=np.float32)
+    in_dist_pt = (12,) * ndim
+    out_dist_pt = (3,) * ndim
+    use_im[in_dist_pt] = 100.0
+    use_im[out_dist_pt] = 100.0  # at distance=0
+
+    mask = np.ones(shape, dtype=bool)
+    distance = np.zeros(shape, dtype=np.float32)
+    distance_slice = (slice(10, 15),) * ndim
+    distance[distance_slice] = 5.0
+
+    result = m._local_max_peak(use_im, mask, distance, low_memory=False)
+    for c in result:
+        assert distance[tuple(c)] > 0, (
+            f"Peak at {tuple(c)} has zero distance"
+        )
+
+
+@pytest.mark.parametrize("ndim", [2, 3])
+def test_local_max_peak_detects_isolated_blob(ndim: int) -> None:
+    """A clear Gaussian blob inside mask + positive distance → at least one peak.
+
+    Sanity that the LoG pipeline actually fires on a clean signal —
+    no fragile assertion on exact peak coords (those depend on sigma
+    values and platform-specific SIMD), just count.
+    """
+    m = _make_bare_markers_for_logpeak(ndim=ndim, sigmas=[1.0, 2.0, 3.0])
+    shape = (40,) * ndim
+    center = (20,) * ndim
+
+    # Build a Gaussian blob via gaussian_filter on a delta function.
+    delta = np.zeros(shape, dtype=np.float32)
+    delta[center] = 1.0
+    use_im = (scipy_ndi.gaussian_filter(delta, sigma=3.0) * 1000.0).astype(
+        np.float32
+    )
+
+    mask = np.ones(shape, dtype=bool)
+    distance = np.ones(shape, dtype=np.float32) * 10.0
+
+    result = m._local_max_peak(use_im, mask, distance, low_memory=False)
+    assert result.shape[0] >= 1, (
+        "Expected at least one peak for a clean Gaussian blob; got none"
+    )
