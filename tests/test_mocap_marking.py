@@ -20,8 +20,9 @@ Pins the wiki-documented invariants on both the 3D and 2D paths:
   - ``'frangi'`` raises with a clear error when ``im_preprocessed`` is
     absent on disk (Markers should not silently no-op)
 - ``low_memory`` chunked vs unchunked equivalence on BOTH 2D and 3D:
-  ``_log_halo`` and ``_nms_halo`` keep chunked output byte-identical to
-  the full-volume path
+  ``_log_halo`` keeps the chunked LoG output byte-identical to the
+  full-volume path. (NMS chunking + ``_nms_halo`` were retired in #181;
+  sparse cKDTree NMS has O(peak_count) memory — no chunking needed.)
 - Input memmaps (raw + Frangi + Label) are not mutated by ``Markers.run()``
 - ``viewer.status`` is left untouched when ``viewer=None`` and is set
   exactly once per frame when ``viewer`` is a stub
@@ -344,13 +345,13 @@ def test_use_im_frangi_raises_when_frangi_absent(make_imageinfo_3d, label_3d_pat
 def test_low_memory_matches_full_2d(make_markers_imageinfo_2d) -> None:
     """Full-volume and chunked-low-memory runs produce identical outputs (2D).
 
-    Pins the wiki-documented ``_log_halo`` + ``_nms_halo`` correctness:
-    the chunked LoG and chunked NMS paths use just enough halo voxels
-    to keep results byte-identical to the unchunked path. Pinning all
-    three outputs (``marker``, ``distance``, ``border``) ensures both
-    the LoG and NMS halos are exercised — distance is unchanged by
-    chunking (it's a global EDT) but marker positions and border
-    voxels depend on the per-chunk halo math.
+    Pins the wiki-documented ``_log_halo`` correctness: the chunked
+    LoG path uses just enough halo voxels to keep results byte-identical
+    to the unchunked path. Pinning all three outputs (``marker``,
+    ``distance``, ``border``) keeps the LoG halo exercised — distance is
+    unchanged by chunking (it's a global EDT) and marker positions
+    depend on the per-chunk LoG halo math. (NMS no longer chunks after
+    #181 — sparse cKDTree handles arbitrary peak counts in O(P) memory.)
     """
     full = _run_markers(make_markers_imageinfo_2d(), low_memory=False)
     # Force multi-chunk processing on the small yeast-2d fixture.
@@ -372,8 +373,8 @@ def test_low_memory_matches_full_3d(make_markers_imageinfo_3d) -> None:
     """Full-volume and chunked-low-memory runs produce identical outputs (3D).
 
     Same contract as :func:`test_low_memory_matches_full_2d`, but on
-    the 3D fixture so ``_log_halo`` and ``_nms_halo`` are exercised
-    along all three spatial axes.
+    the 3D fixture so ``_log_halo`` is exercised along all three spatial
+    axes.
     """
     full = _run_markers(make_markers_imageinfo_3d(), low_memory=False)
     chunked = _run_markers(
