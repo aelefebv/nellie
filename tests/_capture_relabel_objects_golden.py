@@ -88,6 +88,7 @@ def main() -> None:
 
         net = _build_cpu_network(info)
         assert net.label_memmap is not None  # populated by _allocate_memory
+        assert net.im_frangi_memmap is not None  # populated by _allocate_memory
         # Mirror ``_run_frame_backend`` for t=0:
         label_frame = np.asarray(net.label_memmap[0]).copy()
         frangi_frame = np.asarray(net.im_frangi_memmap[0])
