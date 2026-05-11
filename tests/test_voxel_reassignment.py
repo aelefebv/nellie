@@ -1677,3 +1677,108 @@ def test_run_reassignment_3d_snapshot_post_rewrite_matches_pre_rewrite_reference
 
     _release_voxel_reassigner(v)
     _release_voxel_reassigner(v2)
+
+
+# -------------------------------------------------------------------------
+# PRD #227 Slice 1 — pin pre-rewrite contracts before tree caching across
+# frames in high-memory mode.
+#
+# Pre-rewrite, `match_voxels` builds two `cKDTree`s per call (one for
+# `vox_prev`, one for `vox_next`) regardless of `low_memory`. Slice 2
+# of #227 caches `tree_next` from frame t and reuses it as `tree_prev`
+# of frame t+1 IN HIGH-MEMORY MODE ONLY. The low-memory branch
+# preserves the explicit serialized-build trade-off.
+# -------------------------------------------------------------------------
+
+
+def _count_build_tree_calls(
+    info_factory,
+    *,
+    low_memory: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[int, VoxelReassigner]:
+    """Run VoxelReassigner end-to-end with `_build_tree` instrumented.
+
+    Returns (call_count, instance) so the caller can assert on the
+    count and then release the instance via `_release_voxel_reassigner`.
+    """
+    info = info_factory()
+    v = VoxelReassigner(
+        info,
+        VoxelReassignerConfig(device="cpu", low_memory=low_memory),
+        num_t=2,
+    )
+    real_build_tree = VoxelReassigner._build_tree
+    counter = {"n": 0}
+
+    def counted_build_tree(self, coords_real_scaled):
+        counter["n"] += 1
+        return real_build_tree(self, coords_real_scaled)
+
+    monkeypatch.setattr(VoxelReassigner, "_build_tree", counted_build_tree)
+    v.run()
+    return counter["n"], v
+
+
+def test_match_voxels_builds_two_trees_per_frame_pre_rewrite_high_mem(
+    make_voxel_reassign_imageinfo_3d,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PRE-REWRITE contract: 2 cKDTree builds per frame in high-memory mode.
+
+    The high-memory branch of `match_voxels` (lines 793-794) builds
+    `tree_prev` from `_scale_coords(vox_prev)` then `tree_next` from
+    `_scale_coords(vox_next)` — 2 builds per frame transition. With
+    num_t=2 there is exactly one frame transition, so total = 2.
+
+    Slice 2 of PRD #227 caches `tree_next` from frame t and reuses it
+    as `tree_prev` of frame t+1 in high-memory mode, dropping this to
+    1 build per frame after frame 0 (so for num_t=2, total = 2 still
+    but distributed differently — see the POST-rewrite test in Slice
+    2 which exercises num_t=3 to see the 1-after-first contract).
+
+    With num_t=2 we still expect 2 calls; the test pins the call shape
+    for the only frame transition.
+    """
+    n_calls, v = _count_build_tree_calls(
+        make_voxel_reassign_imageinfo_3d,
+        low_memory=False,
+        monkeypatch=monkeypatch,
+    )
+    assert n_calls == 2, (
+        f"PRE-REWRITE high-memory: _build_tree should be called 2× per "
+        f"frame transition (one for vox_prev, one for vox_next); for "
+        f"num_t=2 that's exactly 2. Got {n_calls}."
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_match_voxels_builds_two_trees_per_frame_low_mem(
+    make_voxel_reassign_imageinfo_3d,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LOW-MEMORY contract: 2 builds per frame, both pre AND post rewrite.
+
+    The low-memory branch (lines 770-791) builds `tree_next` first,
+    runs forward matching, drops the tree (`tree_next = None`), then
+    builds `tree_prev` and runs backward matching. Two builds per
+    frame, but serialized so peak memory is one tree.
+
+    PRD #227 Slice 2's caching is gated on `low_memory == False` —
+    persisting a tree across frames would defeat the explicit low-
+    memory intent. So this test pins the contract that BOTH PRE and
+    POST rewrite produce 2 builds per frame in low-memory mode.
+
+    With num_t=2 we expect exactly 2.
+    """
+    n_calls, v = _count_build_tree_calls(
+        make_voxel_reassign_imageinfo_3d,
+        low_memory=True,
+        monkeypatch=monkeypatch,
+    )
+    assert n_calls == 2, (
+        f"LOW-MEMORY: _build_tree should be called 2× per frame "
+        f"transition (serialized); for num_t=2 that's exactly 2. "
+        f"Got {n_calls}."
+    )
+    _release_voxel_reassigner(v)
