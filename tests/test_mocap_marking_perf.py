@@ -10,8 +10,9 @@ and :mod:`tests.test_hu_tracking_perf`:
    prior commit.
 2. **Hot-path microbenchmarks** decompose the per-frame cost into the
    three dominant ops surfaced by reading the code: the multi-scale
-   LoG loop in ``_local_max_peak``, the morphological NMS in
-   ``_remove_close_peaks``, and the dilation+EDT in ``_distance_im``.
+   LoG loop in ``_local_max_peak``, the sparse cKDTree NMS in
+   ``_remove_close_peaks`` (was morphological max-filter pre-#181), and
+   the dilation+EDT in ``_distance_im``.
 
 The microbenchmarks are **informational** (printed `[perf]` lines, no
 assertions). Filter's three assertions exist because each pinned a
@@ -194,11 +195,12 @@ def test_local_max_peak_per_sigma_breakdown(markers_setup, capsys) -> None:
 
 
 def test_remove_close_peaks_wall_clock(markers_setup, capsys) -> None:
-    """`_remove_close_peaks` morphological NMS — single hot op, baseline.
+    """`_remove_close_peaks` sparse cKDTree NMS — single hot op, baseline.
 
-    The maximum_filter window is ``2 * peak_min_distance + 1`` (default
-    5), applied to a sparse score image of intensities at peak
-    coordinates only.
+    Sparse coordinate-based NMS (cKDTree with Chebyshev metric, `p=∞`,
+    `r=peak_min_distance`); replaced the morphological max-filter in
+    #181 (PRD #179) — see ADR 0006. Cost is `O(P log P + |pairs|)`,
+    not `O(volume × size^d)` like the old morphological path.
     """
     m, mask, intensity, dim = markers_setup
     distance_im, _ = m._distance_im(mask)

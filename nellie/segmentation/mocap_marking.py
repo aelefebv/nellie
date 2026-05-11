@@ -13,6 +13,7 @@ import itertools
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.spatial import cKDTree
 
 from nellie.utils import adaptive_run
 from nellie.utils.base_logger import logger
@@ -238,10 +239,6 @@ class Markers:
         hz = int(np.ceil(self.truncate * z_sigma))
         hxy = int(np.ceil(self.truncate * sigma_max))
         return (max(hz, 1), max(hxy, 1), max(hxy, 1))
-
-    def _nms_halo(self):
-        halo = max(int(self.peak_min_distance), 0)
-        return (halo,) * (2 if self.im_info.no_z else 3)
 
     # -------------------------------------------------------------------------
     # Core logic
@@ -496,7 +493,15 @@ class Markers:
 
     def _remove_close_peaks(self, coords, intensity_im, low_memory=False, chunk_voxels=None):
         """
-        Removes peaks that are too close together using morphological non-max suppression.
+        Removes peaks that are too close together using sparse coordinate-based NMS.
+
+        Uses ``scipy.spatial.cKDTree`` with Chebyshev metric (Minkowski
+        ``p=∞``) to find peak pairs within ``peak_min_distance``; the
+        lower-intensity peak in each pair is suppressed. Ties are
+        preserved (both kept), matching the original morphological
+        max-filter semantics. See ADR 0006 for the design rationale and
+        why ``low_memory`` / ``chunk_voxels`` are accepted but ignored
+        (sparse memory is O(peak_count), not O(volume)).
 
         Parameters
         ----------
@@ -508,70 +513,48 @@ class Markers:
         Returns
         -------
         array-like
-            Coordinates of the remaining peaks after filtering.
+            Coordinates of the remaining peaks after filtering, sorted
+            in row-major order to match the legacy
+            ``xp.argwhere(keep_mask)`` ordering.
         """
-        if low_memory:
-            return self._remove_close_peaks_chunked(coords, intensity_im, chunk_voxels)
-
-        xp_mod = self.xp
-        ndi_mod = self.ndi
-
-        if coords.size == 0:
+        if coords.shape[0] == 0:
             return coords
 
-        # Build a score image with intensities only at peak coordinates
-        score_img = xp_mod.zeros_like(intensity_im, dtype=xp_mod.float32)
-        score_img[tuple(coords.T)] = intensity_im[tuple(coords.T)]
+        # cKDTree is scipy/CPU; bring coords + per-peak intensities to CPU once.
+        is_numpy_in = isinstance(coords, np.ndarray)
+        coords_np = coords if is_numpy_in else self._to_cpu(coords)
+        intensities_at_peaks = intensity_im[tuple(coords.T)]
+        intensities_np = (
+            intensities_at_peaks
+            if isinstance(intensities_at_peaks, np.ndarray)
+            else self._to_cpu(intensities_at_peaks)
+        )
+        intensities_np = np.asarray(intensities_np, dtype=np.float32)
 
-        # Apply maximum filter with a window corresponding to peak_min_distance
-        size = 2 * int(self.peak_min_distance) + 1
-        max_filtered = ndi_mod.maximum_filter(score_img, size=size, mode='nearest')
+        # Mirrors the `score_img > 0` gate from the morphological version.
+        keep = intensities_np > 0
 
-        # Keep peaks that are equal to the local max and have positive score
-        keep_mask = (score_img == max_filtered) & (score_img > 0)
+        if int(keep.sum()) > 1:
+            active_indices = np.flatnonzero(keep)
+            tree = cKDTree(coords_np[active_indices])
+            pairs = tree.query_pairs(
+                r=int(self.peak_min_distance), p=np.inf, output_type='ndarray',
+            )
+            if pairs.size > 0:
+                i_orig = active_indices[pairs[:, 0]]
+                j_orig = active_indices[pairs[:, 1]]
+                i_score = intensities_np[i_orig]
+                j_score = intensities_np[j_orig]
+                keep[i_orig[i_score < j_score]] = False
+                keep[j_orig[j_score < i_score]] = False
 
-        kept_coords = xp_mod.argwhere(keep_mask)
-        return kept_coords
+        survivors = coords_np[keep]
 
-    def _remove_close_peaks_chunked(self, coords, intensity_im, chunk_voxels):
-        xp_mod = self.xp
-        ndi_mod = self.ndi
+        if survivors.shape[0] > 1:
+            order = np.lexsort(survivors.T[::-1])
+            survivors = survivors[order]
 
-        if coords.size == 0:
-            return coords
-
-        shape = intensity_im.shape
-        chunk_shape = self._compute_chunk_shape(shape, chunk_voxels or self.max_chunk_voxels)
-        halo = self._nms_halo()
-        size = 2 * int(self.peak_min_distance) + 1
-
-        coords_list = []
-        for core, ext, core_in_ext, core_start, ext_start in self._iter_chunks(
-            shape, chunk_shape, halo
-        ):
-            ext_end = [s.stop for s in ext]
-            coords_ext = self._coords_in_bounds(coords, ext_start, ext_end)
-            if coords_ext.size == 0:
-                continue
-
-            ext_shape = tuple(s.stop - s.start for s in ext)
-            score_chunk = xp_mod.zeros(ext_shape, dtype=xp_mod.float32)
-            local_coords = coords_ext - xp_mod.asarray(ext_start, dtype=coords_ext.dtype)
-            score_chunk[tuple(local_coords.T)] = intensity_im[tuple(coords_ext.T)]
-
-            max_filtered = ndi_mod.maximum_filter(score_chunk, size=size, mode='nearest')
-            keep_mask = (score_chunk == max_filtered) & (score_chunk > 0)
-            keep_core = keep_mask[core_in_ext]
-            if xp_mod.any(keep_core):
-                core_coords = xp_mod.argwhere(keep_core)
-                offset = xp_mod.asarray(core_start, dtype=core_coords.dtype)
-                coords_list.append(core_coords + offset)
-
-        if not coords_list:
-            ndim = intensity_im.ndim
-            return xp_mod.zeros((0, ndim), dtype=int)
-
-        return xp_mod.concatenate(coords_list, axis=0)
+        return survivors if is_numpy_in else self.xp.asarray(survivors)
 
     def _run_frame(self, t):
         """
