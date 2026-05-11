@@ -758,6 +758,125 @@ def test_interpolate_all_forward_id_uses_min_track_num_offset(tmp_path) -> None:
     assert track_ids == [1000, 1001], f"Expected ids [1000, 1001], got {track_ids}"
 
 
+# -------------------------------------------------------------------------
+# Slice 2 (#211) post-vectorize equivalence test
+# -------------------------------------------------------------------------
+
+
+def _interpolate_all_forward_reference(
+    coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5
+):
+    """Inline reference implementation of pre-Slice-2 ``interpolate_all_forward``.
+
+    Verbatim copy of the per-coord Python loop from before PRD #205 /
+    Slice 2 (#211). Used only to pin the bit-identical equivalence
+    claim — the production code is the vectorized version. If a future
+    maintainer changes the production behavior, both this reference
+    AND the equivalence test below need to update consciously.
+    """
+    from nellie.tracking.flow_interpolation import FlowInterpolator
+
+    flow_interpx = FlowInterpolator(im_info, forward=True, max_distance_um=max_distance_um)
+    tracks: list = []
+    track_properties: dict = {'frame_num': []}
+    frame_range = np.arange(start_t, end_t)
+    for t in frame_range:
+        final_vector = flow_interpx.interpolate_coord(coords, t)
+        if final_vector is None or len(final_vector) == 0:
+            continue
+        for coord_num, coord in enumerate(coords):
+            if np.all(np.isnan(final_vector[coord_num])):
+                coords[coord_num] = np.nan
+                continue
+            if t == frame_range[0]:
+                if im_info.no_z:
+                    tracks.append([coord_num + min_track_num, frame_range[0], coord[0], coord[1]])
+                else:
+                    tracks.append(
+                        [coord_num + min_track_num, frame_range[0], coord[0], coord[1], coord[2]]
+                    )
+                track_properties['frame_num'].append(frame_range[0])
+            track_properties['frame_num'].append(t + 1)
+            if im_info.no_z:
+                coords[coord_num] = np.array(
+                    [coord[0] + final_vector[coord_num][0], coord[1] + final_vector[coord_num][1]]
+                )
+                tracks.append([coord_num + min_track_num, t + 1, coord[0], coord[1]])
+            else:
+                coords[coord_num] = np.array([
+                    coord[0] + final_vector[coord_num][0],
+                    coord[1] + final_vector[coord_num][1],
+                    coord[2] + final_vector[coord_num][2],
+                ])
+                tracks.append(
+                    [coord_num + min_track_num, t + 1, coord[0], coord[1], coord[2]]
+                )
+    return tracks, track_properties
+
+
+def test_interpolate_all_forward_post_rewrite_equivalence_to_reference(tmp_path) -> None:
+    """Post-rewrite output value-equivalent to the inline reference impl.
+
+    Bit-identical at the float-value level: vectorized vector-add and
+    column_stack do the exact same elementwise float arithmetic as
+    the per-coord scalar add. The TYPE of the id/frame columns
+    changes (pre-rewrite: int/np.int64 mixed with float coords;
+    post-rewrite: all float64 from `np.column_stack` promotion +
+    `.tolist()`) — value comparison via cast-to-float is the
+    appropriate equivalence bar (consumers only rely on numerical
+    values, not exact types — see e.g. ``LabelTracks`` consumer at
+    ``all_tracks_for_label.py:125`` which calls
+    ``np.argsort([track[0] for track in tracks_bw])``).
+    """
+    from nellie.tracking.flow_interpolation import interpolate_all_forward
+
+    rng = np.random.default_rng(2026)
+    flow_array = _make_synthetic_flow_3d(rng, n_markers=300, frames=4)
+    info = _make_stub_iminfo(tmp_path, flow_array, no_z=False)
+
+    coords_for_ref = rng.uniform(0.0, 100.0, size=(15, 3))
+    coords_for_new = coords_for_ref.copy()
+
+    tracks_ref, props_ref = _interpolate_all_forward_reference(
+        coords_for_ref, 0, 4, info, max_distance_um=5.0,
+    )
+    tracks_new, props_new = interpolate_all_forward(
+        coords_for_new, 0, 4, info, max_distance_um=5.0,
+    )
+
+    # Same row count.
+    assert len(tracks_new) == len(tracks_ref), (
+        f"Row count diverges: new={len(tracks_new)}, ref={len(tracks_ref)}"
+    )
+    # Same frame_num count.
+    assert len(props_new["frame_num"]) == len(props_ref["frame_num"])
+
+    # Value-equivalence on the row contents (cast to float64 ndarray;
+    # the row arrangement should match per the bit-identical interleave
+    # invariant per Slice 2's interleave block).
+    np.testing.assert_allclose(
+        np.asarray(tracks_new, dtype=np.float64),
+        np.asarray(tracks_ref, dtype=np.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        np.asarray(props_new["frame_num"], dtype=np.float64),
+        np.asarray(props_ref["frame_num"], dtype=np.float64),
+        rtol=0.0,
+        atol=0.0,
+    )
+    # Coords driver-state equivalence: after the run, both `coords`
+    # arrays should match (same in-place updates, same NaN propagation).
+    np.testing.assert_allclose(
+        coords_for_new,
+        coords_for_ref,
+        rtol=0.0,
+        atol=0.0,
+        equal_nan=True,
+    )
+
+
 def test_interpolate_all_forward_2d_emits_4_column_rows(tmp_path) -> None:
     """2D path emits ``[id, frame, y, x]`` rows (no z column).
 
