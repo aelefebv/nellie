@@ -1,8 +1,12 @@
-"""One-shot capture of the dense ``_remove_connected_label_pixels_impl`` output.
+"""One-shot capture of the dense ``_remove_connected_label_pixels_impl`` golden pair.
+
+Captures both the input (post-skeletonization label frame) and the dense
+``_impl`` output golden, so tests can run ``_impl`` against a fixed input
+regardless of upstream platform drift.
 
 Rerun if the input fixture (``tests/fixtures/yeast_3d_t0_to_1.ome.tif``) or
-the dense impl in ``nellie/segmentation/networking.py`` changes; the output
-``.npy`` is committed for regression-test consumption by
+the dense impl in ``nellie/segmentation/networking.py`` changes; the
+``.npy`` files are committed for regression-test consumption by
 ``test_remove_connected_label_pixels_matches_golden_3d`` (in
 ``tests/test_networking.py``).
 
@@ -15,7 +19,16 @@ frame 0 to produce ``im_instance_label``, builds a CPU ``Network``
 (via the same ``_build_cpu_network`` helper used in
 ``tests/test_networking.py``), skeletonizes frame 0 the same way
 ``_run_frame_backend`` does, then calls the dense ``_impl`` directly with
-``np`` and ``scipy.ndimage`` as the ``xp`` / ``ndi`` args.
+``np`` and ``scipy.ndimage`` as the ``xp`` / ``ndi`` args. Both the
+skeletonized input and the cleaned output are saved.
+
+The upstream Filter+Label pipeline includes Frangi vesselness (floating-
+point SIMD-sensitive) and connected-component labeling, which produce
+slightly different intermediate outputs across platforms even for byte-
+identical TIFF input. By caching the input alongside the golden, the
+snapshot test exercises only the platform-deterministic dense ``_impl``
+algorithm (integer min/max filters on int32 labels), avoiding upstream
+noise from Linux/Windows/macOS Frangi divergence.
 """
 
 from __future__ import annotations
@@ -34,6 +47,7 @@ from nellie.segmentation.networking import Network, NetworkConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_3D_PATH = REPO_ROOT / "tests" / "fixtures" / "yeast_3d_t0_to_1.ome.tif"
+INPUT_PATH = REPO_ROOT / "tests" / "fixtures" / "remove_connected_labels_3d_input.npy"
 GOLDEN_PATH = REPO_ROOT / "tests" / "fixtures" / "remove_connected_labels_3d_golden.npy"
 
 
@@ -84,7 +98,13 @@ def main() -> None:
         net.im_memmap = None
         net.im_frangi_memmap = None
 
+    np.save(INPUT_PATH, skel_frame)
     np.save(GOLDEN_PATH, cleaned)
+    print(
+        f"Wrote {INPUT_PATH} "
+        f"(shape={skel_frame.shape}, dtype={skel_frame.dtype}, "
+        f"size={INPUT_PATH.stat().st_size} bytes)"
+    )
     print(
         f"Wrote {GOLDEN_PATH} "
         f"(shape={cleaned.shape}, dtype={cleaned.dtype}, "

@@ -401,6 +401,9 @@ def test_remove_connected_label_pixels_preserves_boundary_voxels_2d(
 # boundary-exemption ADR exercised by the 2D test above and Test 4 below.
 # -------------------------------------------------------------------------
 
+INPUT_REMOVE_CONNECTED_LABELS_3D = (
+    Path(__file__).parent / "fixtures" / "remove_connected_labels_3d_input.npy"
+)
 GOLDEN_REMOVE_CONNECTED_LABELS_3D = (
     Path(__file__).parent / "fixtures" / "remove_connected_labels_3d_golden.npy"
 )
@@ -409,22 +412,29 @@ GOLDEN_REMOVE_CONNECTED_LABELS_3D = (
 def test_remove_connected_label_pixels_matches_golden_3d(
     make_network_imageinfo_3d,
 ) -> None:
-    """Snapshot regression: dense ``_impl`` output on yeast 3D frame 0 matches the committed golden.
+    """Snapshot regression: dense ``_impl`` output on the cached input matches the committed golden.
 
-    Reproduces the same input pipeline as
-    ``tests/_capture_remove_connected_labels_golden.py``: the per-test
-    Network factory provides Filter+Label outputs on disk, then we
-    skeletonize frame 0 the same way ``_run_frame_backend`` does and
-    feed the skeletonized labels into ``_remove_connected_label_pixels_impl``.
-    Slice 2 (#170) retargets the call to the new top-level method.
+    Loads a pre-captured skeletonized input fixture (saved by
+    ``tests/_capture_remove_connected_labels_golden.py`` from yeast 3D
+    frame 0) and feeds it directly into
+    ``_remove_connected_label_pixels_impl``. The Network instance is
+    only needed for the unbound method call, not to regenerate the
+    input. Slice 2 (#170) retargets the call to the new top-level
+    method.
+
+    The input is cached because the upstream Filter+Label pipeline
+    (Frangi vesselness + connected components) produces slightly
+    different intermediate outputs across platforms (macOS / Linux /
+    Windows) for byte-identical TIFF input. The dense ``_impl``
+    algorithm itself is platform-deterministic on a fixed integer
+    input, so caching the input lets this test exercise only the
+    function under test.
     """
     info = make_network_imageinfo_3d()
     net = _build_cpu_network(info, low_memory=False)
-    assert net.label_memmap is not None  # populated by _allocate_memory in helper
-    label_frame = np.asarray(net.label_memmap[0]).copy()
-    skel_frame = net._skeletonize(label_frame)
 
-    cleaned = net._remove_connected_label_pixels_impl(skel_frame, np, ndi_cpu)
+    input_skel = np.load(INPUT_REMOVE_CONNECTED_LABELS_3D)
+    cleaned = net._remove_connected_label_pixels_impl(input_skel, np, ndi_cpu)
     _release_network(net)
 
     golden = np.load(GOLDEN_REMOVE_CONNECTED_LABELS_3D)
