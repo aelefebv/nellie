@@ -154,34 +154,58 @@ class FlowInterpolator:
         tuple
             Nearby indices and distances from the input coordinates.
         """
-        # using a ckdtree, check for any nearby coords from coord
+        # Tree + scaled-check-coords cache rebuild only when t changes. The
+        # scaled array is needed again below for batched distance compute,
+        # so cache it alongside the tree (single multiplication, single
+        # buffer reuse). See ADR 0010.
         if self.current_t != t:
-            self.current_tree = cKDTree(self.check_coords * self.scaling)
-        scaled_coords = np.array(coords) * self.scaling
-        # get all coords and distances within the radius of the coord
-        # good coords are non-nan
+            self.scaled_check_coords = self.check_coords * self.scaling
+            self.current_tree = cKDTree(self.scaled_check_coords)
+        scaled_coords = np.asarray(coords) * self.scaling
+        # NaN-coord filtering: only good coords go to the tree.
         good_coords = np.where(~np.isnan(scaled_coords[:, 0]))[0]
-        nearby_idxs = self.current_tree.query_ball_point(scaled_coords[good_coords], self.max_distance_um, p=2)
-        if len(nearby_idxs) == 0:
+        if len(good_coords) == 0:
             return [], []
-        k_all = [len(nearby_idxs[i]) for i in range(len(nearby_idxs))]
-        max_k = np.max(k_all)
-        if max_k == 0:
+        scaled_query = scaled_coords[good_coords]
+        # Single query_ball_point — returns within-radius neighbor indices
+        # per query coord directly; no second cKDTree.query(k=max_k)
+        # traversal needed. See ADR 0010.
+        nearby_idxs = self.current_tree.query_ball_point(
+            scaled_query, self.max_distance_um, p=2, workers=-1
+        )
+        counts = np.fromiter(
+            (len(idx) for idx in nearby_idxs), dtype=np.intp, count=len(nearby_idxs)
+        )
+        total = int(counts.sum())
+        # Short-circuit when no good coord has any neighbor (matches the
+        # pre-rewrite max_k == 0 early-return; consumer relies on
+        # `len(final_vector) == 0` to skip the whole frame).
+        if total == 0:
             return [], []
-        distances, nearby_idxs = self.current_tree.query(scaled_coords[good_coords], k=max_k, p=2, workers=-1)
-        # if the first index is scalar, wrap the whole list in another list
-        if len(distances.shape) == 1:
-            distances = [distances]
-            nearby_idxs = [nearby_idxs]
+        # Batched distance compute: concatenate all per-coord neighbor
+        # indices into one flat array, repeat each query coord by its
+        # neighbor count, and run one linalg.norm. Avoids the per-coord
+        # Python loop overhead of N small linalg.norm calls.
+        flat_idxs = np.concatenate(
+            [np.asarray(idx, dtype=np.intp) for idx in nearby_idxs]
+        )
+        flat_queries = np.repeat(scaled_query, counts, axis=0)
+        flat_deltas = self.scaled_check_coords[flat_idxs] - flat_queries
+        flat_distances = np.linalg.norm(flat_deltas, axis=1)
+        # Split back per-coord and place into original-index slots.
+        # Correct positional alignment: per-pos result lands in
+        # original-index slot good_coords[pos]. Fixes the pre-rewrite
+        # NaN-alignment bug per ADR 0010.
         distance_return = [[] for _ in range(len(coords))]
         nearby_idxs_return = [[] for _ in range(len(coords))]
-        pos = 0
-        for i in range(len(distances)):
-            if i not in good_coords:
+        offsets = np.concatenate(([0], np.cumsum(counts)))
+        for pos, i in enumerate(good_coords):
+            k = counts[pos]
+            if k == 0:
                 continue
-            distance_return[i] = distances[pos][:k_all[pos]]
-            nearby_idxs_return[i] = nearby_idxs[pos][:k_all[pos]]
-            pos += 1
+            s, e = offsets[pos], offsets[pos + 1]
+            nearby_idxs_return[i] = flat_idxs[s:e]
+            distance_return[i] = flat_distances[s:e]
         return nearby_idxs_return, distance_return
 
     def _get_vector_weights(self, nearby_idxs, distances_all):
