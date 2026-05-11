@@ -950,6 +950,127 @@ def test_calculate_normalized_moments_translation_invariance() -> None:
 
 
 # -------------------------------------------------------------------------
+# Direct synthetic tests for `_get_cost_matrix`
+#
+# Pin the contract of the per-frame matching cost-matrix builder. PRD #196
+# / Slice 2 (#198) will refactor this body from broadcast (N, N, F) tensors
+# at float64 to per-feature streaming at float32; these tests are the
+# regression bar (shape / dtype / mask / single-pair) — platform-stable in
+# shape and tolerant of float32 precision drift per ADR 0009.
+# -------------------------------------------------------------------------
+
+
+def _make_bare_hu_for_cost_matrix(max_distance_um: float = 1.0) -> HuMomentTracking:
+    """Build a HuMomentTracking instance bypassing __init__ for cost-matrix tests.
+
+    `_get_cost_matrix` reads ``self.xp``, ``self.max_distance_um`` (via
+    ``_get_distance_mask``), and ``self.device_type`` (also via
+    ``_get_distance_mask``, branching on ``"cuda"``/``"mps"`` for on-GPU
+    pairwise math vs the CPU ``cdist``). Mirror of
+    `_make_bare_hu_for_moments`.
+    """
+    h = HuMomentTracking.__new__(HuMomentTracking)
+    h.xp = np
+    h.max_distance_um = max_distance_um
+    h.device_type = "cpu"
+    return h
+
+
+def test_get_cost_matrix_shape() -> None:
+    """`_get_cost_matrix` returns ``(N_post, N_pre)`` of float32.
+
+    Pins the cost-matrix output shape contract for downstream
+    ``_find_best_matches``. Slice 2 (#198) keeps the shape contract;
+    only the internal computation changes.
+    """
+    h = _make_bare_hu_for_cost_matrix(max_distance_um=10.0)
+    rng = np.random.default_rng(29)
+    coords_post = rng.uniform(0.0, 5.0, size=(3, 3)).astype(np.float64)
+    coords_pre = rng.uniform(0.0, 5.0, size=(4, 3)).astype(np.float64)
+    stats_post = rng.normal(0.0, 1.0, size=(3, 4)).astype(np.float32)
+    stats_pre = rng.normal(0.0, 1.0, size=(4, 4)).astype(np.float32)
+    hu_post = rng.normal(0.0, 1.0, size=(3, 6)).astype(np.float32)
+    hu_pre = rng.normal(0.0, 1.0, size=(4, 6)).astype(np.float32)
+
+    cost = h._get_cost_matrix(coords_post, coords_pre, stats_post, stats_pre, hu_post, hu_pre)
+    assert cost.shape == (3, 4)
+    assert cost.dtype == np.float32, f"Expected float32 cost matrix, got {cost.dtype}"
+
+
+def test_get_cost_matrix_empty_inputs_short_circuit() -> None:
+    """Empty stats/hu inputs short-circuit to ``(0, 0)`` float16.
+
+    Pins the early-out at ``hu_tracking.py:889-895``: if any of the four
+    feature matrices has zero size, the function returns
+    ``xp.zeros((0, 0), dtype=xp.float16)`` without touching the
+    distance/feature math. Slice 2 (#198) preserves this short-circuit.
+    """
+    h = _make_bare_hu_for_cost_matrix()
+    coords = np.zeros((0, 3), dtype=np.float64)
+    empty_f = np.zeros((0, 4), dtype=np.float32)
+    empty_h = np.zeros((0, 6), dtype=np.float32)
+
+    cost = h._get_cost_matrix(coords, coords, empty_f, empty_f, empty_h, empty_h)
+    assert cost.shape == (0, 0)
+    assert cost.dtype == np.float16
+
+
+def test_get_cost_matrix_all_masked_returns_inf() -> None:
+    """All pairs > max_distance_um apart → cost matrix is all `+inf`.
+
+    The early-out in ``_zscore_normalize`` at ``hu_tracking.py:856`` —
+    ``if float(sum_mask) == 0.0: return xp.full_like(m, xp.inf)`` —
+    propagates through the nansum to produce an all-`+inf` cost matrix.
+    Pinned because Slice 2 (#198)'s streaming refactor needs to handle
+    the all-masked path identically (the equivalent in the streaming
+    version is ``cost = xp.where(mask, ..., xp.inf)`` with mask all
+    False → all inf).
+    """
+    h = _make_bare_hu_for_cost_matrix(max_distance_um=1.0)
+    # Two coords at (0, 0, 0) and (100, 100, 100); pre at (200, 200, 200)
+    # and (300, 300, 300). All pairwise distances >> max_distance_um.
+    coords_post = np.array([[0.0, 0.0, 0.0], [100.0, 100.0, 100.0]])
+    coords_pre = np.array([[200.0, 200.0, 200.0], [300.0, 300.0, 300.0]])
+    rng = np.random.default_rng(31)
+    stats_post = rng.normal(0.0, 1.0, size=(2, 4)).astype(np.float32)
+    stats_pre = rng.normal(0.0, 1.0, size=(2, 4)).astype(np.float32)
+    hu_post = rng.normal(0.0, 1.0, size=(2, 6)).astype(np.float32)
+    hu_pre = rng.normal(0.0, 1.0, size=(2, 6)).astype(np.float32)
+
+    cost = h._get_cost_matrix(coords_post, coords_pre, stats_post, stats_pre, hu_post, hu_pre)
+    assert cost.shape == (2, 2)
+    assert np.isinf(cost).all(), f"Expected all `+inf` cost; got {cost}"
+    assert (cost > 0).all(), f"Expected `+inf` (positive); got negative inf in {cost}"
+
+
+def test_get_cost_matrix_single_matchable_pair_finite_elsewhere_inf() -> None:
+    """Exactly one (post, pre) pair within max_distance_um → finite there, +inf elsewhere.
+
+    Pins the per-pair masking semantics: positions where
+    ``distance < max_distance_um`` get a finite cost (z-scored
+    feature differences); positions outside that radius get `+inf`.
+    Slice 2 (#198)'s ``cost = xp.where(mask, cost, xp.inf)`` final
+    step preserves this exact mask propagation.
+    """
+    h = _make_bare_hu_for_cost_matrix(max_distance_um=1.0)
+    # post[0] is close to pre[0] (matchable); post[1] is far from pre[0]
+    coords_post = np.array([[0.0, 0.0, 0.0], [100.0, 100.0, 100.0]])
+    coords_pre = np.array([[0.1, 0.0, 0.0]])
+    rng = np.random.default_rng(37)
+    stats_post = rng.normal(0.0, 1.0, size=(2, 4)).astype(np.float32)
+    stats_pre = rng.normal(0.0, 1.0, size=(1, 4)).astype(np.float32)
+    hu_post = rng.normal(0.0, 1.0, size=(2, 6)).astype(np.float32)
+    hu_pre = rng.normal(0.0, 1.0, size=(1, 6)).astype(np.float32)
+
+    cost = h._get_cost_matrix(coords_post, coords_pre, stats_post, stats_pre, hu_post, hu_pre)
+    assert cost.shape == (2, 1)
+    assert np.isfinite(cost[0, 0]), f"Expected finite cost at the matchable pair; got {cost[0, 0]}"
+    assert np.isinf(cost[1, 0]) and cost[1, 0] > 0, (
+        f"Expected `+inf` at the unmatchable pair; got {cost[1, 0]}"
+    )
+
+
+# -------------------------------------------------------------------------
 # Input mutation: hash-before / hash-after
 # -------------------------------------------------------------------------
 

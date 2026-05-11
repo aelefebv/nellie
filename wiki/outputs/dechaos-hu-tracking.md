@@ -128,8 +128,8 @@ Pinnable invariants for Slice 1 tests (no test pins any of these today):
 
 Mostly **already factored** — `nellie.utils.adaptive_run` is the canonical backend primitive. Findings:
 
-- `_calculate_normalized_moments` (228–276), `_calculate_hu_moments` (278–317), `_log_hu` (319–329), `_zscore_normalize` (809–839) are clean reusable image-statistics primitives. Single consumer today; **no extraction warranted** — defer until a second consumer materializes.
-- `_get_distance_mask`, `_get_difference_matrix` are stage-specific (tied to `self.max_distance_um` and `self.xp`).
+- `_calculate_normalized_moments` (228–276), `_calculate_hu_moments` (278–317), `_log_hu` (319–329) are clean reusable image-statistics primitives. Single consumer today; **no extraction warranted** — defer until a second consumer materializes. (PRD #196 Slice 2 (#198) deletes `_zscore_normalize` since the cost-matrix path no longer needs it; the second-consumer deferral never resolved. If a future caller wants z-score normalization, write a fresh primitive sized for that use.)
+- `_get_distance_mask` is stage-specific (tied to `self.max_distance_um` and `self.xp`). `_get_difference_matrix` is also being deleted by PRD #196 Slice 2 (#198) — the per-feature streaming refactor in `_get_cost_matrix` doesn't need a `(N, N, F)` tensor.
 - The outer `run()` cascade pattern (resolve device order → `mode_candidates` → try / `is_gpu_unavailable_error` / `is_oom_error` / log / continue) is **now repeated nearly verbatim across Filter/Label/Network/Markers/Hu** — about 25 lines of structural sameness per stage. Cross-stage extraction candidate, deferred until all 4 untested stages reach the same shape (queue policy: per-stage Config dataclass extraction is the planned cross-stage pass).
 - The two inner OOM cascades duplicate the outer cascade's error-classification logic (`_is_oom_error`, `_free_gpu_memory`, `_switch_to_cpu` are the local equivalents of canonical `adaptive_run` helpers). See Pass 3 / Pass 8.
 - **Hu's two-axis dense/sparse split** (ROI extraction + matching, each with its own threshold and fallback) is unique to this stage; no extraction warranted.
