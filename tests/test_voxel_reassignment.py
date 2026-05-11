@@ -1720,25 +1720,22 @@ def _count_build_tree_calls(
     return counter["n"], v
 
 
-def test_match_voxels_builds_two_trees_per_frame_pre_rewrite_high_mem(
+def test_match_voxels_builds_two_trees_per_frame_post_rewrite_high_mem(
     make_voxel_reassign_imageinfo_3d,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """PRE-REWRITE contract: 2 cKDTree builds per frame in high-memory mode.
+    """POST-REWRITE contract (num_t=2): 2 cKDTree builds for the only frame transition.
 
-    The high-memory branch of `match_voxels` (lines 793-794) builds
-    `tree_prev` from `_scale_coords(vox_prev)` then `tree_next` from
-    `_scale_coords(vox_next)` — 2 builds per frame transition. With
-    num_t=2 there is exactly one frame transition, so total = 2.
+    The fixture has 2 frames, so the loop runs once (t=0). PRD #227
+    Slice 2's caching only fires at t >= 1 (where the previous
+    iteration cached its `tree_next`). At t=0 the cache is None and
+    both `tree_prev` and `tree_next` are built fresh — exactly the
+    pre-rewrite behavior for num_t=2.
 
-    Slice 2 of PRD #227 caches `tree_next` from frame t and reuses it
-    as `tree_prev` of frame t+1 in high-memory mode, dropping this to
-    1 build per frame after frame 0 (so for num_t=2, total = 2 still
-    but distributed differently — see the POST-rewrite test in Slice
-    2 which exercises num_t=3 to see the 1-after-first contract).
-
-    With num_t=2 we still expect 2 calls; the test pins the call shape
-    for the only frame transition.
+    The 1-build-per-frame-after-first contract is exercised directly
+    in `test_match_voxels_post_rewrite_caches_tree_next_for_next_iteration`
+    below (which calls `match_voxels` twice manually to simulate two
+    consecutive frame transitions without needing a 3-frame fixture).
     """
     n_calls, v = _count_build_tree_calls(
         make_voxel_reassign_imageinfo_3d,
@@ -1746,9 +1743,132 @@ def test_match_voxels_builds_two_trees_per_frame_pre_rewrite_high_mem(
         monkeypatch=monkeypatch,
     )
     assert n_calls == 2, (
-        f"PRE-REWRITE high-memory: _build_tree should be called 2× per "
-        f"frame transition (one for vox_prev, one for vox_next); for "
-        f"num_t=2 that's exactly 2. Got {n_calls}."
+        f"POST-REWRITE high-memory (num_t=2, 1 frame transition): "
+        f"_build_tree should be called 2× at t=0 (cold cache); got {n_calls}."
+    )
+    _release_voxel_reassigner(v)
+
+
+def test_match_voxels_post_rewrite_caches_tree_next_for_next_iteration(
+    make_voxel_reassign_imageinfo_3d,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST-REWRITE: second `match_voxels` call reuses cached `tree_next` as `tree_prev`.
+
+    Directly exercises the caching mechanism without relying on a
+    multi-frame fixture (the synthetic 3D fixture only has 2 frames).
+    Simulates two consecutive iterations of `_run_reassignment` by
+    calling `match_voxels(vox_a, vox_b, t=0)` then
+    `match_voxels(vox_b, vox_c, t=1)` with `vox_b` being the IDENTICAL
+    ndarray rotated forward (per PRD #217's `vox_prev = vox_next`
+    rotation).
+
+    Pre-rewrite: 2 builds per call → 4 builds total.
+    Post-rewrite: 2 builds at t=0 + 1 build at t=1 (vox_b cache hit) → 3 total.
+    """
+    info = make_voxel_reassign_imageinfo_3d()
+    v = VoxelReassigner(
+        info, VoxelReassignerConfig(device="cpu", low_memory=False), num_t=2
+    )
+    v._allocate_memory()
+    # Sanity: cache is empty at construction.
+    assert v._cached_tree_for_next_frame is None
+    assert v._cached_vox_for_next_frame is None
+
+    # Use a small slice of the fixture's labeled voxels so the test is fast.
+    branch_t0 = np.argwhere(v.branch_label_memmap[0] > 0)
+    branch_t1 = np.argwhere(v.branch_label_memmap[1] > 0)
+    # Trim to keep the test cheap; ensure we have at least a handful per side.
+    take = min(200, len(branch_t0), len(branch_t1))
+    assert take > 0, "fixture has no labeled branch voxels at t=0/t=1"
+    vox_a = branch_t0[:take]
+    vox_b = branch_t1[:take]
+    # vox_c is "next-next" — synthesize by adding a tiny offset to vox_b
+    # (clamped into bounds) so it's a different array but valid coords.
+    vox_c = np.clip(
+        vox_b + 1,
+        0,
+        np.array(v.spatial_shape, dtype=vox_b.dtype) - 1,
+    )
+
+    # Count `_build_tree` calls across both `match_voxels` invocations.
+    real_build_tree = VoxelReassigner._build_tree
+    counter = {"n": 0}
+
+    def counted_build_tree(self, coords_real_scaled):
+        counter["n"] += 1
+        return real_build_tree(self, coords_real_scaled)
+
+    monkeypatch.setattr(VoxelReassigner, "_build_tree", counted_build_tree)
+
+    # Iteration 1: cold cache → 2 builds (tree_prev + tree_next).
+    v.match_voxels(vox_a, vox_b, t=0)
+    assert counter["n"] == 2, (
+        f"Iter 1 (cold cache): expected 2 _build_tree calls, got {counter['n']}"
+    )
+    # After iter 1, cache should hold the tree built from vox_b.
+    assert v._cached_tree_for_next_frame is not None
+    assert v._cached_vox_for_next_frame is vox_b
+
+    # Iteration 2: vox_prev IS vox_b (the cached array) → tree_prev is reused;
+    # only tree_next (from vox_c) is built fresh.
+    v.match_voxels(vox_b, vox_c, t=1)
+    assert counter["n"] == 3, (
+        f"Iter 2 (warm cache, vox_b reused as tree_prev): expected 1 "
+        f"additional build (tree_next only), got {counter['n'] - 2} "
+        f"(total {counter['n']})"
+    )
+    # Cache now holds tree built from vox_c.
+    assert v._cached_vox_for_next_frame is vox_c
+    _release_voxel_reassigner(v)
+
+
+def test_match_voxels_post_rewrite_cache_miss_on_fresh_array_high_mem(
+    make_voxel_reassign_imageinfo_3d,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST-REWRITE: a direct caller passing a fresh `vox_prev` ndarray bypasses the cache.
+
+    The cache identity check is `self._cached_vox_for_next_frame is
+    vox_prev` (Python `is`). Direct callers of `match_voxels` (not
+    going through `_run_reassignment`'s rotation) typically pass a
+    fresh ndarray each call, so the identity check fails and tree_prev
+    is built normally. Pins the safe-by-default behavior.
+    """
+    info = make_voxel_reassign_imageinfo_3d()
+    v = VoxelReassigner(
+        info, VoxelReassignerConfig(device="cpu", low_memory=False), num_t=2
+    )
+    v._allocate_memory()
+
+    branch_t0 = np.argwhere(v.branch_label_memmap[0] > 0)
+    branch_t1 = np.argwhere(v.branch_label_memmap[1] > 0)
+    take = min(200, len(branch_t0), len(branch_t1))
+    vox_a = branch_t0[:take]
+    vox_b = branch_t1[:take]
+
+    real_build_tree = VoxelReassigner._build_tree
+    counter = {"n": 0}
+
+    def counted_build_tree(self, coords_real_scaled):
+        counter["n"] += 1
+        return real_build_tree(self, coords_real_scaled)
+
+    monkeypatch.setattr(VoxelReassigner, "_build_tree", counted_build_tree)
+
+    # Iter 1: cold cache → 2 builds.
+    v.match_voxels(vox_a, vox_b, t=0)
+    assert counter["n"] == 2
+
+    # Iter 2 with a FRESH vox_prev array (not the cached vox_b reference).
+    # Even if the values are identical, `is` fails, and tree_prev is rebuilt.
+    vox_b_fresh = vox_b.copy()
+    assert vox_b_fresh is not vox_b
+    np.testing.assert_array_equal(vox_b_fresh, vox_b)
+    v.match_voxels(vox_b_fresh, vox_a, t=1)
+    assert counter["n"] == 4, (
+        f"Iter 2 with fresh vox_prev (not cached array): expected 2 builds "
+        f"(no cache hit), got {counter['n'] - 2} (total {counter['n']})"
     )
     _release_voxel_reassigner(v)
 
