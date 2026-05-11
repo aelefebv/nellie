@@ -338,6 +338,97 @@ class FlowInterpolator:
         self._allocate_memory()
 
 
+def _interpolate_all_directional(
+    coords, start_t, end_t, im_info, min_track_num, max_distance_um, *, forward
+):
+    """Shared driver for ``interpolate_all_forward`` / ``_backward``.
+
+    Parameters mirror the public functions; ``forward`` controls the
+    direction of traversal and the sign of the per-frame coord update.
+
+    Per-frame work:
+      1. ``flow_interpx.interpolate_coord(coords, t)`` returns per-coord
+         flow vectors (NaN row when no neighbor was found).
+      2. NaN-mask: ``valid_mask = ~np.isnan(final_vector).any(axis=1)``.
+      3. Pre-update coords for valid rows are captured (used only for the
+         init row at ``t_idx == 0``).
+      4. In-place update for valid rows (``+=`` for forward, ``-=`` for
+         backward); invalid rows clobbered with NaN (terminal NaN
+         propagation per the wiki contract).
+      5. Per-frame block built as one ndarray; at ``t_idx == 0`` the
+         block has shape ``(2 * n_valid, n_dim + 2)`` with init/post
+         rows interleaved per valid coord (``block[0::2] = init_rows``,
+         ``block[1::2] = post_rows``) — preserves the bit-identical
+         per-coord row ordering of the pre-vectorize implementation.
+    """
+    flow_interpx = FlowInterpolator(im_info, forward=forward, max_distance_um=max_distance_um)
+    n_coords = len(coords)
+    base_ids = np.arange(n_coords, dtype=np.float64) + min_track_num
+    track_blocks: list[np.ndarray] = []
+    frame_num_blocks: list[np.ndarray] = []
+    if forward:
+        frame_range = np.arange(start_t, end_t)
+    else:
+        frame_range = np.array(list(np.arange(end_t, start_t + 1))[::-1])
+    if len(frame_range) == 0:
+        return [], {'frame_num': []}
+    initial_frame = float(frame_range[0])
+    for t_idx, t in enumerate(frame_range):
+        final_vector = flow_interpx.interpolate_coord(coords, t)
+        if final_vector is None or len(final_vector) == 0:
+            continue
+        valid_mask = ~np.isnan(final_vector).any(axis=1)
+        n_valid = int(valid_mask.sum())
+        if n_valid == 0:
+            # Even with no valid coords, the original loop walks every
+            # coord and marks invalids as NaN — preserve that here.
+            coords[~valid_mask] = np.nan
+            continue
+        # `coords[valid_mask]` is advanced indexing → returns a copy that
+        # is unaffected by the in-place update below.
+        valid_coords_pre = coords[valid_mask]
+        valid_ids = base_ids[valid_mask]
+        if forward:
+            coords[valid_mask] += final_vector[valid_mask]
+        else:
+            coords[valid_mask] -= final_vector[valid_mask]
+        coords[~valid_mask] = np.nan
+        valid_coords_post = coords[valid_mask]
+        post_frame = float(t + 1) if forward else float(t - 1)
+        n_dim = valid_coords_pre.shape[1]
+        if t_idx == 0:
+            # Interleave init + post rows per valid coord:
+            # [init_0, post_0, init_1, post_1, ...].
+            block = np.empty((2 * n_valid, n_dim + 2))
+            block[0::2, 0] = valid_ids
+            block[0::2, 1] = initial_frame
+            block[0::2, 2:] = valid_coords_pre
+            block[1::2, 0] = valid_ids
+            block[1::2, 1] = post_frame
+            block[1::2, 2:] = valid_coords_post
+            frames_for_block = np.empty(2 * n_valid)
+            frames_for_block[0::2] = initial_frame
+            frames_for_block[1::2] = post_frame
+        else:
+            block = np.empty((n_valid, n_dim + 2))
+            block[:, 0] = valid_ids
+            block[:, 1] = post_frame
+            block[:, 2:] = valid_coords_post
+            frames_for_block = np.full(n_valid, post_frame)
+        track_blocks.append(block)
+        frame_num_blocks.append(frames_for_block)
+
+    if track_blocks:
+        tracks = np.concatenate(track_blocks, axis=0).tolist()
+    else:
+        tracks = []
+    if frame_num_blocks:
+        frame_num_list = np.concatenate(frame_num_blocks).tolist()
+    else:
+        frame_num_list = []
+    return tracks, {'frame_num': frame_num_list}
+
+
 def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5):
     """
     Interpolates coordinates forward in time across multiple timepoints using flow vectors.
@@ -362,36 +453,9 @@ def interpolate_all_forward(coords, start_t, end_t, im_info, min_track_num=0, ma
     tuple
         List of tracks and associated track properties.
     """
-    flow_interpx = FlowInterpolator(im_info, forward=True, max_distance_um=max_distance_um)
-    tracks = []
-    track_properties = {'frame_num': []}
-    frame_range = np.arange(start_t, end_t)
-    for t in frame_range:
-        final_vector = flow_interpx.interpolate_coord(coords, t)
-        if final_vector is None or len(final_vector) == 0:
-            continue
-        for coord_num, coord in enumerate(coords):
-            if np.all(np.isnan(final_vector[coord_num])):
-                coords[coord_num] = np.nan
-                continue
-            if t == frame_range[0]:
-                if im_info.no_z:
-                    tracks.append([coord_num + min_track_num, frame_range[0], coord[0], coord[1]])
-                else:
-                    tracks.append([coord_num + min_track_num, frame_range[0], coord[0], coord[1], coord[2]])
-                track_properties['frame_num'].append(frame_range[0])
-
-            track_properties['frame_num'].append(t + 1)
-            if im_info.no_z:
-                coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
-                                              coord[1] + final_vector[coord_num][1]])
-                tracks.append([coord_num + min_track_num, t + 1, coord[0], coord[1]])
-            else:
-                coords[coord_num] = np.array([coord[0] + final_vector[coord_num][0],
-                                              coord[1] + final_vector[coord_num][1],
-                                              coord[2] + final_vector[coord_num][2]])
-                tracks.append([coord_num + min_track_num, t + 1, coord[0], coord[1], coord[2]])
-    return tracks, track_properties
+    return _interpolate_all_directional(
+        coords, start_t, end_t, im_info, min_track_num, max_distance_um, forward=True,
+    )
 
 
 def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, max_distance_um=0.5):
@@ -418,36 +482,9 @@ def interpolate_all_backward(coords, start_t, end_t, im_info, min_track_num=0, m
     tuple
         List of tracks and associated track properties.
     """
-    flow_interpx = FlowInterpolator(im_info, forward=False, max_distance_um=max_distance_um)
-    tracks = []
-    track_properties = {'frame_num': []}
-    frame_range = list(np.arange(end_t, start_t + 1))[::-1]
-    for t in frame_range:
-        final_vector = flow_interpx.interpolate_coord(coords, t)
-        if final_vector is None or len(final_vector) == 0:
-            continue
-        for coord_num, coord in enumerate(coords):
-            # if final_vector[coord_num] is all nan, skip
-            if np.all(np.isnan(final_vector[coord_num])):
-                coords[coord_num] = np.nan
-                continue
-            if t == frame_range[0]:
-                if im_info.no_z:
-                    tracks.append([coord_num + min_track_num, frame_range[0], coord[0], coord[1]])
-                else:
-                    tracks.append([coord_num + min_track_num, frame_range[0], coord[0], coord[1], coord[2]])
-                track_properties['frame_num'].append(frame_range[0])
-            if im_info.no_z:
-                coords[coord_num] = np.array([coord[0] - final_vector[coord_num][0],
-                                              coord[1] - final_vector[coord_num][1]])
-                tracks.append([coord_num + min_track_num, t - 1, coord[0], coord[1]])
-            else:
-                coords[coord_num] = np.array([coord[0] - final_vector[coord_num][0],
-                                              coord[1] - final_vector[coord_num][1],
-                                              coord[2] - final_vector[coord_num][2]])
-                tracks.append([coord_num + min_track_num, t - 1, coord[0], coord[1], coord[2]])
-            track_properties['frame_num'].append(t - 1)
-    return tracks, track_properties
+    return _interpolate_all_directional(
+        coords, start_t, end_t, im_info, min_track_num, max_distance_um, forward=False,
+    )
 
 
 if __name__ == "__main__":
