@@ -391,6 +391,201 @@ def test_remove_connected_label_pixels_preserves_boundary_voxels_2d(
     )
 
 
+# -------------------------------------------------------------------------
+# _remove_connected_label_pixels: snapshot + 3D synthetic edge cases.
+#
+# Pins the contract that Slice 2 of PRD #168 will preserve byte-for-byte
+# when it replaces the dense ``_impl`` (and the chunked variant) with a
+# sparse skeleton-coordinate scan. See
+# ``wiki/decisions/0004-skel-boundary-preservation.md`` for the
+# boundary-exemption ADR exercised by the 2D test above and Test 4 below.
+# -------------------------------------------------------------------------
+
+GOLDEN_REMOVE_CONNECTED_LABELS_3D = (
+    Path(__file__).parent / "fixtures" / "remove_connected_labels_3d_golden.npy"
+)
+
+
+def test_remove_connected_label_pixels_matches_golden_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Snapshot regression: dense ``_impl`` output on yeast 3D frame 0 matches the committed golden.
+
+    Reproduces the same input pipeline as
+    ``tests/_capture_remove_connected_labels_golden.py``: the per-test
+    Network factory provides Filter+Label outputs on disk, then we
+    skeletonize frame 0 the same way ``_run_frame_backend`` does and
+    feed the skeletonized labels into ``_remove_connected_label_pixels_impl``.
+    Slice 2 (#170) retargets the call to the new top-level method.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+    assert net.label_memmap is not None  # populated by _allocate_memory in helper
+    label_frame = np.asarray(net.label_memmap[0]).copy()
+    skel_frame = net._skeletonize(label_frame)
+
+    cleaned = net._remove_connected_label_pixels_impl(skel_frame, np, ndi_cpu)
+    _release_network(net)
+
+    golden = np.load(GOLDEN_REMOVE_CONNECTED_LABELS_3D)
+    assert np.array_equal(cleaned, golden), (
+        "Dense _impl output drifted from the committed golden snapshot. "
+        "If this drift is intentional, rerun "
+        "tests/_capture_remove_connected_labels_golden.py and review the diff."
+    )
+
+
+def test_remove_connected_label_pixels_empty_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """All-zeros input: no skeleton voxels, no ambiguity, output stays all-zeros."""
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    skel = np.zeros((3, 3, 3), dtype=np.int32)
+    expected = np.zeros((3, 3, 3), dtype=np.int32)
+
+    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    _release_network(net)
+
+    assert np.array_equal(cleaned, expected), (
+        f"Empty input should round-trip; got\n{cleaned}"
+    )
+
+
+def test_remove_connected_label_pixels_single_object_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Single connected label: only one positive value anywhere in the neighborhood, so no ambiguity."""
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    skel = np.zeros((3, 3, 3), dtype=np.int32)
+    skel[1, 1, :] = 1  # single label-1 line through the center
+    expected = skel.copy()
+
+    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    _release_network(net)
+
+    assert np.array_equal(cleaned, expected), (
+        f"Single-label input should round-trip; got\n{cleaned}"
+    )
+
+
+def test_remove_connected_label_pixels_multi_object_touch_interior_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Two labels overlapping at interior voxels: every interior label-1 voxel and every label-2 voxel except the lone island gets zeroed.
+
+    5×5×5: ``arr[1:3, 1:3, 1:3] = 1`` then ``arr[2:4, 2:4, 2:4] = 2`` (label 2
+    last, so the (2,2,2) overlap voxel ends up label 2 in the input). All
+    label-1 voxels are interior and see at least one label-2 neighbor in
+    their 3×3×3 window, so they all zero out. Label-2 voxels at the
+    seven positions adjacent to the label-1 cluster also zero out for the
+    same reason. The lone exception is (3,3,3): its 3×3×3 neighborhood
+    {2..4}×{2..4}×{2..4} contains only label-2 voxels (the (2,2,2) corner
+    is label 2 by the overwrite ordering), so it is unambiguous and
+    survives. Expected literal is hand-derived from the predicate.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    skel = np.zeros((5, 5, 5), dtype=np.int32)
+    skel[1:3, 1:3, 1:3] = 1
+    skel[2:4, 2:4, 2:4] = 2  # set last so (2,2,2) overlap resolves to label 2
+
+    expected = np.zeros((5, 5, 5), dtype=np.int32)
+    expected[3, 3, 3] = 2  # only voxel whose 3×3×3 sees only one positive label
+
+    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    _release_network(net)
+
+    assert np.array_equal(cleaned, expected), (
+        f"Multi-object touch (interior) wrong; got\n{cleaned}\nexpected\n{expected}"
+    )
+
+
+def test_remove_connected_label_pixels_junction_on_boundary_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Two labels meeting at a voxel on the volume boundary: boundary exemption preserves both.
+
+    4×4×4 with ``(0,1,1)=1`` and ``(0,1,2)=2``. Both voxels are on the z=0
+    face, so the boundary mask exempts them even though the predicate
+    would otherwise flag them ambiguous (each sees the other in its 3×3×3
+    window). Expected: input unchanged.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    skel = np.zeros((4, 4, 4), dtype=np.int32)
+    skel[0, 1, 1] = 1
+    skel[0, 1, 2] = 2
+    expected = skel.copy()
+
+    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    _release_network(net)
+
+    assert np.array_equal(cleaned, expected), (
+        f"Boundary-junction voxel should be preserved; got\n{cleaned}\nexpected\n{expected}"
+    )
+
+
+def test_remove_connected_label_pixels_all_boundary_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Skeleton entirely on the 6 face-center voxels of a 3×3×3 (all boundary): every potentially-ambiguous voxel is exempt.
+
+    Six face-center voxels with mixed labels (1 vs 2). Every voxel sees
+    the others in its 3×3×3 window and would be flagged ambiguous, but
+    every voxel has at least one coord at 0 or 2 (shape-1), so the
+    boundary mask exempts all of them. Expected: input unchanged.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    skel = np.zeros((3, 3, 3), dtype=np.int32)
+    # Mix the labels so every voxel sees a different positive label nearby;
+    # the exemption is the only reason none of them get zeroed.
+    skel[0, 1, 1] = 1
+    skel[2, 1, 1] = 2
+    skel[1, 0, 1] = 1
+    skel[1, 2, 1] = 2
+    skel[1, 1, 0] = 1
+    skel[1, 1, 2] = 2
+    expected = skel.copy()
+
+    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    _release_network(net)
+
+    assert np.array_equal(cleaned, expected), (
+        f"All-boundary voxels should be preserved; got\n{cleaned}\nexpected\n{expected}"
+    )
+
+
+def test_remove_connected_label_pixels_high_density_3d(
+    make_network_imageinfo_3d,
+) -> None:
+    """Every voxel of a 3×3×3 cube has the same label: no ambiguity anywhere.
+
+    Single-label dense volume; ``min_labels == max_labels`` everywhere, so
+    the predicate never fires regardless of boundary status. Expected:
+    input unchanged.
+    """
+    info = make_network_imageinfo_3d()
+    net = _build_cpu_network(info, low_memory=False)
+
+    skel = np.ones((3, 3, 3), dtype=np.int32)
+    expected = skel.copy()
+
+    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    _release_network(net)
+
+    assert np.array_equal(cleaned, expected), (
+        f"High-density single-label input should round-trip; got\n{cleaned}"
+    )
+
+
 def test_relabel_objects_uses_anisotropic_sampling_3d(
     make_network_imageinfo_3d,
 ) -> None:
