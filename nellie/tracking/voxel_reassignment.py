@@ -147,6 +147,13 @@ class VoxelReassigner:
         self.reassigned_branch_memmap = None
         self.reassigned_obj_memmap = None
 
+        # cKDTree from previous iteration's vox_next, reused as next
+        # iteration's tree_prev when in high-memory mode (see PRD #227).
+        # Identity-checked against vox_prev in match_voxels; safe-by-default
+        # for direct match_voxels callers (their vox_prev is a fresh array).
+        self._cached_tree_for_next_frame = None
+        self._cached_vox_for_next_frame = None
+
         self.viewer = viewer
 
     # -------------------------------------------------------------------------
@@ -816,7 +823,18 @@ class VoxelReassigner:
             if self.device_type == "cuda":
                 adaptive_run.free_gpu_memory(self.xp)
         else:
-            tree_prev = self._build_tree(self._scale_coords(vox_prev))
+            # tree_next of frame t-1 was built from coords byte-identical to
+            # vox_prev of frame t (PRD #217 caches and rotates vox_next →
+            # vox_prev). If we're called from `_run_reassignment`, that
+            # cached tree is already on the instance via the identity check
+            # below — reuse it instead of rebuilding. Direct callers of
+            # match_voxels won't hit the identity check (their vox_prev is a
+            # fresh array), so the cache is safe-by-default.
+            if (self._cached_tree_for_next_frame is not None
+                    and self._cached_vox_for_next_frame is vox_prev):
+                tree_prev = self._cached_tree_for_next_frame
+            else:
+                tree_prev = self._build_tree(self._scale_coords(vox_prev))
             tree_next = self._build_tree(self._scale_coords(vox_next))
 
             logger.debug(f'Forward voxel matching for t: {t}')
@@ -828,6 +846,11 @@ class VoxelReassigner:
             vox_prev_bw, vox_next_bw, dist_bw = self._match_backward(
                 self.flow_interpolator_bw, vox_next, vox_prev, t + 1, tree_prev=tree_prev
             )
+
+            # Cache tree_next for the next iteration's tree_prev (driver loop
+            # rotates vox_next → vox_prev, so this is byte-identical reuse).
+            self._cached_tree_for_next_frame = tree_next
+            self._cached_vox_for_next_frame = vox_next
 
         # combine forward and backward matches
         parts_prev = []
@@ -993,6 +1016,13 @@ class VoxelReassigner:
 
     def _run_reassignment(self):
         self._allocate_memory()
+
+        # Reset per-run state. The tree cache persists across match_voxels
+        # calls within one run; clear it here so a re-entry from `run()`'s
+        # mode_candidates cascade (e.g., GPU OOM → CPU retry) starts fresh
+        # rather than using a stale handle from the failed attempt.
+        self._cached_tree_for_next_frame = None
+        self._cached_vox_for_next_frame = None
 
         # initialize reassigned labels at t=0
         if self.branch_label_memmap is not None:

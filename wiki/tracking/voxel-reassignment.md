@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-09
+modified: 2026-05-11
 ---
 
 # Voxel reassignment
@@ -46,6 +46,7 @@ OOM at any tier triggers `adaptive_run.free_gpu_memory(self.xp)` + a **local-onl
 - **Uses ravel-index tricks on `spatial_shape` for fast uniqueness** — `_allocate_memory()` must run first or `_select_best_pairs` / `_vote_targets` / `_assign_unique_matches` raise.
 - **`match_coord_dtype` is auto-selected** from `max(spatial_shape)` (`uint16` / `uint32` / `uint64`). Saved `running_matches` round-trip back to int coordinates correctly only if the dataset's spatial extent fits — bumping image size past 65 535 in any axis silently widens the saved dtype.
 - **Low-memory mode rebuilds the second tree only after freeing the first** (and frees the GPU pool between forward/backward passes), trading speed for headroom; it also caps `max_query_points` at 2e5 and `max_bruteforce_pairs` at 2e6.
+- **High-memory mode caches `tree_next` across frame transitions** (PR #227). The driver loop's `vox_prev = vox_next` rotation (PRD #217) makes the next iteration's `vox_prev` literally the same ndarray, so `match_voxels` identity-checks `vox_prev is self._cached_vox_for_next_frame` and reuses the cached tree as `tree_prev` instead of rebuilding. Saves one `cKDTree` build per frame after frame 0 (~tens of ms at N=1M). Direct callers of `match_voxels` (not going through `_run_reassignment`'s rotation) typically pass a fresh ndarray, so the identity check fails and tree_prev is built normally — safe by default. Cache is reset at the start of each `_run_reassignment` call; low-memory mode is intentionally skipped (persisting a tree across iterations would defeat the explicit serialized-build trade-off).
 - **`max_refine_iterations`** lets later iterations fill voxels left unassigned by earlier vote rounds. Stopping early can leave holes.
 - **Branch and object label types share one match computation per frame** for efficiency — splitting them would double the work.
 
