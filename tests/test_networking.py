@@ -11,7 +11,7 @@ Pins the wiki-documented invariants on both the 3D and 2D paths:
   branch ID and is 0 outside any object
 - ``_add_missing_skeleton_labels`` guarantees every label in
   ``im_instance_label`` ends up with at least one skel voxel
-- ``_remove_connected_label_pixels_impl`` preserves boundary voxels
+- ``_remove_connected_label_pixels`` preserves boundary voxels
   even when ambiguous (synthetic 2D)
 - ``_get_branch_skel_labels`` excludes pixel-class 4 from CC labeling
 - ``_relabel_objects`` honors anisotropic ``sampling=self.scaling``
@@ -19,7 +19,6 @@ Pins the wiki-documented invariants on both the 3D and 2D paths:
   and anisotropic)
 - Input memmaps (raw + Frangi + Label) are not mutated
 - Full-volume vs low-memory chunked equivalence for ``_get_pixel_class``
-  and ``_remove_connected_label_pixels``
 
 The Frangi and Label memmaps that ``Network`` consumes are precomputed
 once per session by ``conftest.frangi_*_path`` / ``conftest.label_*_path``;
@@ -291,32 +290,6 @@ def test_full_vs_chunked_pixel_class_equivalence_3d(make_network_imageinfo_3d) -
     )
 
 
-def test_remove_connected_label_pixels_full_vs_chunked_equivalence_3d(
-    make_network_imageinfo_3d,
-) -> None:
-    """Direct call: ``_remove_connected_label_pixels_impl`` (full) equals chunked output.
-
-    Builds the same input the pipeline feeds into the cleanup step
-    (skeletonized labels) and compares the full-volume implementation
-    with the chunked dispatcher. The chunked path uses a 1-voxel halo,
-    which exactly covers the 3×3×3 min/max neighborhood — output should
-    be byte-identical.
-    """
-    info = make_network_imageinfo_3d()
-    net = _build_cpu_network(info, low_memory=False, max_chunk_voxels=50_000)
-    assert net.label_memmap is not None  # populated by _allocate_memory in helper
-    label_frame = np.asarray(net.label_memmap[0]).copy()
-    skel_frame = net._skeletonize(label_frame)
-
-    full = net._remove_connected_label_pixels_impl(skel_frame, np, ndi_cpu)
-    chunked = net._remove_connected_label_pixels_chunked(skel_frame)
-    _release_network(net)
-
-    assert np.array_equal(full, chunked), (
-        "_remove_connected_label_pixels chunked output differs from full-volume"
-    )
-
-
 # -------------------------------------------------------------------------
 # Targeted tests on synthetic inputs
 # -------------------------------------------------------------------------
@@ -355,9 +328,9 @@ def test_remove_connected_label_pixels_preserves_boundary_voxels_2d(
     - row 2 (interior): pair removed (interior + ambiguous)
     - row 4 (bottom edge): pair preserved (boundary)
 
-    Direct call to ``_remove_connected_label_pixels_impl`` via a
-    Network configured against a 2D ImInfo so ``self.im_info.no_z``
-    gives the 2D footprint.
+    Direct call to ``_remove_connected_label_pixels`` via a
+    Network configured against a 2D ImInfo so ``labels.ndim`` gives the
+    2D footprint.
     """
     info = make_network_imageinfo_2d()
     net = _build_cpu_network(info, low_memory=False)
@@ -383,7 +356,7 @@ def test_remove_connected_label_pixels_preserves_boundary_voxels_2d(
         dtype=np.int32,
     )
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (
@@ -412,35 +385,36 @@ GOLDEN_REMOVE_CONNECTED_LABELS_3D = (
 def test_remove_connected_label_pixels_matches_golden_3d(
     make_network_imageinfo_3d,
 ) -> None:
-    """Snapshot regression: dense ``_impl`` output on the cached input matches the committed golden.
+    """Snapshot regression: sparse ``_remove_connected_label_pixels`` output on the cached input matches the committed golden.
 
     Loads a pre-captured skeletonized input fixture (saved by
     ``tests/_capture_remove_connected_labels_golden.py`` from yeast 3D
     frame 0) and feeds it directly into
-    ``_remove_connected_label_pixels_impl``. The Network instance is
-    only needed for the unbound method call, not to regenerate the
-    input. Slice 2 (#170) retargets the call to the new top-level
-    method.
+    ``_remove_connected_label_pixels``. The Network instance is only
+    needed for the unbound method call, not to regenerate the input.
+    Slice 1 (#169) captured the golden against the dense ``_impl``;
+    Slice 2 (#170) retargets this assertion to the new sparse top-level
+    method — bit-for-bit equality is the regression bar.
 
     The input is cached because the upstream Filter+Label pipeline
     (Frangi vesselness + connected components) produces slightly
     different intermediate outputs across platforms (macOS / Linux /
-    Windows) for byte-identical TIFF input. The dense ``_impl``
-    algorithm itself is platform-deterministic on a fixed integer
-    input, so caching the input lets this test exercise only the
-    function under test.
+    Windows) for byte-identical TIFF input. The cleanup algorithm
+    itself is platform-deterministic on a fixed integer input, so
+    caching the input lets this test exercise only the function under
+    test.
     """
     info = make_network_imageinfo_3d()
     net = _build_cpu_network(info, low_memory=False)
 
     input_skel = np.load(INPUT_REMOVE_CONNECTED_LABELS_3D)
-    cleaned = net._remove_connected_label_pixels_impl(input_skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(input_skel)
     _release_network(net)
 
     golden = np.load(GOLDEN_REMOVE_CONNECTED_LABELS_3D)
     assert np.array_equal(cleaned, golden), (
-        "Dense _impl output drifted from the committed golden snapshot. "
-        "If this drift is intentional, rerun "
+        "Sparse _remove_connected_label_pixels output drifted from the committed "
+        "golden snapshot. If this drift is intentional, rerun "
         "tests/_capture_remove_connected_labels_golden.py and review the diff."
     )
 
@@ -455,7 +429,7 @@ def test_remove_connected_label_pixels_empty_3d(
     skel = np.zeros((3, 3, 3), dtype=np.int32)
     expected = np.zeros((3, 3, 3), dtype=np.int32)
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (
@@ -474,7 +448,7 @@ def test_remove_connected_label_pixels_single_object_3d(
     skel[1, 1, :] = 1  # single label-1 line through the center
     expected = skel.copy()
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (
@@ -507,7 +481,7 @@ def test_remove_connected_label_pixels_multi_object_touch_interior_3d(
     expected = np.zeros((5, 5, 5), dtype=np.int32)
     expected[3, 3, 3] = 2  # only voxel whose 3×3×3 sees only one positive label
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (
@@ -533,7 +507,7 @@ def test_remove_connected_label_pixels_junction_on_boundary_3d(
     skel[0, 1, 2] = 2
     expected = skel.copy()
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (
@@ -565,7 +539,7 @@ def test_remove_connected_label_pixels_all_boundary_3d(
     skel[1, 1, 2] = 2
     expected = skel.copy()
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (
@@ -588,7 +562,7 @@ def test_remove_connected_label_pixels_high_density_3d(
     skel = np.ones((3, 3, 3), dtype=np.int32)
     expected = skel.copy()
 
-    cleaned = net._remove_connected_label_pixels_impl(skel, np, ndi_cpu)
+    cleaned = net._remove_connected_label_pixels(skel)
     _release_network(net)
 
     assert np.array_equal(cleaned, expected), (

@@ -190,69 +190,69 @@ class Network:
     # Neighborhood-based skeleton cleanup
     # -------------------------------------------------------------------------
     def _remove_connected_label_pixels(self, skel_labels):
-        """
-        Removes skeleton pixels that are connected to multiple labeled regions.
+        """Remove skeleton voxels whose 3×3(×3) neighborhood touches multiple labels.
 
-        Always runs on CPU: the sole pipeline caller (``_run_frame_backend``)
-        feeds CPU arrays in, and the vectorized 3×3(×3) min/max neighborhood
-        filters are inexpensive enough on CPU that the GPU branch was never
-        worth exercising. The chunked low-memory variant is retained for
-        peak-memory control on very large frames.
-        """
-        labels_np = np.asarray(skel_labels)
-        if self.low_memory:
-            return self._remove_connected_label_pixels_chunked(labels_np)
-        return self._remove_connected_label_pixels_impl(labels_np, np, ndi_cpu)
+        Sparse skeleton-coordinate scan: gather the interior skeleton
+        voxel coordinates with ``np.where(labels > 0)`` (boundary voxels
+        filtered out up front), then for each of the 8 (2D) or 26 (3D)
+        neighbor offsets index ``labels`` at ``coords + offset`` and OR
+        in ``(neigh > 0) & (neigh != center)`` to a per-skel-voxel
+        ambiguity flag. Voxels flagged ambiguous are zeroed in the
+        output copy.
 
-    def _remove_connected_label_pixels_impl(self, labels, xp, ndi):
+        Boundary voxels are preserved by construction (filtered out of
+        the coord array up front, so the neighbor scan never visits
+        them). See ``wiki/decisions/0004-skel-boundary-preservation.md``
+        for the rationale behind boundary preservation.
+
+        CPU-only and ignores ``self.low_memory``: working memory is
+        ``O(N_skel)`` regardless of mode. Other functions in this file
+        (``_get_pixel_class``, ``_get_branch_skel_labels``) continue to
+        honor ``self.low_memory``.
+
+        Regression bar: bit-for-bit equality with the previous dense
+        implementation, pinned by
+        ``tests/fixtures/remove_connected_labels_3d_golden.npy`` and the
+        synthetic suite in ``tests/test_networking.py``.
+        """
+        labels = np.asarray(skel_labels)
+        ndim = labels.ndim
+
+        # Interior-only mask: boundary voxels are exempt by construction
+        # (see ADR 0004). Old impl achieved this via an AND with a
+        # boundary mask after the dense filters; new impl never visits
+        # boundary voxels at all.
         mask = labels > 0
+        if ndim == 2:
+            mask[0, :] = False
+            mask[-1, :] = False
+            mask[:, 0] = False
+            mask[:, -1] = False
+        else:  # ndim == 3
+            mask[0, :, :] = False
+            mask[-1, :, :] = False
+            mask[:, 0, :] = False
+            mask[:, -1, :] = False
+            mask[:, :, 0] = False
+            mask[:, :, -1] = False
 
-        if self.im_info.no_z:
-            size = (3, 3)
-        else:
-            size = (3, 3, 3)
+        coords = np.where(mask)
+        if coords[0].size == 0:
+            return labels.copy()
 
-        max_labels = ndi.maximum_filter(labels, size=size, mode="constant", cval=0)
+        center = labels[coords]
+        ambiguous = np.zeros(center.shape, dtype=bool)
 
-        bg_val = int(labels.max()) + 1
-        labels_no_bg = xp.where(labels == 0, bg_val, labels)
-        min_labels = ndi.minimum_filter(labels_no_bg, size=size, mode="constant", cval=bg_val)
-        min_labels = xp.where(min_labels == bg_val, 0, min_labels)
+        for offset in itertools.product([-1, 0, 1], repeat=ndim):
+            if all(o == 0 for o in offset):
+                continue
+            neigh_coords = tuple(c + o for c, o in zip(coords, offset))
+            neigh = labels[neigh_coords]
+            ambiguous |= (neigh > 0) & (neigh != center)
 
-        ambiguous = mask & (min_labels > 0) & (max_labels > 0) & (min_labels != max_labels)
-
-        # Preserve original behavior: do not modify boundary voxels.
-        boundary = xp.zeros_like(mask, dtype=bool)
-        if self.im_info.no_z:
-            boundary[0, :] = True
-            boundary[-1, :] = True
-            boundary[:, 0] = True
-            boundary[:, -1] = True
-        else:
-            boundary[0, :, :] = True
-            boundary[-1, :, :] = True
-            boundary[:, 0, :] = True
-            boundary[:, -1, :] = True
-            boundary[:, :, 0] = True
-            boundary[:, :, -1] = True
-
-        ambiguous = ambiguous & ~boundary
-
-        cleaned = xp.where(ambiguous, 0, labels)
-        return cleaned
-
-    def _remove_connected_label_pixels_chunked(self, labels):
-        labels_np = np.asarray(labels)
-        shape = labels_np.shape
-        halo = (1,) * labels_np.ndim
-        chunk_shape = self._compute_chunk_shape(shape, self.max_chunk_voxels)
-        cleaned = np.zeros_like(labels_np)
-
-        for core, ext, core_in_ext in self._iter_chunks(shape, chunk_shape, halo):
-            chunk = labels_np[ext]
-            cleaned_chunk = self._remove_connected_label_pixels_impl(chunk, np, ndi_cpu)
-            cleaned[core] = cleaned_chunk[core_in_ext]
-
+        cleaned = labels.copy()
+        if ambiguous.any():
+            cleaned[tuple(c[ambiguous] for c in coords)] = 0
         return cleaned
 
     # -------------------------------------------------------------------------
