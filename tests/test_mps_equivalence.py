@@ -682,22 +682,21 @@ def test_hu_tracking_equivalence_cpu_vs_mps_3d(make_hu_imageinfo_3d, capsys) -> 
         max abs diff / >= 0.95 Jaccard) because of the **stacked
         precision losses** specific to hu_tracking on MPS.
 
-    On the precision cascade:
+    On the precision cascade (post PRD #196 / ADR 0009):
 
-      1. ``_get_difference_matrix`` casts the moment-distance matrix to
-         ``xp.float64``. Per PRD #140 § Implementation Decisions, the
-         MPS shim silently coerces ``xp.float64`` to ``torch.float32``
-         (MPS does not support double precision). This is the *first*
-         precision loss vs the CPU baseline.
+      1. ``_get_cost_matrix`` runs at explicit ``xp.float32``
+         throughout. Per PRD #196 / ADR 0009, the previous
+         ``_get_difference_matrix`` ``xp.float64`` cast (which
+         silently coerced to ``torch.float32`` on MPS) is gone — the
+         per-feature streaming refactor pinned float32 across all
+         backends. CPU and MPS now share the same precision floor on
+         the cost-matrix construction path.
 
-      2. ``_get_cost_matrix`` then casts each z-scored component plus
-         the final cost matrix to ``xp.float16``. This is a deliberate
-         memory-management step (the cost matrix can be huge) but it
-         also caps the precision of every match decision at half-float
-         resolution. This is the *second* precision loss, and it
-         applies on both CPU and MPS — but combined with the float64
-         coercion above, the cumulative drift on MPS is materially
-         more than on the other onboarded stages.
+      2. The final ``xp.float16`` accumulation inside
+         ``_get_cost_matrix`` survives the refactor — it caps the
+         precision of every match decision at half-float resolution.
+         This applies on both CPU and MPS equally and is the dominant
+         source of cross-backend drift on this stage today.
 
     Empirically on this fixture the assignments come out
     byte-identical (Jaccard = 1.0) — the > 0.9 bar leaves headroom for

@@ -238,9 +238,12 @@ class HuMomentTracking:
 
         # Raw moments M[n, p, q] = sum_{h, w} I[n, h, w] * w^p * h^q via
         # 2-step BLAS contraction. Broadcasting matmul handles the leading
-        # batch dim uniformly across numpy / cupy / torch.
+        # batch dim uniformly across numpy / cupy / torch. Use ``swapaxes``
+        # (instance method) to swap axes 1↔2 — torch's ``transpose(0, 2, 1)``
+        # form rejects the 3-arg signature (``torch.transpose`` only swaps
+        # two dims), but ``swapaxes(1, 2)`` is uniform across backends.
         M_inter = images @ x_powers                    # (N, H, 4)
-        M = M_inter.transpose(0, 2, 1) @ y_powers      # (N, 4, 4)
+        M = M_inter.swapaxes(1, 2) @ y_powers          # (N, 4, 4)
 
         # Centroids
         x_bar = M[:, 1, 0] / (M[:, 0, 0] + 1e-12)      # (N,)
@@ -255,9 +258,10 @@ class HuMomentTracking:
 
         # Central moments mu[n, p, q] via batched matmul along the n axis.
         # `(N, H, W) @ (N, W, 4) → (N, H, 4)` and so on — the broadcasting
-        # rule for matmul treats the leading dims as batch.
+        # rule for matmul treats the leading dims as batch. ``swapaxes(1, 2)``
+        # for the torch-compatible axis swap (see raw-moments comment above).
         mu_inter = images @ x_centered_powers                    # (N, H, 4)
-        mu = mu_inter.transpose(0, 2, 1) @ y_centered_powers     # (N, 4, 4)
+        mu = mu_inter.swapaxes(1, 2) @ y_centered_powers         # (N, 4, 4)
 
         # Normalized moments eta_{pq} = mu_{pq} / M_{0,0}^((p+q+2)/2)
         i_plus_j = xp.arange(4)[:, None] + xp.arange(4)[None, :]
@@ -797,69 +801,29 @@ class HuMomentTracking:
         distance_matrix = distance_matrix / self.max_distance_um
         return distance_matrix, distance_mask
 
-    def _get_difference_matrix(self, m1, m2):
-        """
-        Computes the absolute difference matrix between two feature matrices.
+    def _zscore_one_feature(self, m, mask, sum_mask):
+        """Z-score a single ``(N_post, N_pre)`` feature using sum-of-squares variance.
 
-        Parameters
-        ----------
-        m1 : xp.ndarray, shape (N_post, F)
-        m2 : xp.ndarray, shape (N_pre, F)
-
-        Returns
-        -------
-        xp.ndarray
-            Difference matrix, shape (N_post, N_pre, F).
+        Mean and variance computed over masked entries only — sum-of-squares
+        formula ``var = E[X²] - mean²`` (clamped against negative variance
+        from catastrophic cancellation when ``var ≈ mean²``). The returned
+        z-scored matrix is finite EVERYWHERE (including masked-out entries);
+        the caller in ``_get_cost_matrix`` masks the running cost via
+        ``xp.where(mask, cost, xp.inf)`` after the per-feature accumulation
+        completes. See ADR 0009 for the design rationale.
         """
         xp = self.xp
-        # torch.Tensor.size is a method; use the shape product so this
-        # zero-element guard fires the same on numpy / cupy / torch.
-        if int(np.prod(m1.shape)) == 0 or int(np.prod(m2.shape)) == 0:
-            return xp.zeros((0, 0, 0), dtype=xp.float64)
-
-        # NOTE: ``xp.float64`` silently coerces to ``float32`` on the MPS
-        # shim (MPS does not support double precision). The coercion is
-        # part of the documented hu_tracking determinism risk per PRD #140
-        # § Implementation Decisions — the moment-distance matrix
-        # computation here is the call site that pays the precision loss.
-        m1_reshaped = m1[:, xp.newaxis, :].astype(xp.float64)
-        m2_reshaped = m2[xp.newaxis, :, :].astype(xp.float64)
-        difference_matrix = xp.abs(m1_reshaped - m2_reshaped)
-        return difference_matrix
-
-    def _zscore_normalize(self, m, mask):
-        """
-        Z-score normalizes the values in a matrix over masked entries.
-
-        Parameters
-        ----------
-        m : xp.ndarray, shape (N_post, N_pre, F)
-        mask : xp.ndarray, shape (N_post, N_pre), boolean
-
-        Returns
-        -------
-        xp.ndarray
-            Z-score normalized matrix with masked entries set to +inf.
-        """
-        xp = self.xp
-        # torch.Tensor.size is a method; use the shape product so this
-        # zero-element guard fires the same on numpy / cupy / torch.
-        if int(np.prod(m.shape)) == 0:
-            return m
-
-        mask_exp = mask[..., None]
-        sum_mask = xp.sum(mask_exp)
-        if float(sum_mask) == 0.0:
-            # No valid pairs; everything is "infinite" cost.
-            return xp.full_like(m, xp.inf)
-
-        mean_vals = xp.sum(m * mask_exp, axis=(0, 1)) / sum_mask
-        var_vals = xp.sum((m - mean_vals) ** 2 * mask_exp, axis=(0, 1)) / sum_mask
-        std_vals = xp.sqrt(var_vals) + 1e-8
-
-        m = (m - mean_vals) / std_vals
-        m = xp.where(mask_exp, m, xp.inf)
-        return m
+        masked_m = m * mask
+        sum_m = xp.sum(masked_m)
+        sum_sq = xp.sum(masked_m * masked_m)
+        mean_val = sum_m / sum_mask
+        var_val = sum_sq / sum_mask - mean_val * mean_val
+        # Clamp variance against catastrophic cancellation (when the feature
+        # is nearly degenerate over the mask, the float32 subtraction can
+        # produce a slightly negative value — sqrt would then yield NaN).
+        var_val = xp.maximum(var_val, 0.0)
+        std_val = xp.sqrt(var_val) + 1e-8
+        return (m - mean_val) / std_val
 
     def _get_cost_matrix(self, coords_post_phys, coords_pre_phys,
                          stats_vecs, pre_stats_vecs, hu_vecs, pre_hu_vecs):
@@ -883,6 +847,13 @@ class HuMomentTracking:
         xp.ndarray
             Cost matrix, shape (N_post, N_pre).
         """
+        # Per-feature streaming with explicit float32 throughout (per ADR 0009):
+        # the previous broadcast formulation built ``(N_post, N_pre, F)`` float64
+        # difference matrices via ``_get_difference_matrix`` (~350 MB transient
+        # at typical N=1000, F_stats=4 + F_hu=18). Streaming folds each feature's
+        # z-score into a running ``(N, N)`` cost matrix, dropping the F dimension
+        # and the float64 promotion (~80× memory reduction; downstream cast is
+        # float16 / float32 anyway).
         xp = self.xp
         # torch.Tensor.size is a method; use the shape product so this
         # zero-element guard fires the same on numpy / cupy / torch.
@@ -896,29 +867,42 @@ class HuMomentTracking:
 
         distance_matrix, distance_mask = self._get_distance_mask(coords_post_phys, coords_pre_phys)
 
-        # Distance feature
-        z_score_distance_matrix = self._zscore_normalize(distance_matrix[..., xp.newaxis],
-                                                         distance_mask).astype(xp.float16)
+        # Pin everything to float32 — drops the wasted float64 promotion the
+        # previous _get_difference_matrix path performed.
+        distance_matrix = distance_matrix.astype(xp.float32, copy=False)
+        stats_vecs = stats_vecs.astype(xp.float32, copy=False)
+        pre_stats_vecs = pre_stats_vecs.astype(xp.float32, copy=False)
+        hu_vecs = hu_vecs.astype(xp.float32, copy=False)
+        pre_hu_vecs = pre_hu_vecs.astype(xp.float32, copy=False)
 
-        # Stats feature differences
-        stats_matrix = self._get_difference_matrix(stats_vecs, pre_stats_vecs)
-        z_score_stats_matrix = self._zscore_normalize(stats_matrix, distance_mask)
-        z_score_stats_matrix = (z_score_stats_matrix / stats_matrix.shape[2]).astype(xp.float16)
-        del stats_matrix
+        sum_mask = xp.sum(distance_mask).astype(xp.float32)
+        if float(sum_mask) == 0.0:
+            # No valid pairs; every entry is +inf cost. Mirrors the previous
+            # `_zscore_normalize` early-out short-circuit semantics.
+            return xp.full(distance_matrix.shape, xp.inf, dtype=xp.float32)
 
-        # Hu feature differences
-        hu_matrix = self._get_difference_matrix(hu_vecs, pre_hu_vecs)
-        z_score_hu_matrix = self._zscore_normalize(hu_matrix, distance_mask)
-        z_score_hu_matrix = (z_score_hu_matrix / hu_matrix.shape[2]).astype(xp.float16)
-        del hu_matrix, distance_mask
+        # Distance feature (single component, no F division)
+        cost = self._zscore_one_feature(distance_matrix, distance_mask, sum_mask)
 
-        z_score_matrix = xp.concatenate(
-            (z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix), axis=2
-        ).astype(xp.float16)
-        cost_matrix = xp.nansum(z_score_matrix, axis=2).astype(xp.float16)
-        del z_score_distance_matrix, z_score_stats_matrix, z_score_hu_matrix, z_score_matrix
+        # Stats features — fold each into the running cost.
+        f_stats = stats_vecs.shape[1]
+        if f_stats > 0:
+            for f in range(f_stats):
+                diff_f = xp.abs(stats_vecs[:, f][:, None] - pre_stats_vecs[:, f][None, :])
+                cost = cost + self._zscore_one_feature(diff_f, distance_mask, sum_mask) / f_stats
 
-        return cost_matrix.astype(xp.float32)
+        # Hu features — same shape as stats.
+        f_hu = hu_vecs.shape[1]
+        if f_hu > 0:
+            for f in range(f_hu):
+                diff_f = xp.abs(hu_vecs[:, f][:, None] - pre_hu_vecs[:, f][None, :])
+                cost = cost + self._zscore_one_feature(diff_f, distance_mask, sum_mask) / f_hu
+
+        # Apply mask once at the end — masked-out pairs become +inf, which
+        # propagates through downstream `_find_best_matches` as "skip this
+        # pair" via the `val > self.cost_cutoff` filter at line ~937.
+        cost = xp.where(distance_mask, cost, xp.inf)
+        return cost.astype(xp.float32, copy=False)
 
     def _find_best_matches(self, cost_matrix):
         """
