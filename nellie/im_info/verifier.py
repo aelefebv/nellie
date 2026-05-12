@@ -1040,6 +1040,15 @@ class ImInfo:
             f"remove_marked_intermediates: unknown keys {sorted(unknown)} "
             f"(must be subset of DROPPABLE_KEYS)"
         )
+        # On Windows, an open memmap holds an exclusive lock on the
+        # underlying file — release it before any deletion attempt.
+        # Most aggressive case: ``im_path`` is in the drop set, but
+        # other intermediates may also be memmap'd by stages that ran
+        # earlier; dropping the ``self.im`` reference is the
+        # cheapest "release everything" lever.
+        import gc as _gc
+        self.im = None  # type: ignore[assignment]
+        _gc.collect()
         for key in drop_keys:
             path = self.im_path if key == 'im_path' else self.pipeline_paths[key]
             if os.path.exists(path):

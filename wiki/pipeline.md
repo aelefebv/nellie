@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-07
+modified: 2026-05-12
 ---
 
 # Pipeline orchestration
@@ -29,10 +29,11 @@ All inter-stage state lives **on disk**, addressed via `ImInfo.pipeline_paths` (
 
 ## Gotchas
 
-- **No `try/except` around stages** — first failure aborts the chain and leaves partial outputs on disk; reruns silently overwrite.
+- **No `try/except` around stages** — first failure aborts the chain and leaves partial outputs on disk; reruns silently overwrite. This is what gives the per-output cleanup mechanism its "only-on-success" semantics for free (see below).
 - **Stage args are not uniform.** `device="auto"` and `low_memory` are passed to `Filter`, `Label`, `HuMomentTracking`, `Hierarchy`. `Network`, `Markers`, `VoxelReassigner` only get `device` — no `low_memory` knob from `run()`.
 - **`Hierarchy` is invoked with `skip_nodes=False` hard-coded.** The napari [[settings|settings widget]] exposes it as a flag; `run()` doesn't.
 - **macOS hard-pinned to CPU** at `nellie/__init__.py` (the MPS branch is commented out — see [[gpu-runtime]]).
+- **Per-output cleanup runs at end-of-pipeline, only on success.** `run()` accepts `cleanup_drop_keys: frozenset[str] | None`; when truthy, calls `im_info.remove_marked_intermediates(drop_keys)` after `Hierarchy.run()` returns. Mid-pipeline failures propagate without cleanup, leaving partial state for inspection. `None` (default) and the empty `frozenset` are no-ops. Same trigger point in the napari [[processor]] (read from `SettingsConfig.cleanup_drop_keys`). See [[decisions/0014-intermediates-policy-frozenset]] and the [[glossary|DROPPABLE_KEYS]] entry.
 
 ## Invariants
 

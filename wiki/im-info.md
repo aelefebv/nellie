@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-09
+modified: 2026-05-12
 ---
 
 # Image metadata (`im_info`)
@@ -114,7 +114,7 @@ nellie/im_info/
 Verifier behaviors are pinned by ~150 tests across:
 
 - `tests/test_verifier_fileinfo.py` (~95 tests) — per-format `dim_res` extraction, `_write_ome_tiff` helper, `infer_t_axis`, validation contracts, mutator preconditions, `save_ome_tiff` round-trip.
-- `tests/test_verifier_iminfo.py` (~57 tests) — construction (thin + `from_file_info`), `pipeline_paths` 18-key surface, `transform_to_axes`, `get_memmap`, `allocate_memory`, `remove_intermediates`, `load_image` orchestrator.
+- `tests/test_verifier_iminfo.py` (~68 tests) — construction (thin + `from_file_info`), `pipeline_paths` 18-key surface, `transform_to_axes`, `get_memmap`, `allocate_memory`, `remove_intermediates` (legacy shim) + `remove_marked_intermediates` + `DROPPABLE_KEYS` / preset constants (per-output retention; section H/H.1; see [[decisions/0014-intermediates-policy-frozenset]]), `load_image` orchestrator.
 - `tests/test_extractors.py` (~29 tests) — per-extractor `parse_dim_res()` + `detect_extractor` factory dispatch.
 
 4 of 5 `metadata_type` branches covered via per-format fixtures (`'ome'`, `'imagej'`, `'imagej_tif_tags'`, `None` × 3 RESUNIT cases); `'nd2'` deferred until an ND2 sample is checked in or `bioio` integration lands. See [[queue]].
