@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-09
+modified: 2026-05-12
 ---
 
 # Glossary
@@ -13,6 +13,7 @@ Project-specific vocabulary, abbreviations, and domain terms. Each entry: term, 
 - **branch (skeleton)** — A connected segment of the [[networking|skeleton]] between junctions/tips. One of the five [[feature-extraction|hierarchy levels]].
 - **component / organelle** — A connected instance label (one mitochondrion, one ER cluster). A [[feature-extraction|hierarchy level]].
 - **dim_res** — Per-axis physical resolution dict `{X, Y, Z, T}` carried on [[im-info|`ImInfo`/`FileInfo`]]; X/Y/Z in micrometers, T in seconds.
+- **DROPPABLE_KEYS** — `frozenset[str]` in `nellie.im_info` defining the universe of pipeline outputs that `ImInfo.remove_marked_intermediates` is allowed to delete. The 12 image-like intermediates + `adjacency_maps` + the special `im_path` (canonical OME-TIFF). The 5 `features_*` CSVs are intentionally excluded — they are the user-facing analytical product. Drives the per-output retention UI in [[settings|napari Settings]] and the `cleanup_drop_keys` kwarg on `nellie.run.run()`. See [[decisions/0014-intermediates-policy-frozenset]].
 - **flow_vector_array** — Sparse marker-match table written by [[hu-tracking|Hu-moment tracking]]. Positional schema: 6 cols 2D, 8 cols 3D. The shared artifact across [[tracking/index|tracking]].
 - **Frangi vesselness** — Multi-scale Hessian-eigenvalue filter for tubular structures, the basis of [[filtering]].
 - **good_axes / good_dims** — Boolean gates set by the [[im-info|`FileInfo` verifier]]. Both must be true before `save_ome_tiff` will write.
