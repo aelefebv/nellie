@@ -4,6 +4,7 @@ modified: 2026-05-11
 ---
 
 
+
 # Architecture Decision Records
 
 Decisions worth recording per [[CLAUDE|wiki conventions]] — hard to reverse, surprising without context, the result of a real trade-off. See `repo-wiki/DECISIONS_FORMAT.md` for the format.
@@ -21,3 +22,4 @@ Decisions worth recording per [[CLAUDE|wiki conventions]] — hard to reverse, s
 - [[decisions/0009-hu-cost-matrix-streaming]] — `HuMomentTracking._get_cost_matrix` switches from broadcast `(N, N, F)` float64 tensors to per-feature streaming float32; `_get_difference_matrix` + `_zscore_normalize` deleted; approx-equivalence (`rtol=1e-3`) test bar — looser than 0008 due to float64→float32 drop (preventive, ahead of PRD #196 Slice 2 rewrite)
 - [[decisions/0010-flow-nearby-coords-single-query]] — `FlowInterpolator._get_nearby_coords` switches from double `query_ball_point` + `query(k=max_k)` traversal to single `query_ball_point` + per-coord `linalg.norm`; bundled with NaN-alignment bug fix (`for pos, i in enumerate(good_coords)`); bit-identical for no-NaN, corrected for NaN (preventive, ahead of PRD #204 Slice 2 rewrite)
 - [[decisions/0011-voxel-assign-unique-matches-round-based]] — `VoxelReassigner._assign_unique_matches` switches from Python greedy loop to round-based per-prev/per-next argmin intersection; rejected first-occurrence-of-both heuristic as not equivalent to greedy; set-equality (not ordered-equality) test bar (preventive, ahead of PRD #222 Slice 2 rewrite)
+- [[decisions/0012-filter-frob-mask-subsample-side-inf-filter]] — `Filter._get_frob_mask` switches inf-filtering from full volume to subsample; bit-identical for finite-only data, approx-equivalent for inf-containing data (sampling-noise on threshold) — same equivalence bar as ADRs 0008 / 0009. Bonus: per-sigma `xp.any(h_mask)` + `bool(h_mask.all())` fused into single `xp.sum(h_mask)` (pure refactor, no ADR)
