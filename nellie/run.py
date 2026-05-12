@@ -23,6 +23,7 @@ def run(
     timeit=False,
     device="auto",
     low_memory=False,
+    cleanup_drop_keys=None,
 ):
     """
     Main entry point for the Nellie pipeline.
@@ -43,6 +44,17 @@ def run(
         Backend selection for preprocessing, labeling, and feature extraction.
     low_memory : bool, optional
         Whether to prefer lower-memory (slower) implementations where available.
+    cleanup_drop_keys : frozenset[str] or None, optional
+        Per-output intermediate retention policy. If provided, the
+        specified ``pipeline_paths`` keys (validated against
+        ``DROPPABLE_KEYS``; the special key ``im_path`` resolves to the
+        canonical OME-TIFF) are deleted after ``Hierarchy.run()``
+        completes successfully. ``None`` (default) leaves all on-disk
+        state intact. The empty frozenset is also a no-op. Mid-pipeline
+        failures propagate without cleanup, so partial state remains
+        for inspection. Importable presets:
+        ``KEEP_EVERYTHING_PRESET``, ``MASKS_AND_CSVS_PRESET``,
+        ``CSVS_ONLY_PRESET`` from ``nellie.im_info``.
 
     Returns
     -------
@@ -133,6 +145,9 @@ def run(
         print(f"Nellie Pipeline: VoxelReassigner step took {vox_reassign_time:.4f} seconds")
         print(f"Nellie Pipeline: Hierarchy step took {hierarchy_time:.4f} seconds")
         print(f"Nellie Pipeline: Total time took {preprocessing_time + segmenting_time + networking_time + mocap_marking_time + hu_tracking_time + vox_reassign_time + hierarchy_time:.4f} seconds")
+
+    if cleanup_drop_keys:
+        im_info.remove_marked_intermediates(drop_keys=cleanup_drop_keys)
 
     return im_info
 
