@@ -37,8 +37,14 @@ def frangi(
     -------
     response : (N,) float array, NaN/Inf-scrubbed.
 
-    Bright structures (positive λ₂, and positive λ₃ in 3D) are zeroed —
-    Frangi assumes vessels are darker than background.
+    Dark structures (positive λ₂, and positive λ₃ in 3D) are zeroed —
+    this implementation is tuned for **bright vessels on a dark
+    background** (λ₂ ≤ 0, and λ₃ ≤ 0 in 3D). The second derivative
+    perpendicular to a bright tubular structure is negative (image
+    curves downward outward from the bright center), so the Hessian
+    eigenvalues across the vessel are non-positive; positive λ₂/λ₃
+    correspond to dark structures on a bright background and are
+    rejected.
     """
     ndim = eigenvalues.shape[1]
     if ndim == 2:
