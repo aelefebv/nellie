@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-09
+modified: 2026-05-12
 ---
 
 # Feature extraction
@@ -53,3 +53,18 @@ Five per-level CSVs (`features_voxels` / `nodes` / `branches` / `organelles` / `
 - NaNs in inputs propagate via `nan*` reductions rather than corrupting aggregates.
 - CSV header order is **stable across frames** (set on first frame, reused in append mode).
 - Adjacency edge lists are 0-indexed for level-internal indices but use raw label values for component columns, matching how the CSVs key their `label` field.
+
+## Performance
+
+cProfile on the yeast 3D fixture (`Hierarchy.run()`, 0.42 s total per `_get_hierarchies`, ~150 components × 50K voxels) identifies the dominant costs as `Voxels._get_motility_stats` (28%, in `flow_interpolation.py`), `regionprops` `solidity` / `convex_hull_image` (17%, in `_get_branch_stats` + `_get_component_stats`), then per-frame I/O and per-label aggregation. The 2026-05-11 audit (PRs #241 + #242 + #243) addressed the actionable per-label-loop hot paths inside this file:
+
+- **Vectorized per-label group construction in `_get_aggregate_stats`** (5 call sites: `Branches` ×2, `Components` ×3). Pattern was `[np.argwhere(labels == lbl).flatten() for lbl in np.unique(labels) if lbl != 0]` — O(N · L) full-volume comparison per unique label, ~7.5M comparisons per call site at typical scale. Now goes through `_group_indices_by_label(labels)` (sort + split, O(N log N)) or `_group_indices_for_keys(labels, keys)` (sort + per-key `np.searchsorted`, used by the `Components` sites where the iteration key set comes from voxel-labels but matched positions live in node/branch label arrays). Bit-identical: per-group ordering matches `np.argwhere` row-major output (stable argsort + ascending labels). 13 unit tests pin parity with the legacy pattern.
+- **Vectorized `_get_branch_stats` per-label loops** (4 sequential `for i, lbl in enumerate(unique_labels)` loops). Base-length gather → single `label_lengths[unique_labels_int]` + bounds-mask. Tip-radius adjustment (×2 — `lone_tip_labels` + `tip_labels`) → `np.searchsorted(unique_labels, tip_labels)` + `np.add.at(base_lengths_64, idx, addend)` on a float64 buffer, single end-cast to float32. Multiple tips per label accumulate via `np.add.at`'s sequential semantics (bare indexed `+=` would only apply the last addend for duplicates). Median thickness → `scipy.ndimage.median(thicknesses, labels, index)` (bit-identical to per-group `np.median` on the test fixture; defensive `np.bincount`-driven NaN-fill for absent labels). Tortuosity → stable `np.argsort(tip_labels)` + boundary scan to grab the first two tips per qualifying label, then a single vectorized distance + division. The 2D vs 3D split falls out of `tip_coords.shape` (no `no_z` branch needed). See [[decisions/0013-hierarchy-branch-stats-vectorized-rewrite|ADR 0013]] for the float32 cast-ordering ULP trade-off (`rtol=1e-5, atol=1e-5` bar; bit-identical for 2D fixture and for `branch_thickness` everywhere; 1 ULP drift on multi-tip labels in `branch_length` / `tortuosity`).
+- **`_get_ref_coords` redundant gather deduped.** `vals_a` and `vals_b` were two identical `idxmin[branch_labels_clipped]` calls — one shared computation now. Saves a per-call allocation on the hot motility path (called per-frame inside `_get_motility_stats`).
+- **`_save_adjacency_maps` voxel→node Python loop vectorized.** Nested `for voxel_idx, nodes in enumerate(...): for n in nodes: edges_vn.append((voxel_idx, int(n)))` replaced with `np.repeat(np.arange(K), lengths)` + `np.concatenate(...)`. Only fires when `not skip_nodes` (production default in the napari pipeline). Removes per-edge Python attribute + tuple-allocation overhead.
+
+**Out of scope, deferred to future audits**: `regionprops` `solidity` / `extent` / `axis_length` (17% of 3D runtime via `convex_hull_image`, computed in both branch and component stats — needs feature-gating discussion); `FlowInterpolator.interpolate_coord` (28% — already PRD-#204'd, but `_get_vector_weights` + `_get_final_vector` are the new top targets); pandas `to_csv` overhead in `_save_dfs` (10% via per-frame chunked writes — risk vs reward unclear without benchmarking a `np.savetxt` alternative).
+
+### Benchmarks
+
+`tests/test_hierarchical_perf.py` carries opt-in microbenchmarks under the `benchmark` pytest marker (deselected by default; run with `pytest -m benchmark`). Educated-guess hot paths from PRD #153 — the 2026-05-11 audit treated them as scaffolding (cProfile-driven validation showed actual hot paths are partly elsewhere). End-to-end Hierarchy wall-clock baseline + 3 microbenchmarks (`_compute_branch_lengths_and_degrees`, `_run_frame`, `_get_motility_stats`) currently print informational `[perf]` lines (no assertions); the file is the place to add per-stage assertions when a future audit pins specific decisions.
