@@ -688,7 +688,10 @@ class Filter:
         thr = xp.percentile(positive, 1)
         frangi_mask = frangi_frame > thr
         frangi_mask = ndi.binary_opening(frangi_mask)
-        frangi_frame = frangi_frame * frangi_mask
+        # In-place to avoid a full-volume allocation on every frame —
+        # `_run_filter` already discards its caller-side reference and
+        # immediately overwrites with the masked result.
+        frangi_frame *= frangi_mask
         return frangi_frame
 
     def _remove_edges(self, frangi_frame):
