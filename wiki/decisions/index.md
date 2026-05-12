@@ -1,6 +1,6 @@
 ---
 created: 2026-05-09
-modified: 2026-05-11
+modified: 2026-05-12
 ---
 
 
@@ -25,3 +25,4 @@ Decisions worth recording per [[CLAUDE|wiki conventions]] — hard to reverse, s
 - [[decisions/0011-voxel-assign-unique-matches-round-based]] — `VoxelReassigner._assign_unique_matches` switches from Python greedy loop to round-based per-prev/per-next argmin intersection; rejected first-occurrence-of-both heuristic as not equivalent to greedy; set-equality (not ordered-equality) test bar (preventive, ahead of PRD #222 Slice 2 rewrite)
 - [[decisions/0012-filter-frob-mask-subsample-side-inf-filter]] — `Filter._get_frob_mask` switches inf-filtering from full volume to subsample; bit-identical for finite-only data, approx-equivalent for inf-containing data (sampling-noise on threshold) — same equivalence bar as ADRs 0008 / 0009. Bonus: per-sigma `xp.any(h_mask)` + `bool(h_mask.all())` fused into single `xp.sum(h_mask)` (pure refactor, no ADR)
 - [[decisions/0013-hierarchy-branch-stats-vectorized-rewrite]] — `Branches._get_branch_stats` per-label loops (base-length gather, tip-radius adjustment ×2, median thickness, tortuosity) replaced with `np.add.at` / `scipy.ndimage.median` / stable-argsort vectorized variants; float64 accumulation + single end-cast for tip-radius adjustment shifts the float32 cast point — drift bounded at 1 ULP on multi-tip labels (`rtol=1e-5, atol=1e-5`) — bit-identical for `branch_thickness` and for the 2D fixture; test bar pinned in `test_hierarchical.py`
+- [[decisions/0014-intermediates-policy-frozenset]] — per-output intermediate retention policy is a `frozenset[str]` of `pipeline_paths` keys to drop (validated against module-level `DROPPABLE_KEYS`), threaded through both `nellie.run.run()` and the napari Settings widget; presets are `frozenset` constants derived from `DROPPABLE_KEYS`; legacy `remove_intermediates()` becomes a one-line shim preserving today's "drop all non-CSV + im_path" semantic

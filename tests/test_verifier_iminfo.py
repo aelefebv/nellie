@@ -39,7 +39,15 @@ import ome_types
 import pytest
 import tifffile
 
-from nellie.im_info.verifier import FileInfo, ImInfo, transform_to_axes
+from nellie.im_info.verifier import (
+    CSVS_ONLY_PRESET,
+    DROPPABLE_KEYS,
+    FileInfo,
+    ImInfo,
+    KEEP_EVERYTHING_PRESET,
+    MASKS_AND_CSVS_PRESET,
+    transform_to_axes,
+)
 
 
 def _release_iminfo_memmap(info: ImInfo) -> None:
@@ -834,6 +842,172 @@ def test_remove_intermediates_deletes_canonical_im_path(make_imageinfo_3d) -> No
     _release_iminfo_memmap(info)  # Windows: release im_path mmap before delete
     info.remove_intermediates()
     assert not os.path.exists(info.im_path)
+
+
+# ----------------------------------------------------------------------------
+# H.1 ``DROPPABLE_KEYS`` + presets + ``remove_marked_intermediates``
+# ----------------------------------------------------------------------------
+
+
+_EXPECTED_DROPPABLE_KEYS = frozenset({
+    'im_preprocessed',
+    'im_instance_label',
+    'im_skel',
+    'im_skel_relabelled',
+    'im_pixel_class',
+    'im_marker',
+    'im_distance',
+    'im_border',
+    'flow_vector_array',
+    'voxel_matches',
+    'im_branch_label_reassigned',
+    'im_obj_label_reassigned',
+    'adjacency_maps',
+    'im_path',
+})
+
+
+def test_droppable_keys_membership_exact() -> None:
+    """``DROPPABLE_KEYS`` is the 14-key universe, no CSVs."""
+    assert DROPPABLE_KEYS == _EXPECTED_DROPPABLE_KEYS
+    csv_keys = {
+        'features_voxels', 'features_nodes', 'features_branches',
+        'features_organelles', 'features_image',
+    }
+    assert DROPPABLE_KEYS.isdisjoint(csv_keys)
+
+
+def test_keep_everything_preset_is_empty() -> None:
+    assert KEEP_EVERYTHING_PRESET == frozenset()
+
+
+def test_csvs_only_preset_equals_droppable_keys() -> None:
+    assert CSVS_ONLY_PRESET == DROPPABLE_KEYS
+
+
+def test_masks_and_csvs_preset_keeps_three_labels_plus_im_path() -> None:
+    """Preset drops everything except the three label maps and ``im_path``."""
+    kept = DROPPABLE_KEYS - MASKS_AND_CSVS_PRESET
+    assert kept == frozenset({
+        'im_instance_label',
+        'im_branch_label_reassigned',
+        'im_obj_label_reassigned',
+        'im_path',
+    })
+
+
+def _plant_dummy_files(info: ImInfo, keys) -> None:
+    """Create a small placeholder file at each pipeline_paths key."""
+    for key in keys:
+        if key == 'im_path':
+            continue  # already exists from ImInfo construction
+        path = info.pipeline_paths[key]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(b'x')
+
+
+def test_remove_marked_intermediates_drops_only_marked_keys(make_imageinfo_3d) -> None:
+    """Only the keys passed in are deleted; CSVs always survive."""
+    info = make_imageinfo_3d()
+    droppable_non_im_path = DROPPABLE_KEYS - {'im_path'}
+    csv_keys = {
+        'features_voxels', 'features_nodes', 'features_branches',
+        'features_organelles', 'features_image',
+    }
+    _plant_dummy_files(info, droppable_non_im_path | csv_keys)
+
+    drop = frozenset({'im_preprocessed', 'im_skel', 'flow_vector_array'})
+    info.remove_marked_intermediates(drop_keys=drop)
+
+    for key in drop:
+        assert not os.path.exists(info.pipeline_paths[key]), (
+            f"{key!r} should have been deleted"
+        )
+    for key in (droppable_non_im_path - drop):
+        assert os.path.exists(info.pipeline_paths[key]), (
+            f"{key!r} should have survived (not in drop set)"
+        )
+    for key in csv_keys:
+        assert os.path.exists(info.pipeline_paths[key]), (
+            f"{key!r} (CSV) should always survive"
+        )
+    # im_path was not in the drop set, should still exist.
+    assert os.path.exists(info.im_path)
+
+
+def test_remove_marked_intermediates_empty_set_is_noop(make_imageinfo_3d) -> None:
+    """Empty drop set deletes nothing."""
+    info = make_imageinfo_3d()
+    droppable_non_im_path = DROPPABLE_KEYS - {'im_path'}
+    _plant_dummy_files(info, droppable_non_im_path)
+
+    info.remove_marked_intermediates(drop_keys=frozenset())
+
+    for key in droppable_non_im_path:
+        assert os.path.exists(info.pipeline_paths[key])
+    assert os.path.exists(info.im_path)
+
+
+@pytest.mark.parametrize('bad_key', ['not_a_real_key', 'features_voxels'])
+def test_remove_marked_intermediates_rejects_unknown_keys(
+    make_imageinfo_3d, bad_key: str,
+) -> None:
+    """Keys outside ``DROPPABLE_KEYS`` (including CSV keys) raise."""
+    info = make_imageinfo_3d()
+    with pytest.raises(AssertionError, match=bad_key):
+        info.remove_marked_intermediates(drop_keys=frozenset({bad_key}))
+
+
+def test_remove_marked_intermediates_silently_skips_missing_files(
+    make_imageinfo_3d,
+) -> None:
+    """Drop set includes a key whose file was never created — no error."""
+    info = make_imageinfo_3d()
+    # Don't plant adjacency_maps; it's only created when skip_nodes=False
+    # at Hierarchy time, which the fixture doesn't run.
+    assert not os.path.exists(info.pipeline_paths['adjacency_maps'])
+    info.remove_marked_intermediates(drop_keys=frozenset({'adjacency_maps'}))
+    # No exception raised; nothing changed.
+    assert not os.path.exists(info.pipeline_paths['adjacency_maps'])
+
+
+def test_remove_marked_intermediates_handles_im_path(make_imageinfo_3d) -> None:
+    """``im_path`` resolves to ``self.im_path`` and gets deleted."""
+    info = make_imageinfo_3d()
+    assert os.path.exists(info.im_path)
+    _release_iminfo_memmap(info)  # Windows: release mmap before delete
+    info.remove_marked_intermediates(drop_keys=frozenset({'im_path'}))
+    assert not os.path.exists(info.im_path)
+
+
+def test_remove_intermediates_legacy_shim_matches_new_method(make_imageinfo_3d) -> None:
+    """Legacy ``remove_intermediates()`` is equivalent to dropping all of ``DROPPABLE_KEYS``.
+
+    Re-asserts the contract pinned by the two pre-existing legacy tests
+    (CSVs survive, im_path deleted, all 12 image intermediates +
+    adjacency_maps deleted if present) via the new shim path.
+    """
+    info = make_imageinfo_3d()
+    droppable_non_im_path = DROPPABLE_KEYS - {'im_path'}
+    csv_keys = {
+        'features_voxels', 'features_nodes', 'features_branches',
+        'features_organelles', 'features_image',
+    }
+    _plant_dummy_files(info, droppable_non_im_path | csv_keys)
+
+    _release_iminfo_memmap(info)
+    info.remove_intermediates()
+
+    for key in droppable_non_im_path:
+        assert not os.path.exists(info.pipeline_paths[key]), (
+            f"{key!r} should have been deleted by legacy shim"
+        )
+    assert not os.path.exists(info.im_path)
+    for key in csv_keys:
+        assert os.path.exists(info.pipeline_paths[key]), (
+            f"{key!r} (CSV) should have survived legacy shim"
+        )
 
 
 # ============================================================================

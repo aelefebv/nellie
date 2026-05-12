@@ -20,7 +20,46 @@ from nellie.utils.base_logger import logger
 # ``nellie.im_info.types`` in Slice 6 to break the verifier ↔ extractors
 # circular import. Existing ``from nellie.im_info.verifier import DimRes``
 # (or ``infer_t_axis``) imports keep working via the re-exports above.
-__all__ = ['FileInfo', 'ImInfo', 'DimRes', 'infer_t_axis', 'transform_to_axes']
+__all__ = [
+    'FileInfo', 'ImInfo', 'DimRes', 'infer_t_axis', 'transform_to_axes',
+    'DROPPABLE_KEYS', 'KEEP_EVERYTHING_PRESET', 'MASKS_AND_CSVS_PRESET',
+    'CSVS_ONLY_PRESET',
+]
+
+
+# The universe of pipeline outputs that ``ImInfo.remove_marked_intermediates``
+# is allowed to delete. Membership must be kept in sync with
+# ``ImInfo._create_output_paths``: every non-CSV key created there should
+# appear here, plus the special ``im_path`` key that resolves to the
+# canonical OME-TIFF (which lives outside ``pipeline_paths`` but is part
+# of the cleanup contract). The 5 ``features_*`` CSVs are intentionally
+# excluded — they are the user-facing analytical product and the napari
+# analyzer reads them back. See [[wiki/decisions/0014-intermediates-policy-frozenset]].
+DROPPABLE_KEYS: frozenset[str] = frozenset({
+    'im_preprocessed',
+    'im_instance_label',
+    'im_skel',
+    'im_skel_relabelled',
+    'im_pixel_class',
+    'im_marker',
+    'im_distance',
+    'im_border',
+    'flow_vector_array',
+    'voxel_matches',
+    'im_branch_label_reassigned',
+    'im_obj_label_reassigned',
+    'adjacency_maps',
+    'im_path',
+})
+
+KEEP_EVERYTHING_PRESET: frozenset[str] = frozenset()
+MASKS_AND_CSVS_PRESET: frozenset[str] = DROPPABLE_KEYS - {
+    'im_instance_label',
+    'im_branch_label_reassigned',
+    'im_obj_label_reassigned',
+    'im_path',
+}
+CSVS_ONLY_PRESET: frozenset[str] = DROPPABLE_KEYS
 
 
 def transform_to_axes(
@@ -815,8 +854,10 @@ class ImInfo:
         Creates a file path for a specific stage of the image processing pipeline.
     _create_output_paths()
         Creates all necessary output paths for various stages in the image processing pipeline.
+    remove_marked_intermediates(drop_keys)
+        Deletes the files for the specified `pipeline_paths` keys (plus `im_path` if included). Validates against `DROPPABLE_KEYS`.
     remove_intermediates()
-        Removes intermediate files created during the image processing pipeline, except for .csv files.
+        Legacy shim: deletes all entries in `DROPPABLE_KEYS` (= every non-CSV intermediate plus `im_path`). Equivalent to `remove_marked_intermediates(drop_keys=DROPPABLE_KEYS)`.
     _get_ome_metadata()
         Extracts OME metadata from the image and updates resolution, axes, and shape information.
     get_memmap(file_path: str, read_mode: str = 'r+')
@@ -969,19 +1010,52 @@ class ImInfo:
         self.create_output_path('features_image', ext='.csv', for_nellie=False)
         self.create_output_path('adjacency_maps', ext='.pkl')
 
+    def remove_marked_intermediates(self, drop_keys):
+        """
+        Delete the on-disk files for the specified ``pipeline_paths`` keys.
+
+        The droppable universe is ``DROPPABLE_KEYS`` (the 12 image-like
+        intermediates + ``adjacency_maps`` + the special ``im_path`` key
+        that resolves to the canonical OME-TIFF). The 5 ``features_*``
+        CSV keys are not in ``DROPPABLE_KEYS`` and are therefore
+        rejected; they are the user-facing analytical product and the
+        napari analyzer reads them back.
+
+        Missing files (e.g., ``adjacency_maps`` when ``skip_nodes=True``)
+        are silently skipped so callers can pass a uniform drop set
+        without inspecting which files were actually produced.
+
+        Parameters
+        ----------
+        drop_keys : frozenset[str]
+            Keys to delete. Must be a subset of ``DROPPABLE_KEYS``.
+
+        Raises
+        ------
+        AssertionError
+            If ``drop_keys`` contains any key not in ``DROPPABLE_KEYS``.
+        """
+        unknown = set(drop_keys) - DROPPABLE_KEYS
+        assert not unknown, (
+            f"remove_marked_intermediates: unknown keys {sorted(unknown)} "
+            f"(must be subset of DROPPABLE_KEYS)"
+        )
+        for key in drop_keys:
+            path = self.im_path if key == 'im_path' else self.pipeline_paths[key]
+            if os.path.exists(path):
+                os.remove(path)
+
     def remove_intermediates(self):
         """
-        Removes intermediate files created during the image processing pipeline, except for CSV files.
+        Legacy shim: drop every entry in :data:`DROPPABLE_KEYS`.
 
-        This method loops through all pipeline paths and deletes files (except .csv files) that were created during
-        processing. It also deletes the main image file if it exists.
+        Equivalent to ``self.remove_marked_intermediates(drop_keys=DROPPABLE_KEYS)``.
+        Preserved so that callers / tests pinning the prior contract
+        (CSVs survive; ``im_path`` is deleted alongside the other
+        intermediates) continue to work unchanged. New code should call
+        ``remove_marked_intermediates`` with an explicit drop set.
         """
-        all_pipeline_paths = [self.pipeline_paths[pipeline_path] for pipeline_path in self.pipeline_paths]
-        for pipeline_path in all_pipeline_paths + [self.im_path]:
-            if 'csv' in pipeline_path:
-                continue
-            elif os.path.exists(pipeline_path):
-                os.remove(pipeline_path)
+        self.remove_marked_intermediates(drop_keys=DROPPABLE_KEYS)
 
     def _get_ome_metadata(self, ):
         """

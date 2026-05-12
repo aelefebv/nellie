@@ -1,7 +1,14 @@
 from pathlib import Path
 
 from .types import DimRes
-from .verifier import FileInfo, ImInfo
+from .verifier import (
+    CSVS_ONLY_PRESET,
+    DROPPABLE_KEYS,
+    FileInfo,
+    ImInfo,
+    KEEP_EVERYTHING_PRESET,
+    MASKS_AND_CSVS_PRESET,
+)
 
 
 def load_image(
@@ -53,4 +60,13 @@ def load_image(
     return ImInfo.from_file_info(file_info)
 
 
-__all__ = ["FileInfo", "ImInfo", "DimRes", "load_image"]
+__all__ = [
+    "FileInfo",
+    "ImInfo",
+    "DimRes",
+    "load_image",
+    "DROPPABLE_KEYS",
+    "KEEP_EVERYTHING_PRESET",
+    "MASKS_AND_CSVS_PRESET",
+    "CSVS_ONLY_PRESET",
+]
