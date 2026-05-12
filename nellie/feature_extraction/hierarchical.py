@@ -425,16 +425,32 @@ class Hierarchy:
         for t in range(len(self.voxels.time)):
             num_voxels = len(self.voxels.coords[t])
 
-            # voxel -> node adjacency (voxel index, node index)
+            # voxel -> node adjacency (voxel index, node index).
+            # Vectorize the (voxel, n)-pair construction: per-voxel
+            # ragged arrays of node indices become one repeat+concat
+            # of `voxel_idx` × `len(nodes_at_that_voxel)` rows.
             if not self.skip_nodes:
-                voxel_node_lists = self.voxels.node_labels[t]  # list of arrays per voxel
-                edges_vn = []
-                for voxel_idx, nodes in enumerate(voxel_node_lists):
-                    if nodes is None or len(nodes) == 0:
-                        continue
-                    for n in nodes:
-                        edges_vn.append((voxel_idx, int(n)))
-                v_n.append(np.array(edges_vn, dtype=np.int64) if edges_vn else np.zeros((0, 2), dtype=np.int64))
+                voxel_node_lists = self.voxels.node_labels[t]
+                lengths = np.fromiter(
+                    (0 if n is None else len(n) for n in voxel_node_lists),
+                    dtype=np.int64,
+                    count=len(voxel_node_lists),
+                )
+                total_edges = int(lengths.sum())
+                if total_edges:
+                    rows = np.repeat(
+                        np.arange(len(voxel_node_lists), dtype=np.int64), lengths
+                    )
+                    cols = np.concatenate(
+                        [
+                            np.asarray(n, dtype=np.int64)
+                            for n in voxel_node_lists
+                            if n is not None and len(n) > 0
+                        ]
+                    )
+                    v_n.append(np.column_stack((rows, cols)))
+                else:
+                    v_n.append(np.zeros((0, 2), dtype=np.int64))
 
             # voxel -> branch adjacency (voxel index, branch index 0-based)
             branch_labels = np.asarray(self.voxels.branch_labels[t], dtype=np.int64)
@@ -869,22 +885,20 @@ class Voxels:
         branch_labels = np.asarray(self.branch_labels[t], dtype=np.int64)
         max_label = len(idxmin) - 1
         branch_labels_clipped = np.clip(branch_labels, 0, max_label)
-        vals_a = idxmin[branch_labels_clipped]
-        vals_b = idxmin[branch_labels_clipped]
+        # `vals_a` and `vals_b` were previously computed as two
+        # identical `idxmin[branch_labels_clipped]` gathers — same
+        # input, same lookup, same output. Compute once; share the
+        # NaN mask too.
+        vals = idxmin[branch_labels_clipped]
+        nan_mask = np.isnan(vals)
+        vals_int = vals.copy()
+        vals_int[nan_mask] = 0
+        vals_int = vals_int.astype(int)
 
-        vals_a_no_nan = vals_a.copy()
-        vals_a_no_nan[np.isnan(vals_a_no_nan)] = 0
-        vals_a_no_nan = vals_a_no_nan.astype(int)
-
-        vals_b_no_nan = vals_b.copy()
-        vals_b_no_nan[np.isnan(vals_b_no_nan)] = 0
-        vals_b_no_nan = vals_b_no_nan.astype(int)
-
-        ref_a = coords_a[vals_a_no_nan]
-        ref_b = coords_b[vals_b_no_nan]
-
-        ref_a[np.isnan(vals_a)] = np.nan
-        ref_b[np.isnan(vals_b)] = np.nan
+        ref_a = coords_a[vals_int]
+        ref_b = coords_b[vals_int]
+        ref_a[nan_mask] = np.nan
+        ref_b[nan_mask] = np.nan
 
         return ref_a, ref_b
 
