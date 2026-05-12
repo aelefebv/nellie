@@ -351,6 +351,31 @@ def test_backend_for_array_dispatches_numpy(make_imageinfo_2d) -> None:
     _release_filter(filt)
 
 
+def test_mask_volume_returns_input_object_in_place(make_imageinfo_2d) -> None:
+    """`_mask_volume` mutates and returns its input — pin against accidental revert.
+
+    Pre-rewrite computed `frangi_frame * frangi_mask` (allocating a new
+    full-volume array per frame); the in-place rewrite multiplies in
+    place and returns the same object. Bit-identical for downstream
+    callers — `_run_filter` discards its caller-side reference and
+    immediately overwrites with the masked result — but the
+    same-object identity is the cheapest pin against an accidental
+    revert in a future cleanup.
+    """
+    info = make_imageinfo_2d()
+    filt = Filter(info, _CPU, num_t=2)
+
+    frame = np.linspace(0.0, 1.0, num=64, dtype=np.float32).reshape(8, 8)
+    out = filt._mask_volume(frame)
+
+    assert out is frame, (
+        "_mask_volume must operate in place — switch back to `frangi_frame "
+        "*= frangi_mask` if a refactor reintroduced the allocating `*` form"
+    )
+
+    _release_filter(filt)
+
+
 # -------------------------------------------------------------------------
 # Dense vs sparse vesselness paths
 #
