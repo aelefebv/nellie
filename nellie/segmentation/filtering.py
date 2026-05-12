@@ -324,30 +324,34 @@ class Filter:
         -------
         mask : xp.ndarray of bool
         """
-        # Infs would break `triangle_threshold` / `otsu_threshold`, both of
-        # which use `xp.histogram(range=(min, max))`. Exclude infs from
-        # threshold input only — the final `> thresh` comparison keeps
-        # them in the mask anyway (inf > finite is True). Avoids the
-        # full-volume copy the prior in-place inf-replacement required.
-        inf_mask = self.xp.isinf(frobenius_norm)
-        has_infs = bool(self.xp.any(inf_mask))
-        if has_infs and bool(inf_mask.all()):
-            # Pathological: every voxel is inf. The prior code replaced
-            # infs with `max_finite=0` and thresholded `> 0`, returning
-            # an all-False mask. Match that.
-            return self.xp.zeros_like(frobenius_norm, dtype=bool)
-
         if not self.frob_thresh_division:
             return frobenius_norm > 0
 
         if self.frob_thresh is None:
-            threshold_input = (
-                frobenius_norm[~inf_mask] if has_infs else frobenius_norm
-            )
-            positive = self._subsample_for_thresholds(threshold_input)
+            # Infs would break `triangle_threshold` / `otsu_threshold`,
+            # both of which use `xp.histogram(range=(min, max))`. Filter
+            # them on the SUBSAMPLE only — the final `> thresh`
+            # comparison keeps them in the mask anyway (inf > finite is
+            # True). Subsample-side filter avoids a full-volume `isinf`
+            # scan + `any` reduction in the common (finite-only) case;
+            # see ADR 0012 for the approx-equivalence trade-off when
+            # the input does contain infs.
+            positive = self._subsample_for_thresholds(frobenius_norm)
             # ``.size`` is a method on torch.Tensor, an int on numpy/cupy
             # arrays. Reduce via ``.shape`` for backend-agnostic count.
+            if int(np.prod(positive.shape)) > 0:
+                finite_mask = self.xp.isfinite(positive)
+                if not bool(finite_mask.all()):
+                    positive = positive[finite_mask]
+
             if int(np.prod(positive.shape)) == 0:
+                # Subsample empty or all-inf. Preserve the all-inf →
+                # all-False contract by checking the full volume; this
+                # is the only path that pays the full-volume `isinf`
+                # scan and only fires when the subsample tells us infs
+                # are dense (or there are no positive voxels at all).
+                if bool(self.xp.isinf(frobenius_norm).all()):
+                    return self.xp.zeros_like(frobenius_norm, dtype=bool)
                 frobenius_threshold = 0.0
             else:
                 frob_triangle_thresh = triangle_threshold(positive, xp=self.xp)
@@ -396,7 +400,7 @@ class Filter:
             self.xp,
         )
 
-    def _compute_vesselness_chunkwise(self, h_components, h_mask, gamma_sq):
+    def _compute_vesselness_chunkwise(self, h_components, h_mask, gamma_sq, is_dense=None):
         """Dispatch to the dense fast path when h_mask covers every voxel.
 
         The sparse path (the original implementation) is correct in all
@@ -404,8 +408,17 @@ class Filter:
         per-chunk fancy indexing plus a final scatter — pure overhead
         when the mask is fully True. `bool(h_mask.all())` costs one
         reduction; the dense path saves the rest.
+
+        ``is_dense`` lets the caller (``_compute_vesselness``) thread
+        the all-True flag through from a single ``xp.sum(h_mask)`` it
+        already paid for the skip-check; passing ``None`` falls back
+        to a local ``bool(h_mask.all())`` reduction (preserves the
+        contract for direct unit-test callers in
+        ``tests/test_filtering.py``).
         """
-        if bool(h_mask.all()):
+        if is_dense is None:
+            is_dense = bool(h_mask.all())
+        if is_dense:
             return self._compute_vesselness_dense(h_components, gamma_sq)
         return self._compute_vesselness_sparse(h_components, h_mask, gamma_sq)
 
@@ -529,11 +542,19 @@ class Filter:
                 h_mask = self._get_frob_mask(frobenius_norm)
             else:
                 h_mask = self.xp.ones_like(gauss, dtype=bool)
-            if not self.xp.any(h_mask):
+            # Single reduction replaces the prior `xp.any(h_mask)` skip-check
+            # plus `_compute_vesselness_chunkwise`'s internal
+            # `bool(h_mask.all())` dispatch. The sum gives both answers:
+            # is_empty (== 0) and is_dense (== total). Saves one
+            # full-volume reduction per sigma.
+            true_count = int(self.xp.sum(h_mask))
+            total = int(np.prod(h_mask.shape))
+            if true_count == 0:
                 continue
 
             vessel_scale = self._compute_vesselness_chunkwise(
-                h_components, h_mask, gamma_sq=gamma_sq
+                h_components, h_mask, gamma_sq=gamma_sq,
+                is_dense=(true_count == total),
             )
 
             self.xp.maximum(vesselness, vessel_scale, out=vesselness)

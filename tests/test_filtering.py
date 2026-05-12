@@ -471,14 +471,15 @@ def test_dispatcher_picks_sparse_when_mask_partial(synthetic_h_components) -> No
 # -------------------------------------------------------------------------
 
 
-def test_run_filter_3d_snapshot_pre_rewrite(make_imageinfo_3d) -> None:
-    """PRE-REWRITE: 3D Filter output is deterministic across runs.
+def test_run_filter_3d_snapshot_post_rewrite(make_imageinfo_3d) -> None:
+    """POST-REWRITE: 3D Filter output is deterministic across runs.
 
-    Captures the current implementation's in-band determinism
-    contract. Slice 2 replaces this with a ``_post_rewrite_*`` variant
-    that asserts the same contract — the rewrite is supposed to be
-    bit-identical for finite-only fixture data, verified locally
-    before merge.
+    PRD #233 Slice 2 fused the per-sigma `xp.any` + `bool(h_mask.all())`
+    dispatch into a single `xp.sum(h_mask)` and moved `_get_frob_mask`
+    inf-handling onto the subsample. For finite-only fixture data the
+    rewrite is bit-identical (verified locally before merge — pre/post
+    SHAs match: `5a86...c77` for 3D, `bc62...57d` for 2D on macOS).
+    This in-band determinism check survives platform drift in CI.
     """
     info = make_imageinfo_3d()
     filt = Filter(info, _CPU, num_t=2)
@@ -495,15 +496,16 @@ def test_run_filter_3d_snapshot_pre_rewrite(make_imageinfo_3d) -> None:
     _release_filter(filt2)
 
     assert sha1 == sha2, (
-        "PRE-REWRITE: Filter is not deterministic on the same 3D fixture; "
-        "expected stable SHA across two independent runs"
+        "POST-REWRITE: Filter is not deterministic on the same 3D fixture; "
+        "the dispatch fusion (sum-derived is_dense) or subsample-first "
+        "inf handling broke determinism"
     )
     # Sanity: snapshot is non-trivial.
     assert (out1 > 0).any()
 
 
-def test_run_filter_2d_snapshot_pre_rewrite(make_imageinfo_2d) -> None:
-    """PRE-REWRITE: 2D Filter output is deterministic across runs."""
+def test_run_filter_2d_snapshot_post_rewrite(make_imageinfo_2d) -> None:
+    """POST-REWRITE: 2D Filter output is deterministic across runs."""
     info = make_imageinfo_2d()
     filt = Filter(info, _CPU, num_t=2)
     filt.run()
@@ -519,8 +521,9 @@ def test_run_filter_2d_snapshot_pre_rewrite(make_imageinfo_2d) -> None:
     _release_filter(filt2)
 
     assert sha1 == sha2, (
-        "PRE-REWRITE: Filter is not deterministic on the same 2D fixture; "
-        "expected stable SHA across two independent runs"
+        "POST-REWRITE: Filter is not deterministic on the same 2D fixture; "
+        "the dispatch fusion (sum-derived is_dense) or subsample-first "
+        "inf handling broke determinism"
     )
     assert (out1 > 0).any()
 
@@ -584,16 +587,19 @@ def _record_one_compute_vesselness(filt: Filter) -> tuple[_RecordingXp, tuple]:
     return recorder, raw.shape
 
 
-def test_compute_vesselness_uses_separate_any_and_all_pre_rewrite(make_imageinfo_3d) -> None:
-    """Pin: pre-rewrite ``_compute_vesselness`` uses ``xp.any`` per sigma, no ``xp.sum`` on h_mask.
+def test_compute_vesselness_fuses_any_and_all_into_sum_post_rewrite(make_imageinfo_3d) -> None:
+    """POST-REWRITE: ``_compute_vesselness`` dispatches via single ``xp.sum(h_mask)`` per sigma.
 
-    Slice 2 fuses ``xp.any(h_mask)`` (line 532) + ``bool(h_mask.all())``
-    (line 408) into a single ``xp.sum(h_mask)`` and threads ``is_dense``
-    through ``_compute_vesselness_chunkwise``. This pin asserts the
-    current pattern: at least 2 full-volume ``xp.any`` calls per sigma
-    (one in ``_get_frob_mask`` on ``inf_mask``, one in
-    ``_compute_vesselness`` on ``h_mask``) and zero full-volume ``xp.sum``
-    calls on ``h_mask``-shaped arrays.
+    PRD #233 Slice 2 collapsed the prior ``xp.any(h_mask)`` skip-check
+    (in ``_compute_vesselness``) + ``bool(h_mask.all())`` dispatch
+    (in ``_compute_vesselness_chunkwise``) into a single
+    ``xp.sum(h_mask)`` and threaded the resulting ``is_dense`` flag
+    through to the chunkwise dispatcher. Per sigma we now expect:
+
+    - At least one ``xp.sum(h_mask)`` call (full-volume bool shape).
+    - Zero ``xp.any(h_mask)`` calls in the dispatch path
+      (``_get_frob_mask`` no longer scans inf_mask either, so zero
+      full-volume ``xp.any`` calls overall).
     """
     info = make_imageinfo_3d()
     filt = Filter(info, _CPU, num_t=2)
@@ -605,29 +611,34 @@ def test_compute_vesselness_uses_separate_any_and_all_pre_rewrite(make_imageinfo
 
     assert filt.sigmas is not None  # set by _record_one_compute_vesselness
     n_sigmas = len(filt.sigmas)
-    assert len(full_volume_any) >= 2 * n_sigmas, (
-        f"expected ≥ {2 * n_sigmas} full-volume xp.any calls "
-        f"(2 per sigma: inf_mask in _get_frob_mask, h_mask in "
-        f"_compute_vesselness), got {len(full_volume_any)}: "
-        f"{full_volume_any}"
+    assert len(full_volume_any) == 0, (
+        f"post-rewrite removed both `xp.any(inf_mask)` "
+        f"(in _get_frob_mask) and `xp.any(h_mask)` "
+        f"(in _compute_vesselness); got {len(full_volume_any)} "
+        f"full-volume xp.any calls: {full_volume_any}"
     )
-    assert len(full_volume_sum) == 0, (
-        f"pre-rewrite uses xp.any + h_mask.all() for dispatch, not xp.sum; "
-        f"got {len(full_volume_sum)} full-volume xp.sum calls: "
-        f"{full_volume_sum}"
+    assert len(full_volume_sum) >= n_sigmas, (
+        f"expected ≥ {n_sigmas} full-volume xp.sum calls (1 per sigma "
+        f"on h_mask in _compute_vesselness's fused dispatch), got "
+        f"{len(full_volume_sum)}: {full_volume_sum}"
     )
 
     _release_filter(filt)
 
 
-def test_get_frob_mask_uses_full_volume_isinf_pre_rewrite(make_imageinfo_3d) -> None:
-    """Pin: pre-rewrite ``_get_frob_mask`` calls ``xp.isinf`` on the full volume per sigma.
+def test_get_frob_mask_uses_subsample_isfinite_post_rewrite(make_imageinfo_3d) -> None:
+    """POST-REWRITE: ``_get_frob_mask`` runs ``xp.isfinite`` on the subsample, not full volume.
 
-    Slice 2 moves inf-detection to the subsample (the
-    ``frobenius_norm > thresh`` final comparison handles infs correctly
-    on its own). This pin asserts the current pattern: at least one
-    ``xp.isinf`` call per sigma on a full-volume float array
-    (``frobenius_norm`` shape == frame shape).
+    PRD #233 Slice 2 moved inf-detection from the full
+    ``frobenius_norm`` to the subsample. Per sigma we now expect:
+
+    - Zero full-volume ``xp.isinf`` calls (the all-inf-fallback path
+      only fires when the subsample is empty or all-inf, which the
+      finite fixture data never triggers).
+    - At least one ``xp.isfinite`` call (on a non-full-volume shape —
+      subsample is always smaller than the volume on the test
+      fixtures, since the subsampler caps at ``max_threshold_samples``
+      and additionally filters ``> 0``).
     """
     info = make_imageinfo_3d()
     filt = Filter(info, _CPU, num_t=2)
@@ -635,13 +646,22 @@ def test_get_frob_mask_uses_full_volume_isinf_pre_rewrite(make_imageinfo_3d) -> 
     recorder, frame_shape = _record_one_compute_vesselness(filt)
 
     full_volume_isinf = _xp_calls_with_first_arg_shape(recorder, "isinf", frame_shape)
+    isfinite_calls = [c for c in recorder.calls if c[0] == "isfinite" and c[1]]
+    subsample_isfinite_calls = [
+        c for c in isfinite_calls if c[1][0] != frame_shape
+    ]
 
-    assert filt.sigmas is not None  # set by _record_one_compute_vesselness
+    assert filt.sigmas is not None
     n_sigmas = len(filt.sigmas)
-    assert len(full_volume_isinf) >= n_sigmas, (
-        f"expected ≥ {n_sigmas} full-volume xp.isinf calls "
+    assert len(full_volume_isinf) == 0, (
+        f"post-rewrite must not call xp.isinf on the full frobenius_norm; "
+        f"got {len(full_volume_isinf)} full-volume xp.isinf calls: "
+        f"{full_volume_isinf}"
+    )
+    assert len(subsample_isfinite_calls) >= n_sigmas, (
+        f"expected ≥ {n_sigmas} subsample-shape xp.isfinite calls "
         f"(1 per sigma in _get_frob_mask), got "
-        f"{len(full_volume_isinf)}: {full_volume_isinf}"
+        f"{len(subsample_isfinite_calls)}: {subsample_isfinite_calls}"
     )
 
     _release_filter(filt)
