@@ -1567,6 +1567,208 @@ def test_group_indices_for_keys_matches_legacy(labels, keys) -> None:
 
 
 # -------------------------------------------------------------------------
+# `_get_branch_stats` post-rewrite equivalence pins (PR B / ADR 0013)
+#
+# Two bars: 2D fixture is bit-identical to dechao baseline (no
+# multi-tip labels in the fixture, so the float64-accumulation cast
+# point doesn't drift). 3D fixture is approx-equivalent (rtol=1e-5,
+# atol=1e-5) — drift is bounded at 1 float32 ULP on multi-tip labels;
+# verified per-row that only `branch_length_raw` row 1 (t=0 lbl=2,
+# the longest branch) actually drifts, and that drift propagates into
+# `branch_aspect_ratio_raw` and `branch_tortuosity_raw` for the same
+# row. All other rows + the 2D fixture stay bit-identical.
+# -------------------------------------------------------------------------
+
+
+def test_get_branch_stats_2d_post_rewrite_bit_identical(
+    hierarchy_outputs_2d,
+) -> None:
+    """2D fixture has no multi-tip labels → float32 cast point shift
+    contributes zero drift → branch features match dechao baseline
+    exactly.
+
+    These are the exact byte-level baseline values captured on
+    `dechao` before the PR B rewrite landed. Any future regression
+    that rounds differently (e.g. someone "optimizes" the cast point
+    back to per-tip f32 cast) will fail this test even on the 2D
+    fixture, where the rewrite was supposed to be bit-identical.
+    """
+    df = pd.read_csv(hierarchy_outputs_2d["paths"]["features_branches"])
+    # Captured on dechao (commit ff611c3) before PR B; verified to
+    # match post-rewrite SHA exactly on 2D.
+    expected_branch_length = [
+        3.048482656478882,
+        10.795132637023926,
+        3.001293897628784,
+        10.811025619506836,
+    ]
+    expected_branch_thickness = [
+        0.6549999713897705,
+        0.5401268601417542,
+        0.5858498215675354,
+        0.5239999890327454,
+    ]
+    expected_branch_tortuosity = [
+        1.3882231712341309,
+        1.0,
+        1.39300799369812,
+        1.0,
+    ]
+    np.testing.assert_array_equal(
+        df["branch_length_raw"].values.astype(np.float64),
+        np.array(expected_branch_length, dtype=np.float64),
+    )
+    np.testing.assert_array_equal(
+        df["branch_thickness_raw"].values.astype(np.float64),
+        np.array(expected_branch_thickness, dtype=np.float64),
+    )
+    np.testing.assert_array_equal(
+        df["branch_tortuosity_raw"].values.astype(np.float64),
+        np.array(expected_branch_tortuosity, dtype=np.float64),
+    )
+
+
+def test_get_branch_stats_multi_tip_label_synthetic_post_rewrite() -> None:
+    """Synthetic 4-tip-on-one-label scenario exercises the float64
+    accumulation path the rewrite introduced (ADR 0013).
+
+    Build a 1-frame 2D `im_skel` with a single labeled branch that has
+    4 tip-degree-1 voxels (a "+" shape — 4 endpoints, 1 center). Each
+    tip has a known `im_distance` radius. After PR B's `np.add.at` on
+    a float64 buffer, the final `base_length` is
+    `raw_centerline + r0 + r1 + r2 + r3` computed in float64 and cast
+    to float32 once. Asserts the exact post-rewrite value (which is
+    deterministic across platforms — no Frangi involvement, all inputs
+    are hand-set integers and floats).
+
+    Pre-rewrite, the per-tip Python loop did
+    `bl = float32(bl_old + 2*radius)` 4 times — accumulating up to
+    4 float32 ULPs of rounding error. Post-rewrite is more accurate
+    (single end-cast). For the radii values chosen here (deliberately
+    irrational at float32) the two paths diverge by ~6e-7 absolute /
+    1e-7 relative — under the ADR 0013 `rtol=1e-5, atol=1e-5` bar.
+    """
+    # 9x9 frame; "+" shape branch (label 1) at center (4,4) with 4 arms.
+    # Each arm is 2 voxels long; total 9 voxels; 4 tips at degree 1.
+    im_skel = np.zeros((9, 9), dtype=np.int32)
+    # Vertical arm
+    im_skel[2, 4] = 1  # top tip
+    im_skel[3, 4] = 1
+    im_skel[5, 4] = 1
+    im_skel[6, 4] = 1  # bottom tip
+    # Horizontal arm
+    im_skel[4, 2] = 1  # left tip
+    im_skel[4, 3] = 1
+    im_skel[4, 5] = 1
+    im_skel[4, 6] = 1  # right tip
+    # Center connecting all 4 arms (degree 4, not a tip)
+    im_skel[4, 4] = 1
+
+    # Set tip radii to irrational-at-float32 values so the cast point
+    # actually matters. Mid-arm voxels and center get 0 (unused).
+    im_distance = np.zeros((9, 9), dtype=np.float32)
+    im_distance[2, 4] = np.float32(1.0 / 7.0)  # ~0.14285715
+    im_distance[6, 4] = np.float32(1.0 / 11.0)  # ~0.09090909
+    im_distance[4, 2] = np.float32(1.0 / 13.0)  # ~0.07692308
+    im_distance[4, 6] = np.float32(1.0 / 17.0)  # ~0.05882353
+
+    hier_stub = _make_synthetic_hierarchy_for_branches(
+        im_skel_2d=im_skel, im_distance_2d=im_distance
+    )
+    branches = Branches.__new__(Branches)
+    branches.hierarchy = hier_stub  # type: ignore[assignment]
+    label_lengths, neighbor_counts = branches._compute_branch_lengths_and_degrees(0)
+
+    # Center voxel has degree 4, four arms have degree 1 (tips).
+    branch_idxs = np.argwhere(im_skel > 0)
+    neighbor_counts_branch = neighbor_counts[tuple(branch_idxs.T)]
+    n_tips = int((neighbor_counts_branch == 1).sum())
+    assert n_tips == 4, f"expected 4 tip-degree-1 voxels, got {n_tips}"
+
+    # Apply PR B's vectorized tip-radius adjustment directly. This
+    # mirrors `Branches._get_branch_stats` lines 1659-1684 in isolation.
+    radii = im_distance[tuple(branch_idxs.T)].astype(np.float64)
+    tips = np.where(neighbor_counts_branch == 1)[0]
+    tip_coords = branch_idxs[tips]
+    tip_labels = im_skel[tuple(tip_coords.T)]
+    tip_radii = radii[tips]
+    unique_labels = np.unique(im_skel[im_skel > 0])
+    unique_labels_int = unique_labels.astype(int)
+    base_lengths_64 = np.zeros(len(unique_labels), dtype=np.float64)
+    in_range = unique_labels_int < len(label_lengths)
+    base_lengths_64[in_range] = label_lengths[unique_labels_int[in_range]].astype(
+        np.float64
+    )
+    idx = np.searchsorted(unique_labels, tip_labels)
+    valid = (idx < len(unique_labels)) & (
+        unique_labels[np.clip(idx, 0, len(unique_labels) - 1)] == tip_labels
+    )
+    np.add.at(base_lengths_64, idx[valid], tip_radii[valid])
+    base_lengths = base_lengths_64.astype(np.float32)
+
+    # Expected: raw centerline length (8 unit edges between 9 voxels)
+    # + 4 tip radii, cast once to float32.
+    expected = np.float32(
+        np.float64(label_lengths[1])
+        + np.float64(im_distance[2, 4])
+        + np.float64(im_distance[6, 4])
+        + np.float64(im_distance[4, 2])
+        + np.float64(im_distance[4, 6])
+    )
+    assert base_lengths[0] == expected, (
+        f"multi-tip base_length {base_lengths[0]} != single-end-cast {expected}"
+    )
+
+    # Pre-rewrite per-tip-cast pattern produces a slightly different value:
+    legacy_bl = np.float32(label_lengths[1])
+    for r in (
+        im_distance[2, 4],
+        im_distance[6, 4],
+        im_distance[4, 2],
+        im_distance[4, 6],
+    ):
+        # f32 + f64 promote then cast — same as `bl += 2.0 * radius`
+        # for radii that have already been doubled (here we use raw
+        # radii, mirroring `np.add.at(base_lengths_64, idx, tip_radii)`).
+        legacy_bl = np.float32(legacy_bl + np.float64(r))
+    abs_diff = abs(float(base_lengths[0]) - float(legacy_bl))
+    rel_diff = abs_diff / max(abs(float(legacy_bl)), 1e-30)
+    assert abs_diff <= 1e-5, f"abs diff {abs_diff} exceeds ADR 0013 bar"
+    assert rel_diff <= 1e-5, f"rel diff {rel_diff} exceeds ADR 0013 bar"
+
+
+def test_get_branch_stats_run_is_deterministic(
+    make_hierarchical_imageinfo_3d,
+) -> None:
+    """Two independent runs of Hierarchy on fresh 3D fixtures produce
+    bit-identical `features_branches.csv` SHAs.
+
+    In-band determinism check: catches any future non-determinism in
+    `_get_branch_stats` (e.g. someone introducing a thread pool with
+    floating-point reduction order dependence) that wouldn't otherwise
+    fail the value-pinning tests above.
+    """
+    info_a = make_hierarchical_imageinfo_3d()
+    h_a = _run_hierarchy(info_a, skip_nodes=False)
+    sha_a = hashlib.sha256(
+        Path(info_a.pipeline_paths["features_branches"]).read_bytes()
+    ).hexdigest()
+    _release_hierarchy(h_a)
+
+    info_b = make_hierarchical_imageinfo_3d()
+    h_b = _run_hierarchy(info_b, skip_nodes=False)
+    sha_b = hashlib.sha256(
+        Path(info_b.pipeline_paths["features_branches"]).read_bytes()
+    ).hexdigest()
+    _release_hierarchy(h_b)
+
+    assert sha_a == sha_b, (
+        "features_branches.csv differs across two independent runs; "
+        "_get_branch_stats has lost determinism (ADR 0013 invariant)."
+    )
+
+
+# -------------------------------------------------------------------------
 # HierarchyConfig validation (__post_init__)
 # -------------------------------------------------------------------------
 

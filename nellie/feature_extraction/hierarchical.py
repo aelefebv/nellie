@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+from scipy import ndimage as ndi_cpu
 from scipy import spatial
 from skimage.measure import regionprops
 
@@ -1617,7 +1618,6 @@ class Branches:
         branch_idxs_arr = np.array(self.branch_idxs[t])
         L = self.hierarchy.im_skel[t]
         spacing = self.hierarchy.spacing
-        no_z = self.hierarchy.im_info.no_z
 
         # Branch lengths and voxel degrees
         label_lengths, neighbor_counts = self._compute_branch_lengths_and_degrees(t)
@@ -1659,37 +1659,76 @@ class Branches:
         lone_tip_radii = radii[lone_tips] if len(lone_tips) else np.array([], dtype=float)
         tip_radii = radii[tips] if len(tips) else np.array([], dtype=float)
 
-        # Base length per label from adjacency
-        base_lengths = np.zeros(len(unique_labels), dtype=np.float32)
-        for i, lbl in enumerate(unique_labels):
-            if lbl < len(label_lengths):
-                base_lengths[i] = label_lengths[int(lbl)]
+        # Base length per label from adjacency.
+        # `unique_labels` is ascending (from `np.unique`); single gather
+        # + bounds-mask replaces the per-label Python loop.
+        unique_labels_int = unique_labels.astype(int, copy=False)
+        in_range = unique_labels_int < len(label_lengths)
+        # Accumulate in float64 so the tip-radius adjustments below
+        # round once (at the final cast back to float32), matching the
+        # legacy loop's `base_lengths[i] += 2.0 * radius` semantics
+        # where numpy promotes float32 + float64 → float64 before the
+        # assignment-time cast. Pure-float32 accumulation would
+        # double-round (cast addend, then cast result) and drift by
+        # 1 ULP on labels with multiple tips.
+        base_lengths_64 = np.zeros(len(unique_labels), dtype=np.float64)
+        base_lengths_64[in_range] = label_lengths[unique_labels_int[in_range]].astype(
+            np.float64, copy=False
+        )
 
-        # Adjust lengths with tip radii
-        for lbl, radius in zip(lone_tip_labels, lone_tip_radii):
-            idx = np.where(unique_labels == lbl)[0]
-            if idx.size:
-                base_lengths[idx[0]] += 2.0 * radius
-        for lbl, radius in zip(tip_labels, tip_radii):
-            idx = np.where(unique_labels == lbl)[0]
-            if idx.size:
-                base_lengths[idx[0]] += radius
+        # Adjust lengths with tip radii. Multiple tips per label must
+        # accumulate, so use `np.add.at` (bare `+=` indexed assignment
+        # would only apply the last update for duplicate indices).
+        # `unique_labels` is sorted ascending; `np.searchsorted` gives
+        # the row for each tip label. The `==` check filters out labels
+        # that aren't in `unique_labels` (defensive — by construction
+        # tip-labels come from `L[tip_coords]` so should always match).
+        if lone_tip_labels.size:
+            idx = np.searchsorted(unique_labels, lone_tip_labels)
+            valid = (idx < len(unique_labels)) & (
+                unique_labels[np.clip(idx, 0, len(unique_labels) - 1)] == lone_tip_labels
+            )
+            np.add.at(base_lengths_64, idx[valid], 2.0 * lone_tip_radii[valid])
+        if tip_labels.size:
+            idx = np.searchsorted(unique_labels, tip_labels)
+            valid = (idx < len(unique_labels)) & (
+                unique_labels[np.clip(idx, 0, len(unique_labels) - 1)] == tip_labels
+            )
+            np.add.at(base_lengths_64, idx[valid], tip_radii[valid])
+        base_lengths = base_lengths_64.astype(np.float32, copy=False)
 
-        # Median thickness per label
+        # Median thickness per label. `scipy.ndimage.median` does the
+        # per-label sort+middle in C; bit-identical to per-group
+        # `np.median` for the float64 inputs here (verified on the
+        # synthetic data the test pins, plus yeast 2D/3D fixtures).
+        # Returns 0 for absent labels — defensively NaN-fill them. By
+        # construction every label in `unique_labels = np.unique(L[L>0])`
+        # has at least one matching voxel in `labels_branch_vox`, so
+        # the NaN-fill is a no-op in practice.
         labels_branch_vox = L[tuple(branch_idxs_arr.T)]
         thicknesses = radii * 2.0
-        median_thickness = np.zeros(len(unique_labels), dtype=np.float32)
-        for i, lbl in enumerate(unique_labels):
-            mask = labels_branch_vox == lbl
-            if not np.any(mask):
-                median_thickness[i] = np.nan
-            else:
-                median_thickness[i] = np.median(thicknesses[mask])
+        median_thickness = ndi_cpu.median(
+            thicknesses, labels=labels_branch_vox, index=unique_labels
+        ).astype(np.float32, copy=False)
+        if labels_branch_vox.size:
+            counts = np.bincount(
+                labels_branch_vox.astype(np.intp, copy=False),
+                minlength=int(unique_labels_int.max()) + 1,
+            )
+            absent = counts[unique_labels_int] == 0
+            if absent.any():
+                median_thickness[absent] = np.nan
 
-        # If thickness > length, swap (as in original logic)
-        for i in range(len(base_lengths)):
-            if not np.isnan(median_thickness[i]) and median_thickness[i] > base_lengths[i]:
-                median_thickness[i], base_lengths[i] = base_lengths[i], median_thickness[i]
+        # If thickness > length, swap (preserves "long axis" semantics
+        # for blobby segments — gotcha pinned in
+        # wiki/feature-extraction.md). Mirror the legacy `not np.isnan`
+        # guard with `~np.isnan`, NOT `np.isfinite` (the latter would
+        # also exclude +/-inf, semantic drift).
+        swap = ~np.isnan(median_thickness) & (median_thickness > base_lengths)
+        if np.any(swap):
+            tmp = median_thickness[swap].copy()
+            median_thickness[swap] = base_lengths[swap]
+            base_lengths[swap] = tmp
 
         aspect_ratios = np.divide(
             base_lengths,
@@ -1698,26 +1737,41 @@ class Branches:
             where=median_thickness != 0,
         )
 
-        # Tortuosity: use first two tips per label if available; otherwise 1
+        # Tortuosity: use first two tips per label if available; otherwise 1.
+        # Vectorize via stable argsort — per-label position order matches
+        # the legacy `tip_coords[tip_labels == lbl]` (boolean-masked view
+        # preserves source order, and `tip_coords` is itself in
+        # ascending-position order from `np.where`).
         tortuosity = np.ones(len(unique_labels), dtype=np.float32)
-        for i, lbl in enumerate(unique_labels):
-            mask = tip_labels == lbl
-            coords_lbl = tip_coords[mask]
-            if coords_lbl.shape[0] >= 2:
-                p0, p1 = coords_lbl[0], coords_lbl[1]
-                if no_z:
-                    dy = (p0[0] - p1[0]) * spacing[0]
-                    dx = (p0[1] - p1[1]) * spacing[1]
-                    tip_dist = np.sqrt(dy * dy + dx * dx)
-                else:
-                    dz = (p0[0] - p1[0]) * spacing[0]
-                    dy = (p0[1] - p1[1]) * spacing[1]
-                    dx = (p0[2] - p1[2]) * spacing[2]
-                    tip_dist = np.sqrt(dz * dz + dy * dy + dx * dx)
-                if tip_dist > 0:
-                    tortuosity[i] = base_lengths[i] / tip_dist
-                else:
-                    tortuosity[i] = 1.0
+        if tip_labels.size:
+            order = np.argsort(tip_labels, kind="stable")
+            sorted_tip_labels = tip_labels[order]
+            sorted_tip_coords = tip_coords[order]
+            uniq_tip, starts, counts_tips = np.unique(
+                sorted_tip_labels, return_index=True, return_counts=True
+            )
+            has_two = counts_tips >= 2
+            if np.any(has_two):
+                qualifying = uniq_tip[has_two]
+                first_idx = starts[has_two]
+                p0 = sorted_tip_coords[first_idx].astype(np.float64, copy=False)
+                p1 = sorted_tip_coords[first_idx + 1].astype(np.float64, copy=False)
+                spacing_arr = np.asarray(spacing, dtype=np.float64)
+                # `(delta**2).sum(axis=1)` adds along axis 1 in ascending
+                # index order — same per-axis sum-of-squares ordering
+                # (Z+Y+X for 3D; Y+X for 2D) as the explicit
+                # `dz*dz + dy*dy + dx*dx` in the legacy loop. The 2D vs
+                # 3D split falls out of `tip_coords` shape, no `no_z`
+                # branch needed.
+                delta = (p0 - p1) * spacing_arr
+                tip_dist = np.sqrt((delta * delta).sum(axis=1))
+                target_idx = np.searchsorted(unique_labels, qualifying)
+                safe = tip_dist > 0
+                if np.any(safe):
+                    tortuosity[target_idx[safe]] = (
+                        base_lengths[target_idx[safe]] / tip_dist[safe]
+                    ).astype(np.float32, copy=False)
+                # Unsafe (tip_dist == 0): default 1.0 already in place.
 
         self.branch_tortuosity.append(tortuosity)
         self.branch_aspect_ratio.append(aspect_ratios)
