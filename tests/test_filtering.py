@@ -455,3 +455,193 @@ def test_dispatcher_picks_sparse_when_mask_partial(synthetic_h_components) -> No
         Filter._compute_vesselness_sparse = real_sparse
 
     assert calls == {"dense": 0, "sparse": 1}
+
+
+# -------------------------------------------------------------------------
+# PRD #233 Slice 1 — pin _compute_vesselness reduction pattern + isinf scope
+#
+# In-band determinism snapshots and call-count tests pin the current
+# implementation so Slice 2's rewrite (subsample-first inf + fused
+# any/all into sum) can be verified bit-identical for finite-only
+# fixture data (locally, before merge) and structurally correct via
+# reduction-count flips (in CI). Frangi math is SIMD-sensitive across
+# platforms — hardcoded SHAs would diverge in CI on Linux/Windows; the
+# determinism check (run twice on independent fixtures, assert SHAs
+# match) is the prior pattern from PRDs #217/#222/#227.
+# -------------------------------------------------------------------------
+
+
+def test_run_filter_3d_snapshot_pre_rewrite(make_imageinfo_3d) -> None:
+    """PRE-REWRITE: 3D Filter output is deterministic across runs.
+
+    Captures the current implementation's in-band determinism
+    contract. Slice 2 replaces this with a ``_post_rewrite_*`` variant
+    that asserts the same contract — the rewrite is supposed to be
+    bit-identical for finite-only fixture data, verified locally
+    before merge.
+    """
+    info = make_imageinfo_3d()
+    filt = Filter(info, _CPU, num_t=2)
+    filt.run()
+    out1 = np.array(filt.frangi_memmap)
+    sha1 = hashlib.sha256(out1.tobytes()).hexdigest()
+    _release_filter(filt)
+
+    info2 = make_imageinfo_3d()
+    filt2 = Filter(info2, _CPU, num_t=2)
+    filt2.run()
+    out2 = np.array(filt2.frangi_memmap)
+    sha2 = hashlib.sha256(out2.tobytes()).hexdigest()
+    _release_filter(filt2)
+
+    assert sha1 == sha2, (
+        "PRE-REWRITE: Filter is not deterministic on the same 3D fixture; "
+        "expected stable SHA across two independent runs"
+    )
+    # Sanity: snapshot is non-trivial.
+    assert (out1 > 0).any()
+
+
+def test_run_filter_2d_snapshot_pre_rewrite(make_imageinfo_2d) -> None:
+    """PRE-REWRITE: 2D Filter output is deterministic across runs."""
+    info = make_imageinfo_2d()
+    filt = Filter(info, _CPU, num_t=2)
+    filt.run()
+    out1 = np.array(filt.frangi_memmap)
+    sha1 = hashlib.sha256(out1.tobytes()).hexdigest()
+    _release_filter(filt)
+
+    info2 = make_imageinfo_2d()
+    filt2 = Filter(info2, _CPU, num_t=2)
+    filt2.run()
+    out2 = np.array(filt2.frangi_memmap)
+    sha2 = hashlib.sha256(out2.tobytes()).hexdigest()
+    _release_filter(filt2)
+
+    assert sha1 == sha2, (
+        "PRE-REWRITE: Filter is not deterministic on the same 2D fixture; "
+        "expected stable SHA across two independent runs"
+    )
+    assert (out1 > 0).any()
+
+
+class _RecordingXp:
+    """Wrap a backend module (numpy/cupy/torch_xp) to record every call.
+
+    Each call appends ``(name, arg_shapes)`` to ``self.calls`` where
+    ``arg_shapes`` is the tuple of shapes for any positional args that
+    expose a real ``.shape`` attribute. Used to pin the per-sigma
+    reduction pattern in ``_compute_vesselness`` / ``_get_frob_mask``.
+
+    Note: only catches calls routed through ``self.xp`` — array methods
+    like ``arr.all()`` / ``arr.any()`` are invisible to this recorder.
+    """
+
+    def __init__(self, real_xp):
+        self._real = real_xp
+        self.calls: list[tuple[str, tuple]] = []
+
+    def __getattr__(self, name):
+        attr = getattr(self._real, name)
+        if not callable(attr):
+            return attr
+
+        def wrapped(*args, **kwargs):
+            shapes = []
+            for a in args:
+                shape = getattr(a, "shape", None)
+                # numpy arrays expose ``.shape`` as a tuple attribute;
+                # torch tensors expose it as a method. Only record
+                # ndarray-style shapes here — that's all we need.
+                if shape is not None and not callable(shape):
+                    shapes.append(tuple(shape))
+            self.calls.append((name, tuple(shapes)))
+            return attr(*args, **kwargs)
+
+        return wrapped
+
+
+def _xp_calls_with_first_arg_shape(recorder: _RecordingXp, name: str, shape: tuple) -> list:
+    return [
+        c for c in recorder.calls
+        if c[0] == name and c[1] and c[1][0] == shape
+    ]
+
+
+def _record_one_compute_vesselness(filt: Filter) -> tuple[_RecordingXp, tuple]:
+    """Run a single ``_compute_vesselness`` pass with a recording xp wrapper.
+
+    Returns the recorder + the frame shape so callers can filter calls
+    by full-volume vs subsample shape.
+    """
+    filt._get_t()
+    filt._set_default_sigmas()
+    raw = np.asarray(filt.im_info.get_memmap(filt.im_info.im_path)[0], dtype=np.float32)
+
+    recorder = _RecordingXp(filt.xp)
+    filt.xp = recorder
+    filt._compute_vesselness(raw, mask=True)
+    return recorder, raw.shape
+
+
+def test_compute_vesselness_uses_separate_any_and_all_pre_rewrite(make_imageinfo_3d) -> None:
+    """Pin: pre-rewrite ``_compute_vesselness`` uses ``xp.any`` per sigma, no ``xp.sum`` on h_mask.
+
+    Slice 2 fuses ``xp.any(h_mask)`` (line 532) + ``bool(h_mask.all())``
+    (line 408) into a single ``xp.sum(h_mask)`` and threads ``is_dense``
+    through ``_compute_vesselness_chunkwise``. This pin asserts the
+    current pattern: at least 2 full-volume ``xp.any`` calls per sigma
+    (one in ``_get_frob_mask`` on ``inf_mask``, one in
+    ``_compute_vesselness`` on ``h_mask``) and zero full-volume ``xp.sum``
+    calls on ``h_mask``-shaped arrays.
+    """
+    info = make_imageinfo_3d()
+    filt = Filter(info, _CPU, num_t=2)
+
+    recorder, frame_shape = _record_one_compute_vesselness(filt)
+
+    full_volume_any = _xp_calls_with_first_arg_shape(recorder, "any", frame_shape)
+    full_volume_sum = _xp_calls_with_first_arg_shape(recorder, "sum", frame_shape)
+
+    assert filt.sigmas is not None  # set by _record_one_compute_vesselness
+    n_sigmas = len(filt.sigmas)
+    assert len(full_volume_any) >= 2 * n_sigmas, (
+        f"expected ≥ {2 * n_sigmas} full-volume xp.any calls "
+        f"(2 per sigma: inf_mask in _get_frob_mask, h_mask in "
+        f"_compute_vesselness), got {len(full_volume_any)}: "
+        f"{full_volume_any}"
+    )
+    assert len(full_volume_sum) == 0, (
+        f"pre-rewrite uses xp.any + h_mask.all() for dispatch, not xp.sum; "
+        f"got {len(full_volume_sum)} full-volume xp.sum calls: "
+        f"{full_volume_sum}"
+    )
+
+    _release_filter(filt)
+
+
+def test_get_frob_mask_uses_full_volume_isinf_pre_rewrite(make_imageinfo_3d) -> None:
+    """Pin: pre-rewrite ``_get_frob_mask`` calls ``xp.isinf`` on the full volume per sigma.
+
+    Slice 2 moves inf-detection to the subsample (the
+    ``frobenius_norm > thresh`` final comparison handles infs correctly
+    on its own). This pin asserts the current pattern: at least one
+    ``xp.isinf`` call per sigma on a full-volume float array
+    (``frobenius_norm`` shape == frame shape).
+    """
+    info = make_imageinfo_3d()
+    filt = Filter(info, _CPU, num_t=2)
+
+    recorder, frame_shape = _record_one_compute_vesselness(filt)
+
+    full_volume_isinf = _xp_calls_with_first_arg_shape(recorder, "isinf", frame_shape)
+
+    assert filt.sigmas is not None  # set by _record_one_compute_vesselness
+    n_sigmas = len(filt.sigmas)
+    assert len(full_volume_isinf) >= n_sigmas, (
+        f"expected ≥ {n_sigmas} full-volume xp.isinf calls "
+        f"(1 per sigma in _get_frob_mask), got "
+        f"{len(full_volume_isinf)}: {full_volume_isinf}"
+    )
+
+    _release_filter(filt)
