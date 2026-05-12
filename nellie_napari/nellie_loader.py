@@ -266,6 +266,11 @@ class NellieLoader(QTabWidget):
         if hasattr(self.visualizer, "post_init"):
             self.visualizer.post_init()
 
+        # Invalidate analyzer caches so a subsequent visit to the Analyze tab
+        # uses the new file's data instead of the previous file's overlay/CSVs.
+        if hasattr(self.analyzer, "reset"):
+            self.analyzer.reset()
+
         # Switch to the Process tab; currentChanged signal will trigger on_tab_change
         self.setCurrentIndex(self.processor_tab)
 

@@ -153,9 +153,13 @@ class NellieAnalysis(QWidget):
     def reset(self):
         """
         Reset internal state so the widget can be reused for a new dataset.
-        """
-        self.initialized = False
 
+        Leaves ``self.initialized`` alone: the existing UI widgets are still
+        valid, only the file-scoped caches need to be invalidated. If the
+        widget has already been built, the level dropdown is repopulated for
+        the (possibly new) file and the default selection cascade reloads
+        data via ``on_level_selected`` / ``on_attr_selected``.
+        """
         # dataframes
         self.voxel_df = None
         self.node_df = None
@@ -190,22 +194,34 @@ class NellieAnalysis(QWidget):
         self.match_t = False
         self.hist_reset = True
 
+        if not self.initialized:
+            # No UI built yet; nothing else to do.
+            return
+
         # UI state
         self._clear_canvas()
         self._disable_hist_controls()
         if self.click_match_group is not None:
             self.click_match_group.setVisible(False)
-        if self.dropdown_attr is not None:
-            self.dropdown_attr.clear()
-            self.dropdown_attr.addItem("None")
-        if self.dropdown_stat is not None:
-            self.dropdown_stat.clear()
-            self.dropdown_stat.addItem("None")
-            self.dropdown_stat.setEnabled(False)
-        if self.dropdown is not None:
-            idx = self.dropdown.findText("none")
-            if idx >= 0:
-                self.dropdown.setCurrentIndex(idx)
+
+        # Refresh scale from the (possibly new) im_info before any plotting.
+        if self.nellie.im_info.no_z:
+            self.scale = (
+                self.nellie.im_info.dim_res["Y"],
+                self.nellie.im_info.dim_res["X"],
+            )
+        else:
+            self.scale = (
+                self.nellie.im_info.dim_res["Z"],
+                self.nellie.im_info.dim_res["Y"],
+                self.nellie.im_info.dim_res["X"],
+            )
+
+        # Rebuild the level dropdown for the new file (different files may
+        # have different available levels, e.g. nodes), then re-trigger the
+        # default selection so the histogram and attribute dropdowns repopulate.
+        self.rewrite_dropdown()
+        self.set_default_dropdowns()
 
     def post_init(self):
         """
