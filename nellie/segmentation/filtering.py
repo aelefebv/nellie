@@ -428,11 +428,19 @@ class Filter:
         Used when the Frobenius mask is partial — paying the indexing
         overhead is worth it to avoid evaluating frangi on voxels that
         will be zeroed anyway.
+
+        Indexes via a single 1D `flatnonzero` array rather than the
+        ndim-tuple `where` returns: 3D `where` produces 3 int64 coord
+        arrays (24 bytes per masked voxel for indices alone, vs 8 for
+        flat); per-chunk fancy indexing reads through 1 index array
+        instead of 3. Same voxels in the same C-order — bit-identical
+        to the prior `where`-based path.
         """
-        coords = self.xp.where(h_mask)
-        # Torch's ``.size`` is a method, not an attribute — reduce via shape.
-        total_voxels = int(np.prod(coords[0].shape))
         template = next(iter(h_components.values()))
+        # Torch's ``.size`` is a method, not an attribute — reduce via shape.
+        shape = template.shape
+        flat_indices = self.xp.flatnonzero(h_mask.ravel())
+        total_voxels = int(np.prod(flat_indices.shape))
         if total_voxels == 0:
             return self.xp.zeros_like(template, dtype=self.work_dtype)
 
@@ -440,21 +448,22 @@ class Filter:
         if chunk_size is None or chunk_size <= 0:
             chunk_size = total_voxels
 
+        flat_components = {k: v.ravel() for k, v in h_components.items()}
         vessel_masked = self.xp.zeros(total_voxels, dtype=self.work_dtype)
 
         for start in range(0, total_voxels, chunk_size):
             end = min(start + chunk_size, total_voxels)
-            idx_chunk = tuple(c[start:end] for c in coords)
-            h_chunks = {k: h_components[k][idx_chunk] for k in h_components}
+            idx_chunk = flat_indices[start:end]
+            h_chunks = {k: flat_components[k][idx_chunk] for k in flat_components}
             eigenvalues = self._eigenvalues_from_chunk(h_chunks)
             v_chunk = frangi_math.frangi(
                 eigenvalues, self.alpha_sq, self.beta_sq, gamma_sq, self.xp
             )
             vessel_masked[start:end] = v_chunk.astype(self.work_dtype, copy=False)
 
-        vesselness = self.xp.zeros_like(template, dtype=self.work_dtype)
-        vesselness[coords] = vessel_masked
-        return vesselness
+        flat_vesselness = self.xp.zeros(int(np.prod(shape)), dtype=self.work_dtype)
+        flat_vesselness[flat_indices] = vessel_masked
+        return flat_vesselness.reshape(shape)
 
     def _compute_vesselness_dense(self, h_components, gamma_sq):
         """Vesselness over the full volume via flat slicing — no `xp.where` indirection.
