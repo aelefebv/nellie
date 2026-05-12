@@ -126,6 +126,8 @@ from nellie.feature_extraction.hierarchical import (
     Hierarchy,
     HierarchyConfig,
     Voxels,
+    _group_indices_by_label,
+    _group_indices_for_keys,
     aggregate_stats_for_class,
     append_to_array,
     distance_check,
@@ -1453,6 +1455,115 @@ def test_append_to_array_with_dict_stat() -> None:
     assert len(arr) == 2
     np.testing.assert_array_equal(arr[0], np.array([1.0, 2.0]))
     np.testing.assert_array_equal(arr[1], np.array([0.5, 1.5]))
+
+
+# -------------------------------------------------------------------------
+# Group-construction helpers (vectorized replacement for per-label
+# argwhere loop in `Branches._get_aggregate_stats` /
+# `Components._get_aggregate_stats`)
+# -------------------------------------------------------------------------
+
+
+def _argwhere_groups_legacy(labels, *, drop_label=0):
+    """Legacy per-label `argwhere(labels == lbl).flatten()` pattern.
+
+    Kept here as the reference implementation for the equivalence
+    tests below.
+    """
+    return [
+        np.argwhere(np.asarray(labels) == lbl).flatten()
+        for lbl in np.unique(labels)
+        if lbl != drop_label
+    ]
+
+
+def _argwhere_groups_for_keys_legacy(labels, keys):
+    """Legacy `argwhere(other_labels == lbl).flatten()` keyed off `keys`."""
+    return [
+        np.argwhere(np.asarray(labels) == lbl).flatten()
+        for lbl in keys
+    ]
+
+
+@pytest.mark.parametrize(
+    "labels",
+    [
+        np.array([0, 1, 1, 2, 0, 2, 3], dtype=np.int64),
+        np.array([5, 5, 5, 5], dtype=np.int64),  # single label
+        np.array([0, 0, 0], dtype=np.int64),     # all dropped
+        np.array([], dtype=np.int64),            # empty
+        np.array([7, 1, 7, 1, 0, 9], dtype=np.int64),  # unsorted, gaps
+        np.array([1, 0, 0, 1, 0], dtype=np.int64),     # interleaved
+        np.tile(np.arange(50, dtype=np.int64), 3),     # large-ish
+    ],
+    ids=["small_mixed", "single", "all_zero", "empty", "unsorted_gaps", "interleaved", "large"],
+)
+def test_group_indices_by_label_matches_legacy(labels) -> None:
+    """Sort-and-split helper output equals the per-label argwhere pattern.
+
+    Same number of groups in same order, same per-group indices in
+    same order. Pins the bit-identical-equivalence contract that
+    let `Branches._get_aggregate_stats` swap to the helper.
+    """
+    new = _group_indices_by_label(labels)
+    legacy = _argwhere_groups_legacy(labels)
+    assert len(new) == len(legacy)
+    for n, lg in zip(new, legacy):
+        np.testing.assert_array_equal(n, lg)
+
+
+def test_group_indices_by_label_custom_drop() -> None:
+    """`drop_label=-1` excludes the -1 group, keeps 0."""
+    labels = np.array([-1, 0, 1, -1, 0, 2], dtype=np.int64)
+    new = _group_indices_by_label(labels, drop_label=-1)
+    legacy = _argwhere_groups_legacy(labels, drop_label=-1)
+    assert len(new) == len(legacy)
+    for n, lg in zip(new, legacy):
+        np.testing.assert_array_equal(n, lg)
+
+
+@pytest.mark.parametrize(
+    "labels,keys",
+    [
+        # Component grouping case: keys are voxel-component-labels,
+        # labels are node-component-labels — node-component subset of
+        # voxel-component, so all keys present.
+        (np.array([1, 2, 1, 3, 2], dtype=np.int64),
+         np.array([1, 2, 3], dtype=np.int64)),
+        # Some keys absent from labels (component has no nodes — empty group).
+        (np.array([1, 1, 3], dtype=np.int64),
+         np.array([1, 2, 3], dtype=np.int64)),
+        # All keys absent (every group empty).
+        (np.array([10, 11], dtype=np.int64),
+         np.array([1, 2, 3], dtype=np.int64)),
+        # Empty labels.
+        (np.array([], dtype=np.int64),
+         np.array([1, 2, 3], dtype=np.int64)),
+        # Empty keys.
+        (np.array([1, 2, 3], dtype=np.int64),
+         np.array([], dtype=np.int64)),
+        # Duplicate keys (caller's responsibility — helper still preserves order).
+        (np.array([1, 2, 1, 3], dtype=np.int64),
+         np.array([1, 2, 1], dtype=np.int64)),
+    ],
+    ids=[
+        "subset_present", "some_absent", "all_absent",
+        "empty_labels", "empty_keys", "duplicate_keys",
+    ],
+)
+def test_group_indices_for_keys_matches_legacy(labels, keys) -> None:
+    """Keyed grouping helper matches the
+    ``[argwhere(labels == lbl).flatten() for lbl in keys]`` pattern.
+
+    Pins the equivalence used at all 3 ``Components._get_aggregate_stats``
+    sites where the iteration key set comes from voxel-labels but the
+    matched positions live in node/branch-label arrays.
+    """
+    new = _group_indices_for_keys(labels, keys)
+    legacy = _argwhere_groups_for_keys_legacy(labels, keys)
+    assert len(new) == len(legacy)
+    for n, lg in zip(new, legacy):
+        np.testing.assert_array_equal(n, lg)
 
 
 # -------------------------------------------------------------------------

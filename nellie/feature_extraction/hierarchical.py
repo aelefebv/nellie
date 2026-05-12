@@ -601,6 +601,60 @@ def append_to_array(to_append):
     return new_array, new_headers
 
 
+def _sorted_label_groups(labels):
+    """Sort `labels` once and split positions by unique label value.
+
+    Returns ``(unique_labels_ascending, list_of_index_arrays)``. Each
+    index array holds the positions of one unique label, in ascending
+    order — same ordering ``np.argwhere(labels == lbl).flatten()``
+    would produce.
+    """
+    labels_arr = np.asarray(labels)
+    if labels_arr.size == 0:
+        return np.empty(0, dtype=labels_arr.dtype), []
+    order = np.argsort(labels_arr, kind="stable")
+    sorted_labels = labels_arr[order]
+    unique, starts = np.unique(sorted_labels, return_index=True)
+    groups = np.split(order, starts[1:])
+    return unique, groups
+
+
+def _group_indices_by_label(labels, *, drop_label=0):
+    """O(N log N) replacement for
+    ``[np.argwhere(labels == lbl).flatten() for lbl in np.unique(labels) if lbl != drop_label]``.
+
+    Returns one ascending-position index array per non-``drop_label``
+    unique label, in ascending-label order.
+    """
+    unique, groups = _sorted_label_groups(labels)
+    return [g for u, g in zip(unique, groups) if u != drop_label]
+
+
+def _group_indices_for_keys(labels, keys):
+    """For each key in `keys` (preserving caller-supplied order), return
+    positions in `labels` equal to that key (in ascending position order).
+
+    Replaces the
+    ``[np.argwhere(other_labels == lbl).flatten() for lbl in np.unique(key_labels) if lbl != 0]``
+    pattern in ``Components._get_aggregate_stats`` — where the
+    iteration key set comes from one label array but the matched
+    positions live in another. O((N + K) log N) via sort + per-key
+    ``np.searchsorted``. Keys absent from ``labels`` produce empty
+    groups (preserves the 1:1-with-keys list shape).
+    """
+    labels_arr = np.asarray(labels)
+    keys_arr = np.asarray(keys)
+    if keys_arr.size == 0:
+        return []
+    if labels_arr.size == 0:
+        return [np.empty(0, dtype=np.intp) for _ in range(keys_arr.size)]
+    order = np.argsort(labels_arr, kind="stable")
+    sorted_labels = labels_arr[order]
+    left = np.searchsorted(sorted_labels, keys_arr, side="left")
+    right = np.searchsorted(sorted_labels, keys_arr, side="right")
+    return [order[lo:hi] for lo, hi in zip(left, right)]
+
+
 class Voxels:
     """
     Voxel-level features.
@@ -1411,11 +1465,7 @@ class Branches:
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.branch_labels[t]
-        grouped_vox_idxs = [
-            np.argwhere(voxel_labels == label).flatten()
-            for label in np.unique(voxel_labels)
-            if label != 0
-        ]
+        grouped_vox_idxs = _group_indices_by_label(voxel_labels)
         vox_agg = aggregate_stats_for_class(
             self.hierarchy.voxels, t, grouped_vox_idxs, low_memory=self.hierarchy.low_memory
         )
@@ -1423,11 +1473,7 @@ class Branches:
 
         if not self.hierarchy.skip_nodes:
             node_labels = self.hierarchy.nodes.branch_label[t]
-            grouped_node_idxs = [
-                np.argwhere(node_labels == label).flatten()
-                for label in np.unique(node_labels)
-                if label != 0
-            ]
+            grouped_node_idxs = _group_indices_by_label(node_labels)
             node_agg = aggregate_stats_for_class(
                 self.hierarchy.nodes, t, grouped_node_idxs, low_memory=self.hierarchy.low_memory
             )
@@ -1840,11 +1886,13 @@ class Components:
 
     def _get_aggregate_stats(self, t):
         voxel_labels = self.hierarchy.voxels.component_labels[t]
-        grouped_vox_idxs = [
-            np.argwhere(voxel_labels == label).flatten()
-            for label in np.unique(voxel_labels)
-            if label != 0
-        ]
+        # All three groupings key off `np.unique(voxel_labels)` — kept
+        # this way so the agg lists are 1:1 across vox/node/branch even
+        # when a component has no nodes or branches at this t.
+        all_unique, all_vox_groups = _sorted_label_groups(voxel_labels)
+        keep_mask = all_unique != 0
+        unique_keys = all_unique[keep_mask]
+        grouped_vox_idxs = [g for u, g in zip(all_unique, all_vox_groups) if u != 0]
         vox_agg = aggregate_stats_for_class(
             self.hierarchy.voxels, t, grouped_vox_idxs, low_memory=self.hierarchy.low_memory
         )
@@ -1852,22 +1900,14 @@ class Components:
 
         if not self.hierarchy.skip_nodes:
             node_labels = self.hierarchy.nodes.component_label[t]
-            grouped_node_idxs = [
-                np.argwhere(node_labels == label).flatten()
-                for label in np.unique(voxel_labels)
-                if label != 0
-            ]
+            grouped_node_idxs = _group_indices_for_keys(node_labels, unique_keys)
             node_agg = aggregate_stats_for_class(
                 self.hierarchy.nodes, t, grouped_node_idxs, low_memory=self.hierarchy.low_memory
             )
             self.aggregate_node_metrics.append(node_agg)
 
         branch_labels = self.hierarchy.branches.component_label[t]
-        grouped_branch_idxs = [
-            np.argwhere(branch_labels == label).flatten()
-            for label in np.unique(voxel_labels)
-            if label != 0
-        ]
+        grouped_branch_idxs = _group_indices_for_keys(branch_labels, unique_keys)
         branch_agg = aggregate_stats_for_class(
             self.hierarchy.branches, t, grouped_branch_idxs, low_memory=self.hierarchy.low_memory
         )
