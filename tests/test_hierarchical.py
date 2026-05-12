@@ -1567,6 +1567,172 @@ def test_group_indices_for_keys_matches_legacy(labels, keys) -> None:
 
 
 # -------------------------------------------------------------------------
+# `_get_branch_stats` post-rewrite equivalence pins (PR B / ADR 0013)
+#
+# Two bars: 2D fixture is bit-identical to dechao baseline (no
+# multi-tip labels in the fixture, so the float64-accumulation cast
+# point doesn't drift). 3D fixture is approx-equivalent (rtol=1e-5,
+# atol=1e-5) — drift is bounded at 1 float32 ULP on multi-tip labels;
+# verified per-row that only `branch_length_raw` row 1 (t=0 lbl=2,
+# the longest branch) actually drifts, and that drift propagates into
+# `branch_aspect_ratio_raw` and `branch_tortuosity_raw` for the same
+# row. All other rows + the 2D fixture stay bit-identical.
+# -------------------------------------------------------------------------
+
+
+def test_get_branch_stats_2d_post_rewrite_bit_identical(
+    hierarchy_outputs_2d,
+) -> None:
+    """2D fixture has no multi-tip labels → float32 cast point shift
+    contributes zero drift → branch features match dechao baseline
+    exactly.
+
+    These are the exact byte-level baseline values captured on
+    `dechao` before the PR B rewrite landed. Any future regression
+    that rounds differently (e.g. someone "optimizes" the cast point
+    back to per-tip f32 cast) will fail this test even on the 2D
+    fixture, where the rewrite was supposed to be bit-identical.
+    """
+    df = pd.read_csv(hierarchy_outputs_2d["paths"]["features_branches"])
+    # Captured on dechao (commit ff611c3) before PR B; verified to
+    # match post-rewrite SHA exactly on 2D.
+    expected_branch_length = [
+        3.048482656478882,
+        10.795132637023926,
+        3.001293897628784,
+        10.811025619506836,
+    ]
+    expected_branch_thickness = [
+        0.6549999713897705,
+        0.5401268601417542,
+        0.5858498215675354,
+        0.5239999890327454,
+    ]
+    expected_branch_tortuosity = [
+        1.3882231712341309,
+        1.0,
+        1.39300799369812,
+        1.0,
+    ]
+    np.testing.assert_array_equal(
+        df["branch_length_raw"].values.astype(np.float64),
+        np.array(expected_branch_length, dtype=np.float64),
+    )
+    np.testing.assert_array_equal(
+        df["branch_thickness_raw"].values.astype(np.float64),
+        np.array(expected_branch_thickness, dtype=np.float64),
+    )
+    np.testing.assert_array_equal(
+        df["branch_tortuosity_raw"].values.astype(np.float64),
+        np.array(expected_branch_tortuosity, dtype=np.float64),
+    )
+
+
+def test_get_branch_stats_3d_post_rewrite_approx_equivalent(
+    hierarchy_outputs_3d,
+) -> None:
+    """3D fixture has one multi-tip label (t=0 lbl=2, the long branch)
+    where the float64-accumulation single-end-cast pattern drifts by
+    1 float32 ULP from the legacy per-tip cast loop. ADR 0013 bar:
+    `rtol=1e-5, atol=1e-5`. All other rows are bit-identical, so the
+    test pins both: exact equality on row indices [0, 2, 3, 4, 5] and
+    approx equality on the full vector.
+
+    Baseline values captured on `dechao` after the PR B rewrite landed
+    (i.e. the post-rewrite contract — pre-rewrite values were
+    `branch_length_raw[1] = 16.645368576`, post-rewrite is
+    `16.645366669`, a 1.9e-6 absolute drift).
+    """
+    df = pd.read_csv(hierarchy_outputs_3d["paths"]["features_branches"])
+    expected_branch_length_post = [
+        2.9095935821533203,
+        16.645366668701172,  # was 16.645368576 pre-rewrite (1.9e-6 drift)
+        1.1767326593399048,
+        0.975871205329895,
+        4.435570240020752,
+        14.238229751586914,
+    ]
+    expected_branch_thickness = [
+        0.4723272025585174,
+        0.3705239593982696,
+        0.5629883408546448,
+        0.2774624526500702,
+        0.6549999713897705,
+        0.5239999890327454,
+    ]
+    expected_branch_tortuosity_post = [
+        1.9096235036849976,
+        19.631641387939453,  # was 19.631645203 pre-rewrite (3.8e-6 drift)
+        2.2357752323150635,
+        2.1378462314605713,
+        1.9008309841156008,
+        1.0,
+    ]
+    actual_length = df["branch_length_raw"].values.astype(np.float64)
+    actual_thickness = df["branch_thickness_raw"].values.astype(np.float64)
+    actual_tortuosity = df["branch_tortuosity_raw"].values.astype(np.float64)
+    # Bit-identical for `branch_thickness` (scipy.ndimage.median == np.median
+    # on this fixture; verified separately on 5000-element synthetic data).
+    np.testing.assert_array_equal(
+        actual_thickness, np.array(expected_branch_thickness, dtype=np.float64)
+    )
+    # Approx-equivalent for length / tortuosity (1 ULP drift on multi-tip
+    # row 1; bit-identical elsewhere).
+    np.testing.assert_allclose(
+        actual_length,
+        np.array(expected_branch_length_post, dtype=np.float64),
+        rtol=1e-5, atol=1e-5,
+    )
+    np.testing.assert_allclose(
+        actual_tortuosity,
+        np.array(expected_branch_tortuosity_post, dtype=np.float64),
+        rtol=1e-5, atol=1e-5,
+    )
+    # Pin per-row bit-identity for the non-drifting rows so a future
+    # regression that drifts MORE rows fails loudly.
+    bit_identical_rows = [0, 2, 3, 4, 5]
+    for r in bit_identical_rows:
+        assert actual_length[r] == expected_branch_length_post[r], (
+            f"branch_length_raw[{r}] drift: legacy multi-tip ULP boundary "
+            f"is row 1 only; if other rows now differ, ADR 0013 bar is wrong."
+        )
+        assert actual_tortuosity[r] == expected_branch_tortuosity_post[r], (
+            f"branch_tortuosity_raw[{r}] drift: same constraint as length."
+        )
+
+
+def test_get_branch_stats_run_is_deterministic(
+    make_hierarchical_imageinfo_3d,
+) -> None:
+    """Two independent runs of Hierarchy on fresh 3D fixtures produce
+    bit-identical `features_branches.csv` SHAs.
+
+    In-band determinism check: catches any future non-determinism in
+    `_get_branch_stats` (e.g. someone introducing a thread pool with
+    floating-point reduction order dependence) that wouldn't otherwise
+    fail the value-pinning tests above.
+    """
+    info_a = make_hierarchical_imageinfo_3d()
+    h_a = _run_hierarchy(info_a, skip_nodes=False)
+    sha_a = hashlib.sha256(
+        Path(info_a.pipeline_paths["features_branches"]).read_bytes()
+    ).hexdigest()
+    _release_hierarchy(h_a)
+
+    info_b = make_hierarchical_imageinfo_3d()
+    h_b = _run_hierarchy(info_b, skip_nodes=False)
+    sha_b = hashlib.sha256(
+        Path(info_b.pipeline_paths["features_branches"]).read_bytes()
+    ).hexdigest()
+    _release_hierarchy(h_b)
+
+    assert sha_a == sha_b, (
+        "features_branches.csv differs across two independent runs; "
+        "_get_branch_stats has lost determinism (ADR 0013 invariant)."
+    )
+
+
+# -------------------------------------------------------------------------
 # HierarchyConfig validation (__post_init__)
 # -------------------------------------------------------------------------
 
