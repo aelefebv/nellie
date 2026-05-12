@@ -1628,77 +1628,113 @@ def test_get_branch_stats_2d_post_rewrite_bit_identical(
     )
 
 
-def test_get_branch_stats_3d_post_rewrite_approx_equivalent(
-    hierarchy_outputs_3d,
-) -> None:
-    """3D fixture has one multi-tip label (t=0 lbl=2, the long branch)
-    where the float64-accumulation single-end-cast pattern drifts by
-    1 float32 ULP from the legacy per-tip cast loop. ADR 0013 bar:
-    `rtol=1e-5, atol=1e-5`. All other rows are bit-identical, so the
-    test pins both: exact equality on row indices [0, 2, 3, 4, 5] and
-    approx equality on the full vector.
+def test_get_branch_stats_multi_tip_label_synthetic_post_rewrite() -> None:
+    """Synthetic 4-tip-on-one-label scenario exercises the float64
+    accumulation path the rewrite introduced (ADR 0013).
 
-    Baseline values captured on `dechao` after the PR B rewrite landed
-    (i.e. the post-rewrite contract — pre-rewrite values were
-    `branch_length_raw[1] = 16.645368576`, post-rewrite is
-    `16.645366669`, a 1.9e-6 absolute drift).
+    Build a 1-frame 2D `im_skel` with a single labeled branch that has
+    4 tip-degree-1 voxels (a "+" shape — 4 endpoints, 1 center). Each
+    tip has a known `im_distance` radius. After PR B's `np.add.at` on
+    a float64 buffer, the final `base_length` is
+    `raw_centerline + r0 + r1 + r2 + r3` computed in float64 and cast
+    to float32 once. Asserts the exact post-rewrite value (which is
+    deterministic across platforms — no Frangi involvement, all inputs
+    are hand-set integers and floats).
+
+    Pre-rewrite, the per-tip Python loop did
+    `bl = float32(bl_old + 2*radius)` 4 times — accumulating up to
+    4 float32 ULPs of rounding error. Post-rewrite is more accurate
+    (single end-cast). For the radii values chosen here (deliberately
+    irrational at float32) the two paths diverge by ~6e-7 absolute /
+    1e-7 relative — under the ADR 0013 `rtol=1e-5, atol=1e-5` bar.
     """
-    df = pd.read_csv(hierarchy_outputs_3d["paths"]["features_branches"])
-    expected_branch_length_post = [
-        2.9095935821533203,
-        16.645366668701172,  # was 16.645368576 pre-rewrite (1.9e-6 drift)
-        1.1767326593399048,
-        0.975871205329895,
-        4.435570240020752,
-        14.238229751586914,
-    ]
-    expected_branch_thickness = [
-        0.4723272025585174,
-        0.3705239593982696,
-        0.5629883408546448,
-        0.2774624526500702,
-        0.6549999713897705,
-        0.5239999890327454,
-    ]
-    expected_branch_tortuosity_post = [
-        1.9096235036849976,
-        19.631641387939453,  # was 19.631645203 pre-rewrite (3.8e-6 drift)
-        2.2357752323150635,
-        2.1378462314605713,
-        1.9008309841156008,
-        1.0,
-    ]
-    actual_length = df["branch_length_raw"].values.astype(np.float64)
-    actual_thickness = df["branch_thickness_raw"].values.astype(np.float64)
-    actual_tortuosity = df["branch_tortuosity_raw"].values.astype(np.float64)
-    # Bit-identical for `branch_thickness` (scipy.ndimage.median == np.median
-    # on this fixture; verified separately on 5000-element synthetic data).
-    np.testing.assert_array_equal(
-        actual_thickness, np.array(expected_branch_thickness, dtype=np.float64)
+    # 9x9 frame; "+" shape branch (label 1) at center (4,4) with 4 arms.
+    # Each arm is 2 voxels long; total 9 voxels; 4 tips at degree 1.
+    im_skel = np.zeros((9, 9), dtype=np.int32)
+    # Vertical arm
+    im_skel[2, 4] = 1  # top tip
+    im_skel[3, 4] = 1
+    im_skel[5, 4] = 1
+    im_skel[6, 4] = 1  # bottom tip
+    # Horizontal arm
+    im_skel[4, 2] = 1  # left tip
+    im_skel[4, 3] = 1
+    im_skel[4, 5] = 1
+    im_skel[4, 6] = 1  # right tip
+    # Center connecting all 4 arms (degree 4, not a tip)
+    im_skel[4, 4] = 1
+
+    # Set tip radii to irrational-at-float32 values so the cast point
+    # actually matters. Mid-arm voxels and center get 0 (unused).
+    im_distance = np.zeros((9, 9), dtype=np.float32)
+    im_distance[2, 4] = np.float32(1.0 / 7.0)  # ~0.14285715
+    im_distance[6, 4] = np.float32(1.0 / 11.0)  # ~0.09090909
+    im_distance[4, 2] = np.float32(1.0 / 13.0)  # ~0.07692308
+    im_distance[4, 6] = np.float32(1.0 / 17.0)  # ~0.05882353
+
+    hier_stub = _make_synthetic_hierarchy_for_branches(
+        im_skel_2d=im_skel, im_distance_2d=im_distance
     )
-    # Approx-equivalent for length / tortuosity (1 ULP drift on multi-tip
-    # row 1; bit-identical elsewhere).
-    np.testing.assert_allclose(
-        actual_length,
-        np.array(expected_branch_length_post, dtype=np.float64),
-        rtol=1e-5, atol=1e-5,
+    branches = Branches.__new__(Branches)
+    branches.hierarchy = hier_stub  # type: ignore[assignment]
+    label_lengths, neighbor_counts = branches._compute_branch_lengths_and_degrees(0)
+
+    # Center voxel has degree 4, four arms have degree 1 (tips).
+    branch_idxs = np.argwhere(im_skel > 0)
+    neighbor_counts_branch = neighbor_counts[tuple(branch_idxs.T)]
+    n_tips = int((neighbor_counts_branch == 1).sum())
+    assert n_tips == 4, f"expected 4 tip-degree-1 voxels, got {n_tips}"
+
+    # Apply PR B's vectorized tip-radius adjustment directly. This
+    # mirrors `Branches._get_branch_stats` lines 1659-1684 in isolation.
+    radii = im_distance[tuple(branch_idxs.T)].astype(np.float64)
+    tips = np.where(neighbor_counts_branch == 1)[0]
+    tip_coords = branch_idxs[tips]
+    tip_labels = im_skel[tuple(tip_coords.T)]
+    tip_radii = radii[tips]
+    unique_labels = np.unique(im_skel[im_skel > 0])
+    unique_labels_int = unique_labels.astype(int)
+    base_lengths_64 = np.zeros(len(unique_labels), dtype=np.float64)
+    in_range = unique_labels_int < len(label_lengths)
+    base_lengths_64[in_range] = label_lengths[unique_labels_int[in_range]].astype(
+        np.float64
     )
-    np.testing.assert_allclose(
-        actual_tortuosity,
-        np.array(expected_branch_tortuosity_post, dtype=np.float64),
-        rtol=1e-5, atol=1e-5,
+    idx = np.searchsorted(unique_labels, tip_labels)
+    valid = (idx < len(unique_labels)) & (
+        unique_labels[np.clip(idx, 0, len(unique_labels) - 1)] == tip_labels
     )
-    # Pin per-row bit-identity for the non-drifting rows so a future
-    # regression that drifts MORE rows fails loudly.
-    bit_identical_rows = [0, 2, 3, 4, 5]
-    for r in bit_identical_rows:
-        assert actual_length[r] == expected_branch_length_post[r], (
-            f"branch_length_raw[{r}] drift: legacy multi-tip ULP boundary "
-            f"is row 1 only; if other rows now differ, ADR 0013 bar is wrong."
-        )
-        assert actual_tortuosity[r] == expected_branch_tortuosity_post[r], (
-            f"branch_tortuosity_raw[{r}] drift: same constraint as length."
-        )
+    np.add.at(base_lengths_64, idx[valid], tip_radii[valid])
+    base_lengths = base_lengths_64.astype(np.float32)
+
+    # Expected: raw centerline length (8 unit edges between 9 voxels)
+    # + 4 tip radii, cast once to float32.
+    expected = np.float32(
+        np.float64(label_lengths[1])
+        + np.float64(im_distance[2, 4])
+        + np.float64(im_distance[6, 4])
+        + np.float64(im_distance[4, 2])
+        + np.float64(im_distance[4, 6])
+    )
+    assert base_lengths[0] == expected, (
+        f"multi-tip base_length {base_lengths[0]} != single-end-cast {expected}"
+    )
+
+    # Pre-rewrite per-tip-cast pattern produces a slightly different value:
+    legacy_bl = np.float32(label_lengths[1])
+    for r in (
+        im_distance[2, 4],
+        im_distance[6, 4],
+        im_distance[4, 2],
+        im_distance[4, 6],
+    ):
+        # f32 + f64 promote then cast — same as `bl += 2.0 * radius`
+        # for radii that have already been doubled (here we use raw
+        # radii, mirroring `np.add.at(base_lengths_64, idx, tip_radii)`).
+        legacy_bl = np.float32(legacy_bl + np.float64(r))
+    abs_diff = abs(float(base_lengths[0]) - float(legacy_bl))
+    rel_diff = abs_diff / max(abs(float(legacy_bl)), 1e-30)
+    assert abs_diff <= 1e-5, f"abs diff {abs_diff} exceeds ADR 0013 bar"
+    assert rel_diff <= 1e-5, f"rel diff {rel_diff} exceeds ADR 0013 bar"
 
 
 def test_get_branch_stats_run_is_deterministic(

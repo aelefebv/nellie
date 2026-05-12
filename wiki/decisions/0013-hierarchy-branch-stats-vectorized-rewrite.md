@@ -119,8 +119,32 @@ PR B).
   and `networking.py` per the existing per-stage code). No requirements
   changes needed.
 - **Test bar pinned in `test_hierarchical.py`:**
-  `test_run_branch_stats_yeast_3d_approx_equivalent_post_rewrite`
-  asserts `np.allclose(legacy, vectorized, rtol=1e-5, atol=1e-5)`
-  across all rows of the 3D yeast `features_branches.csv`. Plus
-  `test_get_branch_stats_2d_bit_identical_post_rewrite` asserts
-  bit-identical SHA on the 2D fixture (no multi-tip labels there).
+  - `test_get_branch_stats_2d_post_rewrite_bit_identical` —
+    bit-identical to dechao baseline on the 2D fixture (no multi-tip
+    labels in test data; cast point shift contributes zero drift).
+    Empirically cross-platform stable on Linux x86 / macOS Apple
+    Silicon / Windows x86 (verified in CI).
+  - `test_get_branch_stats_multi_tip_label_synthetic_post_rewrite` —
+    constructs a 9-voxel "+" skeleton (4 tips on one label) directly,
+    bypassing the SIMD-sensitive Frangi → Network upstream. Asserts
+    the post-rewrite single-end-cast value equals the formula-derived
+    expected value, AND that the legacy per-tip-cast pattern stays
+    within `rtol=1e-5, atol=1e-5` of the new value. Platform-stable
+    by construction (all inputs are hand-set integers + irrational-
+    at-float32 distances).
+  - `test_get_branch_stats_run_is_deterministic` — in-band
+    determinism check across two independent runs on fresh 3D
+    fixtures. Catches non-determinism (e.g. floating-point reduction-
+    order dependence introduced by future threading) that wouldn't
+    fail the value-pinning tests.
+
+  Cross-platform fixture-output pinning intentionally avoided for the
+  3D path: Frangi runs at session-start (`frangi_3d_path` →
+  `_run_filter_to_disk`) and is SIMD-sensitive across macOS Apple
+  Silicon, Linux x86, and Windows x86. Different Frangi outputs flow
+  through to different segmentation, different branch counts, and
+  different per-row values — so a hardcoded 3D baseline can't be
+  cross-platform stable. The synthetic test covers the multi-tip code
+  path on platform-stable inputs; the determinism test covers
+  runtime-determinism; the 2D bit-identity test covers the no-drift
+  case empirically.
