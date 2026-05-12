@@ -552,7 +552,7 @@ class NellieProcessor(QWidget):
         self,
         im_info_list,
         config: HierarchyConfig,
-        remove_intermediates_checked: bool,
+        cleanup_drop_keys: frozenset[str],
     ):
         """
         Run the feature extraction step in a separate thread. Extracts various features from the processed image data for analysis.
@@ -563,8 +563,9 @@ class NellieProcessor(QWidget):
             List of ImInfo objects.
         config : HierarchyConfig
             Algorithm configuration for the Hierarchy stage.
-        remove_intermediates_checked : bool
-            Whether to remove intermediate files after each Hierarchy run.
+        cleanup_drop_keys : frozenset[str]
+            ``pipeline_paths`` keys to delete after each per-file
+            ``Hierarchy.run()`` succeeds. Empty frozenset = no cleanup.
         """
         for im_num, im_info in enumerate(im_info_list):
             self.current_im_info = im_info
@@ -578,9 +579,11 @@ class NellieProcessor(QWidget):
                 f"on {stage.device_type.upper()}"
             )
             stage.run()
-            if remove_intermediates_checked:
+            if cleanup_drop_keys:
                 try:
-                    self.current_im_info.remove_intermediates()
+                    self.current_im_info.remove_marked_intermediates(
+                        drop_keys=cleanup_drop_keys
+                    )
                 except Exception as e:
                     show_info(f"Error removing intermediates: {e}")
 
@@ -601,13 +604,17 @@ class NellieProcessor(QWidget):
         Start the feature extraction step and updates the UI to reflect that feature extraction is running.
         """
         self.status = "feature export"
-        remove_intermediates_checked = self.nellie.settings.remove_intermediates_checkbox.isChecked()
         settings = self._get_settings()
-        config = settings.get_feature_params() if settings else HierarchyConfig()
+        if settings is not None:
+            config = settings.get_feature_params()
+            cleanup_drop_keys = settings.to_config().cleanup_drop_keys
+        else:
+            config = HierarchyConfig()
+            cleanup_drop_keys = frozenset()
         worker = self._run_feature_export(
             self.im_info_list,
             config,
-            remove_intermediates_checked,
+            cleanup_drop_keys,
         )
         # This is the last step in the pipeline; always treat as final.
         self._start_worker(worker, final=True)
