@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import pytest
 
-# Skip the whole module when Qt's display libs aren't available
-# (typical of headless Linux CI without libEGL/libgl). The widget
-# tests need ``QApplication``; the dataclass-only tests transitively
-# import qtpy via ``nellie_napari.nellie_settings``.
+# Skip the whole module when the napari/Qt stack isn't installed
+# (e.g., a headless `uv sync` without the `gui` extra) or when Qt's
+# display libs aren't available (typical of headless Linux CI without
+# libEGL/libgl). The widget tests need ``QApplication``; the
+# dataclass-only tests transitively import qtpy via
+# ``nellie_napari.nellie_settings``.
 pytest.importorskip("qtpy.QtWidgets")
+pytest.importorskip("nellie_napari.nellie_settings")
 
 from nellie.im_info.verifier import (
     CSVS_ONLY_PRESET,

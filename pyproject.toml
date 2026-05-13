@@ -18,13 +18,20 @@ dependencies = [
     "ome-types",
     "pandas",
     "matplotlib",
-    "napari[all]",
     "imagecodecs",
     "packaging",
 ]
 urls = {Homepage = "https://github.com/aelefebv/nellie"}
 
 [project.optional-dependencies]
+gui = [
+    # napari + Qt pull a large dependency chain (qtpy, PyQt5/PySide, OpenGL,
+    # libEGL, etc.) that breaks `uv sync` on headless Linux servers. The core
+    # `nellie` package is napari-free; only `nellie_napari/` and `main.py`
+    # need it. Headless users get a working install by default; GUI users
+    # opt in via `pip install nellie[gui]` / `uv sync --extra gui`.
+    "napari[all]",
+]
 docs = [
     "mkdocs",
     "mkdocs-material",

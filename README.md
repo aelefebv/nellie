@@ -42,7 +42,11 @@ https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
 - (optional but recommended) Create and activate a new [Python](https://docs.python.org/3/library/venv.html) or [Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html#creating-environments) environment.
 2. pip install nellie:
 ```bash
+# headless (server / pipeline use):
 python3 -m pip install nellie
+
+# with the napari GUI:
+python3 -m pip install 'nellie[gui]'
 ```
 
 
