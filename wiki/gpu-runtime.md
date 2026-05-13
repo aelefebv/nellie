@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-09
+modified: 2026-05-12
 ---
 
 # GPU / runtime
@@ -24,7 +24,7 @@ Not a chunking primitive — a **device/memory mode arbitrator**. It exposes:
 
 - **Backend resolution**: `resolve_backend(device)` returns `(xp, ndi, device_type)` for `"auto" | "cpu" | "gpu" | "cuda" | "mps"`. `device="gpu"` is platform-aware: returns torch+MPS on Darwin (if torch available), cupy on Linux/Windows (if available), CPU otherwise. `try_import_cupy(require=False)` returns `(cupy, cupy_ndi)` or `(None, None)`. `try_import_torch_mps(require=False)` mirrors it for torch.
 - **Cascade construction**: `device_cascade(device) → list[str]` — single-source ordering for the OOM/unavailability retry loop. Returns `["mps", "cpu"]` on Mac with torch+MPS, `["gpu", "cpu"]` on Linux/Windows with cupy, `["cpu"]` otherwise. Honors explicit `"mps"` / `"cuda"` to pin a single backend (no fallback). All cascade-using stages call this — adding a new backend is now a one-line change to `device_cascade`.
-- **Memory probes**: `get_gpu_free_bytes` via `cupy.cuda.runtime.memGetInfo`; `get_mps_free_bytes` via `system_available_RAM - torch.mps.driver_allocated_memory()`; `get_cpu_available_bytes` via `psutil` then `os.sysconf` fallback.
+- **Memory probes**: `get_gpu_free_bytes` via `cupy.cuda.runtime.memGetInfo`; `get_mps_free_bytes` via `get_cpu_available_bytes() - torch.mps.driver_allocated_memory()`; `get_cpu_available_bytes` via `psutil` then `os.sysconf` fallback.
 - **Peak-memory heuristic** (`should_use_low_memory`): peak ≈ frame_bytes × **6.0**, refuses if peak > free × headroom. **Headroom is device-aware**: 0.7 for CUDA's discrete VRAM, 0.5 for MPS's system-shared RAM (must leave room for the OS, IDE, browser).
 - **Mode candidates** (`mode_candidates(device_order, start_low_memory)`): produces ordered `(device, low_memory)` retry plan, e.g. `[(mps, False), (mps, True), (cpu, False), (cpu, True)]` on Mac, `[(gpu, False), (gpu, True), (cpu, False), (cpu, True)]` on Linux+CUDA.
 - **OOM/unavailable classifiers**: `is_oom_error` matches `MemoryError`, `cupy.cuda.memory.OutOfMemoryError`, MPS's `RuntimeError("MPS backend out of memory ...")` substring, and **string-sniffs** `"out of memory"`. `is_gpu_unavailable_error` catches `cupy` ImportError, MPS-not-built / no-MPS-device patterns, **and shim `NotImplementedError("torch_xp/torch_ndi: ... not implemented")`** so that non-MPS-onboarded stages cascade to CPU when a Mac user passes `device="mps"` to them.
@@ -77,7 +77,7 @@ The MPS path is **opt-in for tests** via the `mps` pytest marker (registered alo
 ## Invariants
 
 - Anything in `gpu_functions` must accept a numpy, cupy, OR torch array; backend is auto-detected via `_get_xp(matrix)` (or explicit `xp=` override).
-- Any consumer of `adaptive_run` must accept `device` and `low_memory` constructor kwargs and expose `_set_device` / `_set_low_memory` mutators (so the retry loop can re-resolve).
+- Any consumer of `adaptive_run` must accept `device` and `low_memory` constructor kwargs and expose `_set_backend` / `_set_low_memory` mutators (so the retry loop can re-resolve).
 - Any cascade-using stage must call `adaptive_run.device_cascade(device)` for its retry order — never reconstruct `device_order = [...]` inline. Adding a future backend is then a one-line change.
 - Pipeline stages must raise OOM/unavailable errors with **recognizable signatures** — swallowing them defeats the cascade.
 - `_get_xp` always returns a usable namespace (numpy minimum) — never `None`.

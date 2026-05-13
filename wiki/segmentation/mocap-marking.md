@@ -1,6 +1,6 @@
 ---
 created: 2026-05-06
-modified: 2026-05-11
+modified: 2026-05-12
 ---
 
 # Mocap marking
@@ -32,4 +32,4 @@ Detect motion-tracking anchor points (multi-scale LoG peaks) inside each label, 
 
 - `im_marker`: uint8 binary (1 at peak voxels).
 - `im_distance`: float32, ≥0.
-- `im_border`: uint8 binary; **`border ∩ mask = ∅`** (`test_border_is_outside_mask` pins this).
+- `im_border`: uint8 binary; **`border ∩ mask = ∅`** (`test_border_disjoint_from_mask_3d` pins this).

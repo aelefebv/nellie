@@ -168,7 +168,7 @@ All three implement the `np.ndarray` interface, but the memmap-vs-array distinct
 
 ### `pipeline_paths` is a string-keyed dict with 18 magic keys
 
-Keys: `'im_preprocessed'`, `'im_instance_label'`, `'im_skel'`, `'im_skel_relabelled'`, `'im_pixel_class'`, `'im_marker'`, `'im_distance'`, `'im_border'`, `'flow_vector_array'`, `'voxel_matches'`, `'im_branch_label_reassigned'`, `'im_obj_label_reassigned'`, `'features_voxels'`, `'features_nodes'`, `'features_branches'`, `'features_organelles'`, `'features_image'`, `'adjacency_maps'`. No type, no enum. Every stage hard-codes its keys. Already covered by [[pipeline_paths]] glossary entry.
+Keys: `'im_preprocessed'`, `'im_instance_label'`, `'im_skel'`, `'im_skel_relabelled'`, `'im_pixel_class'`, `'im_marker'`, `'im_distance'`, `'im_border'`, `'flow_vector_array'`, `'voxel_matches'`, `'im_branch_label_reassigned'`, `'im_obj_label_reassigned'`, `'features_voxels'`, `'features_nodes'`, `'features_branches'`, `'features_organelles'`, `'features_image'`, `'adjacency_maps'`. No type, no enum. Every stage hard-codes its keys. Already covered by [[glossary#pipeline_paths|pipeline_paths]] glossary entry.
 
 Acceptable today (cohesion is reasonable — every consumer already knows the key it needs). Don't tackle in dechaos sequencing.
 
@@ -424,4 +424,4 @@ Anytime after Slice 3:
 2. **Asymmetric `_validate` raise**: keep raising on time errors only, or never raise from `_validate` (callers check `validation_errors`)?
 3. **`_normalize_axes` excludes C; `_axis_errors` includes C in allowed set.** Which is correct? `save_ome_tiff` does collapse C into channel-take, so the file written through `_get_ome_metadata` → `_normalize_axes` should never have C. But `FileInfo` validation accepts C. Document the asymmetry or fix one side.
 4. **Constructor I/O**: are `nellie_fileselect.py`'s call patterns OK with a `load()` method instead of constructor-side I/O? The widget threads `FileInfo` through closures (e.g. `lambda file_info: file_info.change_axes(text)`) — those would not change, but `select_file`'s `self.file_info = FileInfo(self.filepath, output_naming="detailed")` would need a follow-up `self.file_info.find_metadata()` call.
-5. **Per-format extractor subpackage**: new `nellie/im_info/extractors/` directory or single `extractors.py` module? 5 small files vs 1 medium file. Codebase precedent: `nellie/segmentation/frangi_math.py` (single module) and `nellie/segmentation/frangi_filter.py` (single module) — flat-module convention so far.
+5. **Per-format extractor subpackage**: new `nellie/im_info/extractors/` directory or single `extractors.py` module? 5 small files vs 1 medium file. Codebase precedent: `nellie/segmentation/frangi_math.py` (single module) and `nellie/segmentation/filtering.py` (single module) — flat-module convention so far.
