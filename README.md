@@ -40,28 +40,34 @@ https://github.com/user-attachments/assets/0d44abe5-f575-4bd4-962a-2c102faf737c
 ### Option 2. If you don't have Nellie installed or Option 1 didn't work:
 1. Open up Terminal (or Powershell on Windows)
 - (optional but recommended) Create and activate a new [Python](https://docs.python.org/3/library/venv.html) or [Conda](https://docs.conda.io/projects/conda/en/latest/user-guide/getting-started.html#creating-environments) environment.
-2. pip install nellie:
+2. Install Nellie. Pick the variant that matches how you'll use it:
 ```bash
-# headless (server / pipeline use):
+# headless (server / pipeline use, no GUI):
 python3 -m pip install nellie
 
 # with the napari GUI:
 python3 -m pip install 'nellie[gui]'
+
+# Apple Silicon GPU acceleration (MPS via PyTorch):
+python3 -m pip install 'nellie[gui,mps]'
 ```
+
+[uv](https://docs.astral.sh/uv/) works the same way — substitute `uv pip install` for `python3 -m pip install`, or for project-managed envs use `uv add 'nellie[gui]'`. `uv sync` from a clone of this repo respects the same extras (e.g. `uv sync --extra gui`).
 
 
 https://github.com/user-attachments/assets/b63df093-e3e1-49cb-925b-7efce36b9015
 
 
 #### Option 2a for NVIDIA GPU acceleration, optional (Windows, Linux):
-To use GPU acceleration via NVIDIA GPUs, you also need to install cupy:
+GPU acceleration on NVIDIA hardware uses cupy, which ships toolkit-specific wheels — install the one matching your CUDA toolkit:
 ```bash
-python3 -m pip install cupy-cudaXXx
+# pick ONE based on your CUDA version:
+python3 -m pip install cupy-cuda11x   # CUDA 11.x
+python3 -m pip install cupy-cuda12x   # CUDA 12.x
+python3 -m pip install cupy-cuda13x   # CUDA 13.x
 ```
-- replace ```cupy-cudaXXx``` with the [appropriate version](https://docs.cupy.dev/en/stable/install.html#installing-cupy) for your CUDA version.
-  - i.e. ```cupy-cuda11x``` for CUDA 11.x or ```cupy-cuda12x``` for CUDA 12.x
-- if you don't have CUDA installed, [go here](https://docs.cupy.dev/en/stable/install.html).
-- Mac Metal GPU-acceleration coming... eventually. Let me know if this is important to you!
+- See the [cupy install docs](https://docs.cupy.dev/en/stable/install.html#installing-cupy) for help picking a version, or if you don't yet have CUDA installed.
+- cupy is intentionally not pulled in as a Nellie extra: the per-toolkit wheels and Windows resolution constraints make a clean `[cuda]` extra hard to express. The headless `nellie` install is napari-free and fine for GPU pipelines once cupy is installed.
 
 ## Usage
 The sample dataset shown below is in the repo if you want to play around without, and can be downloaded [here](https://github.com/aelefebv/nellie/tree/main/sample_data).
