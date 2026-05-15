@@ -107,7 +107,9 @@ class Network:
         self.force_device = config.device.lower() in ("cpu", "gpu", "cuda", "mps")
         self.max_chunk_voxels = int(config.max_chunk_voxels)
         self.num_t = num_t
-        if num_t is None and not self.im_info.no_t:
+        if self.im_info.no_t:
+            self.num_t = 1
+        elif num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
         if not self.im_info.no_z:

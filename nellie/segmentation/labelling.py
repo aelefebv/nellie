@@ -118,7 +118,9 @@ class Label:
 
         self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
         self.num_t = num_t
-        if num_t is None and not self.im_info.no_t:
+        if self.im_info.no_t:
+            self.num_t = 1
+        elif num_t is None:
             self.num_t = im_info.shape[im_info.axes.index('T')]
 
         # Aliases for hot path readability — config remains the source of truth.

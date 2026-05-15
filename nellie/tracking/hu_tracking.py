@@ -136,6 +136,12 @@ class HuMomentTracking:
         self.im_info = im_info
         self.config = config
 
+        # Resolve backend up front so callers (e.g. the napari processor)
+        # can read ``device_type`` for status messages even when the rest
+        # of __init__ short-circuits on a single-timepoint dataset.
+        self.device = adaptive_run.normalize_device(config.device)
+        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
+
         # If no time dimension, nothing to do.
         if self.im_info.no_t:
             return
@@ -164,12 +170,9 @@ class HuMomentTracking:
 
         self.viewer = viewer
 
-        # Cascade-mutable runtime state. Initial values come from config;
-        # ``_set_backend`` and ``_set_low_memory`` may update them on retry.
-        # Backend / device info — normalize aliases ("cuda" → "gpu") at the
-        # constructor edge so downstream code only sees "auto" | "cpu" | "gpu".
-        self.device = adaptive_run.normalize_device(config.device)
-        self.xp, self.ndi, self.device_type = adaptive_run.resolve_backend(self.device)
+        # Cascade-mutable runtime state. ``device`` / ``device_type`` were
+        # resolved up front (above the no_t early-return) so they're already
+        # set; ``_set_backend`` and ``_set_low_memory`` may update them on retry.
         self.low_memory = bool(config.low_memory)
 
         # Aliases for hot path readability — config remains the source of truth.
